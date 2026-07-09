@@ -1,7 +1,7 @@
 """Core serializer'ları."""
 from rest_framework import serializers
 
-from .models import Detsis, SupportTicket
+from .models import SupportTicket
 
 
 class SupportTicketSerializer(serializers.ModelSerializer):
@@ -9,9 +9,3 @@ class SupportTicketSerializer(serializers.ModelSerializer):
         model = SupportTicket
         fields = ["id", "email", "phone", "message", "status", "reply", "created_at"]
         read_only_fields = ["id", "status", "reply", "created_at"]
-
-
-class DetsisSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Detsis
-        fields = ["detsis_id", "ad"]

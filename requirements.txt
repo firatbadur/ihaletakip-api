@@ -21,6 +21,11 @@ PyJWT[crypto]==2.10.1
 cryptography==44.0.0
 requests==2.32.3
 
+# ── EKAP entegrasyonu ──────────────────────────────────
+# curl_cffi: EKAP WAF'ının TLS parmak izi (JA3) engelini aşmak için
+# tarayıcı TLS'ini taklit eder (düz requests SSLV3_ALERT_HANDSHAKE_FAILURE alır)
+curl_cffi==0.7.4
+
 # ── AI / Doküman analizi ───────────────────────────────
 anthropic==0.45.2
 pypdf==5.2.0

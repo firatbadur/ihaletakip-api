@@ -29,6 +29,32 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=4, minute=0),
         "kwargs": {"days": 30},
     },
+    # ── EKAP veri toplama ──────────────────────────────
+    # Güncel ihaleler — her gece 02:00
+    "ekap-sync-recent": {
+        "task": "ekap.tasks.sync_recent",
+        "schedule": crontab(hour=2, minute=0),
+    },
+    # Akıllı detay yenileme — her 3 saatte bir
+    "ekap-refresh-stale": {
+        "task": "ekap.tasks.refresh_stale",
+        "schedule": crontab(minute=30, hour="*/3"),
+    },
+    # Geçmiş doldurma (backfill) — her 15 dakikada bir, küçük batch
+    "ekap-backfill": {
+        "task": "ekap.tasks.backfill",
+        "schedule": crontab(minute="*/15"),
+    },
+    # OKAS kodları — haftalık (Pazartesi 05:00)
+    "ekap-sync-okas": {
+        "task": "ekap.tasks.sync_okas",
+        "schedule": crontab(hour=5, minute=0, day_of_week=1),
+    },
+    # DETSIS kurumlar — haftalık (Pazartesi 05:30)
+    "ekap-sync-authorities": {
+        "task": "ekap.tasks.sync_authorities",
+        "schedule": crontab(hour=5, minute=30, day_of_week=1),
+    },
 }
 
 

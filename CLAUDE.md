@@ -68,13 +68,47 @@ ai/                # Yapay zeka servisleri
 ├── tasks.py       # Celery: run_analysis_task, cleanup_expired_analyses
 └── views.py       # analyze (async), analyze-status, tts
 
+ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
+├── signing.py     # AES-192-CBC istek imzalama (mobil calls.js karşılığı)
+├── client.py      # EkapV2Client (curl_cffi ile TLS parmak izi taklidi)
+├── throttle.py    # Redis tabanlı hız sınırlama (~1 istek/sn)
+├── constants.py   # DEFAULT_SEARCH_BODY, id→isim maplar, CITIES seed
+├── models.py      # Tender + çocuklar, OkasCode, Authority, City, Sync*
+├── sync.py        # EKAP→DB eşleme + toplama mantığı
+├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities
+├── views.py       # /ekap/tenders, detail, announcements, document-url, okas, authorities, cities
+└── management/    # seed_cities, ekap_probe, run_ingest
+
 core/              # Ortak altyapı
-├── models.py      # TimeStampedModel, AppSetting, SupportTicket, Detsis
+├── models.py      # TimeStampedModel, AppSetting, SupportTicket
 ├── renderers.py   # EnvelopeJSONRenderer (global {success,message,data})
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
 ├── response.py    # api_response() yardımcısı
-└── views.py       # health, support, detsis-search
+└── views.py       # health, support
 ```
+
+## EKAP Entegrasyonu (kritik)
+
+Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
+
+- **TLS parmak izi engeli**: EKAP v2 WAF'ı düz `requests`/OpenSSL'i reddeder
+  (`SSLV3_ALERT_HANDSHAKE_FAILURE`). Çözüm: **`curl_cffi`** ile tarayıcı TLS taklidi
+  (`impersonate="chrome"`, `EKAP_IMPERSONATE` ayarı). Düz `requests` KULLANMA.
+- **İmzalama**: Her EKAP v2 isteği AES-192-CBC imza header'ı ister
+  (`X-Custom-Request-Guid/R8id/Siv/Ts`). `signing.py`, mobil `calls.js`'in birebir
+  karşılığı; anahtar `EKAP_SIGNING_KEY` (env).
+- **Rate limit**: `throttle.py` (~1 istek/sn) + EKAP görevleri ayrı `ekap` Celery
+  kuyruğunda **tek concurrency** ile serileştirilir (`ekap-worker` servisi).
+- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00), `refresh_stale` (3 saatte bir,
+  akıllı kural: geçmiş+sonuçlanmamış → detay yenile), `backfill` (15 dk'da bir, son 5 yıl),
+  `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
+  ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
+- **Servis**: `/api/v1/ekap/tenders/` (DB'den, **EKAP alan isimleriyle** → mobil
+  mapper'lar minimal değişir), `tenders/{ekap_id}/` (detay, İKN'de `/` var — key olarak
+  `ekap_id` kullan), `okas/search`, `authorities/search`, `cities`, `tenders/{id}/document-url`
+  (dinamik → canlı proxy). Kullanıcı aramaları EKAP'a hiç dokunmaz.
+- **Doğrulama**: `python manage.py ekap_probe` (canlı imza testi),
+  `python manage.py run_ingest --task recent|backfill|okas|authorities|detail`.
 
 ## Global API Sözleşmesi
 

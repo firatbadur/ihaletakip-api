@@ -50,6 +50,7 @@ LOCAL_APPS = [
     "tenders",
     "ai",
     "core",
+    "ekap",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -200,6 +201,23 @@ TTS_MAX_CHARS = 5000
 # FCM Push (opsiyonel)
 FCM_CREDENTIALS = env("FCM_CREDENTIALS", default="")
 FCM_PROJECT_ID = env("FCM_PROJECT_ID", default="")
+
+# ── EKAP veri toplama ──────────────────────────────────
+EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")
+# AES-192 imzalama anahtarı (mobil calls.js ile aynı olmalı)
+EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="Qm2LtXR0aByP69vZNKef4wMJ")
+EKAP_MIN_INTERVAL_MS = env.int("EKAP_MIN_INTERVAL_MS", default=1000)  # ~1 istek/sn
+# TLS parmak izi engelini aşmak için curl_cffi tarayıcı taklidi
+EKAP_IMPERSONATE = env("EKAP_IMPERSONATE", default="chrome")
+EKAP_TIMEOUT = env.int("EKAP_TIMEOUT", default=30)
+EKAP_MAX_RETRIES = env.int("EKAP_MAX_RETRIES", default=4)
+EKAP_RECENT_DAYS = env.int("EKAP_RECENT_DAYS", default=3)
+EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
+
+# EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir
+CELERY_TASK_ROUTES = {
+    "ekap.tasks.*": {"queue": "ekap"},
+}
 
 # ── Logging ────────────────────────────────────────────
 LOGGING = {

@@ -56,9 +56,22 @@ services:
     env_file: .env
     environment:
       RUN_MIGRATIONS: "false"
-    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=4"]
+    # Genel kuyruk (ekap hariç) — ai analiz, bildirim vb.
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "celery", "--concurrency=4"]
     volumes:
       - ./credentials:/app/credentials:ro
+    depends_on:
+      - web
+      - redis
+
+  ekap-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "false"
+    # EKAP kuyruğu — rate limit için TEK concurrency ile serileştirilir
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=1"]
     depends_on:
       - web
       - redis

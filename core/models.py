@@ -70,20 +70,4 @@ class SupportTicket(TimeStampedModel):
     def __str__(self):
         return f"{self.email or 'Anonim'} — {self.status}"
 
-
-class Detsis(models.Model):
-    """
-    DETSIS idare kaydı (Firestore `detsis` koleksiyonu).
-    Kurum/idare arama için kullanılır.
-    """
-
-    detsis_id = models.CharField(max_length=50, unique=True, db_index=True)
-    ad = models.CharField(max_length=500, db_index=True)
-
-    class Meta:
-        verbose_name = "DETSIS İdare"
-        verbose_name_plural = "DETSIS İdareler"
-        ordering = ["ad"]
-
-    def __str__(self):
-        return self.ad
+# Not: DETSIS/kurum kaydı artık ekap.Authority modelinde (EKAP'tan senkronlanır).

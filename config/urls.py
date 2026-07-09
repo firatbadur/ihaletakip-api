@@ -17,6 +17,7 @@ api_v1 = [
     path("auth/", include("accounts.urls")),
     path("", include("tenders.urls")),
     path("ai/", include("ai.urls")),
+    path("ekap/", include("ekap.urls")),
     path("", include("core.urls")),
 ]
 

@@ -1,7 +1,7 @@
 """Core admin kayıtları."""
 from django.contrib import admin
 
-from .models import AppSetting, Detsis, SupportTicket
+from .models import AppSetting, SupportTicket
 
 
 @admin.register(AppSetting)
@@ -17,9 +17,3 @@ class SupportTicketAdmin(admin.ModelAdmin):
     search_fields = ["email", "phone", "message"]
     list_editable = ["status"]
     readonly_fields = ["created_at", "updated_at"]
-
-
-@admin.register(Detsis)
-class DetsisAdmin(admin.ModelAdmin):
-    list_display = ["detsis_id", "ad"]
-    search_fields = ["detsis_id", "ad"]

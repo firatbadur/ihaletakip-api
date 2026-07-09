@@ -1,0 +1,81 @@
+# ═══════════════════════════════════════════════════════
+#  IhaleTakip API — Docker Compose (Ubuntu üretim/geliştirme)
+#  Servisler: db (postgres), redis, web (gunicorn),
+#             worker (celery), beat (celery beat)
+# ═══════════════════════════════════════════════════════
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ihaletakip}
+      POSTGRES_USER: ${POSTGRES_USER:-ihale}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ihale}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ihale}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "true"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./credentials:/app/credentials:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "false"
+    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=4"]
+    volumes:
+      - ./credentials:/app/credentials:ro
+    depends_on:
+      - web
+      - redis
+
+  beat:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "false"
+    command: ["celery", "-A", "config", "beat", "-l", "info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    depends_on:
+      - web
+      - redis
+
+volumes:
+  pgdata:
+  redisdata:
+  static_volume:
+  media_volume:

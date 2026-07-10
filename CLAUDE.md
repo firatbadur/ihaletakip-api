@@ -155,6 +155,29 @@ Admin girişi `username` iledir (varsayılan admin: `firat`).
 - `dark_mode_theme` ayarı jazzmin 3.x'te **kaldırıldı**; `default_theme_mode`
   (`light|dark|auto`) kullanılır.
 
+### Marka varlıkları
+
+`static/ihaletakip/` — mobil uygulamanın (`~/Desktop/IhaleTakip/src/assests/logo/v1`)
+logo setinden türetildi. Kaynak SVG'ler 1920×1080 canvas içinde ortalanmış olduğu
+için `viewBox` gerçek içerik sınırlarına kırpıldı (aksi halde sidebar'da minicik görünür).
+
+| Dosya | Kullanım | JAZZMIN ayarı |
+|-------|----------|---------------|
+| `icon-white.svg` | sidebar markası (koyu zemin) | `site_logo` |
+| `logo.svg` | giriş sayfası, açık tema | `login_logo` |
+| `logo-white.svg` | giriş sayfası, koyu tema | `login_logo_dark` |
+| `favicon.png` | tarayıcı sekmesi | `site_icon` |
+| `admin.css` | marka renkleri + düzeltmeler | `custom_css` |
+
+- Marka renkleri: `#0074cb` (mavi), `#003ea1` (lacivert), `#002a6b` (sidebar).
+- **Profil resmi yok**: `user_avatar` tanımlanırsa jazzmin varsayılan bir avatar
+  basar. `None` bırakın.
+- **AdminLTE 4 uyarısı**: jazzmin 3.x AdminLTE 4 kullanır; `navbar-primary`,
+  `sidebar-dark-primary`, `accent-primary` gibi AdminLTE 3 sınıfları **artık yok**.
+  Şablon navbar'a `bg-body` (beyaz) verdiği için `navbar-dark` ile birlikte beyaz
+  üstüne beyaz metin çıkıyordu (butonlar sadece hover'da görünüyordu). Header ve
+  sidebar renkleri bu yüzden `admin.css`'te açıkça tanımlı — UI tweaks'e güvenmeyin.
+
 ### Statik dosyalar (dikkat)
 
 - `STATICFILES_STORAGE` ayarı **Django 5.1'de kaldırıldı** ve sessizce yok sayılır.

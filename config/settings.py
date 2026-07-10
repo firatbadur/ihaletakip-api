@@ -118,6 +118,7 @@ USE_TZ = True
 # ── Statik / Medya ─────────────────────────────────────
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]  # marka logoları + admin özel CSS
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -237,13 +238,18 @@ CELERY_TASK_ROUTES = {
 JAZZMIN_SETTINGS = {
     "site_title": "IhaleTakip API",
     "site_header": "IhaleTakip",
-    "site_brand": "IhaleTakip Yönetim",
-    "site_icon": None,
-    "login_logo": None,
+    "site_brand": "İhale Takip",
+    # Marka varlıkları — static/ihaletakip/ (mobil uygulamanın logo setinden)
+    "site_logo": "ihaletakip/icon-white.svg",   # sidebar (koyu zemin)
+    "site_logo_classes": "",                    # yuvarlatma yok, yatay logo
+    "login_logo": "ihaletakip/logo.svg",        # giriş — açık tema
+    "login_logo_dark": "ihaletakip/logo-white.svg",  # giriş — koyu tema
+    "site_icon": "ihaletakip/favicon.png",
     "welcome_sign": "IhaleTakip Yönetim Paneli",
     "copyright": "Envisoft",
-    "search_model": ["ekap.Tender", "accounts.User"],
-    "user_avatar": "photo_url",
+    "search_model": ["ekap.Tender"],  # üst bardaki hızlı arama
+    # user_avatar tanımlanırsa jazzmin varsayılan bir profil resmi basar — istemiyoruz
+    "user_avatar": None,
     # ── Üst menü ──
     "topmenu_links": [
         {"name": "Panel", "url": "admin:index", "permissions": ["auth.view_user"]},
@@ -319,7 +325,7 @@ JAZZMIN_SETTINGS = {
     "default_icon_children": "fas fa-circle",
     # ── Kullanıcı arayüzü ──
     "related_modal_active": True,
-    "custom_css": None,
+    "custom_css": "ihaletakip/admin.css",
     "custom_js": None,
     "use_google_fonts_cdn": True,
     "show_ui_builder": False,
@@ -337,15 +343,17 @@ JAZZMIN_UI_TWEAKS = {
     "footer_small_text": False,
     "body_small_text": False,
     "brand_small_text": False,
-    "brand_colour": "navbar-dark",
-    "accent": "accent-primary",
-    "navbar": "navbar-dark navbar-primary",
-    "no_navbar_border": False,
+    # NOT: AdminLTE 4'te navbar-primary / sidebar-dark-primary / accent-primary
+    # sınıfları YOK. Header ve sidebar renkleri static/ihaletakip/admin.css'te.
+    "brand_colour": "",
+    "accent": "",
+    "navbar": "navbar-dark",
+    "no_navbar_border": True,
     "navbar_fixed": True,
     "layout_boxed": False,
     "footer_fixed": False,
     "sidebar_fixed": True,
-    "sidebar": "sidebar-dark-primary",
+    "sidebar": "",
     "sidebar_nav_small_text": False,
     "sidebar_disable_expand": False,
     "sidebar_nav_child_indent": True,

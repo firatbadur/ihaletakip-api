@@ -1,0 +1,103 @@
+/* ═══════════════════════════════════════════════════════
+   IhaleTakip admin paneli — marka renkleri ve düzeltmeler
+   JAZZMIN_SETTINGS["custom_css"] ile yüklenir.
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+    --it-blue: #0074cb;        /* marka mavisi — aksan, butonlar, linkler */
+    --it-blue-hover: #00539a;  /* aksan hover/active */
+    --it-blue-dark: #23344d;   /* üst bar */
+    --it-blue-deep: #1b2940;   /* sidebar zemini — bir tık daha koyu */
+
+    /* Bootstrap "primary"yi markaya çek (tema flatly'nin lacivertini ezer).
+       Sidebar linkleri --lte-sidebar-* kullandığından etkilenmez. */
+    --bs-primary: #0074cb;
+    --bs-primary-rgb: 0, 116, 203;
+    --bs-link-color: #0074cb;
+    --bs-link-color-rgb: 0, 116, 203;
+    --bs-link-hover-color: #00539a;
+    --bs-link-hover-color-rgb: 0, 83, 154;
+}
+
+.btn-primary {
+    --bs-btn-bg: var(--it-blue);
+    --bs-btn-border-color: var(--it-blue);
+    --bs-btn-hover-bg: var(--it-blue-hover);
+    --bs-btn-hover-border-color: var(--it-blue-hover);
+    --bs-btn-active-bg: var(--it-blue-hover);
+    --bs-btn-active-border-color: var(--it-blue-hover);
+    --bs-btn-disabled-bg: var(--it-blue);
+    --bs-btn-disabled-border-color: var(--it-blue);
+}
+
+/* ── Üst bar ────────────────────────────────────────────
+   jazzmin 3.x AdminLTE 4 kullanıyor; `navbar-primary` /
+   `navbar-light` gibi AdminLTE 3 sınıfları artık YOK.
+   Şablon `bg-body` (beyaz) veriyor, `navbar-dark` ise metni
+   beyaza çekiyordu → beyaz üstüne beyaz, butonlar yalnızca
+   hover'da görünüyordu. Renkleri burada açıkça tanımlıyoruz. */
+#jazzy-navbar.app-header {
+    background-color: var(--it-blue-dark) !important;
+    border-bottom: 0;
+}
+
+#jazzy-navbar .nav-link,
+#jazzy-navbar .nav-link i,
+#jazzy-navbar .navbar-nav > .nav-item > .nav-link {
+    color: rgba(255, 255, 255, 0.88) !important;
+}
+
+#jazzy-navbar .nav-link:hover,
+#jazzy-navbar .nav-link:focus,
+#jazzy-navbar .nav-link.show {
+    color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.14);
+    border-radius: 0.375rem;
+}
+
+/* Açılır menülerin içi tema rengini korusun (beyaz üstüne beyaz olmasın) */
+#jazzy-navbar .dropdown-menu .dropdown-item,
+#jazzy-navbar .dropdown-menu .dropdown-item i {
+    color: var(--bs-body-color) !important;
+}
+
+/* ── Sidebar ────────────────────────────────────────────
+   Şablonda data-bs-theme="dark" var; yalnızca zemini
+   markaya çekiyoruz, metin renkleri temadan gelmeye devam eder. */
+#jazzy-sidebar.app-sidebar {
+    background-color: var(--it-blue-deep) !important;
+}
+
+#jazzy-sidebar .sidebar-brand {
+    background-color: rgba(0, 0, 0, 0.18);
+}
+
+#jazzy-sidebar .nav-sidebar .nav-link.active {
+    background-color: var(--it-blue) !important;
+    color: #fff !important;
+}
+
+/* ── Marka logosu ───────────────────────────────────────
+   Şablon `img-circle`/`opacity-75 shadow` uyguluyor; logo
+   yuvarlatılmasın ve soluk görünmesin. */
+#jazzy-logo .brand-image {
+    height: 2rem;
+    width: auto;
+    max-height: none;
+    border-radius: 0;
+    opacity: 1 !important;
+    box-shadow: none !important;
+}
+
+#jazzy-logo .brand-text {
+    color: #fff;
+    font-weight: 600;
+}
+
+/* ── Giriş sayfası logosu ───────────────────────────────
+   .logo-light / .logo-dark görünürlüğünü jazzmin yönetir. */
+.login-logo img {
+    max-width: 260px;
+    width: 100%;
+    height: auto;
+}

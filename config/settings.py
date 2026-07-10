@@ -28,6 +28,8 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
 # ── Uygulamalar ────────────────────────────────────────
 DJANGO_APPS = [
+    # jazzmin, admin şablonlarını override ettiği için admin'den ÖNCE gelmeli
+    "jazzmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -116,9 +118,21 @@ USE_TZ = True
 # ── Statik / Medya ─────────────────────────────────────
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Geliştirmede (DEBUG=True) düz storage: collectstatic gerektirmez, manifest aramaz.
+# Üretimde whitenoise + manifest (hash'li dosya adları, uzun cache).
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG
+            else "core.storage.JazzminManifestStaticFilesStorage"
+        )
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -217,6 +231,139 @@ EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir
 CELERY_TASK_ROUTES = {
     "ekap.tasks.*": {"queue": "ekap"},
+}
+
+# ── Admin arayüzü (Jazzmin) ────────────────────────────
+JAZZMIN_SETTINGS = {
+    "site_title": "IhaleTakip API",
+    "site_header": "IhaleTakip",
+    "site_brand": "IhaleTakip Yönetim",
+    "site_icon": None,
+    "login_logo": None,
+    "welcome_sign": "IhaleTakip Yönetim Paneli",
+    "copyright": "Envisoft",
+    "search_model": ["ekap.Tender", "accounts.User"],
+    "user_avatar": "photo_url",
+    # ── Üst menü ──
+    "topmenu_links": [
+        {"name": "Panel", "url": "admin:index", "permissions": ["auth.view_user"]},
+        {"name": "API Dokümanı", "url": "/api/docs/", "new_window": True},
+        {"name": "Sağlık", "url": "/health/", "new_window": True},
+        {"model": "accounts.User"},
+        {"app": "ekap"},
+    ],
+    # ── Kullanıcı menüsü (sağ üst) ──
+    "usermenu_links": [
+        {"name": "API Dokümanı", "url": "/api/docs/", "new_window": True},
+        {"model": "accounts.user"},
+    ],
+    # ── Kenar çubuğu ──
+    "show_sidebar": True,
+    "navigation_expanded": False,
+    "hide_apps": [],
+    "hide_models": [],
+    "order_with_respect_to": [
+        "ekap",
+        "tenders",
+        "accounts",
+        "ai",
+        "core",
+        "django_celery_beat",
+        "django_celery_results",
+        "auth",
+        "token_blacklist",
+    ],
+    # ── İkonlar (FontAwesome 5 free) ──
+    "icons": {
+        "auth": "fas fa-shield-alt",
+        "auth.Group": "fas fa-users",
+        "accounts": "fas fa-id-badge",
+        "accounts.User": "fas fa-user",
+        "ekap": "fas fa-gavel",
+        "ekap.Tender": "fas fa-gavel",
+        "ekap.Contract": "fas fa-file-signature",
+        "ekap.ContractSection": "fas fa-layer-group",
+        "ekap.Announcement": "fas fa-bullhorn",
+        "ekap.TenderDate": "fas fa-calendar-day",
+        "ekap.OkasCode": "fas fa-barcode",
+        "ekap.OkasItem": "fas fa-cubes",
+        "ekap.Authority": "fas fa-building",
+        "ekap.City": "fas fa-map-marker-alt",
+        "ekap.SyncRun": "fas fa-sync-alt",
+        "ekap.SyncCheckpoint": "fas fa-flag-checkered",
+        "tenders": "fas fa-folder-open",
+        "tenders.Favorite": "fas fa-heart",
+        "tenders.SavedFilter": "fas fa-filter",
+        "tenders.SavedTender": "fas fa-bookmark",
+        "tenders.TenderAlarm": "fas fa-bell",
+        "tenders.Notification": "fas fa-envelope",
+        "ai": "fas fa-brain",
+        "ai.AnalysisCache": "fas fa-microchip",
+        "core": "fas fa-cogs",
+        "core.AppSetting": "fas fa-sliders-h",
+        "core.SupportTicket": "fas fa-life-ring",
+        "django_celery_beat": "fas fa-clock",
+        "django_celery_beat.PeriodicTask": "fas fa-stopwatch",
+        "django_celery_beat.IntervalSchedule": "fas fa-hourglass-half",
+        "django_celery_beat.CrontabSchedule": "fas fa-calendar-alt",
+        "django_celery_beat.SolarSchedule": "fas fa-sun",
+        "django_celery_beat.ClockedSchedule": "fas fa-bell",
+        "django_celery_results": "fas fa-tasks",
+        "django_celery_results.TaskResult": "fas fa-list-check",
+        "django_celery_results.GroupResult": "fas fa-object-group",
+        "token_blacklist": "fas fa-ban",
+        "token_blacklist.OutstandingToken": "fas fa-key",
+        "token_blacklist.BlacklistedToken": "fas fa-user-lock",
+    },
+    "default_icon_parents": "fas fa-chevron-circle-right",
+    "default_icon_children": "fas fa-circle",
+    # ── Kullanıcı arayüzü ──
+    "related_modal_active": True,
+    "custom_css": None,
+    "custom_js": None,
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
+    # ── Değişiklik formları ──
+    "changeform_format": "horizontal_tabs",
+    "changeform_format_overrides": {
+        "accounts.User": "collapsible",
+        "auth.Group": "vertical_tabs",
+    },
+    "language_chooser": False,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "navbar_small_text": False,
+    "footer_small_text": False,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "brand_colour": "navbar-dark",
+    "accent": "accent-primary",
+    "navbar": "navbar-dark navbar-primary",
+    "no_navbar_border": False,
+    "navbar_fixed": True,
+    "layout_boxed": False,
+    "footer_fixed": False,
+    "sidebar_fixed": True,
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "sidebar_nav_child_indent": True,
+    "sidebar_nav_compact_style": False,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_flat_style": False,
+    "theme": "flatly",
+    # light | dark | auto — auto: işletim sisteminin tema tercihini izler
+    "default_theme_mode": "auto",
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success",
+    },
+    "actions_sticky_top": True,
 }
 
 # ── Logging ────────────────────────────────────────────

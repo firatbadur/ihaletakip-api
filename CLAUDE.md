@@ -84,6 +84,7 @@ core/              # Ortak altyapı
 ├── renderers.py   # EnvelopeJSONRenderer (global {success,message,data})
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
 ├── response.py    # api_response() yardımcısı
+├── storage.py     # JazzminManifestStaticFilesStorage (statik dosya storage)
 └── views.py       # health, support
 ```
 
@@ -140,6 +141,32 @@ Hata durumunda:
 - **Çıkış**: `POST /api/v1/auth/logout` body `{refresh}` → token kara listeye alınır.
 
 Admin girişi `username` iledir (varsayılan admin: `firat`).
+
+## Admin Paneli (Jazzmin)
+
+`/admin/` arayüzü **django-jazzmin** ile temalandırılır (AdminLTE + Bootstrap).
+
+- `jazzmin`, `INSTALLED_APPS` içinde **`django.contrib.admin`'den önce** gelmelidir
+  (admin şablonlarını override eder).
+- Ayarlar `config/settings.py` → `JAZZMIN_SETTINGS` (marka, üst menü, ikonlar,
+  uygulama sıralaması) ve `JAZZMIN_UI_TWEAKS` (tema `flatly`,
+  `default_theme_mode="auto"` → OS tema tercihini izler).
+- Tema deneyip seçmek için geçici olarak `"show_ui_builder": True` yap.
+- `dark_mode_theme` ayarı jazzmin 3.x'te **kaldırıldı**; `default_theme_mode`
+  (`light|dark|auto`) kullanılır.
+
+### Statik dosyalar (dikkat)
+
+- `STATICFILES_STORAGE` ayarı **Django 5.1'de kaldırıldı** ve sessizce yok sayılır.
+  Bunun yerine `STORAGES["staticfiles"]` kullanılır. DEBUG'da düz storage,
+  üretimde `core.storage.JazzminManifestStaticFilesStorage`.
+- Bu özel storage'ın tek işi `manifest_strict = False`: jazzmin'in `admin/base.html`
+  şablonu `{% static 'vendor/bootswatch' %}` ile bir **dizin** ister; katı manifest
+  bunu bilmediği için `ValueError: Missing staticfiles manifest entry` atar ve tüm
+  admin iç sayfaları 500 döner.
+- `DEBUG=False` ile `runserver` çalıştırırsan statikleri whitenoise servis eder →
+  önce `python manage.py collectstatic` gerekir. Docker entrypoint bunu zaten yapar.
+  Yerel geliştirmede `.env` içine `DJANGO_DEBUG=True` koymak en pratiği.
 
 ## Uzun İşlemler → Celery
 

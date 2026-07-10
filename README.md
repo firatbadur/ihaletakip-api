@@ -128,6 +128,19 @@ celery -A config beat -l info
 
 ---
 
+## API Dokümantasyonu & Postman
+
+- **Swagger UI**: http://localhost:8000/api/docs/ · **OpenAPI**: `docs/openapi.yaml`
+- **Postman**: `docs/postman_collection.json` dosyasını Postman'e import et.
+  - Koleksiyon değişkenleri: `base_url` (varsayılan `http://localhost:8000`) ve `access_token`.
+  - **auth › login** isteğini çalıştır → JWT otomatik `access_token`'a kaydedilir → diğer
+    tüm istekler Bearer ile yetkilenir.
+- **Otomatik güncelleme**: `python manage.py gen_api_docs` OpenAPI + Postman'i şemadan
+  üretir. **git pre-commit hook** her commit'te otomatik çalışır. Yeni klonda bir kez:
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
 ## Mobil Uygulamaya Entegrasyon (sonraki adım)
 
 React Native tarafında Firebase çağrıları bu API'ye taşınacak:

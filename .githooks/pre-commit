@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════
+#  pre-commit: API dokümanlarını otomatik yeniler
+#  OpenAPI (docs/openapi.yaml) + Postman (docs/postman_collection.json)
+#  drf-spectacular şemasından türetilir → API değiştikçe güncel kalır.
+#  Kurulum (yeni klonda): git config core.hooksPath .githooks
+# ═══════════════════════════════════════════════════════
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# venv python'unu bul (yoksa sistem python'u; o da yoksa sessizce atla)
+PY="$ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python || true)"
+[ -n "$PY" ] || { echo "⏭️  pre-commit: python bulunamadı, doküman üretimi atlandı"; exit 0; }
+
+echo "📝 API dokümanları güncelleniyor (gen_api_docs)..."
+if "$PY" manage.py gen_api_docs >/dev/null 2>&1; then
+  git add docs/openapi.yaml docs/postman_collection.json 2>/dev/null || true
+  echo "✅ docs/openapi.yaml + docs/postman_collection.json güncel"
+else
+  echo "⚠️  gen_api_docs çalıştırılamadı (bağımlılık/venv?), doküman güncellenmedi — commit devam ediyor"
+fi
+exit 0

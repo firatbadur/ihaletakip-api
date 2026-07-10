@@ -1,0 +1,1077 @@
+openapi: 3.0.3
+info:
+  title: IhaleTakip API
+  version: 1.0.0
+  description: Kamu ihalesi takip uygulaması backend servisi
+paths:
+  /api/v1/ai/analyze/:
+    post:
+      operationId: api_v1_ai_analyze_create
+      description: POST /ai/analyze — analizi kuyruğa alır (cache varsa anında döner).
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ai/tasks/{task_id}/:
+    get:
+      operationId: api_v1_ai_tasks_retrieve
+      description: GET /ai/tasks/{task_id} — Celery görev durumunu/sonucunu döndürür.
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ai/tts/:
+    post:
+      operationId: api_v1_ai_tts_create
+      description: POST /ai/tts — metni sese çevirir (senkron).
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alarms/:
+    get:
+      operationId: api_v1_alarms_list
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TenderAlarm'
+          description: ''
+    post:
+      operationId: api_v1_alarms_create
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenderAlarm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TenderAlarm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TenderAlarm'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderAlarm'
+          description: ''
+  /api/v1/alarms/{tender_id}/:
+    get:
+      operationId: api_v1_alarms_retrieve
+      parameters:
+      - in: path
+        name: tender_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_alarms_destroy
+      parameters:
+      - in: path
+        name: tender_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/deactivate/:
+    post:
+      operationId: api_v1_auth_deactivate_create
+      description: POST /auth/deactivate — hesabı devre dışı bırak.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/fcm-token/:
+    post:
+      operationId: api_v1_auth_fcm_token_create
+      description: POST /auth/fcm-token — push bildirim token'ını kaydet.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/login/:
+    post:
+      operationId: api_v1_auth_login_create
+      description: POST /auth/login — username veya email + şifre ile giriş.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout/:
+    post:
+      operationId: api_v1_auth_logout_create
+      description: POST /auth/logout — {refresh} token'ı kara listeye al.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/preferences/:
+    patch:
+      operationId: api_v1_auth_preferences_partial_update
+      description: PATCH /auth/preferences — tercihleri güncelle.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/profile/:
+    get:
+      operationId: api_v1_auth_profile_retrieve
+      description: GET/PATCH /auth/profile — profil görüntüle/güncelle.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: api_v1_auth_profile_partial_update
+      description: GET/PATCH /auth/profile — profil görüntüle/güncelle.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/register/:
+    post:
+      operationId: api_v1_auth_register_create
+      description: POST /auth/register — e-posta + şifre ile kayıt.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/social/apple/:
+    post:
+      operationId: api_v1_auth_social_apple_create
+      description: POST /auth/social/apple — {identity_token, full_name?} ile giriş.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/social/google/:
+    post:
+      operationId: api_v1_auth_social_google_create
+      description: POST /auth/social/google — {id_token} ile giriş.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/token/refresh/:
+    post:
+      operationId: api_v1_auth_token_refresh_create
+      description: 'Takes a refresh type JSON web token and returns an access type
+        JSON web
+
+        token if the refresh token is valid.'
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/ekap/authorities/search/:
+    get:
+      operationId: api_v1_ekap_authorities_search_retrieve
+      description: GET /ekap/authorities/search?q= — DB'den kurum arama.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/cities/:
+    get:
+      operationId: api_v1_ekap_cities_retrieve
+      description: GET /ekap/cities/ — il listesi.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/okas/search/:
+    get:
+      operationId: api_v1_ekap_okas_search_retrieve
+      description: GET /ekap/okas/search?q= — DB'den OKAS arama.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/tenders/:
+    get:
+      operationId: api_v1_ekap_tenders_retrieve
+      description: GET /ekap/tenders/ — DB'den arama/filtre/sıralama/pagination.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/tenders/{ekap_id}/document-url/:
+    get:
+      operationId: api_v1_ekap_tenders_document_url_retrieve
+      description: GET /ekap/tenders/{ekap_id}/document-url/ — canlı proxy (dinamik
+        URL).
+      parameters:
+      - in: path
+        name: ekap_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/tenders/{key}/:
+    get:
+      operationId: api_v1_ekap_tenders_retrieve_2
+      description: GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde).
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ekap/tenders/{key}/announcements/:
+    get:
+      operationId: api_v1_ekap_tenders_announcements_retrieve
+      description: GET /ekap/tenders/{key}/announcements/ — DB'deki ilanlar.
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/favorites/:
+    get:
+      operationId: api_v1_favorites_list
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Favorite'
+          description: ''
+    post:
+      operationId: api_v1_favorites_create
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Favorite'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Favorite'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Favorite'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorite'
+          description: ''
+  /api/v1/favorites/{tender_id}/:
+    get:
+      operationId: api_v1_favorites_retrieve
+      parameters:
+      - in: path
+        name: tender_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_favorites_destroy
+      parameters:
+      - in: path
+        name: tender_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/notifications/:
+    get:
+      operationId: api_v1_notifications_list
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/v1/notifications/{notification_id}/read/:
+    post:
+      operationId: api_v1_notifications_read_create
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/read-all/:
+    post:
+      operationId: api_v1_notifications_read_all_create
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/unread-count/:
+    get:
+      operationId: api_v1_notifications_unread_count_retrieve
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/saved-filters/:
+    get:
+      operationId: api_v1_saved_filters_list
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedFilter'
+          description: ''
+    post:
+      operationId: api_v1_saved_filters_create
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+          description: ''
+  /api/v1/saved-filters/{id}/:
+    get:
+      operationId: api_v1_saved_filters_retrieve
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+          description: ''
+    put:
+      operationId: api_v1_saved_filters_update
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SavedFilter'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+          description: ''
+    patch:
+      operationId: api_v1_saved_filters_partial_update
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedFilter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedFilter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedFilter'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+          description: ''
+    delete:
+      operationId: api_v1_saved_filters_destroy
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/saved-tenders/:
+    get:
+      operationId: api_v1_saved_tenders_list
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedTender'
+          description: ''
+    post:
+      operationId: api_v1_saved_tenders_create
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedTender'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SavedTender'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SavedTender'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedTender'
+          description: ''
+  /api/v1/saved-tenders/{ikn}/:
+    get:
+      operationId: api_v1_saved_tenders_retrieve
+      parameters:
+      - in: path
+        name: ikn
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_saved_tenders_destroy
+      parameters:
+      - in: path
+        name: ikn
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/support/:
+    get:
+      operationId: api_v1_support_list
+      description: Kullanıcının destek taleplerini listele / yeni talep oluştur.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SupportTicket'
+          description: ''
+    post:
+      operationId: api_v1_support_create
+      description: Kullanıcının destek taleplerini listele / yeni talep oluştur.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupportTicket'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SupportTicket'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SupportTicket'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicket'
+          description: ''
+  /health/:
+    get:
+      operationId: health_retrieve
+      description: Basit sağlık kontrolü (load balancer / uptime için).
+      tags:
+      - health
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    Favorite:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        tender_id:
+          type: string
+          maxLength: 100
+        tender_title:
+          type: string
+          maxLength: 500
+        tender_type:
+          type: string
+          nullable: true
+          maxLength: 50
+        source:
+          type: string
+          maxLength: 30
+        added_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - added_at
+      - id
+      - tender_id
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/TypeEnum'
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        tender_id:
+          type: string
+          readOnly: true
+          nullable: true
+        tender_title:
+          type: string
+          readOnly: true
+          nullable: true
+        tender_ikn:
+          type: string
+          readOnly: true
+          nullable: true
+        institution:
+          type: string
+          readOnly: true
+          nullable: true
+        read:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - body
+      - created_at
+      - id
+      - institution
+      - read
+      - tender_id
+      - tender_ikn
+      - tender_title
+      - title
+      - type
+    PatchedSavedFilter:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        filters: {}
+        tags: {}
+        alarm:
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    SavedFilter:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        filters: {}
+        tags: {}
+        alarm:
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+    SavedTender:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        tender_id:
+          type: string
+          maxLength: 100
+        tender_ikn:
+          type: string
+          maxLength: 100
+        tender_title:
+          type: string
+          maxLength: 500
+        tender_type:
+          type: string
+          nullable: true
+          maxLength: 50
+        tender_status:
+          type: string
+          nullable: true
+          maxLength: 50
+        tender_city:
+          type: string
+          nullable: true
+          maxLength: 100
+        tender_date:
+          type: string
+          nullable: true
+          maxLength: 50
+        institution:
+          type: string
+          nullable: true
+          maxLength: 500
+        saved_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - id
+      - saved_at
+      - tender_ikn
+    StatusEnum:
+      enum:
+      - Bekliyor
+      - İşlemde
+      - Yanıtlandı
+      - Kapandı
+      type: string
+      description: '* `Bekliyor` - Bekliyor
+
+        * `İşlemde` - İşlemde
+
+        * `Yanıtlandı` - Yanıtlandı
+
+        * `Kapandı` - Kapandı'
+    SupportTicket:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          maxLength: 30
+        message:
+          type: string
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        reply:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - message
+      - reply
+      - status
+    TenderAlarm:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        tender_id:
+          type: string
+          maxLength: 100
+        tender_ikn:
+          type: string
+          nullable: true
+          maxLength: 100
+        tender_title:
+          type: string
+          maxLength: 500
+        institution:
+          type: string
+          nullable: true
+          maxLength: 500
+        reminder_day:
+          type: boolean
+        document_change:
+          type: boolean
+        completed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - tender_id
+      - updated_at
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TypeEnum:
+      enum:
+      - tender
+      - info
+      - alarm
+      type: string
+      description: '* `tender` - İhale
+
+        * `info` - Bilgi
+
+        * `alarm` - Alarm'
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -169,6 +169,26 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 | `detsis` | `core.Detsis` |
 | `config/ai_service` | `core.AppSetting` |
 
+## İş Akışı Kuralları (ÖNEMLİ)
+
+Bu proje için her oturumda uyulması ZORUNLU kurallar:
+
+1. **Her değişiklikte GitHub'a gönder** — minör/majör fark etmeksizin, yapılan her
+   değişiklikten sonra `git add` → `git commit` (açıklayıcı Türkçe mesaj) → `git push`.
+   Kullanıcı geri alma isterse sorunsuz eski haline döndür.
+2. **Hafızayı/dokümanı güncelle** — anlamlı her değişiklikte bu `CLAUDE.md`'yi ve
+   (varsa) kalıcı hafızayı güncel tut; yeni endpoint/model/servis eklenince ilgili
+   bölümü yaz.
+3. **API dokümanları otomatik** — `docs/openapi.yaml` ve `docs/postman_collection.json`
+   `python manage.py gen_api_docs` ile üretilir. **git pre-commit hook** bunu her
+   commit'te otomatik çalıştırıp stage'ler (`core.hooksPath=.githooks`). Yeni klonda:
+   `git config core.hooksPath .githooks`. Postman'e `docs/postman_collection.json`
+   import edilir; `base_url` ve `access_token` koleksiyon değişkenidir (login isteği
+   token'ı otomatik kaydeder).
+
+Commit mesajı sonuna şunu ekle:
+`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+
 ## Kodlama Kuralları
 
 - **Ağır importlar lazy**: `anthropic`, `google.cloud.texttospeech`, `docx`,

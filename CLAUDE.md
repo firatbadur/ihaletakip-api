@@ -262,6 +262,13 @@ Bu proje için her oturumda uyulması ZORUNLU kurallar:
    değişkenidir (giriş ve token yenileme istekleri ikisini de otomatik kaydeder).
    Üretilen dosyalar **elle düzenlenmez** — kaynak view'lardaki `@extend_schema`'dır.
 
+   ⚠️ **Sondaki `/` şart**: Postman isteği `url.raw` metninden değil `url.path`
+   segment dizisinden kurar; sondaki `/` yalnızca **boş son segment** ile temsil
+   edilir (`["api","v1","auth","login",""]`). Eksikse Postman `/auth/login` gönderir,
+   Django `APPEND_SLASH` ile 301 döner, Postman yönlendirmeyi izlerken POST'u GET'e
+   çevirir ve her uç `"GET" metoduna izin verilmiyor` (405) döner. `_postman_path()`
+   bu boş segmenti ekler — kaldırmayın.
+
 4. **Yeni endpoint = `@extend_schema`** — düz `APIView` kullanan bir uç eklerken
    drf-spectacular gövdeyi/parametreleri kendi çıkaramaz; dekoratör yoksa uç Postman'de
    **gövdesiz ve parametresiz** görünür. Her uçta `summary`, `description`, `request`,

@@ -359,18 +359,25 @@ def _is_public(op):
 
 
 def _postman_path(path):
-    """'/api/v1/ekap/tenders/{key}/' → ['api','v1','ekap','tenders',':key']"""
+    """
+    '/api/v1/ekap/tenders/{key}/' → ['api','v1','ekap','tenders',':key','']
+
+    Postman isteği `raw` metninden değil bu segment dizisinden kurar; sondaki `/`
+    yalnızca **boş bir son segment** ile temsil edilir. Eksikse Postman
+    `/api/v1/auth/login` gönderir, Django `APPEND_SLASH` ile 301 döner ve Postman
+    yönlendirmeyi izlerken POST'u GET'e çevirir → "GET metoduna izin verilmiyor" (405).
+    """
     segs = []
     for seg in path.strip("/").split("/"):
         segs.append(":" + seg[1:-1] if seg.startswith("{") and seg.endswith("}") else seg)
+    if path.endswith("/"):
+        segs.append("")
     return segs
 
 
 def _raw_url(path, queries):
-    """Postman'in `raw` alanı `path` ile tutarlı olmalı: {key} yerine :key."""
+    """`raw` alanı `path` dizisiyle birebir tutarlı olmalı ({key} yerine :key)."""
     raw = "{{base_url}}/" + "/".join(_postman_path(path))
-    if path.endswith("/"):
-        raw += "/"
     enabled = [q for q in queries if not q.get("disabled")]
     if enabled:
         raw += "?" + "&".join(f"{q['key']}={q['value']}" for q in enabled)

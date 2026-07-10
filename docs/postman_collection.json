@@ -51,7 +51,8 @@
                 "{{base_url}}"
               ],
               "path": [
-                "health"
+                "health",
+                ""
               ]
             },
             "description": "Load balancer / uptime izleme için basit sağlık kontrolü. Kimlik doğrulaması istemez ve `/api/v1` öneki **olmadan** `/health/` altındadır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -89,7 +90,8 @@
                 "api",
                 "v1",
                 "auth",
-                "register"
+                "register",
+                ""
               ]
             },
             "description": "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -151,7 +153,8 @@
                 "api",
                 "v1",
                 "auth",
-                "login"
+                "login",
+                ""
               ]
             },
             "description": "`username` **veya** `email` ile giriş yapılır (biri yeterli). Yanıttaki `access` token'ı `Authorization: Bearer <access>` header'ında kullanın.\n\nPostman'de bu istek başarılı olduğunda `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik doldurulur.\n\n---\n\n### Alternatif gövde örnekleri\n\n**KullanıcıAdıIle**\n\n```json\n{\n  \"username\": \"firat\",\n  \"password\": \"Test1234!\"\n}\n```\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -214,7 +217,8 @@
                 "v1",
                 "auth",
                 "social",
-                "google"
+                "google",
+                ""
               ]
             },
             "description": "İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir; sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -277,7 +281,8 @@
                 "v1",
                 "auth",
                 "social",
-                "apple"
+                "apple",
+                ""
               ]
             },
             "description": "İstemci `@invertase/react-native-apple-authentication` ile aldığı `identity_token`'ı gönderir; sunucu Apple public key'leriyle doğrular (audience `com.envisoft.ihaletakip`).\n\nApple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name` alanında iletmezse isim kalıcı olarak kaybolur.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -340,7 +345,8 @@
                 "v1",
                 "auth",
                 "token",
-                "refresh"
+                "refresh",
+                ""
               ]
             },
             "description": "Süresi dolan `access` token'ı `refresh` ile yeniler.\n\n**Rotasyon açıktır** (`ROTATE_REFRESH_TOKENS`): yanıt yeni bir `access` ile birlikte **yeni bir `refresh`** de döner ve gönderdiğiniz eski `refresh` anında kara listeye alınır. İstemci sakladığı refresh token'ı her yenilemede güncellemelidir; eskisini tekrar kullanmak `401` verir.\n\nBu uç kimlik doğrulaması istemez — `refresh` token'ın kendisi yeterlidir.\n\nPostman'de başarılı yanıt `access_token` ve `refresh_token` değişkenlerini otomatik günceller.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
@@ -398,7 +404,8 @@
                 "api",
                 "v1",
                 "auth",
-                "profile"
+                "profile",
+                ""
               ]
             },
             "description": "Oturum açmış kullanıcının profilini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -427,7 +434,8 @@
                 "api",
                 "v1",
                 "auth",
-                "profile"
+                "profile",
+                ""
               ]
             },
             "description": "Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url` ve `preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined` salt okunurdur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -465,7 +473,8 @@
                 "api",
                 "v1",
                 "auth",
-                "preferences"
+                "preferences",
+                ""
               ]
             },
             "description": "`preferences` serbest biçimli bir JSON nesnesidir; gönderilen değer mevcut tercihlerin **yerine geçer** (birleştirme yapılmaz).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -503,7 +512,8 @@
                 "api",
                 "v1",
                 "auth",
-                "fcm-token"
+                "fcm-token",
+                ""
               ]
             },
             "description": "Push bildirimleri için cihazın Firebase Cloud Messaging token'ını kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre dışıdır, token yine de saklanır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -543,7 +553,8 @@
                 "api",
                 "v1",
                 "ekap",
-                "tenders"
+                "tenders",
+                ""
               ],
               "query": [
                 {
@@ -649,7 +660,8 @@
                 "v1",
                 "ekap",
                 "tenders",
-                ":key"
+                ":key",
+                ""
               ],
               "variable": [
                 {
@@ -683,7 +695,8 @@
                 "ekap",
                 "tenders",
                 ":key",
-                "announcements"
+                "announcements",
+                ""
               ],
               "variable": [
                 {
@@ -717,7 +730,8 @@
                 "ekap",
                 "tenders",
                 ":ekap_id",
-                "document-url"
+                "document-url",
+                ""
               ],
               "query": [
                 {
@@ -757,7 +771,8 @@
                 "api",
                 "v1",
                 "ekap",
-                "cities"
+                "cities",
+                ""
               ]
             },
             "description": "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve `GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -783,7 +798,8 @@
                 "v1",
                 "ekap",
                 "okas",
-                "search"
+                "search",
+                ""
               ],
               "query": [
                 {
@@ -823,7 +839,8 @@
                 "v1",
                 "ekap",
                 "authorities",
-                "search"
+                "search",
+                ""
               ],
               "query": [
                 {
@@ -872,7 +889,8 @@
                 "api",
                 "v1",
                 "ai",
-                "analyze"
+                "analyze",
+                ""
               ]
             },
             "description": "Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu almak için `GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).\n\nİstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner (`{\"status\": \"completed\", \"cached\": true}`).\n\n**Zorunlu alanlar `analysis_type`'a göre değişir:**\n\n| analysis_type | Ek zorunlu alanlar |\n|---|---|\n| `tech_spec` | `file_base64`, `file_name` |\n| `admin_spec` | `file_base64`, `file_name` |\n| `cost_analysis` | `tender_meta` |\n| `generate_keywords` | `tender_meta` |\n\n`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` ham base64'tür (`data:` öneki olmadan).\n\n---\n\n### Alternatif gövde örnekleri\n\n**MaliyetAnalizi(meta)** — tender_meta gerektiren türler: cost_analysis, generate_keywords.\n\n```json\n{\n  \"analysis_type\": \"cost_analysis\",\n  \"ikn\": \"2025/1234567\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\",\n    \"ihaleTarihi\": \"23.03.2027 14:00\",\n    \"yaklasikMaliyet\": 2500000\n  },\n  \"similar_tenders\": [\n    {\n      \"ikn\": \"2024/1122334\",\n      \"sozlesmeBedeli\": 2310000\n    }\n  ]\n}\n```\n\n**AnahtarKelimeÜret**\n\n```json\n{\n  \"analysis_type\": \"generate_keywords\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\"\n  }\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -907,7 +925,8 @@
                 "v1",
                 "ai",
                 "tasks",
-                ":task_id"
+                ":task_id",
+                ""
               ],
               "variable": [
                 {
@@ -943,7 +962,8 @@
                 "api",
                 "v1",
                 "ai",
-                "tts"
+                "tts",
+                ""
               ]
             },
             "description": "Google Cloud TTS ile metni seslendirir ve base64 kodlu ses döner (`data.audio_base64`). Kısa bir iş olduğu için **senkron** çalışır, kuyruğa alınmaz.\n\nSunucuda `GOOGLE_APPLICATION_CREDENTIALS` tanımlı değilse hata döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -982,7 +1002,8 @@
               "path": [
                 "api",
                 "v1",
-                "favorites"
+                "favorites",
+                ""
               ]
             },
             "description": "Oturum açmış kullanıcının favori ihalelerini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1010,7 +1031,8 @@
               "path": [
                 "api",
                 "v1",
-                "favorites"
+                "favorites",
+                ""
               ]
             },
             "description": "İhaleyi favorilere ekler. Aynı `tender_id` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1044,7 +1066,8 @@
                 "api",
                 "v1",
                 "favorites",
-                ":tender_id"
+                ":tender_id",
+                ""
               ],
               "variable": [
                 {
@@ -1076,7 +1099,8 @@
                 "api",
                 "v1",
                 "favorites",
-                ":tender_id"
+                ":tender_id",
+                ""
               ],
               "variable": [
                 {
@@ -1113,7 +1137,8 @@
               "path": [
                 "api",
                 "v1",
-                "saved-tenders"
+                "saved-tenders",
+                ""
               ]
             },
             "description": "Kullanıcının kaydettiği ihaleleri döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1141,7 +1166,8 @@
               "path": [
                 "api",
                 "v1",
-                "saved-tenders"
+                "saved-tenders",
+                ""
               ]
             },
             "description": "İhaleyi kayıtlılara ekler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1175,7 +1201,8 @@
                 "api",
                 "v1",
                 "saved-tenders",
-                ":ikn"
+                ":ikn",
+                ""
               ],
               "variable": [
                 {
@@ -1207,7 +1234,8 @@
                 "api",
                 "v1",
                 "saved-tenders",
-                ":ikn"
+                ":ikn",
+                ""
               ],
               "variable": [
                 {
@@ -1244,7 +1272,8 @@
               "path": [
                 "api",
                 "v1",
-                "saved-filters"
+                "saved-filters",
+                ""
               ]
             },
             "description": "Kullanıcının kaydettiği arama filtrelerini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1272,7 +1301,8 @@
               "path": [
                 "api",
                 "v1",
-                "saved-filters"
+                "saved-filters",
+                ""
               ]
             },
             "description": "Yeni bir arama filtresi kaydeder.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1306,7 +1336,8 @@
                 "api",
                 "v1",
                 "saved-filters",
-                ":id"
+                ":id",
+                ""
               ],
               "variable": [
                 {
@@ -1342,7 +1373,8 @@
                 "api",
                 "v1",
                 "saved-filters",
-                ":id"
+                ":id",
+                ""
               ],
               "variable": [
                 {
@@ -1387,7 +1419,8 @@
                 "api",
                 "v1",
                 "saved-filters",
-                ":id"
+                ":id",
+                ""
               ],
               "variable": [
                 {
@@ -1428,7 +1461,8 @@
                 "api",
                 "v1",
                 "saved-filters",
-                ":id"
+                ":id",
+                ""
               ],
               "variable": [
                 {
@@ -1465,7 +1499,8 @@
               "path": [
                 "api",
                 "v1",
-                "alarms"
+                "alarms",
+                ""
               ]
             },
             "description": "Kullanıcının kurduğu ihale alarmlarını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1493,7 +1528,8 @@
               "path": [
                 "api",
                 "v1",
-                "alarms"
+                "alarms",
+                ""
               ]
             },
             "description": "İhale için alarm kurar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1527,7 +1563,8 @@
                 "api",
                 "v1",
                 "alarms",
-                ":tender_id"
+                ":tender_id",
+                ""
               ],
               "variable": [
                 {
@@ -1559,7 +1596,8 @@
                 "api",
                 "v1",
                 "alarms",
-                ":tender_id"
+                ":tender_id",
+                ""
               ],
               "variable": [
                 {
@@ -1596,7 +1634,8 @@
               "path": [
                 "api",
                 "v1",
-                "notifications"
+                "notifications",
+                ""
               ]
             },
             "description": "Kullanıcının bildirimlerini döner (okunmuş + okunmamış). Bildirimler alarm ve kayıtlı filtre eşleşmelerinden üretilir; eski bildirimler günlük Celery görevi ile temizlenir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1621,7 +1660,8 @@
                 "api",
                 "v1",
                 "notifications",
-                "unread-count"
+                "unread-count",
+                ""
               ]
             },
             "description": "Rozet (badge) göstermek için okunmamış bildirim sayısını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1647,7 +1687,8 @@
                 "v1",
                 "notifications",
                 ":notification_id",
-                "read"
+                "read",
+                ""
               ],
               "variable": [
                 {
@@ -1679,7 +1720,8 @@
                 "api",
                 "v1",
                 "notifications",
-                "read-all"
+                "read-all",
+                ""
               ]
             },
             "description": "Kullanıcının okunmamış tüm bildirimlerini okundu yapar. Gövde gerektirmez. `data.updated` güncellenen kayıt sayısıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1709,7 +1751,8 @@
               "path": [
                 "api",
                 "v1",
-                "support"
+                "support",
+                ""
               ]
             },
             "description": "Kullanıcının açtığı destek taleplerini ve varsa yanıtlarını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
@@ -1737,7 +1780,8 @@
               "path": [
                 "api",
                 "v1",
-                "support"
+                "support",
+                ""
               ]
             },
             "description": "Yeni bir destek talebi oluşturur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1781,7 +1825,8 @@
                 "api",
                 "v1",
                 "auth",
-                "logout"
+                "logout",
+                ""
               ]
             },
             "description": "Gönderilen `refresh` token'ı kara listeye alır.\n\n**Dikkat:** Bu endpoint kimlik doğrulaması ister — gövdedeki `refresh`'in yanında geçerli bir `Authorization: Bearer <access>` header'ı da gerekir.\n\nKara liste yalnızca refresh token'ları kapsar; mevcut `access` token kendi ömrü (1 gün) dolana kadar geçerli kalmaya devam eder — istemci onu cihazdan silmelidir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
@@ -1815,7 +1860,8 @@
                 "api",
                 "v1",
                 "auth",
-                "deactivate"
+                "deactivate",
+                ""
               ]
             },
             "description": "Hesabı pasifleştirir (`is_active=False`). Kayıtlar silinmez, ancak kullanıcı bir daha giriş yapamaz — login `403` döner. Gövde gerektirmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"

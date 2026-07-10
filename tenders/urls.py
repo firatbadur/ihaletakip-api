@@ -25,7 +25,9 @@ urlpatterns = [
     path("saved-filters/<int:pk>/", SavedFilterDetailView.as_view(), name="saved-filter-detail"),
     # Kayıtlı ihaleler
     path("saved-tenders/", SavedTenderListCreateView.as_view(), name="saved-tenders"),
-    path("saved-tenders/<str:ikn>/", SavedTenderDetailView.as_view(), name="saved-tender-detail"),
+    # İKN `2025/1234567` biçimindedir; `str` dönüştürücüsü `/` eşleştirmez ve WSGI
+    # sunucusu `%2F`'yi yola çözdüğü için kodlamak da işe yaramaz → `path` şart.
+    path("saved-tenders/<path:ikn>/", SavedTenderDetailView.as_view(), name="saved-tender-detail"),
     # Alarmlar
     path("alarms/", TenderAlarmListCreateView.as_view(), name="alarms"),
     path("alarms/<str:tender_id>/", TenderAlarmDetailView.as_view(), name="alarm-detail"),

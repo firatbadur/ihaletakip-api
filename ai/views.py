@@ -10,7 +10,13 @@ TTS kısa bir iştir → senkron döner.
 """
 import logging
 
-from rest_framework import permissions, status
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import permissions, serializers, status
 from rest_framework.views import APIView
 
 from config import celery_app
@@ -23,7 +29,91 @@ from .tasks import run_analysis_task
 
 logger = logging.getLogger("ihaletakip")
 
+_ANALYSIS_RESULT = inline_serializer(
+    name="AnalysisResult",
+    fields={
+        "status": serializers.ChoiceField(
+            choices=["pending", "processing", "completed", "failed"]
+        ),
+        "cached": serializers.BooleanField(required=False),
+        "analysis": serializers.JSONField(required=False),
+        "usage": serializers.JSONField(required=False),
+    },
+)
 
+_TASK_QUEUED = inline_serializer(
+    name="TaskQueued",
+    fields={
+        "task_id": serializers.CharField(),
+        "status": serializers.CharField(),
+    },
+)
+
+
+@extend_schema(
+    tags=["ai"],
+    summary="Doküman analizi başlat",
+    responses={200: _ANALYSIS_RESULT, 202: _TASK_QUEUED},
+    description=(
+        "Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu almak için "
+        "`GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).\n\n"
+        "İstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce "
+        "hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner "
+        "(`{\"status\": \"completed\", \"cached\": true}`).\n\n"
+        "**Zorunlu alanlar `analysis_type`'a göre değişir:**\n\n"
+        "| analysis_type | Ek zorunlu alanlar |\n"
+        "|---|---|\n"
+        "| `tech_spec` | `file_base64`, `file_name` |\n"
+        "| `admin_spec` | `file_base64`, `file_name` |\n"
+        "| `cost_analysis` | `tender_meta` |\n"
+        "| `generate_keywords` | `tender_meta` |\n\n"
+        "`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` "
+        "ham base64'tür (`data:` öneki olmadan)."
+    ),
+    request=AnalyzeRequestSerializer,
+    examples=[
+        OpenApiExample(
+            "Teknik şartname (dosya)",
+            request_only=True,
+            description="Dosya gerektiren türler: tech_spec, admin_spec.",
+            value={
+                "analysis_type": "tech_spec",
+                "file_name": "teknik_sartname.pdf",
+                "file_base64": "JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9GaWx0ZXI...",
+                "ikn": "2025/1234567",
+            },
+        ),
+        OpenApiExample(
+            "Maliyet analizi (meta)",
+            request_only=True,
+            description="tender_meta gerektiren türler: cost_analysis, generate_keywords.",
+            value={
+                "analysis_type": "cost_analysis",
+                "ikn": "2025/1234567",
+                "tender_meta": {
+                    "ihaleAdi": "Bilgisayar ve Çevre Birimi Alımı",
+                    "idareAdi": "Ankara Büyükşehir Belediyesi",
+                    "ihaleTarihi": "23.03.2027 14:00",
+                    "yaklasikMaliyet": 2500000,
+                },
+                "similar_tenders": [
+                    {"ikn": "2024/1122334", "sozlesmeBedeli": 2310000},
+                ],
+            },
+        ),
+        OpenApiExample(
+            "Anahtar kelime üret",
+            request_only=True,
+            value={
+                "analysis_type": "generate_keywords",
+                "tender_meta": {
+                    "ihaleAdi": "Bilgisayar ve Çevre Birimi Alımı",
+                    "idareAdi": "Ankara Büyükşehir Belediyesi",
+                },
+            },
+        ),
+    ],
+)
 class AnalyzeView(APIView):
     """POST /ai/analyze — analizi kuyruğa alır (cache varsa anında döner)."""
 
@@ -69,6 +159,36 @@ class AnalyzeView(APIView):
         )
 
 
+@extend_schema(
+    tags=["ai"],
+    summary="Analiz durumunu sorgula",
+    description=(
+        "`POST /ai/analyze` yanıtındaki `task_id` ile görevin durumunu döner.\n\n"
+        "| `data.status` | HTTP | Anlamı |\n"
+        "|---|---|---|\n"
+        "| `pending` | 200 | Kuyrukta bekliyor |\n"
+        "| `processing` | 200 | Worker işliyor |\n"
+        "| `completed` | 200 | `data.analysis` ve `data.usage` dolu |\n"
+        "| `failed` | 422 / 500 | `message` hatayı açıklar |\n\n"
+        "İstemci `completed` veya `failed` görene kadar birkaç saniye aralıkla yoklar."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="task_id",
+            location=OpenApiParameter.PATH,
+            type=str,
+            required=True,
+            description="`POST /ai/analyze` yanıtındaki Celery görev kimliği (UUID).",
+            examples=[
+                OpenApiExample(
+                    "Görev kimliği",
+                    value="3f8c2b1a-7e4d-4a91-9c2f-8b6d5e1a0c33",
+                )
+            ],
+        )
+    ],
+    responses={200: _ANALYSIS_RESULT},
+)
 class AnalyzeStatusView(APIView):
     """GET /ai/tasks/{task_id} — Celery görev durumunu/sonucunu döndürür."""
 
@@ -111,6 +231,29 @@ class AnalyzeStatusView(APIView):
         )
 
 
+@extend_schema(
+    tags=["ai"],
+    summary="Metni sese çevir (TTS)",
+    description=(
+        "Google Cloud TTS ile metni seslendirir ve base64 kodlu ses döner "
+        "(`data.audio_base64`). Kısa bir iş olduğu için **senkron** çalışır, kuyruğa "
+        "alınmaz.\n\n"
+        "Sunucuda `GOOGLE_APPLICATION_CREDENTIALS` tanımlı değilse hata döner."
+    ),
+    request=TTSRequestSerializer,
+    responses={
+        200: inline_serializer(
+            name="TTSResult", fields={"audio_base64": serializers.CharField()}
+        )
+    },
+    examples=[
+        OpenApiExample(
+            "Kısa metin",
+            request_only=True,
+            value={"text": "Bu ihale 23 Mart 2027 tarihinde saat 14:00'te yapılacaktır."},
+        )
+    ],
+)
 class TTSView(APIView):
     """POST /ai/tts — metni sese çevirir (senkron)."""
 

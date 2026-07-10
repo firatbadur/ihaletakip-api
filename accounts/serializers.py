@@ -62,6 +62,50 @@ class FCMTokenSerializer(serializers.Serializer):
     fcm_token = serializers.CharField(max_length=500)
 
 
+# ── Şema/doküman serializer'ları ───────────────────────
+# Bu view'lar düz APIView olduğu için drf-spectacular gövdeyi kendi çıkaramaz;
+# aşağıdakiler yalnızca OpenAPI + Postman üretimi içindir.
+class LoginSerializer(serializers.Serializer):
+    """`username` veya `email`den biri + `password` zorunlu."""
+
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(write_only=True)
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField(help_text="Google Sign-In'den dönen ID token.")
+
+
+class AppleLoginSerializer(serializers.Serializer):
+    identity_token = serializers.CharField(
+        help_text="Apple Sign-In'den dönen identity token."
+    )
+    full_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.",
+    )
+
+
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(help_text="Kara listeye alınacak refresh token.")
+
+
+class TokenPairSerializer(serializers.Serializer):
+    """register / login / social yanıtı."""
+
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = UserSerializer()
+
+
+class DetailSerializer(serializers.Serializer):
+    """Tek mesajlık yanıt gövdesi."""
+
+    detail = serializers.CharField()
+
+
 def issue_tokens(user):
     """Bir kullanıcı için access + refresh JWT üret."""
     refresh = RefreshToken.for_user(user)

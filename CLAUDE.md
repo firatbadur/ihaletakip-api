@@ -111,6 +111,18 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
 - **Doğrulama**: `python manage.py ekap_probe` (canlı imza testi),
   `python manage.py run_ingest --task recent|backfill|okas|authorities|detail`.
 
+## URL'de İKN (dikkat)
+
+İKN `2025/1234567` biçimindedir, yani **`/` içerir**. Django'nun `<str:...>`
+dönüştürücüsü `/` eşleştirmez; `%2F` ile kodlamak da kurtarmaz çünkü WSGI sunucusu
+yolu Django'ya vermeden önce çözer (`PATH_INFO` decode edilmiş gelir) → yine `/`.
+
+- İKN'yi yol parametresi yapan rotalar `<path:...>` kullanmalıdır.
+  `tenders/urls.py` → `saved-tenders/<path:ikn>/` (aksi halde uç her zaman 404 verirdi).
+- `ekap/tenders/<str:key>/` bilerek `str`'dir: altında `announcements/` ve
+  `document-url/` alt rotaları var, `path:` açgözlü olup onları yutardı. Bu yüzden
+  **EKAP detay uçlarında `ekap_id` kullanın**, İKN değil.
+
 ## Global API Sözleşmesi
 
 **Tüm** yanıtlar şu zarfta döner:
@@ -246,8 +258,17 @@ Bu proje için her oturumda uyulması ZORUNLU kurallar:
    `python manage.py gen_api_docs` ile üretilir. **git pre-commit hook** bunu her
    commit'te otomatik çalıştırıp stage'ler (`core.hooksPath=.githooks`). Yeni klonda:
    `git config core.hooksPath .githooks`. Postman'e `docs/postman_collection.json`
-   import edilir; `base_url` ve `access_token` koleksiyon değişkenidir (login isteği
-   token'ı otomatik kaydeder).
+   import edilir; `base_url`, `access_token` ve `refresh_token` koleksiyon
+   değişkenidir (giriş ve token yenileme istekleri ikisini de otomatik kaydeder).
+   Üretilen dosyalar **elle düzenlenmez** — kaynak view'lardaki `@extend_schema`'dır.
+
+4. **Yeni endpoint = `@extend_schema`** — düz `APIView` kullanan bir uç eklerken
+   drf-spectacular gövdeyi/parametreleri kendi çıkaramaz; dekoratör yoksa uç Postman'de
+   **gövdesiz ve parametresiz** görünür. Her uçta `summary`, `description`, `request`,
+   `responses`, `parameters` ve en az bir `OpenApiExample` verin (bkz. `accounts/views.py`).
+   `generics.*` view'larında `@extend_schema_view(get=..., post=...)` kullanın, yoksa
+   istek adı `api_v1_saved_filters_list` gibi görünür. Herkese açık uçlara `auth=[]`
+   ekleyin — üreteç bunu Postman'de `noauth` olarak işaretler.
 
 Commit mesajı sonuna şunu ekle:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`

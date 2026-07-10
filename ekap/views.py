@@ -8,7 +8,14 @@ import logging
 
 from django.core.cache import cache
 from django.db.models import Q
-from rest_framework import permissions
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
 from core.response import api_response
@@ -35,6 +42,98 @@ def _int_list(raw):
     return out
 
 
+# Tarih parametreleri `DD.MM.YYYY [HH:mm]` veya ISO-8601 kabul eder (bkz. utils.parse_ekap_datetime).
+# Çözümlenemeyen tarih **sessizce yok sayılır** — filtre uygulanmaz.
+_DATE_HINT = "`GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır."
+
+_TENDER_KEY_PARAM = OpenApiParameter(
+    name="key",
+    location=OpenApiParameter.PATH,
+    type=str,
+    required=True,
+    description=(
+        "**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\n"
+        "View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri "
+        "eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken "
+        "geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada "
+        "**404 döner**; slash içermeyen `ekap_id` kullanın."
+    ),
+    examples=[OpenApiExample("EKAP iç kimliği", value="1234567")],
+)
+
+
+@extend_schema(
+    tags=["ekap"],
+    summary="İhale ara / listele",
+    description=(
+        "İhaleleri **kendi veritabanımızdan** arar — EKAP'a istek gitmez, rate limit "
+        "yoktur. Alan adları EKAP'ın kendi adlandırmasıyla döner.\n\n"
+        "Yanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.\n\n"
+        "`il`, `tur`, `usul` ve `durum` **virgülle ayrılmış id listesi** alır "
+        "(ör. `tur=1,3`). Sayı olmayan değerler yok sayılır.\n\n"
+        "**İhale türü (`tur`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık\n\n"
+        "**İhale usulü (`usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · "
+        "3 Pazarlık (MD 21 F) · 4 Doğrudan Temin\n\n"
+        "**İhale durumu (`durum`):** 1 Taslak · 2/3 Katılıma Açık · "
+        "4 Değerlendirme Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · "
+        "15 Sonuç İlanı Yayımlanmış · 20 Sözleşme İmzalanmış\n\n"
+        "**İl id'leri** EKAP'ın kendi il kodlarıdır (plaka değil!) — "
+        "`GET /api/v1/ekap/cities/` ile alın. Örn. Ankara `251`, İstanbul `284`."
+    ),
+    parameters=[
+        OpenApiParameter(
+            "q", str, description="İhale adında veya İKN'de geçen metin (kısmi eşleşme).",
+            examples=[OpenApiExample("Metin arama", value="bilgisayar")],
+        ),
+        OpenApiParameter(
+            "il", str,
+            description="EKAP il id listesi (virgülle). `GET /ekap/cities/` ile alın.",
+            examples=[OpenApiExample("Ankara + İstanbul", value="251,284")],
+        ),
+        OpenApiParameter(
+            "tur", str, description="İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.",
+            examples=[OpenApiExample("Mal + Hizmet", value="1,3")],
+        ),
+        OpenApiParameter(
+            "usul", str, description="İhale usulü id listesi (1-4).",
+            examples=[OpenApiExample("Açık ihale", value="1")],
+        ),
+        OpenApiParameter(
+            "durum", str, description="İhale durumu id listesi.",
+            examples=[OpenApiExample("Katılıma açık", value="2,3")],
+        ),
+        OpenApiParameter(
+            "ihale_baslangic", str, description=f"İhale tarihi alt sınırı. {_DATE_HINT}",
+            examples=[OpenApiExample("Tarih", value="01.01.2026")],
+        ),
+        OpenApiParameter(
+            "ihale_bitis", str, description=f"İhale tarihi üst sınırı. {_DATE_HINT}",
+            examples=[OpenApiExample("Tarih", value="31.12.2026")],
+        ),
+        OpenApiParameter(
+            "ilan_baslangic", str, description=f"İlan tarihi alt sınırı. {_DATE_HINT}",
+            examples=[OpenApiExample("Tarih", value="01.01.2026")],
+        ),
+        OpenApiParameter(
+            "ilan_bitis", str, description=f"İlan tarihi üst sınırı. {_DATE_HINT}",
+            examples=[OpenApiExample("Tarih", value="31.12.2026")],
+        ),
+        OpenApiParameter(
+            "order", str, enum=["ihaleTarihi", "ilanTarihi"], default="ihaleTarihi",
+            description="Sıralama alanı.",
+        ),
+        OpenApiParameter(
+            "siralamaTipi", str, enum=["desc", "asc"], default="desc",
+            description="Sıralama yönü.",
+        ),
+        OpenApiParameter("page", int, default=1, description="Sayfa numarası (1'den başlar)."),
+        OpenApiParameter(
+            "page_size", int, default=10,
+            description="Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).",
+        ),
+    ],
+    responses={200: EkapTenderListSerializer(many=True)},
+)
 class TenderListView(APIView):
     """GET /ekap/tenders/ — DB'den arama/filtre/sıralama/pagination."""
 
@@ -91,6 +190,23 @@ class TenderListView(APIView):
         return api_response(data={"list": data, "totalCount": total, "page": page})
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="İhale detayı",
+    description=(
+        "İhale detayını EKAP'ın ham detay şekliyle döner (`item` açılmış olarak).\n\n"
+        "Detay veritabanında varsa oradan servis edilir; bayatsa arka planda yenilenir "
+        "ve eldeki sürüm hemen döner. Detay hiç çekilmemişse EKAP'a **canlı** gidilir "
+        "(bu istek yavaş olabilir) ve sonuç saklanır.\n\n"
+        "EKAP'a ulaşılamaz ve elde eski bir kopya varsa `200` + "
+        "`message: \"Detay güncel değil.\"` döner. Hiç kayıt yoksa `404`.\n\n"
+        "Yanıt `ilanList` alanını zaten içerir — ilanlar için ayrıca "
+        "`/announcements/` çağırmanız gerekmez."
+    ),
+    parameters=[_TENDER_KEY_PARAM],
+    # Detay EKAP'ın ham şeklidir; sabit bir serializer'a bağlanmaz.
+    responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+)
 class TenderDetailView(APIView):
     """GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde)."""
 
@@ -135,6 +251,18 @@ class TenderDetailView(APIView):
             pass  # Celery/redis yoksa sessiz geç
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="İhale ilanları",
+    description=(
+        "İhaleye ait ilanları veritabanından döner (`data.list`). İhale bulunamazsa "
+        "hata değil, boş liste döner.\n\n"
+        "**İlan tipleri:** 1 İhale İlanı · 2 Düzeltme İlanı · 3 İptal İlanı · "
+        "4 Sonuç İlanı · 5 Ön İlan · 10 Ön Yeterlik İlanı"
+    ),
+    parameters=[_TENDER_KEY_PARAM],
+    responses={200: EkapAnnouncementSerializer(many=True)},
+)
 class TenderAnnouncementsView(APIView):
     """GET /ekap/tenders/{key}/announcements/ — DB'deki ilanlar."""
 
@@ -149,6 +277,35 @@ class TenderAnnouncementsView(APIView):
         return api_response(data={"list": data})
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="Belge indirme bağlantısı",
+    description=(
+        "İhale dokümanının indirme bağlantısını döner (`data.url`). Bu URL EKAP "
+        "tarafında **dinamik üretilir ve kısa ömürlüdür**, bu yüzden istek anında "
+        "canlı olarak EKAP'a gidilir. Sonuç 5 dakika önbelleklenir.\n\n"
+        "EKAP'a ulaşılamazsa `502` döner."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="ekap_id",
+            location=OpenApiParameter.PATH,
+            type=str,
+            required=True,
+            description="EKAP iç kimliği (İKN değil).",
+            examples=[OpenApiExample("EKAP iç kimliği", value="1234567")],
+        ),
+        OpenApiParameter(
+            "islemId", str, default="1",
+            description="EKAP belge işlem kimliği (`1` = ihale dokümanı).",
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="DocumentUrl", fields={"url": serializers.CharField(allow_null=True)}
+        )
+    },
+)
 class DocumentUrlView(APIView):
     """GET /ekap/tenders/{ekap_id}/document-url/ — canlı proxy (dinamik URL)."""
 
@@ -173,6 +330,26 @@ class DocumentUrlView(APIView):
             return api_response(message="Belge bağlantısı alınamadı.", success=False, status=502)
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="OKAS kodu ara",
+    description=(
+        "OKAS (Ortak Kamu Alım Sözlüğü) kodlarını arar. `q` koda **önek** olarak, "
+        "Türkçe/İngilizce adlara **kısmi** olarak uygulanır. `q` boşsa ilk kayıtlar döner."
+    ),
+    parameters=[
+        OpenApiParameter(
+            "q", str, description="Kod öneki ya da ad içinde geçen metin.",
+            examples=[OpenApiExample("Ad ile", value="bilgisayar"),
+                      OpenApiExample("Kod öneki ile", value="30200000")],
+        ),
+        OpenApiParameter(
+            "take", int, default=50,
+            description="Dönecek kayıt sayısı. **En fazla 200**.",
+        ),
+    ],
+    responses={200: OkasCodeSerializer(many=True)},
+)
 class OkasSearchView(APIView):
     """GET /ekap/okas/search?q= — DB'den OKAS arama."""
 
@@ -187,6 +364,25 @@ class OkasSearchView(APIView):
         return api_response(data=OkasCodeSerializer(qs[:take], many=True).data)
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="İdare (kurum) ara",
+    description=(
+        "İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare kodunda "
+        "**önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner."
+    ),
+    parameters=[
+        OpenApiParameter(
+            "q", str, description="İdare adı ya da idare kodu öneki.",
+            examples=[OpenApiExample("Kurum adı", value="ankara büyükşehir")],
+        ),
+        OpenApiParameter(
+            "take", int, default=50,
+            description="Dönecek kayıt sayısı. **En fazla 200**.",
+        ),
+    ],
+    responses={200: AuthoritySerializer(many=True)},
+)
 class AuthoritySearchView(APIView):
     """GET /ekap/authorities/search?q= — DB'den kurum arama."""
 
@@ -201,6 +397,15 @@ class AuthoritySearchView(APIView):
         return api_response(data=AuthoritySerializer(qs[:take], many=True).data)
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="İl listesi",
+    description=(
+        "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve "
+        "`GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır."
+    ),
+    responses={200: CitySerializer(many=True)},
+)
 class CityListView(APIView):
     """GET /ekap/cities/ — il listesi."""
 

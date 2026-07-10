@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "IhaleTakip API",
-    "description": "Kamu ihalesi takip uygulaması backend servisi",
+    "description": "IhaleTakip API — kamu ihalesi takip uygulamasının backend servisi.\n\nBu koleksiyon `python manage.py gen_api_docs` ile **otomatik üretilir**; elle düzenlemeyin,\ndeğişiklikler bir sonraki üretimde kaybolur. Kaynak: view'lardaki `@extend_schema`.\n\n## Hızlı başlangıç\n\n1. `base_url` değişkenini ortamınıza göre ayarlayın (varsayılan `http://localhost:8000`).\n2. **auth → Giriş yap** isteğini çalıştırın. Başarılı yanıt `access_token` ve\n   `refresh_token` koleksiyon değişkenlerini otomatik doldurur.\n3. Diğer istekler `access_token`'ı Bearer header'ı olarak kalıtım yoluyla kullanır —\n   elle kopyalamanıza gerek yok.\n4. `access` token'ın ömrü 1 gündür. Dolduğunda **auth → Access token yenile** isteğini\n   çalıştırın; her iki değişken de tazelenir.\n\nKlasörler bu akışa göre sıralıdır, koleksiyonu Runner ile baştan sona çalıştırabilirsiniz.\nOturumu bitiren `Çıkış yap` ve `Hesabı devre dışı bırak` uçları bilerek en sondaki\n**oturum-sonu** klasörüne alınmıştır.\n\n## Yanıt zarfı\n\n**Tüm** yanıtlar aynı zarfta döner — asıl veri her zaman `data` içindedir:\n\n```json\n{ \"success\": true, \"message\": \"\", \"data\": { } }\n```\n\nHata durumunda `success: false`, `data: null` olur ve `message` açıklamayı, `errors` ise\n(varsa) alan bazlı doğrulama hatalarını taşır. Beklenmeyen sunucu hataları dahil her yanıt\nJSON'dur; ham HTML 500 dönmez.\n\n## Değişkenler\n\n| Değişken | Açıklama |\n|---|---|\n| `base_url` | API kök adresi, sonunda `/` olmadan |\n| `access_token` | Giriş/yenileme sonrası otomatik dolar |\n| `refresh_token` | Giriş/yenileme sonrası otomatik dolar; çıkış ve yenileme kullanır |\n\n## Test verileri\n\nİstek gövdeleri ve query parametreleri örnek değerlerle doldurulmuştur. Bunlar\n**örnektir** — `ekap_id`, `İKN`, `task_id` gibi değerleri kendi veritabanınızdaki gerçek\nkayıtlarla değiştirin. İsteğe bağlı query parametreleri varsayılan olarak **kapalı**\ngelir; kullanmak için Postman'de yanındaki kutuyu işaretleyin.\n",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -24,387 +24,57 @@
       "key": "access_token",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "ai",
+      "name": "health",
       "item": [
         {
-          "name": "api_v1_ai_analyze_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/ai/analyze/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "ai",
-                "analyze"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_ai_tasks_retrieve",
+          "name": "Sağlık kontrolü",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/ai/tasks/{task_id}/",
+              "raw": "{{base_url}}/health/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
-                "v1",
-                "ai",
-                "tasks",
-                ":task_id"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_ai_tts_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/ai/tts/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "ai",
-                "tts"
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "alarms",
-      "item": [
-        {
-          "name": "api_v1_alarms_list",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/alarms/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "alarms"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_alarms_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/alarms/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "alarms"
+                "health"
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"tender_id\": \"\",\n  \"tender_ikn\": \"\",\n  \"tender_title\": \"\",\n  \"institution\": \"\",\n  \"reminder_day\": false,\n  \"document_change\": false,\n  \"completed\": false,\n  \"created_at\": \"\",\n  \"updated_at\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "api_v1_alarms_retrieve",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/alarms/{tender_id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "alarms",
-                ":tender_id"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_alarms_destroy",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/alarms/{tender_id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "alarms",
-                ":tender_id"
-              ]
+            "description": "Load balancer / uptime izleme için basit sağlık kontrolü. Kimlik doğrulaması istemez ve `/api/v1` öneki **olmadan** `/health/` altındadır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
             }
           }
         }
-      ]
+      ],
+      "description": "Kimlik doğrulaması istemeyen sağlık kontrolü."
     },
     {
       "name": "auth",
       "item": [
         {
-          "name": "api_v1_auth_deactivate_create",
+          "name": "Kayıt ol",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/deactivate/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "deactivate"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_fcm_token_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/fcm-token/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "fcm-token"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_login_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/login/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "login"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Giriş yanıtındaki access token'ı koleksiyon değişkenine kaydet",
-                  "try {",
-                  "  const d = pm.response.json();",
-                  "  const t = (d.data && d.data.access) || d.access;",
-                  "  if (t) { pm.collectionVariables.set('access_token', t); }",
-                  "} catch (e) {}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "api_v1_auth_logout_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/logout/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "logout"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_preferences_partial_update",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/preferences/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "preferences"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_profile_retrieve",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/profile/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "profile"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_profile_partial_update",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/auth/profile/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "profile"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_auth_register_create",
-          "request": {
-            "method": "POST",
-            "header": [
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -421,6 +91,19 @@
                 "auth",
                 "register"
               ]
+            },
+            "description": "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"password\": \"Test1234!\",\n  \"display_name\": \"Test Kullanıcı\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -429,29 +112,38 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Giriş yanıtındaki access token'ı koleksiyon değişkenine kaydet",
+                  "// access + refresh token'ları koleksiyon değişkenlerine kaydet.",
+                  "// Global zarf nedeniyle token'lar `data` içindedir; zarfsız yanıta da tolerans var.",
                   "try {",
-                  "  const d = pm.response.json();",
-                  "  const t = (d.data && d.data.access) || d.access;",
-                  "  if (t) { pm.collectionVariables.set('access_token', t); }",
-                  "} catch (e) {}"
+                  "  const body = pm.response.json();",
+                  "  const d = (body && body.data) || body || {};",
+                  "  if (d.access) { pm.collectionVariables.set('access_token', d.access); }",
+                  "  if (d.refresh) { pm.collectionVariables.set('refresh_token', d.refresh); }",
+                  "  pm.test('token alindi', function () { pm.expect(d.access).to.be.a('string'); });",
+                  "} catch (e) {",
+                  "  console.log('Token yakalanamadi:', e);",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "api_v1_auth_social_apple_create",
+          "name": "Giriş yap",
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/social/apple/",
+              "raw": "{{base_url}}/api/v1/auth/login/",
               "host": [
                 "{{base_url}}"
               ],
@@ -459,9 +151,21 @@
                 "api",
                 "v1",
                 "auth",
-                "social",
-                "apple"
+                "login"
               ]
+            },
+            "description": "`username` **veya** `email` ile giriş yapılır (biri yeterli). Yanıttaki `access` token'ı `Authorization: Bearer <access>` header'ında kullanın.\n\nPostman'de bu istek başarılı olduğunda `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik doldurulur.\n\n---\n\n### Alternatif gövde örnekleri\n\n**KullanıcıAdıIle**\n\n```json\n{\n  \"username\": \"firat\",\n  \"password\": \"Test1234!\"\n}\n```\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"password\": \"Test1234!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -470,22 +174,31 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Giriş yanıtındaki access token'ı koleksiyon değişkenine kaydet",
+                  "// access + refresh token'ları koleksiyon değişkenlerine kaydet.",
+                  "// Global zarf nedeniyle token'lar `data` içindedir; zarfsız yanıta da tolerans var.",
                   "try {",
-                  "  const d = pm.response.json();",
-                  "  const t = (d.data && d.data.access) || d.access;",
-                  "  if (t) { pm.collectionVariables.set('access_token', t); }",
-                  "} catch (e) {}"
+                  "  const body = pm.response.json();",
+                  "  const d = (body && body.data) || body || {};",
+                  "  if (d.access) { pm.collectionVariables.set('access_token', d.access); }",
+                  "  if (d.refresh) { pm.collectionVariables.set('refresh_token', d.refresh); }",
+                  "  pm.test('token alindi', function () { pm.expect(d.access).to.be.a('string'); });",
+                  "} catch (e) {",
+                  "  console.log('Token yakalanamadi:', e);",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "api_v1_auth_social_google_create",
+          "name": "Google ile giriş",
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -503,6 +216,19 @@
                 "social",
                 "google"
               ]
+            },
+            "description": "İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir; sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIsImtpZCI6IjE2ZGE...google-id-token\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -511,22 +237,94 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Giriş yanıtındaki access token'ı koleksiyon değişkenine kaydet",
+                  "// access + refresh token'ları koleksiyon değişkenlerine kaydet.",
+                  "// Global zarf nedeniyle token'lar `data` içindedir; zarfsız yanıta da tolerans var.",
                   "try {",
-                  "  const d = pm.response.json();",
-                  "  const t = (d.data && d.data.access) || d.access;",
-                  "  if (t) { pm.collectionVariables.set('access_token', t); }",
-                  "} catch (e) {}"
+                  "  const body = pm.response.json();",
+                  "  const d = (body && body.data) || body || {};",
+                  "  if (d.access) { pm.collectionVariables.set('access_token', d.access); }",
+                  "  if (d.refresh) { pm.collectionVariables.set('refresh_token', d.refresh); }",
+                  "  pm.test('token alindi', function () { pm.expect(d.access).to.be.a('string'); });",
+                  "} catch (e) {",
+                  "  console.log('Token yakalanamadi:', e);",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "api_v1_auth_token_refresh_create",
+          "name": "Apple ile giriş",
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/social/apple/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "social",
+                "apple"
+              ]
+            },
+            "description": "İstemci `@invertase/react-native-apple-authentication` ile aldığı `identity_token`'ı gönderir; sunucu Apple public key'leriyle doğrular (audience `com.envisoft.ihaletakip`).\n\nApple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name` alanında iletmezse isim kalıcı olarak kaybolur.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identity_token\": \"eyJraWQiOiJXNldjT0tCIiwiYWxnIjoiUlMyNTYifQ...apple-identity-token\",\n  \"full_name\": \"Test Kullanıcı\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// access + refresh token'ları koleksiyon değişkenlerine kaydet.",
+                  "// Global zarf nedeniyle token'lar `data` içindedir; zarfsız yanıta da tolerans var.",
+                  "try {",
+                  "  const body = pm.response.json();",
+                  "  const d = (body && body.data) || body || {};",
+                  "  if (d.access) { pm.collectionVariables.set('access_token', d.access); }",
+                  "  if (d.refresh) { pm.collectionVariables.set('refresh_token', d.refresh); }",
+                  "  pm.test('token alindi', function () { pm.expect(d.access).to.be.a('string'); });",
+                  "} catch (e) {",
+                  "  console.log('Token yakalanamadi:', e);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Access token yenile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -545,9 +343,173 @@
                 "refresh"
               ]
             },
+            "description": "Süresi dolan `access` token'ı `refresh` ile yeniler.\n\n**Rotasyon açıktır** (`ROTATE_REFRESH_TOKENS`): yanıt yeni bir `access` ile birlikte **yeni bir `refresh`** de döner ve gönderdiğiniz eski `refresh` anında kara listeye alınır. İstemci sakladığı refresh token'ı her yenilemede güncellemelidir; eskisini tekrar kullanmak `401` verir.\n\nBu uç kimlik doğrulaması istemez — `refresh` token'ın kendisi yeterlidir.\n\nPostman'de başarılı yanıt `access_token` ve `refresh_token` değişkenlerini otomatik günceller.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"access\": \"\",\n  \"refresh\": \"\"\n}",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// access + refresh token'ları koleksiyon değişkenlerine kaydet.",
+                  "// Global zarf nedeniyle token'lar `data` içindedir; zarfsız yanıta da tolerans var.",
+                  "try {",
+                  "  const body = pm.response.json();",
+                  "  const d = (body && body.data) || body || {};",
+                  "  if (d.access) { pm.collectionVariables.set('access_token', d.access); }",
+                  "  if (d.refresh) { pm.collectionVariables.set('refresh_token', d.refresh); }",
+                  "  pm.test('token alindi', function () { pm.expect(d.access).to.be.a('string'); });",
+                  "} catch (e) {",
+                  "  console.log('Token yakalanamadi:', e);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profili getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "Oturum açmış kullanıcının profilini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Profili güncelle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url` ve `preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined` salt okunurdur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"display_name\": \"Fırat Badur\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Tercihleri güncelle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/preferences/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "preferences"
+              ]
+            },
+            "description": "`preferences` serbest biçimli bir JSON nesnesidir; gönderilen değer mevcut tercihlerin **yerine geçer** (birleştirme yapılmaz).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"preferences\": {\n    \"theme\": \"dark\",\n    \"notifications\": {\n      \"push\": true,\n      \"email\": false\n    },\n    \"default_cities\": [\n      251,\n      284\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "FCM token kaydet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/fcm-token/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "fcm-token"
+              ]
+            },
+            "description": "Push bildirimleri için cihazın Firebase Cloud Messaging token'ını kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre dışıdır, token yine de saklanır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcm_token\": \"fMEP0vJqR0m2Xy1s_example_device_token_abc123\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -556,23 +518,24 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Kayıt, giriş, sosyal giriş, token yenileme ve çıkış.\n\n**Önce `Giriş yap` isteğini çalıştırın** — `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik dolar, diğer tüm klasörler bunları kullanır."
     },
     {
       "name": "ekap",
       "item": [
         {
-          "name": "api_v1_ekap_authorities_search_retrieve",
+          "name": "İhale ara / listele",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/ekap/authorities/search/",
+              "raw": "{{base_url}}/api/v1/ekap/tenders/",
               "host": [
                 "{{base_url}}"
               ],
@@ -580,19 +543,208 @@
                 "api",
                 "v1",
                 "ekap",
-                "authorities",
-                "search"
+                "tenders"
+              ],
+              "query": [
+                {
+                  "key": "durum",
+                  "value": "2,3",
+                  "description": "İhale durumu id listesi.",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_baslangic",
+                  "value": "01.01.2026",
+                  "description": "İhale tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_bitis",
+                  "value": "31.12.2026",
+                  "description": "İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "il",
+                  "value": "251,284",
+                  "description": "EKAP il id listesi (virgülle). `GET /ekap/cities/` ile alın.",
+                  "disabled": true
+                },
+                {
+                  "key": "ilan_baslangic",
+                  "value": "01.01.2026",
+                  "description": "İlan tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "ilan_bitis",
+                  "value": "31.12.2026",
+                  "description": "İlan tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "ihaleTarihi",
+                  "description": "Sıralama alanı. Geçerli değerler: `ihaleTarihi`, `ilanTarihi`.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa numarası (1'den başlar).",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "10",
+                  "description": "Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "bilgisayar",
+                  "description": "İhale adında veya İKN'de geçen metin (kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
+                  "key": "siralamaTipi",
+                  "value": "desc",
+                  "description": "Sıralama yönü. Geçerli değerler: `asc`, `desc`.",
+                  "disabled": true
+                },
+                {
+                  "key": "tur",
+                  "value": "1,3",
+                  "description": "İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.",
+                  "disabled": true
+                },
+                {
+                  "key": "usul",
+                  "value": "1",
+                  "description": "İhale usulü id listesi (1-4).",
+                  "disabled": true
+                }
               ]
-            }
+            },
+            "description": "İhaleleri **kendi veritabanımızdan** arar — EKAP'a istek gitmez, rate limit yoktur. Alan adları EKAP'ın kendi adlandırmasıyla döner.\n\nYanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.\n\n`il`, `tur`, `usul` ve `durum` **virgülle ayrılmış id listesi** alır (ör. `tur=1,3`). Sayı olmayan değerler yok sayılır.\n\n**İhale türü (`tur`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık\n\n**İhale usulü (`usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · 3 Pazarlık (MD 21 F) · 4 Doğrudan Temin\n\n**İhale durumu (`durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · 15 Sonuç İlanı Yayımlanmış · 20 Sözleşme İmzalanmış\n\n**İl id'leri** EKAP'ın kendi il kodlarıdır (plaka değil!) — `GET /api/v1/ekap/cities/` ile alın. Örn. Ankara `251`, İstanbul `284`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_ekap_cities_retrieve",
+          "name": "İhale detayı",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key"
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** **EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\nView, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash içermeyen `ekap_id` kullanın."
+                }
+              ]
+            },
+            "description": "İhale detayını EKAP'ın ham detay şekliyle döner (`item` açılmış olarak).\n\nDetay veritabanında varsa oradan servis edilir; bayatsa arka planda yenilenir ve eldeki sürüm hemen döner. Detay hiç çekilmemişse EKAP'a **canlı** gidilir (bu istek yavaş olabilir) ve sonuç saklanır.\n\nEKAP'a ulaşılamaz ve elde eski bir kopya varsa `200` + `message: \"Detay güncel değil.\"` döner. Hiç kayıt yoksa `404`.\n\nYanıt `ilanList` alanını zaten içerir — ilanlar için ayrıca `/announcements/` çağırmanız gerekmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İhale ilanları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/announcements/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "announcements"
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** **EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\nView, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash içermeyen `ekap_id` kullanın."
+                }
+              ]
+            },
+            "description": "İhaleye ait ilanları veritabanından döner (`data.list`). İhale bulunamazsa hata değil, boş liste döner.\n\n**İlan tipleri:** 1 İhale İlanı · 2 Düzeltme İlanı · 3 İptal İlanı · 4 Sonuç İlanı · 5 Ön İlan · 10 Ön Yeterlik İlanı\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Belge indirme bağlantısı",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:ekap_id/document-url/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":ekap_id",
+                "document-url"
+              ],
+              "query": [
+                {
+                  "key": "islemId",
+                  "value": "1",
+                  "description": "EKAP belge işlem kimliği (`1` = ihale dokümanı).",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ekap_id",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** EKAP iç kimliği (İKN değil)."
+                }
+              ]
+            },
+            "description": "İhale dokümanının indirme bağlantısını döner (`data.url`). Bu URL EKAP tarafında **dinamik üretilir ve kısa ömürlüdür**, bu yüzden istek anında canlı olarak EKAP'a gidilir. Sonuç 5 dakika önbelleklenir.\n\nEKAP'a ulaşılamazsa `502` döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İl listesi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -607,16 +759,17 @@
                 "ekap",
                 "cities"
               ]
-            }
+            },
+            "description": "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve `GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_ekap_okas_search_retrieve",
+          "name": "OKAS kodu ara",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -631,22 +784,37 @@
                 "ekap",
                 "okas",
                 "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "bilgisayar",
+                  "description": "Kod öneki ya da ad içinde geçen metin.",
+                  "disabled": true
+                },
+                {
+                  "key": "take",
+                  "value": "50",
+                  "description": "Dönecek kayıt sayısı. **En fazla 200**.",
+                  "disabled": true
+                }
               ]
-            }
+            },
+            "description": "OKAS (Ortak Kamu Alım Sözlüğü) kodlarını arar. `q` koda **önek** olarak, Türkçe/İngilizce adlara **kısmi** olarak uygulanır. `q` boşsa ilk kayıtlar döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_ekap_tenders_retrieve",
+          "name": "İdare (kurum) ara",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/ekap/tenders/",
+              "raw": "{{base_url}}/api/v1/ekap/authorities/search/",
               "host": [
                 "{{base_url}}"
               ],
@@ -654,100 +822,155 @@
                 "api",
                 "v1",
                 "ekap",
-                "tenders"
+                "authorities",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "ankara büyükşehir",
+                  "description": "İdare adı ya da idare kodu öneki.",
+                  "disabled": true
+                },
+                {
+                  "key": "take",
+                  "value": "50",
+                  "description": "Dönecek kayıt sayısı. **En fazla 200**.",
+                  "disabled": true
+                }
               ]
-            }
+            },
+            "description": "İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare kodunda **önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
-        },
+        }
+      ],
+      "description": "İhale arama, detay, ilanlar, OKAS/idare/il referans verileri.\n\nVeriler kendi veritabanımızdan servis edilir; EKAP'a yalnızca detay ve belge bağlantısı için canlı gidilir."
+    },
+    {
+      "name": "ai",
+      "item": [
         {
-          "name": "api_v1_ekap_tenders_document_url_retrieve",
+          "name": "Doküman analizi başlat",
           "request": {
-            "method": "GET",
+            "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/ekap/tenders/{ekap_id}/document-url/",
+              "raw": "{{base_url}}/api/v1/ai/analyze/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "ekap",
-                "tenders",
-                ":ekap_id",
-                "document-url"
+                "ai",
+                "analyze"
               ]
+            },
+            "description": "Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu almak için `GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).\n\nİstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner (`{\"status\": \"completed\", \"cached\": true}`).\n\n**Zorunlu alanlar `analysis_type`'a göre değişir:**\n\n| analysis_type | Ek zorunlu alanlar |\n|---|---|\n| `tech_spec` | `file_base64`, `file_name` |\n| `admin_spec` | `file_base64`, `file_name` |\n| `cost_analysis` | `tender_meta` |\n| `generate_keywords` | `tender_meta` |\n\n`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` ham base64'tür (`data:` öneki olmadan).\n\n---\n\n### Alternatif gövde örnekleri\n\n**MaliyetAnalizi(meta)** — tender_meta gerektiren türler: cost_analysis, generate_keywords.\n\n```json\n{\n  \"analysis_type\": \"cost_analysis\",\n  \"ikn\": \"2025/1234567\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\",\n    \"ihaleTarihi\": \"23.03.2027 14:00\",\n    \"yaklasikMaliyet\": 2500000\n  },\n  \"similar_tenders\": [\n    {\n      \"ikn\": \"2024/1122334\",\n      \"sozlesmeBedeli\": 2310000\n    }\n  ]\n}\n```\n\n**AnahtarKelimeÜret**\n\n```json\n{\n  \"analysis_type\": \"generate_keywords\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\"\n  }\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"analysis_type\": \"tech_spec\",\n  \"file_name\": \"teknik_sartname.pdf\",\n  \"file_base64\": \"JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9GaWx0ZXI...\",\n  \"ikn\": \"2025/1234567\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
         {
-          "name": "api_v1_ekap_tenders_retrieve_2",
+          "name": "Analiz durumunu sorgula",
           "request": {
             "method": "GET",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/tasks/:task_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tasks",
+                ":task_id"
+              ],
+              "variable": [
+                {
+                  "key": "task_id",
+                  "value": "3f8c2b1a-7e4d-4a91-9c2f-8b6d5e1a0c33",
+                  "description": "**Zorunlu.** `POST /ai/analyze` yanıtındaki Celery görev kimliği (UUID)."
+                }
+              ]
+            },
+            "description": "`POST /ai/analyze` yanıtındaki `task_id` ile görevin durumunu döner.\n\n| `data.status` | HTTP | Anlamı |\n|---|---|---|\n| `pending` | 200 | Kuyrukta bekliyor |\n| `processing` | 200 | Worker işliyor |\n| `completed` | 200 | `data.analysis` ve `data.usage` dolu |\n| `failed` | 422 / 500 | `message` hatayı açıklar |\n\nİstemci `completed` veya `failed` görene kadar birkaç saniye aralıkla yoklar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Metni sese çevir (TTS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/ekap/tenders/{key}/",
+              "raw": "{{base_url}}/api/v1/ai/tts/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "ekap",
-                "tenders",
-                ":key"
+                "ai",
+                "tts"
               ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_ekap_tenders_announcements_retrieve",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
+            },
+            "description": "Google Cloud TTS ile metni seslendirir ve base64 kodlu ses döner (`data.audio_base64`). Kısa bir iş olduğu için **senkron** çalışır, kuyruğa alınmaz.\n\nSunucuda `GOOGLE_APPLICATION_CREDENTIALS` tanımlı değilse hata döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Bu ihale 23 Mart 2027 tarihinde saat 14:00'te yapılacaktır.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
               }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/ekap/tenders/{key}/announcements/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "ekap",
-                "tenders",
-                ":key",
-                "announcements"
-              ]
             }
           }
         }
-      ]
+      ],
+      "description": "Claude ile doküman analizi (asenkron, Celery) ve Google TTS seslendirme."
     },
     {
       "name": "favorites",
       "item": [
         {
-          "name": "api_v1_favorites_list",
+          "name": "Favorileri listele",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -761,14 +984,19 @@
                 "v1",
                 "favorites"
               ]
-            }
+            },
+            "description": "Oturum açmış kullanıcının favori ihalelerini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_favorites_create",
+          "name": "Favoriye ekle",
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -785,9 +1013,10 @@
                 "favorites"
               ]
             },
+            "description": "İhaleyi favorilere ekler. Aynı `tender_id` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"tender_id\": \"\",\n  \"tender_title\": \"\",\n  \"tender_type\": \"\",\n  \"source\": \"\",\n  \"added_at\": \"\"\n}",
+              "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"tender_type\": \"Mal Alımı\",\n  \"source\": \"ekap\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -797,17 +1026,17 @@
           }
         },
         {
-          "name": "api_v1_favorites_retrieve",
+          "name": "Favoride mi?",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/favorites/{tender_id}/",
+              "raw": "{{base_url}}/api/v1/favorites/:tender_id/",
               "host": [
                 "{{base_url}}"
               ],
@@ -816,22 +1045,30 @@
                 "v1",
                 "favorites",
                 ":tender_id"
+              ],
+              "variable": [
+                {
+                  "key": "tender_id",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** İhalenin EKAP iç kimliği (`ekap_id`)."
+                }
               ]
-            }
+            },
+            "description": "İhalenin kullanıcının favorilerinde olup olmadığını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_favorites_destroy",
+          "name": "Favoriden çıkar",
           "request": {
             "method": "DELETE",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/favorites/{tender_id}/",
+              "raw": "{{base_url}}/api/v1/favorites/:tender_id/",
               "host": [
                 "{{base_url}}"
               ],
@@ -840,48 +1077,514 @@
                 "v1",
                 "favorites",
                 ":tender_id"
+              ],
+              "variable": [
+                {
+                  "key": "tender_id",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** İhalenin EKAP iç kimliği (`ekap_id`)."
+                }
               ]
-            }
+            },
+            "description": "İhaleyi favorilerden siler. Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
-      ]
+      ],
+      "description": "Kullanıcının favori ihaleleri."
     },
     {
-      "name": "health",
+      "name": "saved-tenders",
       "item": [
         {
-          "name": "health_retrieve",
+          "name": "Kayıtlı ihaleleri listele",
           "request": {
             "method": "GET",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-tenders/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-tenders"
+              ]
+            },
+            "description": "Kullanıcının kaydettiği ihaleleri döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İhaleyi kaydet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/health/",
+              "raw": "{{base_url}}/api/v1/saved-tenders/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "health"
+                "api",
+                "v1",
+                "saved-tenders"
               ]
+            },
+            "description": "İhaleyi kayıtlılara ekler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"tender_type\": \"Mal Alımı\",\n  \"tender_status\": \"Katılıma Açık\",\n  \"tender_city\": \"ANKARA\",\n  \"tender_date\": \"23.03.2027 14:00\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
+        },
+        {
+          "name": "Kayıtlı mı?",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-tenders/:ikn/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-tenders",
+                ":ikn"
+              ],
+              "variable": [
+                {
+                  "key": "ikn",
+                  "value": "2025/1234567",
+                  "description": "**Zorunlu.** İhale Kayıt Numarası (ör. `2025/1234567`). İçerdiği `/` olduğu gibi gönderilebilir; kodlanmış biçim (`2025%2F1234567`) de kabul edilir."
+                }
+              ]
+            },
+            "description": "İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Kaydı sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-tenders/:ikn/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-tenders",
+                ":ikn"
+              ],
+              "variable": [
+                {
+                  "key": "ikn",
+                  "value": "2025/1234567",
+                  "description": "**Zorunlu.** İhale Kayıt Numarası (ör. `2025/1234567`). İçerdiği `/` olduğu gibi gönderilebilir; kodlanmış biçim (`2025%2F1234567`) de kabul edilir."
+                }
+              ]
+            },
+            "description": "İhaleyi kayıtlılardan siler. Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
         }
-      ]
+      ],
+      "description": "Kullanıcının kaydettiği ihaleler (İKN ile anahtarlanır)."
+    },
+    {
+      "name": "saved-filters",
+      "item": [
+        {
+          "name": "Kayıtlı filtreleri listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters"
+              ]
+            },
+            "description": "Kullanıcının kaydettiği arama filtrelerini döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Filtre kaydet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters"
+              ]
+            },
+            "description": "Yeni bir arama filtresi kaydeder.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Filtreyi getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** Kayıtlı filtrenin veritabanı kimliği."
+                }
+              ]
+            },
+            "description": "Tek bir kayıtlı filtreyi döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Filtreyi değiştir",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** Kayıtlı filtrenin veritabanı kimliği."
+                }
+              ]
+            },
+            "description": "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Filtreyi kısmi güncelle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** Kayıtlı filtrenin veritabanı kimliği."
+                }
+              ]
+            },
+            "description": "Yalnızca gönderilen alanları günceller.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Filtreyi sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/saved-filters/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "saved-filters",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** Kayıtlı filtrenin veritabanı kimliği."
+                }
+              ]
+            },
+            "description": "Filtreyi siler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ],
+      "description": "Kaydedilmiş arama filtreleri; `alarm=true` ise eşleşmelerde bildirim üretir."
+    },
+    {
+      "name": "alarms",
+      "item": [
+        {
+          "name": "Alarmları listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alarms/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alarms"
+              ]
+            },
+            "description": "Kullanıcının kurduğu ihale alarmlarını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Alarm kur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alarms/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alarms"
+              ]
+            },
+            "description": "İhale için alarm kurar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\",\n  \"reminder_day\": true,\n  \"document_change\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Alarmı getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alarms/:tender_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alarms",
+                ":tender_id"
+              ],
+              "variable": [
+                {
+                  "key": "tender_id",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** İhalenin EKAP iç kimliği (`ekap_id`)."
+                }
+              ]
+            },
+            "description": "İhaleye kurulu alarmı döner. Alarm yoksa `data` alanı `null` olur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Alarmı sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/alarms/:tender_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alarms",
+                ":tender_id"
+              ],
+              "variable": [
+                {
+                  "key": "tender_id",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** İhalenin EKAP iç kimliği (`ekap_id`)."
+                }
+              ]
+            },
+            "description": "İhale alarmını siler. Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ],
+      "description": "İhale alarmları — ihale günü ve doküman değişikliği bildirimleri."
     },
     {
       "name": "notifications",
       "item": [
         {
-          "name": "api_v1_notifications_list",
+          "name": "Bildirimleri listele",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -895,65 +1598,17 @@
                 "v1",
                 "notifications"
               ]
-            }
+            },
+            "description": "Kullanıcının bildirimlerini döner (okunmuş + okunmamış). Bildirimler alarm ve kayıtlı filtre eşleşmelerinden üretilir; eski bildirimler günlük Celery görevi ile temizlenir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_notifications_read_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/notifications/{notification_id}/read/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                ":notification_id",
-                "read"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_notifications_read_all_create",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/notifications/read-all/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                "read-all"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_notifications_unread_count_retrieve",
+          "name": "Okunmamış bildirim sayısı",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -968,303 +1623,81 @@
                 "notifications",
                 "unread-count"
               ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "saved-filters",
-      "item": [
-        {
-          "name": "api_v1_saved_filters_list",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-filters"
-              ]
-            }
+            },
+            "description": "Rozet (badge) göstermek için okunmamış bildirim sayısını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_saved_filters_create",
+          "name": "Bildirimi okundu işaretle",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/",
+              "raw": "{{base_url}}/api/v1/notifications/:notification_id/read/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "saved-filters"
+                "notifications",
+                ":notification_id",
+                "read"
+              ],
+              "variable": [
+                {
+                  "key": "notification_id",
+                  "value": "1",
+                  "description": "**Zorunlu.** Bildirimin veritabanı kimliği."
+                }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"name\": \"\",\n  \"filters\": \"\",\n  \"tags\": \"\",\n  \"alarm\": \"\",\n  \"created_at\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
+            "description": "Tek bir bildirimi okundu yapar. `data.updated` güncellenen kayıt sayısıdır — bildirim yoksa veya başkasına aitse `0` döner (hata değil).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_saved_filters_retrieve",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/{id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-filters",
-                ":id"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_filters_update",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/{id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-filters",
-                ":id"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"name\": \"\",\n  \"filters\": \"\",\n  \"tags\": \"\",\n  \"alarm\": \"\",\n  \"created_at\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_filters_partial_update",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/{id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-filters",
-                ":id"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"name\": \"\",\n  \"filters\": \"\",\n  \"tags\": \"\",\n  \"alarm\": \"\",\n  \"created_at\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_filters_destroy",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-filters/{id}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-filters",
-                ":id"
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "saved-tenders",
-      "item": [
-        {
-          "name": "api_v1_saved_tenders_list",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-tenders/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-tenders"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_tenders_create",
+          "name": "Tümünü okundu işaretle",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/saved-tenders/",
+              "raw": "{{base_url}}/api/v1/notifications/read-all/",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "saved-tenders"
+                "notifications",
+                "read-all"
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"tender_id\": \"\",\n  \"tender_ikn\": \"\",\n  \"tender_title\": \"\",\n  \"tender_type\": \"\",\n  \"tender_status\": \"\",\n  \"tender_city\": \"\",\n  \"tender_date\": \"\",\n  \"institution\": \"\",\n  \"saved_at\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_tenders_retrieve",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-tenders/{ikn}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-tenders",
-                ":ikn"
-              ]
-            }
-          }
-        },
-        {
-          "name": "api_v1_saved_tenders_destroy",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/saved-tenders/{ikn}/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "saved-tenders",
-                ":ikn"
-              ]
-            }
+            "description": "Kullanıcının okunmamış tüm bildirimlerini okundu yapar. Gövde gerektirmez. `data.updated` güncellenen kayıt sayısıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
-      ]
+      ],
+      "description": "Alarm ve filtre eşleşmelerinden üretilen bildirimler."
     },
     {
       "name": "support",
       "item": [
         {
-          "name": "api_v1_support_list",
+          "name": "Destek taleplerini listele",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Content-Type",
+                "key": "Accept",
                 "value": "application/json"
               }
             ],
@@ -1278,14 +1711,19 @@
                 "v1",
                 "support"
               ]
-            }
+            },
+            "description": "Kullanıcının açtığı destek taleplerini ve varsa yanıtlarını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
-          "name": "api_v1_support_create",
+          "name": "Destek talebi aç",
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -1302,9 +1740,10 @@
                 "support"
               ]
             },
+            "description": "Yeni bir destek talebi oluşturur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"id\": 0,\n  \"email\": \"\",\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"status\": \"\",\n  \"reply\": \"\",\n  \"created_at\": \"\"\n}",
+              "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"phone\": \"05551234567\",\n  \"message\": \"Analiz sonucu gelmiyor, yardımcı olabilir misiniz?\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1313,7 +1752,77 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Destek talepleri."
+    },
+    {
+      "name": "oturum-sonu",
+      "item": [
+        {
+          "name": "Çıkış yap",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Gönderilen `refresh` token'ı kara listeye alır.\n\n**Dikkat:** Bu endpoint kimlik doğrulaması ister — gövdedeki `refresh`'in yanında geçerli bir `Authorization: Bearer <access>` header'ı da gerekir.\n\nKara liste yalnızca refresh token'ları kapsar; mevcut `access` token kendi ömrü (1 gün) dolana kadar geçerli kalmaya devam eder — istemci onu cihazdan silmelidir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Hesabı devre dışı bırak",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/deactivate/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "deactivate"
+              ]
+            },
+            "description": "Hesabı pasifleştirir (`is_active=False`). Kayıtlar silinmez, ancak kullanıcı bir daha giriş yapamaz — login `403` döner. Gövde gerektirmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ],
+      "description": "Oturumu sonlandıran uçlar — **kasıtlı olarak en sonda**.\n\n`Çıkış yap` refresh token'ı kara listeye alır, `Hesabı devre dışı bırak` ise hesabı kapatır ve sonraki tüm istekler `401` döner. Koleksiyonu baştan sona çalıştırıyorsanız bu klasör en son çalışmalıdır."
     }
   ]
 }

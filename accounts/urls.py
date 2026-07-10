@@ -1,10 +1,10 @@
 """accounts URL'leri — /api/v1/auth/..."""
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     AppleLoginView,
     DeactivateView,
+    DocumentedTokenRefreshView,
     FCMTokenView,
     GoogleLoginView,
     LoginView,
@@ -18,7 +18,7 @@ urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+    path("token/refresh/", DocumentedTokenRefreshView.as_view(), name="token-refresh"),
     path("social/google/", GoogleLoginView.as_view(), name="google-login"),
     path("social/apple/", AppleLoginView.as_view(), name="apple-login"),
     path("profile/", ProfileView.as_view(), name="profile"),

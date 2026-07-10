@@ -7,51 +7,185 @@ paths:
   /api/v1/ai/analyze/:
     post:
       operationId: api_v1_ai_analyze_create
-      description: POST /ai/analyze — analizi kuyruğa alır (cache varsa anında döner).
+      description: 'Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu
+        almak için `GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).
+
+
+        İstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce
+        hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner (`{"status":
+        "completed", "cached": true}`).
+
+
+        **Zorunlu alanlar `analysis_type`''a göre değişir:**
+
+
+        | analysis_type | Ek zorunlu alanlar |
+
+        |---|---|
+
+        | `tech_spec` | `file_base64`, `file_name` |
+
+        | `admin_spec` | `file_base64`, `file_name` |
+
+        | `cost_analysis` | `tender_meta` |
+
+        | `generate_keywords` | `tender_meta` |
+
+
+        `.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64`
+        ham base64''tür (`data:` öneki olmadan).'
+      summary: Doküman analizi başlat
       tags:
-      - api
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+            examples:
+              TeknikŞartname(dosya):
+                value:
+                  analysis_type: tech_spec
+                  file_name: teknik_sartname.pdf
+                  file_base64: JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9GaWx0ZXI...
+                  ikn: 2025/1234567
+                summary: Teknik şartname (dosya)
+                description: 'Dosya gerektiren türler: tech_spec, admin_spec.'
+              MaliyetAnalizi(meta):
+                value:
+                  analysis_type: cost_analysis
+                  ikn: 2025/1234567
+                  tender_meta:
+                    ihaleAdi: Bilgisayar ve Çevre Birimi Alımı
+                    idareAdi: Ankara Büyükşehir Belediyesi
+                    ihaleTarihi: 23.03.2027 14:00
+                    yaklasikMaliyet: 2500000
+                  similar_tenders:
+                  - ikn: 2024/1122334
+                    sozlesmeBedeli: 2310000
+                summary: Maliyet analizi (meta)
+                description: 'tender_meta gerektiren türler: cost_analysis, generate_keywords.'
+              AnahtarKelimeÜret:
+                value:
+                  analysis_type: generate_keywords
+                  tender_meta:
+                    ihaleAdi: Bilgisayar ve Çevre Birimi Alımı
+                    idareAdi: Ankara Büyükşehir Belediyesi
+                summary: Anahtar kelime üret
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+        required: true
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+          description: ''
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskQueued'
+          description: ''
   /api/v1/ai/tasks/{task_id}/:
     get:
       operationId: api_v1_ai_tasks_retrieve
-      description: GET /ai/tasks/{task_id} — Celery görev durumunu/sonucunu döndürür.
+      description: '`POST /ai/analyze` yanıtındaki `task_id` ile görevin durumunu
+        döner.
+
+
+        | `data.status` | HTTP | Anlamı |
+
+        |---|---|---|
+
+        | `pending` | 200 | Kuyrukta bekliyor |
+
+        | `processing` | 200 | Worker işliyor |
+
+        | `completed` | 200 | `data.analysis` ve `data.usage` dolu |
+
+        | `failed` | 422 / 500 | `message` hatayı açıklar |
+
+
+        İstemci `completed` veya `failed` görene kadar birkaç saniye aralıkla yoklar.'
+      summary: Analiz durumunu sorgula
       parameters:
       - in: path
         name: task_id
         schema:
           type: string
+        description: '`POST /ai/analyze` yanıtındaki Celery görev kimliği (UUID).'
         required: true
+        examples:
+          GörevKimliği:
+            value: 3f8c2b1a-7e4d-4a91-9c2f-8b6d5e1a0c33
+            summary: Görev kimliği
       tags:
-      - api
+      - ai
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+          description: ''
   /api/v1/ai/tts/:
     post:
       operationId: api_v1_ai_tts_create
-      description: POST /ai/tts — metni sese çevirir (senkron).
+      description: 'Google Cloud TTS ile metni seslendirir ve base64 kodlu ses döner
+        (`data.audio_base64`). Kısa bir iş olduğu için **senkron** çalışır, kuyruğa
+        alınmaz.
+
+
+        Sunucuda `GOOGLE_APPLICATION_CREDENTIALS` tanımlı değilse hata döner.'
+      summary: Metni sese çevir (TTS)
       tags:
-      - api
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TTSRequest'
+            examples:
+              KısaMetin:
+                value:
+                  text: Bu ihale 23 Mart 2027 tarihinde saat 14:00'te yapılacaktır.
+                summary: Kısa metin
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TTSRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TTSRequest'
+        required: true
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TTSResult'
+          description: ''
   /api/v1/alarms/:
     get:
       operationId: api_v1_alarms_list
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Kullanıcının kurduğu ihale alarmlarını döner.
+      summary: Alarmları listele
       tags:
-      - api
+      - alarms
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -66,14 +200,28 @@ paths:
           description: ''
     post:
       operationId: api_v1_alarms_create
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: İhale için alarm kurar.
+      summary: Alarm kur
       tags:
-      - api
+      - alarms
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TenderAlarm'
+            examples:
+              İhaleAlarmıKur:
+                value:
+                  tender_id: '1234567'
+                  tender_ikn: 2025/1234567
+                  tender_title: Bilgisayar ve Çevre Birimi Alımı
+                  institution: Ankara Büyükşehir Belediyesi
+                  reminder_day: true
+                  document_change: true
+                summary: İhale alarmı kur
+                description: '`reminder_day` ihale gününde, `document_change` doküman
+                  değişince bildirim üretir. Alarmlar saatlik Celery görevi ile kontrol
+                  edilir. Aynı `tender_id` tekrar gönderilirse kayıt güncellenir (upsert).'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/TenderAlarm'
@@ -94,30 +242,48 @@ paths:
   /api/v1/alarms/{tender_id}/:
     get:
       operationId: api_v1_alarms_retrieve
+      description: İhaleye kurulu alarmı döner. Alarm yoksa `data` alanı `null` olur.
+      summary: Alarmı getir
       parameters:
       - in: path
         name: tender_id
         schema:
           type: string
+        description: İhalenin EKAP iç kimliği (`ekap_id`).
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - alarms
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderAlarm'
+          description: ''
     delete:
       operationId: api_v1_alarms_destroy
+      description: İhale alarmını siler. Kayıt yoksa da `204` döner (idempotent).
+      summary: Alarmı sil
       parameters:
       - in: path
         name: tender_id
         schema:
           type: string
+        description: İhalenin EKAP iç kimliği (`ekap_id`).
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - alarms
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -127,140 +293,394 @@ paths:
   /api/v1/auth/deactivate/:
     post:
       operationId: api_v1_auth_deactivate_create
-      description: POST /auth/deactivate — hesabı devre dışı bırak.
+      description: Hesabı pasifleştirir (`is_active=False`). Kayıtlar silinmez, ancak
+        kullanıcı bir daha giriş yapamaz — login `403` döner. Gövde gerektirmez.
+      summary: Hesabı devre dışı bırak
       tags:
-      - api
+      - auth
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/fcm-token/:
     post:
       operationId: api_v1_auth_fcm_token_create
-      description: POST /auth/fcm-token — push bildirim token'ını kaydet.
+      description: Push bildirimleri için cihazın Firebase Cloud Messaging token'ını
+        kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre
+        dışıdır, token yine de saklanır.
+      summary: FCM token kaydet
       tags:
-      - api
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FCMToken'
+            examples:
+              CihazToken'ı:
+                value:
+                  fcm_token: fMEP0vJqR0m2Xy1s_example_device_token_abc123
+                summary: Cihaz token'ı
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FCMToken'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FCMToken'
+        required: true
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/login/:
     post:
       operationId: api_v1_auth_login_create
-      description: POST /auth/login — username veya email + şifre ile giriş.
+      description: '`username` **veya** `email` ile giriş yapılır (biri yeterli).
+        Yanıttaki `access` token''ı `Authorization: Bearer <access>` header''ında
+        kullanın.
+
+
+        Postman''de bu istek başarılı olduğunda `access_token` ve `refresh_token`
+        koleksiyon değişkenleri otomatik doldurulur.'
+      summary: Giriş yap
       tags:
-      - api
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+            examples:
+              E-postaIle:
+                value:
+                  email: test@ihaletakip.com
+                  password: Test1234!
+                summary: E-posta ile
+              KullanıcıAdıIle:
+                value:
+                  username: firat
+                  password: Test1234!
+                summary: Kullanıcı adı ile
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/logout/:
     post:
       operationId: api_v1_auth_logout_create
-      description: POST /auth/logout — {refresh} token'ı kara listeye al.
+      description: 'Gönderilen `refresh` token''ı kara listeye alır.
+
+
+        **Dikkat:** Bu endpoint kimlik doğrulaması ister — gövdedeki `refresh`''in
+        yanında geçerli bir `Authorization: Bearer <access>` header''ı da gerekir.
+
+
+        Kara liste yalnızca refresh token''ları kapsar; mevcut `access` token kendi
+        ömrü (1 gün) dolana kadar geçerli kalmaya devam eder — istemci onu cihazdan
+        silmelidir.'
+      summary: Çıkış yap
       tags:
-      - api
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+            examples:
+              RefreshTokenIle:
+                value:
+                  refresh: '{{refresh_token}}'
+                summary: Refresh token ile
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
-        '200':
-          description: No response body
+        '205':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/preferences/:
     patch:
       operationId: api_v1_auth_preferences_partial_update
-      description: PATCH /auth/preferences — tercihleri güncelle.
+      description: '`preferences` serbest biçimli bir JSON nesnesidir; gönderilen
+        değer mevcut tercihlerin **yerine geçer** (birleştirme yapılmaz).'
+      summary: Tercihleri güncelle
       tags:
-      - api
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferences'
+            examples:
+              Bildirim+TemaTercihleri:
+                value:
+                  preferences:
+                    theme: dark
+                    notifications:
+                      push: true
+                      email: false
+                    default_cities:
+                    - 251
+                    - 284
+                summary: Bildirim + tema tercihleri
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferences'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferences'
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+          description: ''
   /api/v1/auth/profile/:
     get:
       operationId: api_v1_auth_profile_retrieve
-      description: GET/PATCH /auth/profile — profil görüntüle/güncelle.
+      description: Oturum açmış kullanıcının profilini döner.
+      summary: Profili getir
       tags:
-      - api
+      - auth
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
     patch:
       operationId: api_v1_auth_profile_partial_update
-      description: GET/PATCH /auth/profile — profil görüntüle/güncelle.
+      description: Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url`
+        ve `preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined`
+        salt okunurdur.
+      summary: Profili güncelle
       tags:
-      - api
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+            examples:
+              İsimGüncelle:
+                value:
+                  display_name: Fırat Badur
+                summary: İsim güncelle
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
   /api/v1/auth/register/:
     post:
       operationId: api_v1_auth_register_create
-      description: POST /auth/register — e-posta + şifre ile kayıt.
+      description: E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh`
+        token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter
+        olmalıdır.
+      summary: Kayıt ol
       tags:
-      - api
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Register'
+            examples:
+              YeniKullanıcı:
+                value:
+                  email: test@ihaletakip.com
+                  password: Test1234!
+                  display_name: Test Kullanıcı
+                summary: Yeni kullanıcı
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Register'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Register'
+        required: true
       responses:
-        '200':
-          description: No response body
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
   /api/v1/auth/social/apple/:
     post:
       operationId: api_v1_auth_social_apple_create
-      description: POST /auth/social/apple — {identity_token, full_name?} ile giriş.
+      description: 'İstemci `@invertase/react-native-apple-authentication` ile aldığı
+        `identity_token`''ı gönderir; sunucu Apple public key''leriyle doğrular (audience
+        `com.envisoft.ihaletakip`).
+
+
+        Apple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name`
+        alanında iletmezse isim kalıcı olarak kaybolur.'
+      summary: Apple ile giriş
       tags:
-      - api
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleLogin'
+            examples:
+              AppleIdentityToken:
+                value:
+                  identity_token: eyJraWQiOiJXNldjT0tCIiwiYWxnIjoiUlMyNTYifQ...apple-identity-token
+                  full_name: Test Kullanıcı
+                summary: Apple identity token
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppleLogin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppleLogin'
+        required: true
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/social/google/:
     post:
       operationId: api_v1_auth_social_google_create
-      description: POST /auth/social/google — {id_token} ile giriş.
+      description: İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir;
+        sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).
+      summary: Google ile giriş
       tags:
-      - api
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+            examples:
+              GoogleIDToken:
+                value:
+                  id_token: eyJhbGciOiJSUzI1NiIsImtpZCI6IjE2ZGE...google-id-token
+                summary: Google ID token
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+        required: true
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+          description: ''
   /api/v1/auth/token/refresh/:
     post:
       operationId: api_v1_auth_token_refresh_create
-      description: 'Takes a refresh type JSON web token and returns an access type
-        JSON web
+      description: 'Süresi dolan `access` token''ı `refresh` ile yeniler.
 
-        token if the refresh token is valid.'
+
+        **Rotasyon açıktır** (`ROTATE_REFRESH_TOKENS`): yanıt yeni bir `access` ile
+        birlikte **yeni bir `refresh`** de döner ve gönderdiğiniz eski `refresh` anında
+        kara listeye alınır. İstemci sakladığı refresh token''ı her yenilemede güncellemelidir;
+        eskisini tekrar kullanmak `401` verir.
+
+
+        Bu uç kimlik doğrulaması istemez — `refresh` token''ın kendisi yeterlidir.
+
+
+        Postman''de başarılı yanıt `access_token` ve `refresh_token` değişkenlerini
+        otomatik günceller.'
+      summary: Access token yenile
       tags:
-      - api
+      - auth
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TokenRefresh'
+            examples:
+              RefreshTokenIle:
+                value:
+                  refresh: '{{refresh_token}}'
+                summary: Refresh token ile
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/TokenRefresh'
@@ -277,46 +697,244 @@ paths:
           description: ''
   /api/v1/ekap/authorities/search/:
     get:
-      operationId: api_v1_ekap_authorities_search_retrieve
-      description: GET /ekap/authorities/search?q= — DB'den kurum arama.
+      operationId: api_v1_ekap_authorities_search_list
+      description: İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare
+        kodunda **önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner.
+      summary: İdare (kurum) ara
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: İdare adı ya da idare kodu öneki.
+        examples:
+          KurumAdı:
+            value: ankara büyükşehir
+            summary: Kurum adı
+      - in: query
+        name: take
+        schema:
+          type: integer
+          default: 50
+        description: Dönecek kayıt sayısı. **En fazla 200**.
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Authority'
+          description: ''
   /api/v1/ekap/cities/:
     get:
-      operationId: api_v1_ekap_cities_retrieve
-      description: GET /ekap/cities/ — il listesi.
+      operationId: api_v1_ekap_cities_list
+      description: 81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka
+        değil) ve `GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka
+        ayrı bir alandır.
+      summary: İl listesi
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/City'
+          description: ''
   /api/v1/ekap/okas/search/:
     get:
-      operationId: api_v1_ekap_okas_search_retrieve
-      description: GET /ekap/okas/search?q= — DB'den OKAS arama.
+      operationId: api_v1_ekap_okas_search_list
+      description: OKAS (Ortak Kamu Alım Sözlüğü) kodlarını arar. `q` koda **önek**
+        olarak, Türkçe/İngilizce adlara **kısmi** olarak uygulanır. `q` boşsa ilk
+        kayıtlar döner.
+      summary: OKAS kodu ara
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Kod öneki ya da ad içinde geçen metin.
+        examples:
+          AdIle:
+            value: bilgisayar
+            summary: Ad ile
+          KodÖnekiIle:
+            value: '30200000'
+            summary: Kod öneki ile
+      - in: query
+        name: take
+        schema:
+          type: integer
+          default: 50
+        description: Dönecek kayıt sayısı. **En fazla 200**.
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OkasCode'
+          description: ''
   /api/v1/ekap/tenders/:
     get:
-      operationId: api_v1_ekap_tenders_retrieve
-      description: GET /ekap/tenders/ — DB'den arama/filtre/sıralama/pagination.
+      operationId: api_v1_ekap_tenders_list
+      description: 'İhaleleri **kendi veritabanımızdan** arar — EKAP''a istek gitmez,
+        rate limit yoktur. Alan adları EKAP''ın kendi adlandırmasıyla döner.
+
+
+        Yanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.
+
+
+        `il`, `tur`, `usul` ve `durum` **virgülle ayrılmış id listesi** alır (ör.
+        `tur=1,3`). Sayı olmayan değerler yok sayılır.
+
+
+        **İhale türü (`tur`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık
+
+
+        **İhale usulü (`usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · 3 Pazarlık
+        (MD 21 F) · 4 Doğrudan Temin
+
+
+        **İhale durumu (`durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme
+        Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · 15 Sonuç İlanı Yayımlanmış
+        · 20 Sözleşme İmzalanmış
+
+
+        **İl id''leri** EKAP''ın kendi il kodlarıdır (plaka değil!) — `GET /api/v1/ekap/cities/`
+        ile alın. Örn. Ankara `251`, İstanbul `284`.'
+      summary: İhale ara / listele
+      parameters:
+      - in: query
+        name: durum
+        schema:
+          type: string
+        description: İhale durumu id listesi.
+        examples:
+          KatılımaAçık:
+            value: 2,3
+            summary: Katılıma açık
+      - in: query
+        name: ihale_baslangic
+        schema:
+          type: string
+        description: İhale tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
+          ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 01.01.2026
+      - in: query
+        name: ihale_bitis
+        schema:
+          type: string
+        description: İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
+          ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 31.12.2026
+      - in: query
+        name: il
+        schema:
+          type: string
+        description: EKAP il id listesi (virgülle). `GET /ekap/cities/` ile alın.
+        examples:
+          Ankara+İstanbul:
+            value: 251,284
+            summary: Ankara + İstanbul
+      - in: query
+        name: ilan_baslangic
+        schema:
+          type: string
+        description: İlan tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
+          ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 01.01.2026
+      - in: query
+        name: ilan_bitis
+        schema:
+          type: string
+        description: İlan tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
+          ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 31.12.2026
+      - in: query
+        name: order
+        schema:
+          type: string
+          enum:
+          - ihaleTarihi
+          - ilanTarihi
+          default: ihaleTarihi
+        description: Sıralama alanı.
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+        description: Sayfa numarası (1'den başlar).
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 10
+        description: Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: İhale adında veya İKN'de geçen metin (kısmi eşleşme).
+        examples:
+          MetinArama:
+            value: bilgisayar
+            summary: Metin arama
+      - in: query
+        name: siralamaTipi
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+        description: Sıralama yönü.
+      - in: query
+        name: tur
+        schema:
+          type: string
+        description: 'İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.'
+        examples:
+          Mal+Hizmet:
+            value: 1,3
+            summary: Mal + Hizmet
+      - in: query
+        name: usul
+        schema:
+          type: string
+        description: İhale usulü id listesi (1-4).
+        examples:
+          AçıkIhale:
+            value: '1'
+            summary: Açık ihale
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -326,52 +944,127 @@ paths:
   /api/v1/ekap/tenders/{ekap_id}/document-url/:
     get:
       operationId: api_v1_ekap_tenders_document_url_retrieve
-      description: GET /ekap/tenders/{ekap_id}/document-url/ — canlı proxy (dinamik
-        URL).
+      description: 'İhale dokümanının indirme bağlantısını döner (`data.url`). Bu
+        URL EKAP tarafında **dinamik üretilir ve kısa ömürlüdür**, bu yüzden istek
+        anında canlı olarak EKAP''a gidilir. Sonuç 5 dakika önbelleklenir.
+
+
+        EKAP''a ulaşılamazsa `502` döner.'
+      summary: Belge indirme bağlantısı
       parameters:
       - in: path
         name: ekap_id
         schema:
           type: string
+        description: EKAP iç kimliği (İKN değil).
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
+      - in: query
+        name: islemId
+        schema:
+          type: string
+          default: '1'
+        description: EKAP belge işlem kimliği (`1` = ihale dokümanı).
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentUrl'
+          description: ''
   /api/v1/ekap/tenders/{key}/:
     get:
-      operationId: api_v1_ekap_tenders_retrieve_2
-      description: GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde).
+      operationId: api_v1_ekap_tenders_retrieve
+      description: 'İhale detayını EKAP''ın ham detay şekliyle döner (`item` açılmış
+        olarak).
+
+
+        Detay veritabanında varsa oradan servis edilir; bayatsa arka planda yenilenir
+        ve eldeki sürüm hemen döner. Detay hiç çekilmemişse EKAP''a **canlı** gidilir
+        (bu istek yavaş olabilir) ve sonuç saklanır.
+
+
+        EKAP''a ulaşılamaz ve elde eski bir kopya varsa `200` + `message: "Detay güncel
+        değil."` döner. Hiç kayıt yoksa `404`.
+
+
+        Yanıt `ilanList` alanını zaten içerir — ilanlar için ayrıca `/announcements/`
+        çağırmanız gerekmez.'
+      summary: İhale detayı
       parameters:
       - in: path
         name: key
         schema:
           type: string
+        description: '**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.
+
+
+          View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez
+          ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar).
+          Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash
+          içermeyen `ekap_id` kullanın.'
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/tenders/{key}/announcements/:
     get:
-      operationId: api_v1_ekap_tenders_announcements_retrieve
-      description: GET /ekap/tenders/{key}/announcements/ — DB'deki ilanlar.
+      operationId: api_v1_ekap_tenders_announcements_list
+      description: 'İhaleye ait ilanları veritabanından döner (`data.list`). İhale
+        bulunamazsa hata değil, boş liste döner.
+
+
+        **İlan tipleri:** 1 İhale İlanı · 2 Düzeltme İlanı · 3 İptal İlanı · 4 Sonuç
+        İlanı · 5 Ön İlan · 10 Ön Yeterlik İlanı'
+      summary: İhale ilanları
       parameters:
       - in: path
         name: key
         schema:
           type: string
+        description: '**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.
+
+
+          View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez
+          ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar).
+          Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash
+          içermeyen `ekap_id` kullanın.'
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - ekap
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -381,9 +1074,10 @@ paths:
   /api/v1/favorites/:
     get:
       operationId: api_v1_favorites_list
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Oturum açmış kullanıcının favori ihalelerini döner.
+      summary: Favorileri listele
       tags:
-      - api
+      - favorites
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -398,14 +1092,24 @@ paths:
           description: ''
     post:
       operationId: api_v1_favorites_create
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: İhaleyi favorilere ekler. Aynı `tender_id` tekrar gönderilirse
+        kayıt **güncellenir** (upsert), hata dönmez.
+      summary: Favoriye ekle
       tags:
-      - api
+      - favorites
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/Favorite'
+            examples:
+              FavoriEkle:
+                value:
+                  tender_id: '1234567'
+                  tender_title: Bilgisayar ve Çevre Birimi Alımı
+                  tender_type: Mal Alımı
+                  source: ekap
+                summary: Favori ekle
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/Favorite'
@@ -426,30 +1130,48 @@ paths:
   /api/v1/favorites/{tender_id}/:
     get:
       operationId: api_v1_favorites_retrieve
+      description: İhalenin kullanıcının favorilerinde olup olmadığını döner.
+      summary: Favoride mi?
       parameters:
       - in: path
         name: tender_id
         schema:
           type: string
+        description: İhalenin EKAP iç kimliği (`ekap_id`).
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - favorites
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IsFavorite'
+          description: ''
     delete:
       operationId: api_v1_favorites_destroy
+      description: İhaleyi favorilerden siler. Kayıt yoksa da `204` döner (idempotent).
+      summary: Favoriden çıkar
       parameters:
       - in: path
         name: tender_id
         schema:
           type: string
+        description: İhalenin EKAP iç kimliği (`ekap_id`).
         required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
       tags:
-      - api
+      - favorites
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -459,9 +1181,12 @@ paths:
   /api/v1/notifications/:
     get:
       operationId: api_v1_notifications_list
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Kullanıcının bildirimlerini döner (okunmuş + okunmamış). Bildirimler
+        alarm ve kayıtlı filtre eşleşmelerinden üretilir; eski bildirimler günlük
+        Celery görevi ile temizlenir.
+      summary: Bildirimleri listele
       tags:
-      - api
+      - notifications
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -477,48 +1202,74 @@ paths:
   /api/v1/notifications/{notification_id}/read/:
     post:
       operationId: api_v1_notifications_read_create
+      description: Tek bir bildirimi okundu yapar. `data.updated` güncellenen kayıt
+        sayısıdır — bildirim yoksa veya başkasına aitse `0` döner (hata değil).
+      summary: Bildirimi okundu işaretle
       parameters:
       - in: path
         name: notification_id
         schema:
           type: integer
+        description: Bildirimin veritabanı kimliği.
         required: true
+        examples:
+          BildirimId:
+            value: 1
+            summary: Bildirim id
       tags:
-      - api
+      - notifications
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatedCount'
+          description: ''
   /api/v1/notifications/read-all/:
     post:
       operationId: api_v1_notifications_read_all_create
+      description: Kullanıcının okunmamış tüm bildirimlerini okundu yapar. Gövde gerektirmez.
+        `data.updated` güncellenen kayıt sayısıdır.
+      summary: Tümünü okundu işaretle
       tags:
-      - api
+      - notifications
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatedCount'
+          description: ''
   /api/v1/notifications/unread-count/:
     get:
       operationId: api_v1_notifications_unread_count_retrieve
+      description: Rozet (badge) göstermek için okunmamış bildirim sayısını döner.
+      summary: Okunmamış bildirim sayısı
       tags:
-      - api
+      - notifications
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+          description: ''
   /api/v1/saved-filters/:
     get:
       operationId: api_v1_saved_filters_list
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Kullanıcının kaydettiği arama filtrelerini döner.
+      summary: Kayıtlı filtreleri listele
       tags:
-      - api
+      - saved-filters
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -533,14 +1284,31 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_filters_create
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Yeni bir arama filtresi kaydeder.
+      summary: Filtre kaydet
       tags:
-      - api
+      - saved-filters
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SavedFilter'
+            examples:
+              AramaFiltresiKaydet:
+                value:
+                  name: Ankara bilgisayar alımları
+                  filters:
+                    q: bilgisayar
+                    il: '251'
+                    tur: '1'
+                  tags:
+                  - donanım
+                  - ankara
+                  alarm: true
+                summary: Arama filtresi kaydet
+                description: '`filters` serbest JSON''dur; `GET /ekap/tenders/` query
+                  parametrelerini saklamak için kullanılır. `alarm=true` ise filtreye
+                  uyan yeni ihaleler için bildirim üretilir.'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/SavedFilter'
@@ -561,15 +1329,21 @@ paths:
   /api/v1/saved-filters/{id}/:
     get:
       operationId: api_v1_saved_filters_retrieve
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Tek bir kayıtlı filtreyi döner.
+      summary: Filtreyi getir
       parameters:
       - in: path
         name: id
         schema:
           type: integer
+        description: Kayıtlı filtrenin veritabanı kimliği.
         required: true
+        examples:
+          FiltreId:
+            value: 1
+            summary: Filtre id
       tags:
-      - api
+      - saved-filters
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -582,20 +1356,42 @@ paths:
           description: ''
     put:
       operationId: api_v1_saved_filters_update
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir.
+      summary: Filtreyi değiştir
       parameters:
       - in: path
         name: id
         schema:
           type: integer
+        description: Kayıtlı filtrenin veritabanı kimliği.
         required: true
+        examples:
+          FiltreId:
+            value: 1
+            summary: Filtre id
       tags:
-      - api
+      - saved-filters
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SavedFilter'
+            examples:
+              AramaFiltresiKaydet:
+                value:
+                  name: Ankara bilgisayar alımları
+                  filters:
+                    q: bilgisayar
+                    il: '251'
+                    tur: '1'
+                  tags:
+                  - donanım
+                  - ankara
+                  alarm: true
+                summary: Arama filtresi kaydet
+                description: '`filters` serbest JSON''dur; `GET /ekap/tenders/` query
+                  parametrelerini saklamak için kullanılır. `alarm=true` ise filtreye
+                  uyan yeni ihaleler için bildirim üretilir.'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/SavedFilter'
@@ -615,20 +1411,42 @@ paths:
           description: ''
     patch:
       operationId: api_v1_saved_filters_partial_update
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Yalnızca gönderilen alanları günceller.
+      summary: Filtreyi kısmi güncelle
       parameters:
       - in: path
         name: id
         schema:
           type: integer
+        description: Kayıtlı filtrenin veritabanı kimliği.
         required: true
+        examples:
+          FiltreId:
+            value: 1
+            summary: Filtre id
       tags:
-      - api
+      - saved-filters
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchedSavedFilter'
+            examples:
+              AramaFiltresiKaydet:
+                value:
+                  name: Ankara bilgisayar alımları
+                  filters:
+                    q: bilgisayar
+                    il: '251'
+                    tur: '1'
+                  tags:
+                  - donanım
+                  - ankara
+                  alarm: true
+                summary: Arama filtresi kaydet
+                description: '`filters` serbest JSON''dur; `GET /ekap/tenders/` query
+                  parametrelerini saklamak için kullanılır. `alarm=true` ise filtreye
+                  uyan yeni ihaleler için bildirim üretilir.'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/PatchedSavedFilter'
@@ -647,15 +1465,21 @@ paths:
           description: ''
     delete:
       operationId: api_v1_saved_filters_destroy
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Filtreyi siler.
+      summary: Filtreyi sil
       parameters:
       - in: path
         name: id
         schema:
           type: integer
+        description: Kayıtlı filtrenin veritabanı kimliği.
         required: true
+        examples:
+          FiltreId:
+            value: 1
+            summary: Filtre id
       tags:
-      - api
+      - saved-filters
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -665,9 +1489,10 @@ paths:
   /api/v1/saved-tenders/:
     get:
       operationId: api_v1_saved_tenders_list
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: Kullanıcının kaydettiği ihaleleri döner.
+      summary: Kayıtlı ihaleleri listele
       tags:
-      - api
+      - saved-tenders
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -682,14 +1507,29 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_tenders_create
-      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      description: İhaleyi kayıtlılara ekler.
+      summary: İhaleyi kaydet
       tags:
-      - api
+      - saved-tenders
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SavedTender'
+            examples:
+              İhaleyiKaydet:
+                value:
+                  tender_id: '1234567'
+                  tender_ikn: 2025/1234567
+                  tender_title: Bilgisayar ve Çevre Birimi Alımı
+                  tender_type: Mal Alımı
+                  tender_status: Katılıma Açık
+                  tender_city: ANKARA
+                  tender_date: 23.03.2027 14:00
+                  institution: Ankara Büyükşehir Belediyesi
+                summary: İhaleyi kaydet
+                description: Aynı `tender_ikn` tekrar gönderilirse kayıt güncellenir
+                  (upsert).
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/SavedTender'
@@ -710,30 +1550,48 @@ paths:
   /api/v1/saved-tenders/{ikn}/:
     get:
       operationId: api_v1_saved_tenders_retrieve
+      description: İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner.
+      summary: Kayıtlı mı?
       parameters:
       - in: path
         name: ikn
         schema:
           type: string
+        description: İhale Kayıt Numarası (ör. `2025/1234567`). İçerdiği `/` olduğu
+          gibi gönderilebilir; kodlanmış biçim (`2025%2F1234567`) de kabul edilir.
         required: true
+        examples:
+          İKN:
+            value: 2025/1234567
       tags:
-      - api
+      - saved-tenders
       security:
       - jwtAuth: []
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IsSaved'
+          description: ''
     delete:
       operationId: api_v1_saved_tenders_destroy
+      description: İhaleyi kayıtlılardan siler. Kayıt yoksa da `204` döner (idempotent).
+      summary: Kaydı sil
       parameters:
       - in: path
         name: ikn
         schema:
           type: string
+        description: İhale Kayıt Numarası (ör. `2025/1234567`). İçerdiği `/` olduğu
+          gibi gönderilebilir; kodlanmış biçim (`2025%2F1234567`) de kabul edilir.
         required: true
+        examples:
+          İKN:
+            value: 2025/1234567
       tags:
-      - api
+      - saved-tenders
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -743,9 +1601,10 @@ paths:
   /api/v1/support/:
     get:
       operationId: api_v1_support_list
-      description: Kullanıcının destek taleplerini listele / yeni talep oluştur.
+      description: Kullanıcının açtığı destek taleplerini ve varsa yanıtlarını döner.
+      summary: Destek taleplerini listele
       tags:
-      - api
+      - support
       security:
       - jwtAuth: []
       - cookieAuth: []
@@ -760,14 +1619,24 @@ paths:
           description: ''
     post:
       operationId: api_v1_support_create
-      description: Kullanıcının destek taleplerini listele / yeni talep oluştur.
+      description: Yeni bir destek talebi oluşturur.
+      summary: Destek talebi aç
       tags:
-      - api
+      - support
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SupportTicket'
+            examples:
+              DestekTalebiAç:
+                value:
+                  email: test@ihaletakip.com
+                  phone: '05551234567'
+                  message: Analiz sonucu gelmiyor, yardımcı olabilir misiniz?
+                summary: Destek talebi aç
+                description: '`email` gönderilmezse kullanıcının hesap e-postası kullanılır.
+                  `status` ve `reply` alanları yalnızca yönetici tarafından doldurulur.'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/SupportTicket'
@@ -788,18 +1657,150 @@ paths:
   /health/:
     get:
       operationId: health_retrieve
-      description: Basit sağlık kontrolü (load balancer / uptime için).
+      description: Load balancer / uptime izleme için basit sağlık kontrolü. Kimlik
+        doğrulaması istemez ve `/api/v1` öneki **olmadan** `/health/` altındadır.
+      summary: Sağlık kontrolü
       tags:
       - health
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
 components:
   schemas:
+    AnalysisResult:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/AnalysisResultStatusEnum'
+        cached:
+          type: boolean
+        analysis: {}
+        usage: {}
+      required:
+      - status
+    AnalysisResultStatusEnum:
+      enum:
+      - pending
+      - processing
+      - completed
+      - failed
+      type: string
+      description: '* `pending` - pending
+
+        * `processing` - processing
+
+        * `completed` - completed
+
+        * `failed` - failed'
+    AnalysisTypeEnum:
+      enum:
+      - tech_spec
+      - admin_spec
+      - cost_analysis
+      - generate_keywords
+      type: string
+      description: '* `tech_spec` - tech_spec
+
+        * `admin_spec` - admin_spec
+
+        * `cost_analysis` - cost_analysis
+
+        * `generate_keywords` - generate_keywords'
+    AnalyzeRequest:
+      type: object
+      properties:
+        analysis_type:
+          $ref: '#/components/schemas/AnalysisTypeEnum'
+        file_base64:
+          type: string
+        file_name:
+          type: string
+        tender_meta: {}
+        similar_tenders: {}
+        ikn:
+          type: string
+          nullable: true
+      required:
+      - analysis_type
+    AppleLogin:
+      type: object
+      properties:
+        identity_token:
+          type: string
+          description: Apple Sign-In'den dönen identity token.
+        full_name:
+          type: string
+          description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
+      required:
+      - identity_token
+    Authority:
+      type: object
+      properties:
+        detsis_id:
+          type: string
+          maxLength: 50
+        ad:
+          type: string
+          maxLength: 500
+        ust_idare:
+          type: string
+          maxLength: 500
+        idare_kod:
+          type: string
+          maxLength: 50
+      required:
+      - ad
+      - detsis_id
+    City:
+      type: object
+      properties:
+        ekap_il_id:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+        plaka:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+        ad:
+          type: string
+          maxLength: 100
+        is_big_city:
+          type: boolean
+      required:
+      - ad
+      - ekap_il_id
+      - plaka
+    Detail:
+      type: object
+      description: Tek mesajlık yanıt gövdesi.
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    DocumentUrl:
+      type: object
+      properties:
+        url:
+          type: string
+          nullable: true
+      required:
+      - url
+    FCMToken:
+      type: object
+      properties:
+        fcm_token:
+          type: string
+          maxLength: 500
+      required:
+      - fcm_token
     Favorite:
       type: object
       properties:
@@ -827,6 +1828,60 @@ components:
       - added_at
       - id
       - tender_id
+    GoogleLogin:
+      type: object
+      properties:
+        id_token:
+          type: string
+          description: Google Sign-In'den dönen ID token.
+      required:
+      - id_token
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+      required:
+      - service
+      - status
+    IsFavorite:
+      type: object
+      properties:
+        is_favorite:
+          type: boolean
+      required:
+      - is_favorite
+    IsSaved:
+      type: object
+      properties:
+        is_saved:
+          type: boolean
+      required:
+      - is_saved
+    Login:
+      type: object
+      description: '`username` veya `email`den biri + `password` zorunlu.'
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - password
+    Logout:
+      type: object
+      properties:
+        refresh:
+          type: string
+          description: Kara listeye alınacak refresh token.
+      required:
+      - refresh
     Notification:
       type: object
       properties:
@@ -877,6 +1932,26 @@ components:
       - tender_title
       - title
       - type
+    OkasCode:
+      type: object
+      properties:
+        kod:
+          type: string
+          maxLength: 50
+        adi:
+          type: string
+          maxLength: 500
+        adi_eng:
+          type: string
+          maxLength: 500
+      required:
+      - adi
+      - kod
+    PatchedPreferences:
+      type: object
+      description: Tercih güncelleme (serbest JSON).
+      properties:
+        preferences: {}
     PatchedSavedFilter:
       type: object
       properties:
@@ -894,6 +1969,82 @@ components:
           type: string
           format: date-time
           readOnly: true
+    PatchedUser:
+      type: object
+      description: Kullanıcı profili (istemciye dönen).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          title: Kullanıcı adı
+          description: Zorunlu. 150 karakter ya da daha az olmalı. Sadece harfler,
+            rakamlar ve @/./+/-/_ karakterleri kullanılabilir.
+        email:
+          type: string
+          format: email
+          title: E-posta
+          maxLength: 254
+        display_name:
+          type: string
+          title: Görünen ad
+          maxLength: 255
+        photo_url:
+          type: string
+          format: uri
+          title: Profil foto
+          maxLength: 500
+        provider:
+          allOf:
+          - $ref: '#/components/schemas/ProviderEnum'
+          readOnly: true
+        preferences:
+          title: Tercihler
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Katılma tarihi
+    Preferences:
+      type: object
+      description: Tercih güncelleme (serbest JSON).
+      properties:
+        preferences: {}
+      required:
+      - preferences
+    ProviderEnum:
+      enum:
+      - email
+      - google
+      - apple
+      type: string
+      description: '* `email` - E-posta
+
+        * `google` - Google
+
+        * `apple` - Apple'
+    Register:
+      type: object
+      description: E-posta + şifre ile kayıt.
+      properties:
+        email:
+          type: string
+          format: email
+          title: E-posta
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+          minLength: 6
+        display_name:
+          type: string
+          title: Görünen ad
+          maxLength: 255
+      required:
+      - email
+      - password
     SavedFilter:
       type: object
       properties:
@@ -958,20 +2109,6 @@ components:
       - id
       - saved_at
       - tender_ikn
-    StatusEnum:
-      enum:
-      - Bekliyor
-      - İşlemde
-      - Yanıtlandı
-      - Kapandı
-      type: string
-      description: '* `Bekliyor` - Bekliyor
-
-        * `İşlemde` - İşlemde
-
-        * `Yanıtlandı` - Yanıtlandı
-
-        * `Kapandı` - Kapandı'
     SupportTicket:
       type: object
       properties:
@@ -989,7 +2126,7 @@ components:
           type: string
         status:
           allOf:
-          - $ref: '#/components/schemas/StatusEnum'
+          - $ref: '#/components/schemas/SupportTicketStatusEnum'
           readOnly: true
         reply:
           type: string
@@ -1005,6 +2142,44 @@ components:
       - message
       - reply
       - status
+    SupportTicketStatusEnum:
+      enum:
+      - Bekliyor
+      - İşlemde
+      - Yanıtlandı
+      - Kapandı
+      type: string
+      description: '* `Bekliyor` - Bekliyor
+
+        * `İşlemde` - İşlemde
+
+        * `Yanıtlandı` - Yanıtlandı
+
+        * `Kapandı` - Kapandı'
+    TTSRequest:
+      type: object
+      properties:
+        text:
+          type: string
+      required:
+      - text
+    TTSResult:
+      type: object
+      properties:
+        audio_base64:
+          type: string
+      required:
+      - audio_base64
+    TaskQueued:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          type: string
+      required:
+      - status
+      - task_id
     TenderAlarm:
       type: object
       properties:
@@ -1044,6 +2219,20 @@ components:
       - id
       - tender_id
       - updated_at
+    TokenPair:
+      type: object
+      description: register / login / social yanıtı.
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - access
+      - refresh
+      - user
     TokenRefresh:
       type: object
       properties:
@@ -1066,6 +2255,64 @@ components:
         * `info` - Bilgi
 
         * `alarm` - Alarm'
+    UnreadCount:
+      type: object
+      properties:
+        unread:
+          type: integer
+      required:
+      - unread
+    UpdatedCount:
+      type: object
+      properties:
+        updated:
+          type: integer
+      required:
+      - updated
+    User:
+      type: object
+      description: Kullanıcı profili (istemciye dönen).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          title: Kullanıcı adı
+          description: Zorunlu. 150 karakter ya da daha az olmalı. Sadece harfler,
+            rakamlar ve @/./+/-/_ karakterleri kullanılabilir.
+        email:
+          type: string
+          format: email
+          title: E-posta
+          maxLength: 254
+        display_name:
+          type: string
+          title: Görünen ad
+          maxLength: 255
+        photo_url:
+          type: string
+          format: uri
+          title: Profil foto
+          maxLength: 500
+        provider:
+          allOf:
+          - $ref: '#/components/schemas/ProviderEnum'
+          readOnly: true
+        preferences:
+          title: Tercihler
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Katılma tarihi
+      required:
+      - date_joined
+      - email
+      - id
+      - provider
+      - username
   securitySchemes:
     cookieAuth:
       type: apiKey

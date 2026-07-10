@@ -32,8 +32,19 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   echo "⚙️  Migration'lar uygulanıyor..."
   python manage.py migrate --noinput
 
+  # DEBUG=False'ta admin, manifest'li statik dosyalara bağımlıdır. collectstatic
+  # sessizce başarısız olursa (izin/volume sorunu) tüm admin 500 döner — bu yüzden
+  # `|| true` YOK: hata varsa konteyner ayağa kalkmasın, sebebi logda görünsün.
+  if [ ! -w /app/staticfiles ]; then
+    echo "❌ /app/staticfiles yazılabilir değil."
+    echo "   Named volume root sahipli oluşmuş olabilir. Çözüm:"
+    echo "     docker compose down && docker volume rm \$(basename \$PWD)_static_volume"
+    echo "     docker compose up -d --build"
+    exit 1
+  fi
+
   echo "🎨 Statik dosyalar toplanıyor..."
-  python manage.py collectstatic --noinput || true
+  python manage.py collectstatic --noinput
 
   echo "👤 Admin kullanıcı kontrol ediliyor..."
   python manage.py create_admin || true

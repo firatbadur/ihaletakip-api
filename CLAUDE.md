@@ -191,6 +191,19 @@ için `viewBox` gerçek içerik sınırlarına kırpıldı (aksi halde sidebar'd
   önce `python manage.py collectstatic` gerekir. Docker entrypoint bunu zaten yapar.
   Yerel geliştirmede `.env` içine `DJANGO_DEBUG=True` koymak en pratiği.
 
+### Docker'da statik dosyalar
+
+- `staticfiles/` ve `media/` **named volume**. Mount noktası image'da yoksa Docker
+  onu `root:root` yaratır; konteyner `appuser` (uid 1000) ile koştuğu için
+  `collectstatic` yazamaz → manifest üretilmez → **tüm admin 500**. Bu yüzden
+  Dockerfile `chown`'dan önce `mkdir -p /app/staticfiles /app/media` yapar.
+- Entrypoint'te `collectstatic` artık `|| true` ile susturulmaz; öncesinde
+  `staticfiles` yazılabilirlik kontrolü vardır. Hata varsa konteyner ayağa
+  kalkmaz ve sebep logda görünür.
+- Eski bir kurulumda volume zaten `root` sahipli oluştuysa Dockerfile düzeltmesi
+  tek başına yetmez, volume'u sıfırla:
+  `docker compose down && docker volume rm ihaletakip-api_static_volume`
+
 ## Uzun İşlemler → Celery
 
 Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atılır:

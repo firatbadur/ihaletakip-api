@@ -27,6 +27,12 @@ COPY . .
 # Entrypoint çalıştırılabilir yap
 RUN chmod +x /app/docker/entrypoint.sh
 
+# staticfiles/ ve media/ named volume olarak bağlanıyor. Mount noktası image'da
+# yoksa Docker onu root:root yaratır, appuser collectstatic'i yazamaz →
+# manifest üretilmez → admin sayfaları 500 döner. Dizinleri önden oluştur ki
+# volume ilk yaratılışta appuser sahipliğini devralsın.
+RUN mkdir -p /app/staticfiles /app/media
+
 # Root olmayan kullanıcı
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
 USER appuser

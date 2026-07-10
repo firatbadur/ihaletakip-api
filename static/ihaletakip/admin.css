@@ -7,7 +7,7 @@
     --it-blue: #0074cb;        /* marka mavisi — aksan, butonlar, linkler */
     --it-blue-hover: #00539a;  /* aksan hover/active */
     --it-blue-dark: #23344d;   /* üst bar */
-    --it-blue-deep: #1b2940;   /* sidebar zemini — bir tık daha koyu */
+    --it-blue-deep: #23344d;   /* sidebar zemini */
 
     /* Bootstrap "primary"yi markaya çek (tema flatly'nin lacivertini ezer).
        Sidebar linkleri --lte-sidebar-* kullandığından etkilenmez. */
@@ -69,7 +69,8 @@
 }
 
 #jazzy-sidebar .sidebar-brand {
-    background-color: rgba(0, 0, 0, 0.18);
+    background-color: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 #jazzy-sidebar .nav-sidebar .nav-link.active {

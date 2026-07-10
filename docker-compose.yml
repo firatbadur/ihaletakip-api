@@ -1,17 +1,19 @@
 # ═══════════════════════════════════════════════════════
-#  IhaleTakip API — Docker Compose (Ubuntu üretim/geliştirme)
-#  Servisler: db (postgres), redis, web (gunicorn),
-#             worker (celery), beat (celery beat)
+#  IhaleTakip API — Docker Compose (Ubuntu üretim)
+#  Servisler: db (postgres), redis, web (gunicorn), nginx,
+#             worker (celery), ekap-worker, beat (celery beat)
+#
+#  Ortam dosyası: .env.prod  (bkz. .env.example → kopyalayıp doldur)
+#  Çalıştırma:    docker compose up -d --build
+#  Dışa açılan tek port: 443 (nginx). Cloudflare 443 → origin:443 (varsayılan).
 # ═══════════════════════════════════════════════════════
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ihaletakip}
-      POSTGRES_USER: ${POSTGRES_USER:-ihale}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ihale}
+    # POSTGRES_DB/USER/PASSWORD .env.prod'dan gelir (tek kaynak → DATABASE_URL ile tutarlı)
+    env_file: .env.prod
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -35,25 +37,44 @@ services:
   web:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "true"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./credentials:/app/credentials:ro
-    ports:
-      - "8000:8000"
+    # Doğrudan dışa açılmaz — yalnızca nginx üzerinden erişilir (iç ağ).
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      # Dışa açılan tek port. Cloudflare 443 (SSL) → origin:443 → nginx:80.
+      - "443:80"
+    depends_on:
+      web:
+        condition: service_healthy
+
   worker:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
     # Genel kuyruk (ekap hariç) — ai analiz, bildirim vb.
@@ -67,7 +88,7 @@ services:
   ekap-worker:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
     # EKAP kuyruğu — rate limit için TEK concurrency ile serileştirilir
@@ -79,7 +100,7 @@ services:
   beat:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
     command: ["celery", "-A", "config", "beat", "-l", "info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]

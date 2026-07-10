@@ -293,6 +293,33 @@ Commit mesajı sonuna şunu ekle:
 - **Global zarfı bozma**: View'lar ya düz `Response(data)` ya da
   `api_response(...)` kullanmalı; elle `{success:...}` kurmayın.
 
+## Üretim Dağıtımı (Ubuntu + Cloudflare)
+
+Ağ akışı: **Cloudflare (443/SSL) → sunucu:443 → nginx:80 → gunicorn (web:8000)**.
+TLS Cloudflare'de sonlanır; origin düz HTTP'dir (bu yüzden origin'de sertifika derdi
+yok). Dışa açılan **tek port 443**'tür (nginx); `web`, `db`, `redis` yalnızca iç ağda.
+
+- **Ortam dosyası `.env.prod`**: Tüm servisler `env_file: .env.prod` kullanır
+  (`docker-compose.yml`). `.gitignore`'dadır → commit edilmez, sunucuya elle kopyalanır.
+  `.env.example`'dan türetilir. **Kritik**: `DJANGO_DEBUG=False`, güçlü
+  `DJANGO_SECRET_KEY`, gerçek `DJANGO_ALLOWED_HOSTS` (domain — yanlışsa 400),
+  `POSTGRES_PASSWORD` = `DATABASE_URL` içindeki şifre ile aynı.
+- **nginx** (`docker/nginx/default.conf`): Cloudflare gerçek IP restorasyonu
+  (`CF-Connecting-IP` + CF IP aralıkları), `X-Forwarded-Proto` iletimi
+  (`settings.SECURE_PROXY_SSL_HEADER` bunu okuyup güvenli çerezleri açar),
+  `client_max_body_size 20m` (AI 10 MB yükleme payı), `proxy_read_timeout 180s`
+  (canlı EKAP çağrıları). CF IP aralıkları değişebilir: https://www.cloudflare.com/ips
+- **Cloudflare**: DNS kaydı **turuncu bulut** (proxied). Origin varsayılan 443'e
+  bağlandığı için ekstra Origin Rule gerekmez. Güvenlik için sunucu firewall'unda
+  443'ü **yalnızca Cloudflare IP aralıklarına** aç (UFW).
+- **Güvenli çerez zinciri**: `DEBUG=False` → `SESSION_COOKIE_SECURE=True`
+  (`settings.py`). TLS + `X-Forwarded-Proto: https` olmadan **admin'e giriş yapılamaz**
+  (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.
+- **Başlatma**: `docker compose up -d --build`. `web` healthcheck'i (`/health/`)
+  geçmeden nginx başlamaz. Entrypoint yalnızca `web`'de migrate + collectstatic yapar.
+- **Dağıtım sonrası doğrulama**: `docker compose exec web python manage.py ekap_probe`
+  (imza + canlı EKAP), `curl -I https://<domain>/health/`.
+
 ## Önemli Uyarılar
 
 - **PostgreSQL üretimde zorunlu**: Yerel `manage.py check` `DATABASE_URL` yoksa

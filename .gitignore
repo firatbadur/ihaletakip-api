@@ -40,6 +40,11 @@ celerybeat.pid
 .docker/
 docker-compose.override.yml
 
+# ── nginx TLS (Cloudflare Origin Certificate) ──────────
+# Private key ve sertifika ASLA commit edilmez; yalnızca README izlenir.
+docker/nginx/certs/*
+!docker/nginx/certs/README.md
+
 # ── IDE / OS ───────────────────────────────────────────
 .idea/
 .vscode/

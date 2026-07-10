@@ -64,9 +64,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Cloudflare Origin Certificate (cf-origin.pem + cf-origin.key) — sunucuda oluşturulur.
+      - ./docker/nginx/certs:/etc/nginx/certs:ro
     ports:
-      # Dışa açılan tek port. Cloudflare 443 (SSL) → origin:443 → nginx:80.
-      - "443:80"
+      # Dışa açılan tek port. Cloudflare 443 (SSL) → origin:443 (nginx TLS, Full-strict).
+      - "443:443"
     depends_on:
       web:
         condition: service_healthy

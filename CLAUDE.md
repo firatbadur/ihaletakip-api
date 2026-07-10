@@ -295,23 +295,28 @@ Commit mesajı sonuna şunu ekle:
 
 ## Üretim Dağıtımı (Ubuntu + Cloudflare)
 
-Ağ akışı: **Cloudflare (443/SSL) → sunucu:443 → nginx:80 → gunicorn (web:8000)**.
-TLS Cloudflare'de sonlanır; origin düz HTTP'dir (bu yüzden origin'de sertifika derdi
-yok). Dışa açılan **tek port 443**'tür (nginx); `web`, `db`, `redis` yalnızca iç ağda.
+Ağ akışı: **Cloudflare (443/SSL) → sunucu:443 (nginx TLS) → gunicorn (web:8000)**.
+Cloudflare SSL modu **Full (strict)**; origin, Cloudflare **Origin Certificate** ile
+443'te TLS sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (nginx);
+`web`, `db`, `redis` yalnızca iç ağda.
 
 - **Ortam dosyası `.env.prod`**: Tüm servisler `env_file: .env.prod` kullanır
   (`docker-compose.yml`). `.gitignore`'dadır → commit edilmez, sunucuya elle kopyalanır.
   `.env.example`'dan türetilir. **Kritik**: `DJANGO_DEBUG=False`, güçlü
   `DJANGO_SECRET_KEY`, gerçek `DJANGO_ALLOWED_HOSTS` (domain — yanlışsa 400),
   `POSTGRES_PASSWORD` = `DATABASE_URL` içindeki şifre ile aynı.
-- **nginx** (`docker/nginx/default.conf`): Cloudflare gerçek IP restorasyonu
-  (`CF-Connecting-IP` + CF IP aralıkları), `X-Forwarded-Proto` iletimi
+- **nginx** (`docker/nginx/default.conf`): 443'te TLS; Cloudflare gerçek IP
+  restorasyonu (`CF-Connecting-IP` + CF IP aralıkları), `X-Forwarded-Proto` iletimi
   (`settings.SECURE_PROXY_SSL_HEADER` bunu okuyup güvenli çerezleri açar),
   `client_max_body_size 20m` (AI 10 MB yükleme payı), `proxy_read_timeout 180s`
   (canlı EKAP çağrıları). CF IP aralıkları değişebilir: https://www.cloudflare.com/ips
-- **Cloudflare**: DNS kaydı **turuncu bulut** (proxied). Origin varsayılan 443'e
-  bağlandığı için ekstra Origin Rule gerekmez. Güvenlik için sunucu firewall'unda
-  443'ü **yalnızca Cloudflare IP aralıklarına** aç (UFW).
+- **TLS sertifikası** (`docker/nginx/certs/`): Cloudflare **Origin Certificate**
+  (`cf-origin.pem` + `cf-origin.key`, 15 yıl, yenileme yok). `.gitignore`'da →
+  commit edilmez, sunucuda elle oluşturulur (bkz. `docker/nginx/certs/README.md`).
+- **Cloudflare**: DNS kaydı **turuncu bulut** (proxied), SSL modu **Full (strict)**.
+  Origin varsayılan 443'e bağlandığı için ekstra Origin Rule gerekmez. Güvenlik için
+  sunucu firewall'unda 443'ü **yalnızca Cloudflare IP aralıklarına** aç (UFW). İstersen
+  nginx'te Authenticated Origin Pulls (mTLS) ile yalnızca CF'e izin ver (README).
 - **Güvenli çerez zinciri**: `DEBUG=False` → `SESSION_COOKIE_SECURE=True`
   (`settings.py`). TLS + `X-Forwarded-Proto: https` olmadan **admin'e giriş yapılamaz**
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.

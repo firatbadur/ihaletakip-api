@@ -139,6 +139,15 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.ihale_kapsam_aciklama = (
         data.get("ihaleKapsamAciklama") or bilgi.get("ihaleKapsamAciklama") or tender.ihale_kapsam_aciklama
     )
+    tender.yasa_kapsami = _as_int(bilgi.get("yasaKapsami4734")) or tender.yasa_kapsami
+
+    # İhale özellik etiketleri (gelişmiş boolean filtreleri için)
+    ozellik_list = data.get("ihaleOzellikList") or []
+    tender.ozellikler = [
+        (o.get("ihaleOzellik") or "").replace("TENDER_DETAIL.", "")
+        for o in ozellik_list
+        if o.get("ihaleOzellik")
+    ]
     tender.ihale_tarih_saat = bilgi.get("ihaleTarihSaat") or tender.ihale_tarih_saat
     tender.ihale_tarihi = parse_ekap_datetime(bilgi.get("ihaleTarihSaat")) or tender.ihale_tarihi
     tender.isin_yapilacagi_yer = bilgi.get("isinYapilacagiYer") or tender.isin_yapilacagi_yer

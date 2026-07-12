@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 
 from core.response import api_response
 
+from .constants import OZELLIK_MAP
 from .models import Announcement, Authority, City, OkasCode, Tender
 from .serializers import (
     AuthoritySerializer,
@@ -40,6 +41,10 @@ def _int_list(raw):
         if part.isdigit():
             out.append(int(part))
     return out
+
+
+def _str_list(raw):
+    return [p.strip() for p in (raw or "").split(",") if p.strip()]
 
 
 # Tarih parametreleri `DD.MM.YYYY [HH:mm]` veya ISO-8601 kabul eder (bkz. utils.parse_ekap_datetime).
@@ -155,6 +160,18 @@ class TenderListView(APIView):
             qs = qs.filter(ihale_usul__in=_int_list(qp.get("usul")))
         if qp.get("durum"):
             qs = qs.filter(ihale_durum__in=_int_list(qp.get("durum")))
+
+        # ── Gelişmiş filtreler (detaydan doldurulan alanlar) ──
+        if qp.get("idare"):
+            qs = qs.filter(idare_id__in=_str_list(qp.get("idare")))
+        if qp.get("kapsam"):
+            qs = qs.filter(yasa_kapsami__in=_int_list(qp.get("kapsam")))
+        if qp.get("ozellik"):
+            # app boolean anahtarları → EKAP özellik etiketi; her biri AND (JSONField __contains)
+            for app_key in _str_list(qp.get("ozellik")):
+                tag = OZELLIK_MAP.get(app_key)
+                if tag:
+                    qs = qs.filter(ozellikler__contains=[tag])
 
         for field, gte, lte in (
             ("ihale_tarihi", "ihale_baslangic", "ihale_bitis"),

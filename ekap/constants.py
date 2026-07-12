@@ -90,6 +90,22 @@ ILAN_TIP = {
     10: "Ön Yeterlik İlanı",
 }
 
+# ── İhale özellik etiketleri (ihaleOzellikList) ─────────
+# Mobil filtre boolean anahtarı → EKAP ihaleOzellik etiketi (TENDER_DETAIL. öneki atılmış).
+# Gelişmiş boolean filtreleri Tender.ozellikler listesi üzerinden çalışır.
+# (EKAP detayında bu 9 etiket mevcut; app'in diğer boolean'ları EKAP'ta öznitelik değil.)
+OZELLIK_MAP = {
+    "eIhale": "E_IHALE",
+    "kismiTeklifMi": "KISMI_TEKLIF_VEREBILIR",
+    "altYukleniciCalistirilabilirMi": "ALT_YUKLENICI",
+    "fiyatFarkiVerilecekMi": "FIYAT_FARKI_VERILMESI",
+    "isDeneyimiGosterenBelgelerIsteniyorMu": "IS_DENEYIM_BELGE",
+    "meslekiTeknikYeterlilikBelgeleriIsteniyorMu": "MESLEKI_TEKNIK_YETERLIK",
+    "yabanciIsteklilereIzinVeriliyorMu": "YABANCI_ISTEKLI_KATILIM",
+    "yerliIstekliyeFiyatAvantajiUgulaniyorMu": "YERLI_ISTEKLI_AVANTAJ",
+    "ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu": "EKONOMIK_MALI_YETERLIK",
+}
+
 # ── Şehirler (filterData.js CITIES — 81 il) ─────────────
 # (ekap_il_id, plaka, ad, is_big_city)
 CITIES = [

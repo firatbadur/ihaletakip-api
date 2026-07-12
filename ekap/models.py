@@ -94,6 +94,11 @@ class Tender(models.Model):
     ihale_durum = models.IntegerField(null=True, blank=True, db_index=True)
     ihale_durum_aciklama = models.CharField(max_length=200, blank=True)
     ihale_kapsam_aciklama = models.CharField(max_length=200, blank=True)
+    yasa_kapsami = models.IntegerField(null=True, blank=True, db_index=True)  # 1=4734,2=Dışı,3=İstisna
+
+    # İhale özellikleri (ihaleOzellikList etiketleri: E_IHALE, KISMI_TEKLIF_VEREBILIR, ...)
+    # Gelişmiş filtreler bu liste üzerinden çalışır (JSONField __contains). Detaydan doldurulur.
+    ozellikler = models.JSONField(default=list, blank=True)
 
     # Bayraklar / sayılar
     e_ihale = models.BooleanField(default=False)

@@ -56,6 +56,11 @@ class EkapV2Client:
             wait_for_slot()  # throttle
             headers = {
                 "Accept": "application/json",
+                # EKAP enum açıklamalarını (ihaleTipAciklama/ihaleUsulAciklama/
+                # ihaleDurumAciklama) Türkçe döndürsün. curl_cffi'nin chrome taklidi
+                # varsayılan olarak `Accept-Language: en-US` gönderdiği için EKAP
+                # açıklamaları İngilizce dönüyordu; bu başlık o varsayılanı ezer.
+                "Accept-Language": "tr-TR,tr;q=0.9",
                 "Content-Type": "application/json",
                 "api-version": "v1",
                 **generate_signing_headers(),

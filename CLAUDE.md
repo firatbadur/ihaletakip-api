@@ -95,6 +95,13 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
 - **TLS parmak izi engeli**: EKAP v2 WAF'ı düz `requests`/OpenSSL'i reddeder
   (`SSLV3_ALERT_HANDSHAKE_FAILURE`). Çözüm: **`curl_cffi`** ile tarayıcı TLS taklidi
   (`impersonate="chrome"`, `EKAP_IMPERSONATE` ayarı). Düz `requests` KULLANMA.
+- **Dil (Accept-Language)**: EKAP enum açıklamalarını (`ihaleTipAciklama`,
+  `ihaleUsulAciklama`, `ihaleDurumAciklama`) **istek dilini** temel alarak yerelleştirir.
+  `curl_cffi` chrome taklidi varsayılan `Accept-Language: en-US` gönderdiği için bu
+  alanlar İngilizce ("Production", "Procurement Procedure"...) dönüyordu. `client.py`
+  `_post` başlıklarına **`Accept-Language: tr-TR,tr;q=0.9`** eklendi → Türkçe döner.
+  Yalnızca **yeni/yeniden senkronlanan** kayıtlar düzelir; eski kayıtlar `refresh_stale`/
+  `sync_recent` ile zamanla güncellenir. (`ihaleKapsamAciklama` zaten hep Türkçe geliyor.)
 - **İmzalama**: Her EKAP v2 isteği AES-192-CBC imza header'ı ister
   (`X-Custom-Request-Guid/R8id/Siv/Ts`). `signing.py`, mobil `calls.js`'in birebir
   karşılığı; anahtar `EKAP_SIGNING_KEY` (env).

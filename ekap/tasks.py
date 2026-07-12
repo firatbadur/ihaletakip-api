@@ -148,19 +148,25 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
 
 # ── Akıllı yenileme ────────────────────────────────────
 @shared_task(name="ekap.tasks.refresh_stale")
-def refresh_stale(batch=50, defer_detail=True):
-    """should_refresh_detail politikasına göre bayat detayları yeniler."""
+def refresh_stale(batch=50, years=None, defer_detail=True):
+    """should_refresh_detail politikasına göre bayat detayları yeniler.
+
+    Yalnızca son ``years`` yıl (ilan tarihine göre) içindeki ihaleler aday olur.
+    """
+    years = years or settings.EKAP_REFRESH_YEARS
     with _run("refresh_stale") as run:
         if run is None:
             return
         now = timezone.now()
+        floor = now - timedelta(days=365 * years)
         # Aday havuzu: hiç detay çekilmemiş VEYA son 1 günde bakılmamış
+        # (yalnızca son `years` yıl — ilan tarihi floor'un üstünde olanlar)
         candidates = Tender.objects.filter(
-            detail_synced_at__isnull=True
+            detail_synced_at__isnull=True, ilan_tarihi__gte=floor
         ).order_by("-ilan_tarihi")[: batch * 3]
         if candidates.count() < batch:
             more = Tender.objects.filter(
-                detail_synced_at__lt=now - timedelta(days=1)
+                detail_synced_at__lt=now - timedelta(days=1), ilan_tarihi__gte=floor
             ).order_by("detail_synced_at")[: batch * 3]
             candidates = list(candidates) + list(more)
 

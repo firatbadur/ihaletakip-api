@@ -101,7 +101,9 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
 - **Rate limit**: `throttle.py` (~1 istek/sn) + EKAP görevleri ayrı `ekap` Celery
   kuyruğunda **tek concurrency** ile serileştirilir (`ekap-worker` servisi).
 - **Toplama (Celery Beat)**: `sync_recent` (gece 02:00), `refresh_stale` (3 saatte bir,
-  akıllı kural: geçmiş+sonuçlanmamış → detay yenile), `backfill` (15 dk'da bir, son 5 yıl),
+  akıllı kural: geçmiş+sonuçlanmamış → detay yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1
+  yıl**), `backfill` (yalnızca gece **01:00–06:00** arası 15 dk'da bir, son
+  `EKAP_BACKFILL_YEARS`=5 yıl),
   `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
   ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
 - **Servis**: `/api/v1/ekap/tenders/` (DB'den, **EKAP alan isimleriyle** → mobil

@@ -35,15 +35,15 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.sync_recent",
         "schedule": crontab(hour=2, minute=0),
     },
-    # Akıllı detay yenileme — her 3 saatte bir
+    # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
     "ekap-refresh-stale": {
         "task": "ekap.tasks.refresh_stale",
         "schedule": crontab(minute=30, hour="*/3"),
     },
-    # Geçmiş doldurma (backfill) — her 15 dakikada bir, küçük batch
+    # Geçmiş doldurma (backfill) — yalnızca gece 01:00–06:00 arası, 15 dk'da bir
     "ekap-backfill": {
         "task": "ekap.tasks.backfill",
-        "schedule": crontab(minute="*/15"),
+        "schedule": crontab(minute="*/15", hour="1-5"),
     },
     # OKAS kodları — haftalık (Pazartesi 05:00)
     "ekap-sync-okas": {

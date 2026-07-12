@@ -228,6 +228,8 @@ EKAP_TIMEOUT = env.int("EKAP_TIMEOUT", default=30)
 EKAP_MAX_RETRIES = env.int("EKAP_MAX_RETRIES", default=4)
 EKAP_RECENT_DAYS = env.int("EKAP_RECENT_DAYS", default=3)
 EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
+# refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
+EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir
 CELERY_TASK_ROUTES = {

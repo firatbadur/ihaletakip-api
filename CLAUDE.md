@@ -355,7 +355,10 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
    (zone Flexible olduğu için — yoksa 522).
 7. `docker compose up -d --build` (ilk build 3-8 dk; uzun işlemlerde `tmux` kullan ki
    SSH kopsa build sürsün). `docker compose ps` → hepsi Up/healthy.
-8. Doğrula: `curl -sk https://localhost/health/` (iç), `ekap_probe`, `curl -I https://<domain>/health/`.
+8. **Admini elle oluştur** (entrypoint bunu otomatik yapmaz — her restart'ta parolayı
+   ezmemek için): `docker compose exec web python manage.py create_admin`. Parolayı
+   sonradan `changepassword firat` ile değiştirirsen kalıcı olur.
+9. Doğrula: `curl -sk https://localhost/health/` (iç), `ekap_probe`, `curl -I https://<domain>/health/`.
 
 ## Önemli Uyarılar
 

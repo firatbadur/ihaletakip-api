@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════
 #  Container başlangıç script'i
-#  - migrate  → collectstatic → admin oluştur → CMD çalıştır
+#  - migrate  → collectstatic → CMD çalıştır
+#  (admin BİLEREK otomatik oluşturulmaz; parolayı ezmemek için elle: create_admin)
 #  Sadece "web" servisinde migrate çalışsın diye RUN_MIGRATIONS
 #  bayrağı kullanılır (worker/beat migrate çalıştırmaz).
 # ═══════════════════════════════════════════════════════
@@ -46,8 +47,10 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   echo "🎨 Statik dosyalar toplanıyor..."
   python manage.py collectstatic --noinput
 
-  echo "👤 Admin kullanıcı kontrol ediliyor..."
-  python manage.py create_admin || true
+  # NOT: create_admin BİLEREK burada çağrılmaz. Her başlangıçta çalışırsa
+  # admin parolasını env'deki değere geri yazar → elle değiştirilen parola
+  # her restart'ta kaybolur. İlk kurulumda admini elle oluşturun:
+  #   docker compose exec web python manage.py create_admin
 fi
 
 echo "🚀 Servis başlatılıyor: $*"

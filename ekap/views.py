@@ -137,7 +137,7 @@ _TENDER_KEY_PARAM = OpenApiParameter(
 class TenderListView(APIView):
     """GET /ekap/tenders/ — DB'den arama/filtre/sıralama/pagination."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request):
         qp = request.query_params
@@ -210,7 +210,7 @@ class TenderListView(APIView):
 class TenderDetailView(APIView):
     """GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde)."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, key):
         tender = Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).first()
@@ -266,7 +266,7 @@ class TenderDetailView(APIView):
 class TenderAnnouncementsView(APIView):
     """GET /ekap/tenders/{key}/announcements/ — DB'deki ilanlar."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, key):
         tender = Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).first()
@@ -309,7 +309,7 @@ class TenderAnnouncementsView(APIView):
 class DocumentUrlView(APIView):
     """GET /ekap/tenders/{ekap_id}/document-url/ — canlı proxy (dinamik URL)."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, ekap_id):
         islem_id = request.query_params.get("islemId", "1")
@@ -353,7 +353,7 @@ class DocumentUrlView(APIView):
 class OkasSearchView(APIView):
     """GET /ekap/okas/search?q= — DB'den OKAS arama."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
@@ -386,7 +386,7 @@ class OkasSearchView(APIView):
 class AuthoritySearchView(APIView):
     """GET /ekap/authorities/search?q= — DB'den kurum arama."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
@@ -409,7 +409,7 @@ class AuthoritySearchView(APIView):
 class CityListView(APIView):
     """GET /ekap/cities/ — il listesi."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request):
         return api_response(data=CitySerializer(City.objects.all(), many=True).data)

@@ -296,8 +296,9 @@ Commit mesajı sonuna şunu ekle:
 ## Üretim Dağıtımı (Ubuntu + Cloudflare)
 
 Ağ akışı: **Cloudflare (443/SSL) → sunucu:443 (nginx TLS) → gunicorn (web:8000)**.
-Cloudflare SSL modu **Full (strict)**; origin, Cloudflare **Origin Certificate** ile
-443'te TLS sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (nginx);
+Cloudflare bu hostname için **Full (strict)** (zone geneli Flexible olabilir — bkz.
+aşağıdaki 522 tuzağı); origin, Cloudflare **Origin Certificate** ile 443'te TLS
+sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (nginx);
 `web`, `db`, `redis` yalnızca iç ağda.
 
 - **Ortam dosyası `.env.prod`**: Tüm servisler `env_file: .env.prod` kullanır
@@ -310,20 +311,49 @@ Cloudflare SSL modu **Full (strict)**; origin, Cloudflare **Origin Certificate**
   (`settings.SECURE_PROXY_SSL_HEADER` bunu okuyup güvenli çerezleri açar),
   `client_max_body_size 20m` (AI 10 MB yükleme payı), `proxy_read_timeout 180s`
   (canlı EKAP çağrıları). CF IP aralıkları değişebilir: https://www.cloudflare.com/ips
+- **nginx proxy başlıkları `server` seviyesinde**: `proxy_set_header` bir `location`
+  içinde yeniden tanımlanırsa nginx üst seviyedeki **TÜM** `proxy_set_header`'ları o
+  location için yok sayar. Bu yüzden `Host`/`X-Forwarded-*` başlıkları `server`
+  seviyesinde; `location = /health/` bunları miras alır. (Aksi halde /health/ için Host
+  = `$proxy_host` = `django_app` gider → Django `DisallowedHost` → 400.)
 - **TLS sertifikası** (`docker/nginx/certs/`): Cloudflare **Origin Certificate**
   (`cf-origin.pem` + `cf-origin.key`, 15 yıl, yenileme yok). `.gitignore`'da →
   commit edilmez, sunucuda elle oluşturulur (bkz. `docker/nginx/certs/README.md`).
-- **Cloudflare**: DNS kaydı **turuncu bulut** (proxied), SSL modu **Full (strict)**.
-  Origin varsayılan 443'e bağlandığı için ekstra Origin Rule gerekmez. Güvenlik için
-  sunucu firewall'unda 443'ü **yalnızca Cloudflare IP aralıklarına** aç (UFW). İstersen
-  nginx'te Authenticated Origin Pulls (mTLS) ile yalnızca CF'e izin ver (README).
+- **Cloudflare**: DNS kaydı **turuncu bulut** (proxied), A kaydı origin IP'sine.
+- **⚠️ SSL modu tuzağı = 522**: SSL/TLS modu **zone geneli**dir. Bu zone
+  (`envisoft.com.tr`) başka siteler için **Flexible** ayarlı ve öyle kalmalı. Flexible'da
+  CF origin'e **80/HTTP**'den bağlanır; origin sadece 443/TLS dinlediği için CF
+  origin:80'e ulaşamaz → **HTTP 522** (istek nginx'e **hiç** ulaşmaz, nginx logunda iz
+  yok; `server: cloudflare` başlığı gelir). Çözüm: zone genelini değiştirmeden **Rules →
+  Configuration Rules** ile *yalnızca* `ihale-takip.envisoft.com.tr` hostname'i için
+  **SSL = Full (strict)** override et (Page Rule ile de olur). Diğer siteler Flexible kalır.
+- **Origin'i CF'e kilitle** (yapılacak hardening): Origin IP'sine internetten sürekli bot
+  taraması gelir. nginx'te Authenticated Origin Pulls (mTLS — `default.conf`'ta hazır,
+  bkz. README) veya iptables ile 443'ü yalnızca Cloudflare IP aralıklarına aç.
+  **Uyarı**: Docker yayınlanan portları **UFW'yi BYPASS eder** → UFW allow/deny 443'ü
+  kısıtlamaz; `DOCKER-USER` iptables zinciri ya da nginx-seviyesi AOP kullan.
 - **Güvenli çerez zinciri**: `DEBUG=False` → `SESSION_COOKIE_SECURE=True`
   (`settings.py`). TLS + `X-Forwarded-Proto: https` olmadan **admin'e giriş yapılamaz**
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.
 - **Başlatma**: `docker compose up -d --build`. `web` healthcheck'i (`/health/`)
   geçmeden nginx başlamaz. Entrypoint yalnızca `web`'de migrate + collectstatic yapar.
 - **Dağıtım sonrası doğrulama**: `docker compose exec web python manage.py ekap_probe`
-  (imza + canlı EKAP), `curl -I https://<domain>/health/`.
+  (imza + canlı EKAP), `curl -I https://<domain>/health/` → `200`.
+
+### İlk kurulum akışı (Ubuntu, özet)
+
+1. Sistem güncelle + reboot: `apt update && apt upgrade -y` → `reboot`.
+2. Docker + git: `apt install -y git curl` → `curl -fsSL https://get.docker.com | sh`.
+3. Repo: `git clone ... && cd ihaletakip-api && git config core.hooksPath .githooks`.
+4. `.env.prod` oluştur (`.env.example`'dan; `DJANGO_DEBUG=False`, güçlü SECRET_KEY,
+   domain, DB şifresi, **güçlü admin parolası**). `chmod 600 .env.prod`.
+5. Origin cert: `docker/nginx/certs/cf-origin.pem` + `cf-origin.key` (CF panel → Origin
+   Server → Create Certificate). `chmod 600 ...key`. `mkdir -p credentials`.
+6. Cloudflare: DNS A kaydı (proxied) + bu hostname'e **Configuration Rule SSL=Full(strict)**
+   (zone Flexible olduğu için — yoksa 522).
+7. `docker compose up -d --build` (ilk build 3-8 dk; uzun işlemlerde `tmux` kullan ki
+   SSH kopsa build sürsün). `docker compose ps` → hepsi Up/healthy.
+8. Doğrula: `curl -sk https://localhost/health/` (iç), `ekap_probe`, `curl -I https://<domain>/health/`.
 
 ## Önemli Uyarılar
 

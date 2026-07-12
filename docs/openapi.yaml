@@ -1742,7 +1742,7 @@ components:
       properties:
         detsis_id:
           type: string
-          maxLength: 50
+          maxLength: 255
         ad:
           type: string
           maxLength: 500
@@ -1751,7 +1751,7 @@ components:
           maxLength: 500
         idare_kod:
           type: string
-          maxLength: 50
+          maxLength: 255
       required:
       - ad
       - detsis_id
@@ -1937,7 +1937,7 @@ components:
       properties:
         kod:
           type: string
-          maxLength: 50
+          maxLength: 255
         adi:
           type: string
           maxLength: 500

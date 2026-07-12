@@ -30,7 +30,7 @@ class City(models.Model):
 class OkasCode(models.Model):
     """OKAS ihtiyaç kalemi kodu (EKAP GetAll'dan periyodik çekilir)."""
 
-    kod = models.CharField(max_length=50, unique=True, db_index=True)
+    kod = models.CharField(max_length=255, unique=True, db_index=True)
     adi = models.CharField(max_length=500, db_index=True)
     adi_eng = models.CharField(max_length=500, blank=True)
 
@@ -46,10 +46,10 @@ class OkasCode(models.Model):
 class Authority(models.Model):
     """DETSIS kurum/idare kaydı (EKAP DetsisAgaci'ndan periyodik çekilir)."""
 
-    detsis_id = models.CharField(max_length=50, unique=True, db_index=True)
+    detsis_id = models.CharField(max_length=255, unique=True, db_index=True)
     ad = models.CharField(max_length=500, db_index=True)
     ust_idare = models.CharField(max_length=500, blank=True)
-    idare_kod = models.CharField(max_length=50, blank=True, db_index=True)
+    idare_kod = models.CharField(max_length=255, blank=True, db_index=True)
 
     class Meta:
         verbose_name = "Kurum (DETSIS)"
@@ -70,19 +70,19 @@ class Tender(models.Model):
         ERROR = "error", "Hata"
 
     # Kimlik
-    ekap_id = models.CharField(max_length=50, unique=True, db_index=True)  # item.id
+    ekap_id = models.CharField(max_length=255, unique=True, db_index=True)  # item.id
     ikn = models.CharField(max_length=100, unique=True, db_index=True)
 
     # Temel bilgiler
     ihale_adi = models.TextField(blank=True)
     idare_adi = models.CharField(max_length=500, blank=True)
-    idare_id = models.CharField(max_length=50, blank=True, db_index=True)
+    idare_id = models.CharField(max_length=255, blank=True, db_index=True)
     ihale_il_adi = models.CharField(max_length=100, blank=True)
     il_id = models.IntegerField(null=True, blank=True, db_index=True)
     ilce_adi = models.CharField(max_length=100, blank=True)
 
     # Tarihler (ham + parse)
-    ihale_tarih_saat = models.CharField(max_length=50, blank=True)
+    ihale_tarih_saat = models.CharField(max_length=255, blank=True)
     ihale_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
     ilan_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
 
@@ -109,7 +109,7 @@ class Tender(models.Model):
     idare_fax = models.CharField(max_length=100, blank=True)
 
     # İptal
-    iptal_tarihi = models.CharField(max_length=50, blank=True)
+    iptal_tarihi = models.CharField(max_length=255, blank=True)
     iptal_nedeni = models.TextField(blank=True)
     iptal_madde = models.CharField(max_length=200, blank=True)
 
@@ -155,7 +155,7 @@ class OkasItem(models.Model):
     """ihtiyacKalemiOkasList elemanı (ihaleye özel)."""
 
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="okas_kalemleri")
-    kodu = models.CharField(max_length=50, blank=True)
+    kodu = models.CharField(max_length=255, blank=True)
     adi = models.CharField(max_length=500, blank=True)
 
     class Meta:
@@ -167,7 +167,7 @@ class Announcement(models.Model):
     """ilanList elemanı."""
 
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="ilanlar")
-    ekap_ilan_id = models.CharField(max_length=50, blank=True, db_index=True)
+    ekap_ilan_id = models.CharField(max_length=255, blank=True, db_index=True)
     ilan_tip = models.IntegerField(null=True, blank=True)  # 1-5,10
     ilan_tarihi = models.DateTimeField(null=True, blank=True)
     baslik = models.CharField(max_length=500, blank=True)
@@ -185,7 +185,7 @@ class Contract(models.Model):
 
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="sozlesmeler")
     yuklenici_adi = models.CharField(max_length=500, blank=True)
-    sozlesme_tarih = models.CharField(max_length=50, blank=True)
+    sozlesme_tarih = models.CharField(max_length=255, blank=True)
     sozlesme_bedeli = models.CharField(max_length=100, blank=True)
     sozlesme_bedeli_num = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
     en_dusuk_teklif = models.CharField(max_length=100, blank=True)

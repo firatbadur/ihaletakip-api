@@ -106,6 +106,12 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   `EKAP_BACKFILL_YEARS`=5 yıl),
   `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
   ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
+- **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
+  (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
+  `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı
+  id'yle gelince `ikn` unique kısıtı ihlal edilip ingest patlardı. Liste döngüleri
+  (`sync_recent`/`backfill`) `_upsert_item_safe` ile sarılıdır → tek bozuk kayıt tüm
+  çalışmayı düşürmez, `SyncRun.errors`'a sayılır.
 - **Servis**: `/api/v1/ekap/tenders/` (DB'den, **EKAP alan isimleriyle** → mobil
   mapper'lar minimal değişir), `tenders/{ekap_id}/` (detay, İKN'de `/` var — key olarak
   `ekap_id` kullan), `okas/search`, `authorities/search`, `cities`, `tenders/{id}/document-url`

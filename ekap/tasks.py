@@ -57,6 +57,16 @@ def _client_sync_detail(ekap_id):
     sync_mod.sync_detail(ekap_id, EkapV2Client())
 
 
+def _upsert_item_safe(item):
+    """upsert_tender_from_list'i sarar: tek bir bozuk kayıt tüm sayfayı/çalışmayı
+    düşürmesin. Başarılıysa (tender, 0), hatada (None, 1) döner."""
+    try:
+        return sync_mod.upsert_tender_from_list(item), 0
+    except Exception as e:
+        logger.warning("ihale atlandı ikn=%s: %s", item.get("ikn"), e)
+        return None, 1
+
+
 # ── Detay ──────────────────────────────────────────────
 @shared_task(name="ekap.tasks.sync_detail", bind=True, max_retries=2, default_retry_delay=60)
 def sync_detail(self, ekap_id):
@@ -79,6 +89,7 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
         client = EkapV2Client()
         floor = timezone.now() - timedelta(days=days)
         total = 0
+        errors = 0
         for page in range(max_pages):
             body = client.build_search_body(
                 orderBy="ilanTarihi", siralamaTipi="desc",
@@ -89,7 +100,8 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
                 break
             reached_floor = False
             for item in items:
-                tender = sync_mod.upsert_tender_from_list(item)
+                tender, err = _upsert_item_safe(item)
+                errors += err
                 if tender:
                     total += 1
                     _enqueue_detail(tender.ekap_id, defer=defer_detail)
@@ -98,8 +110,9 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
             if reached_floor or (page + 1) * page_size >= (total_count or 0):
                 break
         run.items = total
+        run.errors = errors
         _update_checkpoint("recent", newest=timezone.now())
-        return {"upserted": total}
+        return {"upserted": total, "errors": errors}
 
 
 # ── Backfill (sürekli, yavaş) ──────────────────────────
@@ -116,6 +129,7 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
         client = EkapV2Client()
         floor = timezone.now() - timedelta(days=365 * settings.EKAP_BACKFILL_YEARS)
         total = 0
+        errors = 0
         skip = cp.cursor_skip
         oldest = None
         for _ in range(max_pages):
@@ -128,7 +142,8 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
                 cp.done = True
                 break
             for item in items:
-                tender = sync_mod.upsert_tender_from_list(item)
+                tender, err = _upsert_item_safe(item)
+                errors += err
                 if tender:
                     total += 1
                     _enqueue_detail(tender.ekap_id, defer=defer_detail)
@@ -143,7 +158,8 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
             cp.oldest_date = oldest
         cp.save()
         run.items = total
-        return {"upserted": total, "skip": skip, "done": cp.done}
+        run.errors = errors
+        return {"upserted": total, "errors": errors, "skip": skip, "done": cp.done}
 
 
 # ── Akıllı yenileme ────────────────────────────────────

@@ -75,7 +75,7 @@ def upsert_tender_from_list(item) -> Tender | None:
         return None
 
     defaults = {
-        "ikn": str(ikn),
+        "ekap_id": str(ekap_id),
         "ihale_adi": item.get("ihaleAdi", "") or "",
         "idare_adi": item.get("idareAdi", "") or "",
         "ihale_il_adi": (item.get("ihaleIlAdi") or "").upper(),
@@ -93,8 +93,12 @@ def upsert_tender_from_list(item) -> Tender | None:
         "list_raw": item,
         "list_synced_at": timezone.now(),
     }
+    # İKN kanonik ihale kimliğidir (bir ihale = bir İKN). EKAP'ın iç `id`'si aynı
+    # İKN için değişebildiğinden (yeniden yayım vb.) upsert İKN'ye göre yapılır;
+    # ekap_id son gelen değere güncellenir. (ekap_id ile upsert edilirse aynı İKN
+    # farklı id'yle geldiğinde ikn unique kısıtını ihlal edip insert patlardı.)
     tender, _ = Tender.objects.update_or_create(
-        ekap_id=str(ekap_id), defaults=defaults
+        ikn=str(ikn), defaults=defaults
     )
     return tender
 

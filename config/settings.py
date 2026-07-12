@@ -198,7 +198,7 @@ CACHES = {
 # ── Uygulama servis ayarları ───────────────────────────
 # Claude / Anthropic
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
-CLAUDE_MODEL = env("CLAUDE_MODEL", default="claude-sonnet-4-20250514")
+CLAUDE_MODEL = env("CLAUDE_MODEL", default="claude-sonnet-5")
 CLAUDE_MAX_TOKENS = env.int("CLAUDE_MAX_TOKENS", default=3000)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 

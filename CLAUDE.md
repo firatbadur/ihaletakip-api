@@ -164,6 +164,12 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
 - Dedup: `(user, tender)` unique — aynı ihale aynı kullanıcıya iki kez önerilmez.
 - Claude çağrıları (profil haritası + sohbet) `ANTHROPIC_API_KEY` ister; anahtar
   yoksa sohbet/profil haritası hata döner ama öneri eşleştirme çalışmaya devam eder.
+- **Model ayrımı (token tasarrufu)**: Sohbet (`chat_completion`) sık çalıştığı için
+  ucuz modelle döner — `CLAUDE_CHAT_MODEL` (varsayılan `claude-haiku-4-5`) +
+  `CLAUDE_CHAT_MAX_TOKENS` (varsayılan 1000). Profil haritası ve doküman analizi
+  kalite öncelikli olduğundan `CLAUDE_MODEL` (varsayılan `claude-sonnet-5`) +
+  `CLAUDE_MAX_TOKENS`'te kalır. Sohbet geçmişi bağlamı son **12** mesajla sınırlı
+  (`build_chat_messages`), sistem promptu prompt-cache breakpoint'li.
 
 ## URL'de İKN (dikkat)
 

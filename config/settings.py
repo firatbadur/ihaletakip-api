@@ -199,8 +199,12 @@ CACHES = {
 # ── Uygulama servis ayarları ───────────────────────────
 # Claude / Anthropic
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
+# Genel/analiz + profil haritası modeli (kalite öncelikli, seyrek çalışır)
 CLAUDE_MODEL = env("CLAUDE_MODEL", default="claude-sonnet-5")
 CLAUDE_MAX_TOKENS = env.int("CLAUDE_MAX_TOKENS", default=3000)
+# İhale Asistanı sohbet modeli (sık çalışır → ucuz model + kısa çıktı ile token tasarrufu)
+CLAUDE_CHAT_MODEL = env("CLAUDE_CHAT_MODEL", default="claude-haiku-4-5")
+CLAUDE_CHAT_MAX_TOKENS = env.int("CLAUDE_CHAT_MAX_TOKENS", default=1000)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Google Sign-In (idToken audience'ları)

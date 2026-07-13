@@ -43,8 +43,9 @@ def chat_completion(profile_map: dict, context_text: str, messages: list, max_to
 
     try:
         message = client.messages.create(
-            model=settings.CLAUDE_MODEL,
-            max_tokens=max_tokens or settings.CLAUDE_MAX_TOKENS,
+            # Sohbet ucuz/hızlı modelle (token tasarrufu); profil haritası CLAUDE_MODEL'de kalır
+            model=settings.CLAUDE_CHAT_MODEL,
+            max_tokens=max_tokens or settings.CLAUDE_CHAT_MAX_TOKENS,
             system=system,
             messages=messages,
         )
@@ -67,7 +68,7 @@ def chat_completion(profile_map: dict, context_text: str, messages: list, max_to
     }
 
 
-def build_chat_messages(user, conversation=None, limit: int = 20) -> list:
+def build_chat_messages(user, conversation=None, limit: int = 12) -> list:
     """
     Son mesajlardan Claude messages listesi kurar.
     - conversation verilirse bağlam o konuşmayla sınırlanır (faz 2: oturum bazlı sohbet).

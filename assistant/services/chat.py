@@ -67,17 +67,19 @@ def chat_completion(profile_map: dict, context_text: str, messages: list, max_to
     }
 
 
-def build_chat_messages(user, limit: int = 20) -> list:
+def build_chat_messages(user, conversation=None, limit: int = 20) -> list:
     """
     Son mesajlardan Claude messages listesi kurar.
+    - conversation verilirse bağlam o konuşmayla sınırlanır (faz 2: oturum bazlı sohbet).
     - Ardışık aynı-rol turları birleştirir.
     - Listenin user turu ile başlamasını garanti eder.
     """
     from assistant.models import ChatMessage
 
-    rows = list(
-        ChatMessage.objects.filter(user=user).order_by("-created_at")[:limit]
-    )[::-1]  # kronolojik sıraya çevir
+    qs = ChatMessage.objects.filter(user=user)
+    if conversation is not None:
+        qs = qs.filter(conversation=conversation)
+    rows = list(qs.order_by("-created_at")[:limit])[::-1]  # kronolojik sıraya çevir
 
     messages = []
     for row in rows:

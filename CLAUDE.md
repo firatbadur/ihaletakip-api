@@ -148,9 +148,14 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   haritası** üretimini Celery'ye atar (`generate_profile_map`); yanıt `{task_id}`
   döner, durum mevcut `GET /ai/tasks/{task_id}` ile izlenir. Harita
   (`keywords`, `okas_prefixes`, ...) `CompanyProfile.profile_map`'te, API'de read-only.
-- **Sohbet**: `POST chat/` (çok turlu; system prompt **prompt cache breakpoint**'li),
-  `GET messages/` (geçmiş; digest mesajları `payload.kind="digest"` +
-  `tender_cards` taşır).
+- **Sohbet**: oturum bazlıdır (`ChatConversation`). `POST chat/` gövdesinde
+  `conversation` yoksa yeni oturum açar ve `{task_id, conversation_id}` döner;
+  sonraki mesajlar `conversation` ile gönderilir. Bağlam yalnızca o oturumun
+  mesajlarından kurulur (system prompt **prompt cache breakpoint**'li).
+  `GET conversations/` geçmiş oturumları, `GET conversations/{id}/` oturum
+  mesajlarını döner; `DELETE conversations/{id}/` oturumu siler. Digest mesajları
+  her gün kendi `kind="digest"` oturumunda açılır (`payload.kind="digest"` +
+  `tender_cards`). `GET messages/` eski (oturumsuz) uç olarak durur.
 - **Öneriler**: `GET recommendations/`, `POST recommendations/{id}/seen/`.
   Günlük eşleştirme `match_recommendations` beat görevi (07:00): **kural tabanlı**
   skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →

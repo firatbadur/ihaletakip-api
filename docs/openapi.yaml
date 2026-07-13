@@ -293,9 +293,11 @@ paths:
   /api/v1/assistant/chat/:
     post:
       operationId: api_v1_assistant_chat_create
-      description: 'Mesajı kaydeder ve yanıtı arka planda üretir. Dönen `task_id`,
-        mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis`
-        alanı asistan mesajıdır: `{id, role, content, tender_cards, created_at}`.'
+      description: 'Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse
+        yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda
+        gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile
+        sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation,
+        role, content, tender_cards, created_at}`.'
       summary: Asistana mesaj gönder
       tags:
       - assistant
@@ -308,6 +310,7 @@ paths:
               MesajGönder:
                 value:
                   message: Bana uygun ihale var mı?
+                  conversation: null
                 summary: Mesaj gönder
           application/x-www-form-urlencoded:
             schema:
@@ -324,7 +327,92 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssistantTaskAccepted'
+                $ref: '#/components/schemas/ChatAccepted'
+          description: ''
+  /api/v1/assistant/conversations/:
+    get:
+      operationId: api_v1_assistant_conversations_retrieve
+      description: Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye**
+        döner. `kind=digest` kayıtları günlük öneri özetleridir.
+      summary: Sohbet oturumlarını listele
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Sayfa numarası (1'den başlar).
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Sayfa boyutu (varsayılan 30, en çok 100).
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationPage'
+          description: ''
+  /api/v1/assistant/conversations/{id}/:
+    get:
+      operationId: api_v1_assistant_conversation_messages
+      description: Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted
+        liste).
+      summary: Sohbet oturumunun mesajlarını listele
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Sayfa numarası.
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Sayfa boyutu.
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationMessagePage'
+          description: ''
+    delete:
+      operationId: api_v1_assistant_conversations_destroy
+      description: Oturumu ve içindeki tüm mesajları siler.
+      summary: Sohbet oturumunu sil
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDeleted'
           description: ''
   /api/v1/assistant/messages/:
     get:
@@ -1931,13 +2019,6 @@ components:
           description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
       required:
       - identity_token
-    AssistantTaskAccepted:
-      type: object
-      properties:
-        task_id:
-          type: string
-      required:
-      - task_id
     Authority:
       type: object
       properties:
@@ -1956,12 +2037,61 @@ components:
       required:
       - ad
       - detsis_id
+    ChatAccepted:
+      type: object
+      properties:
+        task_id:
+          type: string
+        conversation_id:
+          type: integer
+      required:
+      - conversation_id
+      - task_id
+    ChatConversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/KindEnum'
+          readOnly: true
+        last_message:
+          type: string
+          readOnly: true
+        message_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - kind
+      - last_message
+      - message_count
+      - title
+      - updated_at
     ChatMessage:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
+        conversation:
+          type: integer
+          readOnly: true
+          nullable: true
         role:
           allOf:
           - $ref: '#/components/schemas/RoleEnum'
@@ -1978,6 +2108,7 @@ components:
           readOnly: true
       required:
       - content
+      - conversation
       - created_at
       - id
       - payload
@@ -2003,6 +2134,9 @@ components:
         message:
           type: string
           maxLength: 2000
+        conversation:
+          type: integer
+          nullable: true
       required:
       - message
     City:
@@ -2079,6 +2213,43 @@ components:
       - profile_map
       - profile_map_generated_at
       - updated_at
+    ConversationDeleted:
+      type: object
+      properties:
+        deleted:
+          type: integer
+      required:
+      - deleted
+    ConversationMessagePage:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
+    ConversationPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatConversation'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
     Detail:
       type: object
       description: Tek mesajlık yanıt gövdesi.
@@ -2162,6 +2333,14 @@ components:
           type: boolean
       required:
       - is_saved
+    KindEnum:
+      enum:
+      - chat
+      - digest
+      type: string
+      description: '* `chat` - Sohbet
+
+        * `digest` - Günlük Özet'
     Login:
       type: object
       description: '`username` veya `email`den biri + `password` zorunlu.'

@@ -3,6 +3,7 @@
 
 CompanyProfile        — kullanıcının firma profili + AI üretimi profil haritası
 TenderRecommendation  — günlük eşleştirme sonucu ihale önerileri
+ChatConversation      — sohbet oturumu (her yeni sohbet ayrı konuşma)
 ChatMessage           — asistan sohbet geçmişi
 """
 from django.conf import settings
@@ -72,6 +73,31 @@ class TenderRecommendation(models.Model):
         return f"{self.tender.ikn} → {self.user} ({self.score:.1f})"
 
 
+class ChatConversation(models.Model):
+    """Sohbet oturumu — mobil her açılışta boş sohbetle başlar, geçmiş buradan listelenir."""
+
+    class Kind(models.TextChoices):
+        CHAT = "chat", "Sohbet"
+        DIGEST = "digest", "Günlük Özet"
+
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="assistant_conversations"
+    )
+    title = models.CharField(max_length=120, blank=True)
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.CHAT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Sohbet Oturumu"
+        verbose_name_plural = "Sohbet Oturumları"
+        ordering = ["-updated_at"]
+        indexes = [models.Index(fields=["user", "-updated_at"])]
+
+    def __str__(self):
+        return f"{self.user} · {self.title or self.pk}"
+
+
 class ChatMessage(models.Model):
     """Asistan sohbet mesajı (kullanıcı veya asistan)."""
 
@@ -81,6 +107,14 @@ class ChatMessage(models.Model):
 
     user = models.ForeignKey(
         USER, on_delete=models.CASCADE, related_name="assistant_messages"
+    )
+    # Faz 2 öncesi mesajlar konuşmasız kalabilir (null)
+    conversation = models.ForeignKey(
+        ChatConversation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        null=True,
+        blank=True,
     )
     role = models.CharField(max_length=10, choices=Role.choices)
     content = models.TextField()

@@ -1874,6 +1874,46 @@
       "name": "assistant",
       "item": [
         {
+          "name": "Sohbet oturumlarını listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/conversations/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "conversations",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa numarası (1'den başlar).",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "1",
+                  "description": "Sayfa boyutu (varsayılan 30, en çok 100).",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye** döner. `kind=digest` kayıtları günlük öneri özetleridir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Sohbet geçmişini listele",
           "request": {
             "method": "GET",
@@ -2012,10 +2052,10 @@
                 ""
               ]
             },
-            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, role, content, tender_cards, created_at}`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation, role, content, tender_cards, created_at}`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"Bana uygun ihale var mı?\"\n}",
+              "raw": "{\n  \"message\": \"Bana uygun ihale var mı?\",\n  \"conversation\": null\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2064,6 +2104,54 @@
           }
         },
         {
+          "name": "Sohbet oturumunun mesajlarını listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/conversations/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "conversations",
+                ":id",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa numarası.",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "1",
+                  "description": "Sayfa boyutu.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Öneriyi görüldü işaretle",
           "request": {
             "method": "POST",
@@ -2096,6 +2184,40 @@
               ]
             },
             "description": "Öneri kaydını görüldü yapar. Kayıt yoksa `data.updated` 0 döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Sohbet oturumunu sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/conversations/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "conversations",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Oturumu ve içindeki tüm mesajları siler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
       ]

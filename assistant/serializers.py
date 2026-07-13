@@ -1,7 +1,7 @@
 """assistant serializer'ları."""
 from rest_framework import serializers
 
-from .models import ChatMessage, CompanyProfile, TenderRecommendation
+from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
 
 
 class CompanyProfileSerializer(serializers.ModelSerializer):
@@ -29,12 +29,31 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
-        fields = ["id", "role", "content", "payload", "created_at"]
+        fields = ["id", "conversation", "role", "content", "payload", "created_at"]
         read_only_fields = fields
+
+
+class ChatConversationSerializer(serializers.ModelSerializer):
+    last_message = serializers.SerializerMethodField()
+    message_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatConversation
+        fields = ["id", "title", "kind", "last_message", "message_count", "created_at", "updated_at"]
+        read_only_fields = fields
+
+    def get_last_message(self, obj) -> str:
+        last = obj.messages.order_by("-created_at").values_list("content", flat=True).first()
+        return (last or "")[:140]
+
+    def get_message_count(self, obj) -> int:
+        return obj.messages.count()
 
 
 class ChatSendSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=2000, trim_whitespace=True)
+    # Boş/gönderilmemiş → yeni konuşma açılır
+    conversation = serializers.IntegerField(required=False, allow_null=True)
 
 
 class TenderRecommendationSerializer(serializers.ModelSerializer):

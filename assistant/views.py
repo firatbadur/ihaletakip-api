@@ -12,8 +12,9 @@ from rest_framework.views import APIView
 
 from core.response import api_response
 
-from .models import ChatMessage, CompanyProfile, TenderRecommendation
+from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
 from .serializers import (
+    ChatConversationSerializer,
     ChatMessageSerializer,
     ChatSendSerializer,
     CompanyProfileSerializer,
@@ -149,14 +150,28 @@ class ChatMessageListView(APIView):
     tags=["assistant"],
     summary="Asistana mesaj gönder",
     description=(
-        "Mesajı kaydeder ve yanıtı arka planda üretir. Dönen `task_id`, mevcut "
-        "`GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` "
-        "alanı asistan mesajıdır: `{id, role, content, tender_cards, created_at}`."
+        "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse "
+        "yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda "
+        "gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile "
+        "sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: "
+        "`{id, conversation, role, content, tender_cards, created_at}`."
     ),
     request=ChatSendSerializer,
-    responses={202: _TASK_RESPONSE},
+    responses={
+        202: inline_serializer(
+            name="ChatAccepted",
+            fields={
+                "task_id": serializers.CharField(),
+                "conversation_id": serializers.IntegerField(),
+            },
+        )
+    },
     examples=[
-        OpenApiExample("Mesaj gönder", request_only=True, value={"message": "Bana uygun ihale var mı?"})
+        OpenApiExample(
+            "Mesaj gönder",
+            request_only=True,
+            value={"message": "Bana uygun ihale var mı?", "conversation": None},
+        )
     ],
 )
 class ChatSendView(APIView):
@@ -174,20 +189,117 @@ class ChatSendView(APIView):
                 status=400,
             )
 
+        content = serializer.validated_data["message"]
+        conv_id = serializer.validated_data.get("conversation")
+
+        if conv_id:
+            conversation = ChatConversation.objects.filter(
+                user=request.user, id=conv_id
+            ).first()
+            if not conversation:
+                raise NotFound("Sohbet oturumu bulunamadı.")
+        else:
+            conversation = ChatConversation.objects.create(
+                user=request.user,
+                title=content[:120],
+                kind=ChatConversation.Kind.CHAT,
+            )
+
         msg = ChatMessage.objects.create(
             user=request.user,
+            conversation=conversation,
             role=ChatMessage.Role.USER,
-            content=serializer.validated_data["message"],
+            content=content,
         )
 
         from .tasks import assistant_chat_task
 
         task = assistant_chat_task.delay(request.user.id, msg.id)
         return api_response(
-            data={"task_id": task.id},
+            data={"task_id": task.id, "conversation_id": conversation.id},
             message="Asistan yanıtlıyor.",
             status=202,
         )
+
+
+# ── Sohbet Oturumları ──────────────────────────────────
+@extend_schema(
+    tags=["assistant"],
+    summary="Sohbet oturumlarını listele",
+    description=(
+        "Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye** döner. "
+        "`kind=digest` kayıtları günlük öneri özetleridir."
+    ),
+    parameters=[
+        OpenApiParameter("page", int, description="Sayfa numarası (1'den başlar)."),
+        OpenApiParameter("page_size", int, description="Sayfa boyutu (varsayılan 30, en çok 100)."),
+    ],
+    responses={
+        200: inline_serializer(
+            name="ConversationPage",
+            fields={
+                "list": ChatConversationSerializer(many=True),
+                "totalCount": serializers.IntegerField(),
+                "page": serializers.IntegerField(),
+            },
+        )
+    },
+)
+class ConversationListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = ChatConversation.objects.filter(user=request.user).prefetch_related("messages")
+        return _paginate(request, qs, ChatConversationSerializer)
+
+
+@extend_schema(tags=["assistant"])
+class ConversationDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_conversation(self, request, pk):
+        conversation = ChatConversation.objects.filter(user=request.user, id=pk).first()
+        if not conversation:
+            raise NotFound("Sohbet oturumu bulunamadı.")
+        return conversation
+
+    @extend_schema(
+        operation_id="api_v1_assistant_conversation_messages",
+        summary="Sohbet oturumunun mesajlarını listele",
+        description="Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste).",
+        parameters=[
+            OpenApiParameter("page", int, description="Sayfa numarası."),
+            OpenApiParameter("page_size", int, description="Sayfa boyutu."),
+        ],
+        responses={
+            200: inline_serializer(
+                name="ConversationMessagePage",
+                fields={
+                    "list": ChatMessageSerializer(many=True),
+                    "totalCount": serializers.IntegerField(),
+                    "page": serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    def get(self, request, pk):
+        conversation = self._get_conversation(request, pk)
+        qs = ChatMessage.objects.filter(conversation=conversation)
+        return _paginate(request, qs, ChatMessageSerializer)
+
+    @extend_schema(
+        summary="Sohbet oturumunu sil",
+        description="Oturumu ve içindeki tüm mesajları siler.",
+        responses={
+            200: inline_serializer(
+                name="ConversationDeleted", fields={"deleted": serializers.IntegerField()}
+            )
+        },
+    )
+    def delete(self, request, pk):
+        conversation = self._get_conversation(request, pk)
+        conversation.delete()
+        return Response({"deleted": 1})
 
 
 # ── Öneriler ───────────────────────────────────────────

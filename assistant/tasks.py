@@ -52,6 +52,11 @@ def assistant_chat_task(user_id, message_id):
     if not profile:
         return {"success": False, "error": "Firma profili bulunamadı."}
 
+    user_msg = ChatMessage.objects.filter(user_id=user_id, id=message_id).first()
+    if not user_msg:
+        return {"success": False, "error": "Sohbet mesajı bulunamadı."}
+    conversation = user_msg.conversation
+
     # Günün önerileri → değişken system bloğu (cache breakpoint SONRASI)
     today = timezone.localdate()
     recs = list(
@@ -75,7 +80,8 @@ def assistant_chat_task(user_id, message_id):
         )
     context_text = "\n".join(context_lines)
 
-    messages = build_chat_messages(profile.user)
+    # Bağlam yalnızca bu konuşmanın mesajlarından kurulur
+    messages = build_chat_messages(profile.user, conversation=conversation)
     if not messages:
         return {"success": False, "error": "Sohbet mesajı bulunamadı."}
 
@@ -100,10 +106,13 @@ def assistant_chat_task(user_id, message_id):
 
     assistant_msg = ChatMessage.objects.create(
         user_id=user_id,
+        conversation=conversation,
         role=ChatMessage.Role.ASSISTANT,
         content=reply_text,
         payload={"kind": "text", "tender_cards": tender_cards},
     )
+    if conversation:
+        conversation.save(update_fields=["updated_at"])  # geçmiş listesinde öne taşı
 
     return {
         "success": True,
@@ -120,7 +129,12 @@ def match_recommendations():
     """
     from datetime import timedelta
 
-    from assistant.models import ChatMessage, CompanyProfile, TenderRecommendation
+    from assistant.models import (
+        ChatConversation,
+        ChatMessage,
+        CompanyProfile,
+        TenderRecommendation,
+    )
     from assistant.services.matching import match_tenders_for_profile, tender_card
     from tenders.models import Notification
 
@@ -173,8 +187,16 @@ def match_recommendations():
             tender_title=top[0][0].ihale_adi[:500] if top else None,
         )
 
+        # Digest kendi konuşmasında yaşar → geçmiş sohbetler listesinde görünür,
+        # kullanıcı içinden devam edip soru sorabilir.
+        digest_conv = ChatConversation.objects.create(
+            user=profile.user,
+            title=f"Günlük Öneriler · {today.strftime('%d.%m.%Y')}",
+            kind=ChatConversation.Kind.DIGEST,
+        )
         ChatMessage.objects.create(
             user=profile.user,
+            conversation=digest_conv,
             role=ChatMessage.Role.ASSISTANT,
             content=(
                 f"Günaydın! Bugün profilinize uygun {len(fresh)} yeni ihale buldum. "

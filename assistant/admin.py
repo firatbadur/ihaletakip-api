@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ChatMessage, CompanyProfile, TenderRecommendation
+from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
 
 
 @admin.register(CompanyProfile)
@@ -19,11 +19,19 @@ class TenderRecommendationAdmin(admin.ModelAdmin):
     raw_id_fields = ("tender",)
 
 
+@admin.register(ChatConversation)
+class ChatConversationAdmin(admin.ModelAdmin):
+    list_display = ("user", "title", "kind", "created_at", "updated_at")
+    list_filter = ("kind",)
+    search_fields = ("user__email", "title")
+
+
 @admin.register(ChatMessage)
 class ChatMessageAdmin(admin.ModelAdmin):
-    list_display = ("user", "role", "short_content", "created_at")
+    list_display = ("user", "conversation", "role", "short_content", "created_at")
     list_filter = ("role",)
     search_fields = ("user__email", "content")
+    raw_id_fields = ("conversation",)
 
     @admin.display(description="İçerik")
     def short_content(self, obj):

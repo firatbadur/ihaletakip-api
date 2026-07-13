@@ -284,7 +284,8 @@ class ConversationDetailView(APIView):
     )
     def get(self, request, pk):
         conversation = self._get_conversation(request, pk)
-        qs = ChatMessage.objects.filter(conversation=conversation)
+        # En yeniden eskiye (inverted liste); (conversation, -created_at) indeksi kullanılır
+        qs = ChatMessage.objects.filter(conversation=conversation).order_by("-created_at")
         return _paginate(request, qs, ChatMessageSerializer)
 
     @extend_schema(

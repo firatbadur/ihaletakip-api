@@ -126,7 +126,11 @@ class ChatMessage(models.Model):
         verbose_name = "Sohbet Mesajı"
         verbose_name_plural = "Sohbet Mesajları"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["user", "created_at"])]
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            # Oturum bazlı sayfalama (en yeniden eskiye) için — uzun sohbetlerde hızlı
+            models.Index(fields=["conversation", "-created_at"]),
+        ]
 
     def __str__(self):
         return f"{self.user} [{self.role}]: {self.content[:40]}"

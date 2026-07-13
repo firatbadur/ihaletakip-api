@@ -47,6 +47,7 @@ def assistant_chat_task(user_id, message_id):
     from assistant.services.chat import build_chat_messages, chat_completion
     from assistant.services.matching import tender_card
     from assistant.services.profile_map import parse_json_output
+    from tenders.models import SavedFilter, SavedTender
 
     profile = CompanyProfile.objects.filter(user_id=user_id).first()
     if not profile:
@@ -64,19 +65,84 @@ def assistant_chat_task(user_id, message_id):
         .select_related("tender")
         .order_by("-score")[:10]
     )
+    context_items = [(r.tender, r.reasons) for r in recs]
+
+    # Depolanmış öneri yoksa CANLI eşleştir: günlük 07:00 beat'i çalışmamış olabilir
+    # veya kullanıcı profilini yeni güncellemiş olabilir. Böylece asistan beat'e
+    # bağımlı kalmaz ve profil değişiklikleri anında yansır (kural tabanlı, LLM'siz).
+    if not context_items:
+        from datetime import timedelta
+
+        from assistant.services.matching import match_tenders_for_profile
+
+        pm = profile.profile_map or {}
+        # profile_map zayıf/null ise (anahtar kelime/OKAS yok) yalnızca il+tür ile
+        # eşleşilebilsin diye eşiği düşür — aksi halde hiçbir şey 3 puana ulaşmaz.
+        strong = bool(pm.get("keywords") or pm.get("okas_prefixes"))
+        since = timezone.now() - timedelta(days=14)
+        try:
+            matches = match_tenders_for_profile(
+                profile, since=since, limit=10, min_score=3.0 if strong else 1.0
+            )
+            context_items = [(t, r) for t, s, r in matches]
+        except Exception:
+            logger.exception("assistant_chat_task: canlı eşleştirme hatası")
+
+    # Kart havuzu: İKN → kart. Model yalnızca bu havuzdaki İKN'leri kart yapabilir.
+    card_by_ikn = {t.ikn: tender_card(t) for t, _ in context_items if t.ikn}
+
+    # Kullanıcının kayıtlı ihaleleri ve kayıtlı aramaları (arama geçmişi) → ek bağlam.
+    # Böylece asistan yalnızca günlük eşleşmelerden değil, kullanıcının takip ettiği
+    # ihalelerden ve arama ilgi alanlarından da yararlanır.
+    saved_tenders = list(SavedTender.objects.filter(user_id=user_id).order_by("-saved_at")[:10])
+    saved_filters = list(SavedFilter.objects.filter(user_id=user_id).order_by("-created_at")[:8])
+    for st in saved_tenders:
+        if st.tender_ikn and st.tender_ikn not in card_by_ikn:
+            card_by_ikn[st.tender_ikn] = {
+                "ikn": st.tender_ikn,
+                "ekap_id": st.tender_id or "",
+                "ihale_adi": st.tender_title or "",
+                "idare_adi": st.institution or "",
+                "il": st.tender_city or "",
+                "ihale_tarihi": st.tender_date or "",
+                "ihale_tip": None,
+            }
+
     context_lines = [f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}"]
-    if recs:
-        context_lines.append("\n## BUGÜNKÜ ÖNERİLEN İHALELER")
-        for r in recs:
-            t = r.tender
+    if context_items:
+        context_lines.append("\n## ÖNERİLEN İHALELER")
+        for t, reasons in context_items:
             context_lines.append(
                 f"- İKN {t.ikn} | {t.ihale_adi[:120]} | {t.idare_adi[:80]} | "
                 f"{t.ihale_il_adi} | İhale tarihi: {t.ihale_tarih_saat or '-'} | "
-                f"Eşleşme nedenleri: {', '.join(r.reasons)}"
+                f"Eşleşme nedenleri: {', '.join(reasons)}"
             )
     else:
         context_lines.append(
-            "\n## BUGÜNKÜ ÖNERİLEN İHALELER\n(Bugün için öneri yok — card_iknler boş kalmalı.)"
+            "\n## ÖNERİLEN İHALELER\n(Şu an profile uygun yeni eşleşme yok.)"
+        )
+
+    if saved_tenders:
+        context_lines.append("\n## KAYITLI İHALELERİNİZ (kullanıcının takip ettiği)")
+        for st in saved_tenders:
+            context_lines.append(
+                f"- İKN {st.tender_ikn} | {(st.tender_title or '')[:120]} | "
+                f"{(st.institution or '')[:80]} | {st.tender_city or '-'} | "
+                f"İhale tarihi: {st.tender_date or '-'} | Durum: {st.tender_status or '-'}"
+            )
+
+    if saved_filters:
+        aramalar = "; ".join(
+            f"{sf.name}" + (f" [{', '.join(sf.tags)}]" if sf.tags else "")
+            for sf in saved_filters
+        )
+        context_lines.append(
+            "\n## KAYITLI ARAMALARINIZ (kullanıcının ilgi/arama geçmişi)\n" + aramalar
+        )
+
+    if not context_items and not saved_tenders:
+        context_lines.append(
+            "\n(Kart gösterecek ihale yok — card_iknler boş kalmalı.)"
         )
     context_text = "\n".join(context_lines)
 
@@ -100,9 +166,9 @@ def assistant_chat_task(user_id, message_id):
     except (ValueError, json.JSONDecodeError):
         logger.warning("assistant_chat_task: model çıktısı JSON değil, düz metin kullanılıyor")
 
-    # Kartları yalnızca bugünkü önerilerden çöz (model uydurmasına karşı güvenlik)
-    rec_by_ikn = {r.tender.ikn: r.tender for r in recs}
-    tender_cards = [tender_card(rec_by_ikn[ikn]) for ikn in card_iknler if ikn in rec_by_ikn]
+    # Kartları yalnızca context havuzundan çöz (öneriler + kayıtlı ihaleler) —
+    # model uydurmasına karşı güvenlik.
+    tender_cards = [card_by_ikn[ikn] for ikn in card_iknler if ikn in card_by_ikn]
 
     assistant_msg = ChatMessage.objects.create(
         user_id=user_id,
@@ -122,10 +188,13 @@ def assistant_chat_task(user_id, message_id):
 
 
 @shared_task(name="assistant.tasks.match_recommendations")
-def match_recommendations():
+def match_recommendations(since_days=1):
     """
-    Günlük eşleştirme: her aktif profil için dünden beri ilan edilen açık
+    Günlük eşleştirme: her aktif profil için son `since_days` günde ilan edilen açık
     ihaleleri skorlar; öneri + bildirim + digest sohbet mesajı üretir.
+
+    since_days: elle tetiklerken geniş pencere için artırılabilir (bkz.
+    `manage.py run_assistant_match --days N`).
     """
     from datetime import timedelta
 
@@ -139,7 +208,7 @@ def match_recommendations():
     from tenders.models import Notification
 
     today = timezone.localdate()
-    since = timezone.now() - timedelta(days=1)
+    since = timezone.now() - timedelta(days=since_days)
 
     profiles = CompanyProfile.objects.filter(is_active=True).exclude(profile_map__isnull=True)
     total_recs = 0

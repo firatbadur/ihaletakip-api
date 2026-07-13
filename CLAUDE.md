@@ -157,10 +157,19 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   her gün kendi `kind="digest"` oturumunda açılır (`payload.kind="digest"` +
   `tender_cards`). `GET messages/` eski (oturumsuz) uç olarak durur.
 - **Öneriler**: `GET recommendations/`, `POST recommendations/{id}/seen/`.
-  Günlük eşleştirme `match_recommendations` beat görevi (07:00): **kural tabanlı**
-  skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
+  Günlük eşleştirme `match_recommendations(since_days=1)` beat görevi (07:00): **kural
+  tabanlı** skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
   `TenderRecommendation` + push bildirimi + sohbete digest mesajı.
   `CompanyProfile.is_active=False` ise kullanıcı atlanır.
+- **Elle tetikleme**: `python manage.py run_assistant_match [--days N]` — beat beklemeden
+  (veya beat çalışmıyorsa) eşleştirmeyi çalıştırır. `DatabaseScheduler` kullanıldığından
+  kodda tanımlı beat girdisi ancak **beat yeniden başlatılınca** DB'ye senkronlanır.
+- **Sohbet bağlamı (önemli)**: `assistant_chat_task` context'i şu kaynaklardan kurar:
+  (1) bugünkü depolanmış `TenderRecommendation`; yoksa **canlı eşleştirme** (son 14 gün,
+  `profile_map` zayıfsa eşik 1.0'a düşer) — böylece asistan beat'e bağımlı değildir ve
+  profil güncellemesi anında yansır; (2) kullanıcının **kayıtlı ihaleleri** (`SavedTender`);
+  (3) **kayıtlı aramaları** (`SavedFilter` — arama geçmişi/ilgi sinyali). Model kart olarak
+  yalnızca "ÖNERİLEN İHALELER" + "KAYITLI İHALELERİNİZ" havuzundaki İKN'leri seçebilir.
 - Dedup: `(user, tender)` unique — aynı ihale aynı kullanıcıya iki kez önerilmez.
 - Claude çağrıları (profil haritası + sohbet) `ANTHROPIC_API_KEY` ister; anahtar
   yoksa sohbet/profil haritası hata döner ama öneri eşleştirme çalışmaya devam eder.

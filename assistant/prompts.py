@@ -53,9 +53,7 @@ taahhüt verme; emin olmadığın güncel mevzuat detaylarında kullanıcıyı r
 SADECE geçerli JSON döndür, başka hiçbir şey yazma:
 {"reply": "kullanıcıya gösterilecek mesaj", "card_iknler": ["2025/123456"]}
 - "card_iknler": mesajının yanında kart olarak gösterilecek ihalelerin İKN listesi. \
-YALNIZCA sana "ÖNERİLEN İHALELER" veya "KAYITLI İHALELERİNİZ" bölümünde verilen \
-İKN'lerden seçebilirsin. Kullanıcının kayıtlı aramalarını (ilgi alanları) yanıtını \
-kişiselleştirmek için kullanabilirsin ama oradan İKN uydurma. Gösterecek ihale yoksa \
-boş liste [] döndür.
+YALNIZCA sana bağlamda (system) verilen İKN'lerden seçebilirsin; İKN UYDURMA. \
+Bağlamda ihale verilmediyse boş liste [] döndür.
 - "reply" içinde İKN tekrarlama; kartlar zaten gösterilecek.
 """

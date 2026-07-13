@@ -164,12 +164,18 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
 - **Elle tetikleme**: `python manage.py run_assistant_match [--days N]` — beat beklemeden
   (veya beat çalışmıyorsa) eşleştirmeyi çalıştırır. `DatabaseScheduler` kullanıldığından
   kodda tanımlı beat girdisi ancak **beat yeniden başlatılınca** DB'ye senkronlanır.
-- **Sohbet bağlamı (önemli)**: `assistant_chat_task` context'i şu kaynaklardan kurar:
-  (1) bugünkü depolanmış `TenderRecommendation`; yoksa **canlı eşleştirme** (son 14 gün,
-  `profile_map` zayıfsa eşik 1.0'a düşer) — böylece asistan beat'e bağımlı değildir ve
-  profil güncellemesi anında yansır; (2) kullanıcının **kayıtlı ihaleleri** (`SavedTender`);
-  (3) **kayıtlı aramaları** (`SavedFilter` — arama geçmişi/ilgi sinyali). Model kart olarak
-  yalnızca "ÖNERİLEN İHALELER" + "KAYITLI İHALELERİNİZ" havuzundaki İKN'leri seçebilir.
+- **Sohbet yönlendirme (`assistant_chat_task`) — niyet bazlı**:
+  1. **Belirli ihale**: konuşma bir ihaleye bağlıysa (`tender_ikn`) VEYA mesajda tek İKN
+     geçiyorsa → o ihaleyi `ekap.Tender`'dan çöz, detayını LLM'e ver, **analiz** + tıklanabilir
+     kart. Çoklu İKN → hepsini kart getirir (LLM yok). Bulunamayan İKN → bilgilendirme.
+  2. **Kayıtlı ihaleler**: yalnızca açıkça sorulunca ("takip ettiğim ihaleler") → `SavedTender`
+     kartları. (Aksi halde öne çıkarılmaz — alakasız sorularda kafa karıştırıyordu.)
+  3. **Öneri/listeleme** ("bana uygun ihale"): kural tabanlı eşleşme kartları (LLM yok);
+     bugünkü `TenderRecommendation` yoksa **canlı eşleştirme** (son 14 gün, `profile_map`
+     zayıfsa eşik 1.0). Eşleşme yoksa yönlendirme mesajı (kayıtlı ihale SIZMAZ).
+  4. **Genel soru-cevap**: LLM, **minimal bağlam** (yalnızca tarih; profil zaten persona'da).
+  Kart yalnızca bağlamdaki gerçek İKN'lere çözülür (uydurma yok). Kart çözümlemesi hep
+  `ekap.Tender`'a bağlanır → doğru `ekap_id` (mobilde tıklayınca detaya gider).
 - Dedup: `(user, tender)` unique — aynı ihale aynı kullanıcıya iki kez önerilmez.
 - Claude çağrıları (profil haritası + sohbet) `ANTHROPIC_API_KEY` ister; anahtar
   yoksa sohbet/profil haritası hata döner ama öneri eşleştirme çalışmaya devam eder.

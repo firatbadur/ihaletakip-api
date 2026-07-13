@@ -51,6 +51,24 @@ def _wants_tender_listing(text: str) -> bool:
     return any(k in t for k in _TENDER_LIST_TRIGGERS)
 
 
+# "Takip ettiğim / kayıtlı ihaleler" niyeti — kayıtlı ihaleler YALNIZCA bu niyette
+# gösterilir (aksi halde alakasız sorularda öne çıkıp kafa karıştırıyordu).
+_SAVED_TRIGGERS = (
+    "takip etti",
+    "takip ettiğim",
+    "takibimdeki",
+    "takip listem",
+    "kayıtlı ihale",
+    "kaydettiğim",
+    "favori",
+)
+
+
+def _wants_saved(text: str) -> bool:
+    t = (text or "").lower()
+    return any(k in t for k in _SAVED_TRIGGERS)
+
+
 def _selected_tender_context(tender, today) -> str:
     """İhale odaklı sohbette LLM'e verilecek ihale detayı bağlamı."""
     okas = "; ".join(
@@ -121,7 +139,7 @@ def assistant_chat_task(user_id, message_id):
     from assistant.services.matching import tender_card
     from assistant.services.profile_map import parse_json_output
     from ekap.models import Tender
-    from tenders.models import SavedFilter, SavedTender
+    from tenders.models import SavedTender
 
     profile = CompanyProfile.objects.filter(user_id=user_id).first()
     if not profile:
@@ -132,19 +150,23 @@ def assistant_chat_task(user_id, message_id):
         return {"success": False, "error": "Sohbet mesajı bulunamadı."}
     conversation = user_msg.conversation
     today = timezone.localdate()
+    text = user_msg.content or ""
 
-    # ── İHALE ODAKLI SOHBET ────────────────────────────────────────
-    # Konuşma bir ihaleye bağlıysa: o ihalenin detaylarını bağlama koy ve LLM'e
-    # analiz ettir (uygunluk, maliyet yaklaşımı, yeterlilik vb.). Deterministik
-    # listeleme ve öneri bağlamı atlanır — sohbet tek ihaleye odaklıdır.
-    tender_obj = None
-    if conversation and conversation.tender_ikn:
-        tender_obj = Tender.objects.filter(ikn=conversation.tender_ikn).first()
+    # Asistan mesajını kaydedip standart sonucu döndüren yardımcılar
+    def _save(reply, cards, usage=None):
+        msg = ChatMessage.objects.create(
+            user_id=user_id,
+            conversation=conversation,
+            role=ChatMessage.Role.ASSISTANT,
+            content=reply,
+            payload={"kind": "text", "tender_cards": cards or []},
+        )
+        if conversation:
+            conversation.save(update_fields=["updated_at"])
+        return {"success": True, "analysis": ChatMessageSerializer(msg).data, "usage": usage}
 
-    if tender_obj:
-        context_text = _selected_tender_context(tender_obj, today)
-        card_by_ikn = {tender_obj.ikn: tender_card(tender_obj)} if tender_obj.ikn else {}
-
+    def _run_llm(context_text, card_pool):
+        """LLM'e sorar, İKN'leri havuzdan karta çözer, mesajı kaydeder."""
         messages = build_chat_messages(profile.user, conversation=conversation)
         if not messages:
             return {"success": False, "error": "Sohbet mesajı bulunamadı."}
@@ -153,235 +175,123 @@ def assistant_chat_task(user_id, message_id):
         except AnalysisError as e:
             return {"success": False, "error": e.message}
 
-        reply_text = result["analysis"]
-        card_iknler = []
+        reply = result["analysis"]
+        iknler = []
         try:
-            parsed = parse_json_output(reply_text)
-            reply_text = parsed.get("reply") or reply_text
-            card_iknler = [str(x) for x in parsed.get("card_iknler") or []]
+            parsed = parse_json_output(reply)
+            reply = parsed.get("reply") or reply
+            iknler = [str(x) for x in parsed.get("card_iknler") or []]
         except (ValueError, json.JSONDecodeError):
-            logger.warning("assistant_chat_task: ihale-odaklı çıktı JSON değil, düz metin")
-        for ikn in IKN_RE.findall(reply_text):
-            if ikn in card_by_ikn and ikn not in card_iknler:
-                card_iknler.append(ikn)
-        seen = set()
-        tender_cards = []
-        for ikn in card_iknler:
-            if ikn in card_by_ikn and ikn not in seen:
+            logger.warning("assistant_chat_task: model çıktısı JSON değil, düz metin")
+        # Güvenlik ağı: yanıta gömülü havuz İKN'lerini de karta çevir (Haiku formata
+        # uymayabilir); yalnızca havuzdaki (gerçek) İKN'ler kart olur → uydurma yok.
+        for ikn in IKN_RE.findall(reply):
+            if ikn in card_pool and ikn not in iknler:
+                iknler.append(ikn)
+        seen, cards = set(), []
+        for ikn in iknler:
+            if ikn in card_pool and ikn not in seen:
                 seen.add(ikn)
-                tender_cards.append(card_by_ikn[ikn])
+                cards.append(card_pool[ikn])
+        return _save(reply, cards, usage=result.get("usage"))
 
-        assistant_msg = ChatMessage.objects.create(
-            user_id=user_id,
-            conversation=conversation,
-            role=ChatMessage.Role.ASSISTANT,
-            content=reply_text,
-            payload={"kind": "text", "tender_cards": tender_cards},
-        )
-        conversation.save(update_fields=["updated_at"])
-        return {
-            "success": True,
-            "analysis": ChatMessageSerializer(assistant_msg).data,
-            "usage": result.get("usage"),
-        }
-
-    # ── GENEL SOHBET / ÖNERİ AKIŞI ─────────────────────────────────
-    # Günün önerileri → değişken system bloğu (cache breakpoint SONRASI)
-    recs = list(
-        TenderRecommendation.objects.filter(user_id=user_id, date=today)
-        .select_related("tender")
-        .order_by("-score")[:10]
+    # ── 1) BELİRLİ BİR İHALE HAKKINDA (seçili ihale veya mesajda İKN) ──
+    # Kullanıcı bir ihaleyi seçmiş VEYA mesajında İKN geçiyorsa: o ihaleyi DB'den
+    # çöz, detayını LLM'e ver, analiz ettir + tıklanabilir kart döndür.
+    tender_obj = (
+        Tender.objects.filter(ikn=conversation.tender_ikn).first()
+        if (conversation and conversation.tender_ikn)
+        else None
     )
-    context_items = [(r.tender, r.reasons) for r in recs]
+    mentioned = list(dict.fromkeys(IKN_RE.findall(text)))  # sıralı, tekrarsız
+    asked = list(Tender.objects.filter(ikn__in=mentioned)) if mentioned else []
 
-    # Depolanmış öneri yoksa CANLI eşleştir: günlük 07:00 beat'i çalışmamış olabilir
-    # veya kullanıcı profilini yeni güncellemiş olabilir. Böylece asistan beat'e
-    # bağımlı kalmaz ve profil değişiklikleri anında yansır (kural tabanlı, LLM'siz).
-    if not context_items:
-        from datetime import timedelta
+    focus = tender_obj or (asked[0] if (len(asked) == 1 and not tender_obj) else None)
+    if focus:
+        return _run_llm(
+            _selected_tender_context(focus, today),
+            {focus.ikn: tender_card(focus)},
+        )
 
-        from assistant.services.matching import match_tenders_for_profile
+    # Mesajda birden fazla İKN çözüldü → hepsini kart olarak getir (LLM yok)
+    if asked:
+        cards = [tender_card(t) for t in asked][:8]
+        return _save(f"Sorduğunuz {len(cards)} ihaleyi getirdim. Detay için dokunun 👇", cards)
 
-        pm = profile.profile_map or {}
-        # profile_map zayıf/null ise (anahtar kelime/OKAS yok) yalnızca il+tür ile
-        # eşleşilebilsin diye eşiği düşür — aksi halde hiçbir şey 3 puana ulaşmaz.
-        strong = bool(pm.get("keywords") or pm.get("okas_prefixes"))
-        since = timezone.now() - timedelta(days=14)
-        try:
-            matches = match_tenders_for_profile(
-                profile, since=since, limit=10, min_score=3.0 if strong else 1.0
+    # Mesajda İKN geçti ama sistemde bulunamadı → bilgilendir
+    if mentioned:
+        return _save(
+            f"{mentioned[0]} numaralı İKN'yi sistemde bulamadım. İKN'yi kontrol edebilir "
+            "ya da 'İhaleler' sekmesinden arayıp ihaleyi seçerek bana sorabilirsiniz.",
+            [],
+        )
+
+    # ── 2) TAKİP ETTİĞİM / KAYITLI İHALELER (yalnızca açıkça sorulunca) ──
+    if _wants_saved(text):
+        saved = list(SavedTender.objects.filter(user_id=user_id).order_by("-saved_at")[:8])
+        s_ikns = [s.tender_ikn for s in saved if s.tender_ikn]
+        ekap_by_ikn = (
+            {t.ikn: t for t in Tender.objects.filter(ikn__in=s_ikns)} if s_ikns else {}
+        )
+        cards = []
+        for s in saved:
+            if not s.tender_ikn:
+                continue
+            ekt = ekap_by_ikn.get(s.tender_ikn)
+            cards.append(
+                tender_card(ekt)
+                if ekt
+                else {
+                    "ikn": s.tender_ikn, "ekap_id": s.tender_id or "",
+                    "ihale_adi": s.tender_title or "", "idare_adi": s.institution or "",
+                    "il": s.tender_city or "", "ihale_tarihi": s.tender_date or "",
+                    "ihale_tip": None,
+                }
             )
-            context_items = [(t, r) for t, s, r in matches]
-        except Exception:
-            logger.exception("assistant_chat_task: canlı eşleştirme hatası")
-
-    # Kart havuzu: İKN → kart. Model yalnızca bu havuzdaki İKN'leri kart yapabilir.
-    card_by_ikn = {t.ikn: tender_card(t) for t, _ in context_items if t.ikn}
-
-    # Kullanıcının kayıtlı ihaleleri ve kayıtlı aramaları (arama geçmişi) → ek bağlam.
-    # Böylece asistan yalnızca günlük eşleşmelerden değil, kullanıcının takip ettiği
-    # ihalelerden ve arama ilgi alanlarından da yararlanır.
-    saved_tenders = list(SavedTender.objects.filter(user_id=user_id).order_by("-saved_at")[:10])
-    saved_filters = list(SavedFilter.objects.filter(user_id=user_id).order_by("-created_at")[:8])
-    # Kayıtlı ihaleleri gerçek EKAP kaydına bağla → doğru ekap_id (tıklanabilirlik) + tür
-    saved_ikns = [st.tender_ikn for st in saved_tenders if st.tender_ikn]
-    ekap_by_ikn = (
-        {t.ikn: t for t in Tender.objects.filter(ikn__in=saved_ikns)} if saved_ikns else {}
-    )
-    for st in saved_tenders:
-        ikn = st.tender_ikn
-        if not ikn or ikn in card_by_ikn:
-            continue
-        ekt = ekap_by_ikn.get(ikn)
-        if ekt:
-            card_by_ikn[ikn] = tender_card(ekt)  # zengin kart + doğru ekap_id
-        else:
-            card_by_ikn[ikn] = {
-                "ikn": ikn,
-                "ekap_id": st.tender_id or "",
-                "ihale_adi": st.tender_title or "",
-                "idare_adi": st.institution or "",
-                "il": st.tender_city or "",
-                "ihale_tarihi": st.tender_date or "",
-                "ihale_tip": None,
-            }
-
-    # ── DETERMİNİSTİK YOL (LLM YOK) ────────────────────────────────
-    # "Bana uygun ihale / bugünkü ihaleler" gibi sorularda öneriler zaten kural
-    # tabanlı eşleştirmeden geliyor; LLM'e sarmaya gerek yok. Kartları doğrudan
-    # döndür → her zaman tıklanabilir kart + token yakmaz + güvenilir.
-    if _wants_tender_listing(user_msg.content):
-        rec_cards = [tender_card(t) for t, _ in context_items][:8]
-        if rec_cards:
-            reply_text = (
-                f"Profilinize uygun {len(rec_cards)} ihale buldum. "
-                "İncelemek için ihaleye dokunun 👇"
-            )
-            cards = rec_cards
-        else:
-            saved_cards = [
-                card_by_ikn[st.tender_ikn]
-                for st in saved_tenders
-                if st.tender_ikn in card_by_ikn
-            ][:8]
-            if saved_cards:
-                reply_text = (
-                    "Şu an profilinize uygun yeni bir eşleşme bulamadım. "
-                    f"Takip ettiğiniz {len(saved_cards)} ihaleyi aşağıya ekledim 👇"
-                )
-                cards = saved_cards
-            else:
-                reply_text = (
-                    "Şu an size uygun bir ihale bulamadım. Profilinizdeki il/tür/anahtar "
-                    "kelimeleri güncelleyerek daha iyi eşleşmeler alabilir ya da 'İhaleler' "
-                    "sekmesinden arama yapabilirsiniz."
-                )
-                cards = []
-
-        assistant_msg = ChatMessage.objects.create(
-            user_id=user_id,
-            conversation=conversation,
-            role=ChatMessage.Role.ASSISTANT,
-            content=reply_text,
-            payload={"kind": "text", "tender_cards": cards},
+        reply = (
+            f"Takip ettiğiniz {len(cards)} ihale 👇"
+            if cards
+            else "Takip listenizde henüz ihale yok. Bir ihaleyi kaydettiğinizde burada görürsünüz."
         )
-        if conversation:
-            conversation.save(update_fields=["updated_at"])
-        return {
-            "success": True,
-            "analysis": ChatMessageSerializer(assistant_msg).data,
-            "usage": None,  # LLM çağrısı yok
-        }
+        return _save(reply, cards)
 
-    # ── LLM YOLU (genel sohbet/soru-cevap) ─────────────────────────
-    context_lines = [f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}"]
-    if context_items:
-        context_lines.append("\n## ÖNERİLEN İHALELER")
-        for t, reasons in context_items:
-            context_lines.append(
-                f"- İKN {t.ikn} | {t.ihale_adi[:120]} | {t.idare_adi[:80]} | "
-                f"{t.ihale_il_adi} | İhale tarihi: {t.ihale_tarih_saat or '-'} | "
-                f"Eşleşme nedenleri: {', '.join(reasons)}"
-            )
-    else:
-        context_lines.append(
-            "\n## ÖNERİLEN İHALELER\n(Şu an profile uygun yeni eşleşme yok.)"
+    # ── 3) ÖNERİ / LİSTELEME (kural tabanlı, LLM YOK) ──
+    if _wants_tender_listing(text):
+        recs = list(
+            TenderRecommendation.objects.filter(user_id=user_id, date=today)
+            .select_related("tender").order_by("-score")[:10]
         )
+        context_items = [(r.tender, r.reasons) for r in recs]
+        if not context_items:  # beat çalışmadıysa/profil yeni ise CANLI eşleştir
+            from datetime import timedelta
 
-    if saved_tenders:
-        context_lines.append("\n## KAYITLI İHALELERİNİZ (kullanıcının takip ettiği)")
-        for st in saved_tenders:
-            context_lines.append(
-                f"- İKN {st.tender_ikn} | {(st.tender_title or '')[:120]} | "
-                f"{(st.institution or '')[:80]} | {st.tender_city or '-'} | "
-                f"İhale tarihi: {st.tender_date or '-'} | Durum: {st.tender_status or '-'}"
-            )
+            from assistant.services.matching import match_tenders_for_profile
 
-    if saved_filters:
-        aramalar = "; ".join(
-            f"{sf.name}" + (f" [{', '.join(sf.tags)}]" if sf.tags else "")
-            for sf in saved_filters
+            pm = profile.profile_map or {}
+            strong = bool(pm.get("keywords") or pm.get("okas_prefixes"))
+            try:
+                context_items = [
+                    (t, r)
+                    for t, s, r in match_tenders_for_profile(
+                        profile, since=timezone.now() - timedelta(days=14),
+                        limit=10, min_score=3.0 if strong else 1.0,
+                    )
+                ]
+            except Exception:
+                logger.exception("assistant_chat_task: canlı eşleştirme hatası")
+
+        cards = [tender_card(t) for t, _ in context_items][:8]
+        reply = (
+            f"Profilinize uygun {len(cards)} ihale buldum. İncelemek için dokunun 👇"
+            if cards
+            else "Şu an profilinize uygun bir eşleşme bulamadım. Profilinizdeki il/tür/anahtar "
+            "kelimeleri güncelleyebilir ya da bir ihaleyi seçip onun hakkında bana sorabilirsiniz."
         )
-        context_lines.append(
-            "\n## KAYITLI ARAMALARINIZ (kullanıcının ilgi/arama geçmişi)\n" + aramalar
-        )
+        return _save(reply, cards)
 
-    if not context_items and not saved_tenders:
-        context_lines.append(
-            "\n(Kart gösterecek ihale yok — card_iknler boş kalmalı.)"
-        )
-    context_text = "\n".join(context_lines)
-
-    # Bağlam yalnızca bu konuşmanın mesajlarından kurulur
-    messages = build_chat_messages(profile.user, conversation=conversation)
-    if not messages:
-        return {"success": False, "error": "Sohbet mesajı bulunamadı."}
-
-    try:
-        result = chat_completion(profile.profile_map, context_text, messages)
-    except AnalysisError as e:
-        return {"success": False, "error": e.message}
-
-    # Model çıktısını parse et — bozuk JSON'da düz metin fallback (asla hata verme)
-    reply_text = result["analysis"]
-    card_iknler = []
-    try:
-        parsed = parse_json_output(reply_text)
-        reply_text = parsed.get("reply") or reply_text
-        card_iknler = [str(x) for x in parsed.get("card_iknler") or []]
-    except (ValueError, json.JSONDecodeError):
-        logger.warning("assistant_chat_task: model çıktısı JSON değil, düz metin kullanılıyor")
-
-    # Güvenlik ağı: model card_iknler'i unutup İKN'yi metne gömse bile, yanıtta
-    # geçen ve havuzda olan İKN'leri karta çevir (Haiku her zaman formata uymuyor).
-    for ikn in IKN_RE.findall(reply_text):
-        if ikn in card_by_ikn and ikn not in card_iknler:
-            card_iknler.append(ikn)
-
-    # Kartları yalnızca context havuzundan çöz (öneriler + kayıtlı ihaleler) —
-    # model uydurmasına karşı güvenlik. Sırayı koru, tekrarı ele.
-    seen_ikn = set()
-    tender_cards = []
-    for ikn in card_iknler:
-        if ikn in card_by_ikn and ikn not in seen_ikn:
-            seen_ikn.add(ikn)
-            tender_cards.append(card_by_ikn[ikn])
-
-    assistant_msg = ChatMessage.objects.create(
-        user_id=user_id,
-        conversation=conversation,
-        role=ChatMessage.Role.ASSISTANT,
-        content=reply_text,
-        payload={"kind": "text", "tender_cards": tender_cards},
-    )
-    if conversation:
-        conversation.save(update_fields=["updated_at"])  # geçmiş listesinde öne taşı
-
-    return {
-        "success": True,
-        "analysis": ChatMessageSerializer(assistant_msg).data,
-        "usage": result.get("usage"),
-    }
+    # ── 4) GENEL SORU-CEVAP (LLM; ihale kartı gerekmez) ──
+    # Profil zaten persona'da (cache'li); ağır öneri/kayıtlı listesi bağlama konmaz.
+    return _run_llm(f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}", {})
 
 
 @shared_task(name="assistant.tasks.match_recommendations")

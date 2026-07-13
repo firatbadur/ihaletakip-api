@@ -109,8 +109,12 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   kuyruğunda **tek concurrency** ile serileştirilir (`ekap-worker` servisi).
 - **Toplama (Celery Beat)**: `sync_recent` (gece 02:00), `refresh_stale` (3 saatte bir,
   akıllı kural: geçmiş+sonuçlanmamış → detay yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1
-  yıl**), `backfill` (yalnızca gece **01:00–06:00** arası 15 dk'da bir, son
-  `EKAP_BACKFILL_YEARS`=5 yıl),
+  yıl**), `backfill` (**tüm gün** 15 dk'da bir, son `EKAP_BACKFILL_YEARS`=5 yıl;
+  5 yıl tabanına ulaşınca DB kontrolüyle anında döner → boşta bedava. EKAP gün içinde
+  yavaş/yanıtsız olabildiğinden görev sayfa hatasını **zarifçe yutar**: kısmi ilerlemeyi
+  `SyncCheckpoint`'e kaydeder, çalışmayı *error* saymaz — `SyncRun.note`'a "EKAP kısmi"
+  düşer — ve bir sonraki tetikte kaldığı yerden devam eder. Kilit=1sa üst üste binmeyi,
+  throttle ~1istek/sn + tek concurrency EKAP'ı korur),
   `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
   ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder

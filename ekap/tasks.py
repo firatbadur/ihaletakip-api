@@ -132,12 +132,22 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
         errors = 0
         skip = cp.cursor_skip
         oldest = None
+        aborted = None
         for _ in range(max_pages):
             body = client.build_search_body(
                 orderBy="ilanTarihi", siralamaTipi="desc",
                 paginationSkip=skip, paginationTake=page_size,
             )
-            items, total_count = sync_mod.extract_list(client.search(body))
+            # EKAP gün içinde yavaş/yanıtsız olabilir. Sayfa çekilemezse çalışmayı
+            # hata saymayız: o ana kadarki ilerlemeyi (skip) korur, zarifçe biter,
+            # bir sonraki tetik kaldığı yerden devam eder. (İstemci zaten timeout +
+            # üstel backoff ile EKAP_MAX_RETRIES kez denedi.)
+            try:
+                items, total_count = sync_mod.extract_list(client.search(body))
+            except Exception as e:
+                aborted = str(e)[:300]
+                logger.warning("backfill sayfası atlandı (EKAP yanıt vermedi): %s", aborted)
+                break
             if not items:
                 cp.done = True
                 break
@@ -159,7 +169,12 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
         cp.save()
         run.items = total
         run.errors = errors
-        return {"upserted": total, "errors": errors, "skip": skip, "done": cp.done}
+        if aborted:
+            run.note = f"EKAP kısmi (sonraki tetikte devam): {aborted}"
+        return {
+            "upserted": total, "errors": errors, "skip": skip,
+            "done": cp.done, "aborted": bool(aborted),
+        }
 
 
 # ── Akıllı yenileme ────────────────────────────────────

@@ -40,10 +40,14 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.refresh_stale",
         "schedule": crontab(minute=30, hour="*/3"),
     },
-    # Geçmiş doldurma (backfill) — yalnızca gece 01:00–06:00 arası, 15 dk'da bir
+    # Geçmiş doldurma (backfill) — TÜM GÜN, 15 dk'da bir. 5 yıl tabanına ulaşınca
+    # görev DB kontrolüyle anında döner → boşta maliyeti yok. EKAP gün içinde
+    # yavaş/yanıtsız olabildiğinden görev sayfa hatasını zarifçe yutar (kısmi
+    # ilerlemeyi kaydeder, sonraki tetikte kaldığı yerden devam eder). Kilit (1 sa)
+    # üst üste binmeyi, throttle (~1 istek/sn) + tek concurrency EKAP'ı korur.
     "ekap-backfill": {
         "task": "ekap.tasks.backfill",
-        "schedule": crontab(minute="*/15", hour="1-5"),
+        "schedule": crontab(minute="*/15"),
     },
     # OKAS kodları — haftalık (Pazartesi 05:00)
     "ekap-sync-okas": {

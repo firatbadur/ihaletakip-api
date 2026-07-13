@@ -1897,6 +1897,12 @@
               ],
               "query": [
                 {
+                  "key": "days",
+                  "value": "1",
+                  "description": "Son kaç günlük sohbet (varsayılan 30).",
+                  "disabled": true
+                },
+                {
                   "key": "page",
                   "value": "1",
                   "description": "Sayfa numarası (1'den başlar).",
@@ -1910,7 +1916,7 @@
                 }
               ]
             },
-            "description": "Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye** döner. `kind=digest` kayıtları günlük öneri özetleridir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye** döner. Yalnızca son **`days`** gün (varsayılan 30) içinde güncellenen sohbetler listelenir. `kind=digest` kayıtları günlük öneri özetleridir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

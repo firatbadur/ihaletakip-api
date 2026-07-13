@@ -333,9 +333,15 @@ paths:
     get:
       operationId: api_v1_assistant_conversations_retrieve
       description: Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye**
-        döner. `kind=digest` kayıtları günlük öneri özetleridir.
+        döner. Yalnızca son **`days`** gün (varsayılan 30) içinde güncellenen sohbetler
+        listelenir. `kind=digest` kayıtları günlük öneri özetleridir.
       summary: Sohbet oturumlarını listele
       parameters:
+      - in: query
+        name: days
+        schema:
+          type: integer
+        description: Son kaç günlük sohbet (varsayılan 30).
       - in: query
         name: page
         schema:

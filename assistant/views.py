@@ -242,9 +242,11 @@ class ChatSendView(APIView):
     summary="Sohbet oturumlarını listele",
     description=(
         "Kullanıcının geçmiş sohbetlerini **en son güncellenenden eskiye** döner. "
+        "Yalnızca son **`days`** gün (varsayılan 30) içinde güncellenen sohbetler listelenir. "
         "`kind=digest` kayıtları günlük öneri özetleridir."
     ),
     parameters=[
+        OpenApiParameter("days", int, description="Son kaç günlük sohbet (varsayılan 30)."),
         OpenApiParameter("page", int, description="Sayfa numarası (1'den başlar)."),
         OpenApiParameter("page_size", int, description="Sayfa boyutu (varsayılan 30, en çok 100)."),
     ],
@@ -263,7 +265,20 @@ class ConversationListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        qs = ChatConversation.objects.filter(user=request.user).prefetch_related("messages")
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        try:
+            days = min(365, max(1, int(request.query_params.get("days", 30))))
+        except (TypeError, ValueError):
+            days = 30
+
+        cutoff = timezone.now() - timedelta(days=days)
+        qs = (
+            ChatConversation.objects.filter(user=request.user, updated_at__gte=cutoff)
+            .prefetch_related("messages")
+        )
         return _paginate(request, qs, ChatConversationSerializer)
 
 

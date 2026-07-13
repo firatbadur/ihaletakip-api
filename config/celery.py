@@ -23,6 +23,11 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_tender_alarms",
         "schedule": crontab(minute=0),
     },
+    # İhale Asistanı: günlük öneri eşleştirmesi (her gün 07:00 — ekap sync sonrası)
+    "assistant-match-recommendations": {
+        "task": "assistant.tasks.match_recommendations",
+        "schedule": crontab(hour=7, minute=0),
+    },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {
         "task": "tenders.tasks.cleanup_old_notifications",

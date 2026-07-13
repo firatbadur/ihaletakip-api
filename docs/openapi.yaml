@@ -290,6 +290,193 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/assistant/chat/:
+    post:
+      operationId: api_v1_assistant_chat_create
+      description: 'Mesajı kaydeder ve yanıtı arka planda üretir. Dönen `task_id`,
+        mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis`
+        alanı asistan mesajıdır: `{id, role, content, tender_cards, created_at}`.'
+      summary: Asistana mesaj gönder
+      tags:
+      - assistant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatSend'
+            examples:
+              MesajGönder:
+                value:
+                  message: Bana uygun ihale var mı?
+                summary: Mesaj gönder
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatSend'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatSend'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantTaskAccepted'
+          description: ''
+  /api/v1/assistant/messages/:
+    get:
+      operationId: api_v1_assistant_messages_retrieve
+      description: 'Asistan sohbet mesajlarını **en yeniden eskiye** döner (mobil
+        inverted liste için). Yanıt: `data.list`, `data.totalCount`, `data.page`.'
+      summary: Sohbet geçmişini listele
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Sayfa numarası (1'den başlar).
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Sayfa boyutu (varsayılan 30, en çok 100).
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessagePage'
+          description: ''
+  /api/v1/assistant/profile/:
+    get:
+      operationId: api_v1_assistant_profile_retrieve
+      description: Kullanıcının firma profilini döner. Profil yoksa **404** döner
+        — mobil uygulama bunu 'onboarding gerekli' olarak yorumlar.
+      summary: Firma profilini getir
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyProfile'
+          description: ''
+    put:
+      operationId: api_v1_assistant_profile_update
+      description: Profili oluşturur veya günceller ve **profil haritası üretimini**
+        arka planda başlatır. Yanıttaki `task_id` mevcut `GET /ai/tasks/{task_id}/`
+        ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır.
+      summary: Firma profilini kaydet (upsert)
+      tags:
+      - assistant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyProfile'
+            examples:
+              FirmaProfiliKaydet:
+                value:
+                  company_name: Örnek İnşaat Ltd. Şti.
+                  sector: İnşaat / Yapım
+                  activity_areas: Yol, altyapı ve bina inşaatı; asfalt serimi
+                  cities:
+                  - 251
+                  - 284
+                  tender_types:
+                  - 2
+                  budget_min: 1000000
+                  budget_max: 50000000
+                  past_works:
+                  - 2023 Ankara Çankaya yol yapımı
+                  - 2022 okul binası onarımı
+                summary: Firma profili kaydet
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CompanyProfile'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CompanyProfile'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileAccepted'
+          description: ''
+  /api/v1/assistant/recommendations/:
+    get:
+      operationId: api_v1_assistant_recommendations_retrieve
+      description: Günlük eşleştirme görevinin ürettiği kişisel ihale önerilerini
+        döner. `days` parametresi kaç günlük önerinin listeleneceğini belirler.
+      summary: İhale önerilerini listele
+      parameters:
+      - in: query
+        name: days
+        schema:
+          type: integer
+        description: Kaç günlük öneri (varsayılan 7).
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Sayfa numarası.
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Sayfa boyutu.
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationPage'
+          description: ''
+  /api/v1/assistant/recommendations/{id}/seen/:
+    post:
+      operationId: api_v1_assistant_recommendations_seen_create
+      description: Öneri kaydını görüldü yapar. Kayıt yoksa `data.updated` 0 döner.
+      summary: Öneriyi görüldü işaretle
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationSeen'
+          description: ''
   /api/v1/auth/deactivate/:
     post:
       operationId: api_v1_auth_deactivate_create
@@ -1744,6 +1931,13 @@ components:
           description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
       required:
       - identity_token
+    AssistantTaskAccepted:
+      type: object
+      properties:
+        task_id:
+          type: string
+      required:
+      - task_id
     Authority:
       type: object
       properties:
@@ -1762,6 +1956,55 @@ components:
       required:
       - ad
       - detsis_id
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        content:
+          type: string
+          readOnly: true
+        payload:
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content
+      - created_at
+      - id
+      - payload
+      - role
+    ChatMessagePage:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
+    ChatSend:
+      type: object
+      properties:
+        message:
+          type: string
+          maxLength: 2000
+      required:
+      - message
     City:
       type: object
       properties:
@@ -1784,6 +2027,58 @@ components:
       - ad
       - ekap_il_id
       - plaka
+    CompanyProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        company_name:
+          type: string
+          maxLength: 255
+        sector:
+          type: string
+          maxLength: 255
+        activity_areas:
+          type: string
+        cities: {}
+        tender_types: {}
+        budget_min:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,16}(?:\.\d{0,2})?$
+          nullable: true
+        budget_max:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,16}(?:\.\d{0,2})?$
+          nullable: true
+        past_works: {}
+        profile_map:
+          readOnly: true
+          nullable: true
+        profile_map_generated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - company_name
+      - created_at
+      - id
+      - profile_map
+      - profile_map_generated_at
+      - updated_at
     Detail:
       type: object
       description: Tek mesajlık yanıt gövdesi.
@@ -2021,6 +2316,16 @@ components:
         preferences: {}
       required:
       - preferences
+    ProfileAccepted:
+      type: object
+      properties:
+        task_id:
+          type: string
+        profile:
+          $ref: '#/components/schemas/CompanyProfile'
+      required:
+      - profile
+      - task_id
     ProviderEnum:
       enum:
       - email
@@ -2032,6 +2337,28 @@ components:
         * `google` - Google
 
         * `apple` - Apple'
+    RecommendationPage:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenderRecommendation'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
+    RecommendationSeen:
+      type: object
+      properties:
+        updated:
+          type: integer
+      required:
+      - updated
     Register:
       type: object
       description: E-posta + şifre ile kayıt.
@@ -2052,6 +2379,14 @@ components:
       required:
       - email
       - password
+    RoleEnum:
+      enum:
+      - user
+      - assistant
+      type: string
+      description: '* `user` - Kullanıcı
+
+        * `assistant` - Asistan'
     SavedFilter:
       type: object
       properties:
@@ -2226,6 +2561,60 @@ components:
       - id
       - tender_id
       - updated_at
+    TenderRecommendation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        score:
+          type: number
+          format: double
+          readOnly: true
+        reasons:
+          readOnly: true
+        date:
+          type: string
+          format: date
+          readOnly: true
+        seen:
+          type: boolean
+          readOnly: true
+        ikn:
+          type: string
+          readOnly: true
+        ekap_id:
+          type: string
+          readOnly: true
+        ihale_adi:
+          type: string
+          readOnly: true
+        idare_adi:
+          type: string
+          readOnly: true
+        il:
+          type: string
+          readOnly: true
+        ihale_tarihi:
+          type: string
+          format: date-time
+          readOnly: true
+        ihale_tip:
+          type: integer
+          readOnly: true
+      required:
+      - date
+      - ekap_id
+      - id
+      - idare_adi
+      - ihale_adi
+      - ihale_tarihi
+      - ihale_tip
+      - ikn
+      - il
+      - reasons
+      - score
+      - seen
     TokenPair:
       type: object
       description: register / login / social yanıtı.

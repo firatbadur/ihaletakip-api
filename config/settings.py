@@ -51,6 +51,7 @@ LOCAL_APPS = [
     "accounts",
     "tenders",
     "ai",
+    "assistant",
     "core",
     "ekap",
 ]

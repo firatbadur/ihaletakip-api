@@ -1869,6 +1869,236 @@
         }
       ],
       "description": "Oturumu sonlandıran uçlar — **kasıtlı olarak en sonda**.\n\n`Çıkış yap` refresh token'ı kara listeye alır, `Hesabı devre dışı bırak` ise hesabı kapatır ve sonraki tüm istekler `401` döner. Koleksiyonu baştan sona çalıştırıyorsanız bu klasör en son çalışmalıdır."
+    },
+    {
+      "name": "assistant",
+      "item": [
+        {
+          "name": "Sohbet geçmişini listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/messages/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "messages",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa numarası (1'den başlar).",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "1",
+                  "description": "Sayfa boyutu (varsayılan 30, en çok 100).",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Asistan sohbet mesajlarını **en yeniden eskiye** döner (mobil inverted liste için). Yanıt: `data.list`, `data.totalCount`, `data.page`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Firma profilini getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "profile",
+                ""
+              ]
+            },
+            "description": "Kullanıcının firma profilini döner. Profil yoksa **404** döner — mobil uygulama bunu 'onboarding gerekli' olarak yorumlar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İhale önerilerini listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/recommendations/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "recommendations",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "1",
+                  "description": "Kaç günlük öneri (varsayılan 7).",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa numarası.",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "1",
+                  "description": "Sayfa boyutu.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Günlük eşleştirme görevinin ürettiği kişisel ihale önerilerini döner. `days` parametresi kaç günlük önerinin listeleneceğini belirler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Asistana mesaj gönder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/chat/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "chat",
+                ""
+              ]
+            },
+            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, role, content, tender_cards, created_at}`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Bana uygun ihale var mı?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Firma profilini kaydet (upsert)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "profile",
+                ""
+              ]
+            },
+            "description": "Profili oluşturur veya günceller ve **profil haritası üretimini** arka planda başlatır. Yanıttaki `task_id` mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"Örnek İnşaat Ltd. Şti.\",\n  \"sector\": \"İnşaat / Yapım\",\n  \"activity_areas\": \"Yol, altyapı ve bina inşaatı; asfalt serimi\",\n  \"cities\": [\n    251,\n    284\n  ],\n  \"tender_types\": [\n    2\n  ],\n  \"budget_min\": 1000000,\n  \"budget_max\": 50000000,\n  \"past_works\": [\n    \"2023 Ankara Çankaya yol yapımı\",\n    \"2022 okul binası onarımı\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Öneriyi görüldü işaretle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/recommendations/:id/seen/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "recommendations",
+                ":id",
+                "seen",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Öneri kaydını görüldü yapar. Kayıt yoksa `data.updated` 0 döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
     }
   ]
 }

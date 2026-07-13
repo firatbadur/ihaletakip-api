@@ -52,6 +52,15 @@ def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: f
     if tender_types:
         qs = qs.filter(ihale_tip__in=tender_types)
 
+    # Kullanıcının zaten KAYDETTİĞİ ihaleleri önerme (SavedTender)
+    from tenders.models import SavedTender
+
+    saved_ikns = list(
+        SavedTender.objects.filter(user=profile.user).values_list("tender_ikn", flat=True)
+    )
+    if saved_ikns:
+        qs = qs.exclude(ikn__in=saved_ikns)
+
     qs = qs.order_by("ihale_tarihi").prefetch_related("okas_kalemleri")[:500]  # güvenlik tavanı
 
     scored = []

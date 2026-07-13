@@ -263,18 +263,16 @@ def assistant_chat_task(user_id, message_id):
         )
         context_items = [(r.tender, r.reasons) for r in recs]
         if not context_items:  # beat çalışmadıysa/profil yeni ise CANLI eşleştir
-            from datetime import timedelta
-
             from assistant.services.matching import match_tenders_for_profile
 
             pm = profile.profile_map or {}
             strong = bool(pm.get("keywords") or pm.get("okas_prefixes"))
             try:
+                # since=None → tüm açık + teklifi geçmemiş uygun ihaleler (ilan_tarihi kısıtı yok)
                 context_items = [
                     (t, r)
                     for t, s, r in match_tenders_for_profile(
-                        profile, since=timezone.now() - timedelta(days=14),
-                        limit=10, min_score=3.0 if strong else 1.0,
+                        profile, since=None, limit=10, min_score=3.0 if strong else 1.0,
                     )
                 ]
             except Exception:

@@ -9,6 +9,9 @@ Skorlama:
 """
 import logging
 
+from django.db.models import Q
+from django.utils import timezone
+
 logger = logging.getLogger("ihaletakip")
 
 # Katılıma açık ihaleler (bkz. ekap/views.py durum dokümantasyonu: 2/3 Katılıma Açık)
@@ -17,10 +20,15 @@ OPEN_STATUSES = [2, 3]
 TENDER_TYPE_LABELS = {1: "Mal Alımı", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
 
 
-def match_tenders_for_profile(profile, since, limit: int = 10, min_score: float = 3.0) -> list:
+def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: float = 3.0) -> list:
     """
-    Profil haritasına göre `since` tarihinden beri ilan edilen açık ihaleleri skorlar.
+    Profil haritasına göre AÇIK (katılıma açık) ve teklifi geçmemiş ihaleleri skorlar.
     Dönen: [(tender, score, reasons), ...] — skora göre azalan, en fazla `limit` adet.
+
+    Not: `ilan_tarihi` verisi liste senkronunda çoğu zaman boş kaldığından ona göre
+    filtrelenmez. Bunun yerine durum (2/3) + teklifi geçmemiş (ihale_tarihi >= şimdi
+    veya boş) kullanılır. `since` verilirse ek olarak son X günde ilan edilenlere
+    daraltır (yalnızca ilan_tarihi DOLU olanlar için). Tekrar önerme dedup ile önlenir.
     """
     from ekap.models import Tender
 
@@ -30,17 +38,21 @@ def match_tenders_for_profile(profile, since, limit: int = 10, min_score: float 
     city_ids = profile.cities or pm.get("city_ids") or []
     tender_types = profile.tender_types or pm.get("tender_types") or []
 
-    qs = Tender.objects.filter(
-        ilan_tarihi__gte=since,
-        ihale_durum__in=OPEN_STATUSES,
+    now = timezone.now()
+    # Açık + teklif süresi geçmemiş (ihale_tarihi gelecekte ya da bilinmiyor)
+    qs = Tender.objects.filter(ihale_durum__in=OPEN_STATUSES).filter(
+        Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True)
     )
+    # since verildiyse VE ilan_tarihi doluysa son X güne daralt (beat için opsiyonel)
+    if since is not None:
+        qs = qs.filter(Q(ilan_tarihi__gte=since) | Q(ilan_tarihi__isnull=True))
     # İndexli ön-filtreler: kullanıcı şehir/tür seçtiyse kapsamı daralt
     if city_ids:
         qs = qs.filter(il_id__in=city_ids)
     if tender_types:
         qs = qs.filter(ihale_tip__in=tender_types)
 
-    qs = qs.prefetch_related("okas_kalemleri")[:500]  # güvenlik tavanı
+    qs = qs.order_by("ihale_tarihi").prefetch_related("okas_kalemleri")[:500]  # güvenlik tavanı
 
     scored = []
     for tender in qs:

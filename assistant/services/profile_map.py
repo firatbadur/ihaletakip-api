@@ -44,7 +44,14 @@ def _profile_text(profile) -> str:
         lines.append(f"- Bütçe aralığı: {profile.budget_min or '-'} — {profile.budget_max or '-'} TL")
     if profile.past_works:
         lines.append("- Geçmiş işler:")
-        lines.extend(f"  * {w}" for w in profile.past_works)
+        for w in profile.past_works:
+            if isinstance(w, dict):
+                # İKN aramalı yeni format: {ikn, title, city, type}
+                parts = [w.get("title") or ""]
+                extra = " · ".join(x for x in [w.get("ikn"), w.get("city"), w.get("type")] if x)
+                lines.append(f"  * {parts[0]}" + (f" ({extra})" if extra else ""))
+            else:
+                lines.append(f"  * {w}")  # eski düz metin format
     return "\n".join(lines)
 
 

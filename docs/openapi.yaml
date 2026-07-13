@@ -2060,6 +2060,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/KindEnum'
           readOnly: true
+        tender_ikn:
+          type: string
+          readOnly: true
         last_message:
           type: string
           readOnly: true
@@ -2080,6 +2083,7 @@ components:
       - kind
       - last_message
       - message_count
+      - tender_ikn
       - title
       - updated_at
     ChatMessage:
@@ -2136,6 +2140,9 @@ components:
           maxLength: 2000
         conversation:
           type: integer
+          nullable: true
+        tender:
+          type: string
           nullable: true
       required:
       - message

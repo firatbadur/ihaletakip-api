@@ -51,6 +51,43 @@ def _wants_tender_listing(text: str) -> bool:
     return any(k in t for k in _TENDER_LIST_TRIGGERS)
 
 
+def _selected_tender_context(tender, today) -> str:
+    """İhale odaklı sohbette LLM'e verilecek ihale detayı bağlamı."""
+    okas = "; ".join(
+        f"{i.kodu} {i.adi}".strip()[:70]
+        for i in tender.okas_kalemleri.all()[:8]
+        if (i.kodu or i.adi)
+    )
+    lines = [
+        f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}",
+        "\n## KULLANICININ SEÇTİĞİ İHALE (sohbet bu ihale hakkında)",
+        f"- İKN: {tender.ikn}",
+        f"- İhale adı: {tender.ihale_adi}",
+        f"- İdare: {tender.idare_adi}"
+        + (f" | Üst idare: {tender.ust_idare}" if tender.ust_idare else ""),
+        f"- Yer: {(tender.ihale_il_adi + ' ' + tender.ilce_adi).strip() or '-'}",
+        f"- İhale türü: {tender.ihale_tipi_aciklama or tender.ihale_tip or '-'}",
+        f"- İhale usulü: {tender.ihale_usul_aciklama or '-'}",
+        f"- Durum: {tender.ihale_durum_aciklama or '-'}",
+        f"- İhale tarihi/saati: {tender.ihale_tarih_saat or '-'}",
+        f"- Kapsam: {tender.ihale_kapsam_aciklama or '-'}",
+        f"- İşin/malın yapılacağı yer: {tender.isin_yapilacagi_yer or tender.ihale_yeri or '-'}",
+        f"- İtirazen şikayet başvuru bedeli: {tender.itirazen_sikayet_basvuru_bedeli or '-'}",
+        f"- e-İhale: {'Evet' if tender.e_ihale else 'Hayır'} | Doküman sayısı: {tender.dokuman_sayisi}",
+    ]
+    if okas:
+        lines.append(f"- OKAS ihtiyaç kalemleri: {okas}")
+    lines.append(
+        "\nKullanıcı bu ihale hakkında soru soruyor (uygunluk, maliyet/keşif yaklaşımı, "
+        "yeterlilik, teklif stratejisi vb.). Yukarıdaki bilgilere ve firmanın profiline "
+        "göre yanıtla. Kesin rakam TAAHHÜT ETME; maliyet için genel yaklaşım ver ve "
+        "detaylı hesap için uygulamanın 'Maliyet Analizi' özelliğine yönlendir. İhale "
+        "metninde OLMAYAN bilgiyi uydurma; eksikse EKAP dokümanlarına yönlendir. "
+        "card_iknler'e yalnızca bu ihalenin İKN'sini koyabilirsin."
+    )
+    return "\n".join(lines)
+
+
 @shared_task(name="assistant.tasks.generate_profile_map_task")
 def generate_profile_map_task(user_id):
     """Firma profilinden AI profil haritası üretir ve kaydeder."""
@@ -94,9 +131,62 @@ def assistant_chat_task(user_id, message_id):
     if not user_msg:
         return {"success": False, "error": "Sohbet mesajı bulunamadı."}
     conversation = user_msg.conversation
-
-    # Günün önerileri → değişken system bloğu (cache breakpoint SONRASI)
     today = timezone.localdate()
+
+    # ── İHALE ODAKLI SOHBET ────────────────────────────────────────
+    # Konuşma bir ihaleye bağlıysa: o ihalenin detaylarını bağlama koy ve LLM'e
+    # analiz ettir (uygunluk, maliyet yaklaşımı, yeterlilik vb.). Deterministik
+    # listeleme ve öneri bağlamı atlanır — sohbet tek ihaleye odaklıdır.
+    tender_obj = None
+    if conversation and conversation.tender_ikn:
+        tender_obj = Tender.objects.filter(ikn=conversation.tender_ikn).first()
+
+    if tender_obj:
+        context_text = _selected_tender_context(tender_obj, today)
+        card_by_ikn = {tender_obj.ikn: tender_card(tender_obj)} if tender_obj.ikn else {}
+
+        messages = build_chat_messages(profile.user, conversation=conversation)
+        if not messages:
+            return {"success": False, "error": "Sohbet mesajı bulunamadı."}
+        try:
+            result = chat_completion(profile.profile_map, context_text, messages)
+        except AnalysisError as e:
+            return {"success": False, "error": e.message}
+
+        reply_text = result["analysis"]
+        card_iknler = []
+        try:
+            parsed = parse_json_output(reply_text)
+            reply_text = parsed.get("reply") or reply_text
+            card_iknler = [str(x) for x in parsed.get("card_iknler") or []]
+        except (ValueError, json.JSONDecodeError):
+            logger.warning("assistant_chat_task: ihale-odaklı çıktı JSON değil, düz metin")
+        for ikn in IKN_RE.findall(reply_text):
+            if ikn in card_by_ikn and ikn not in card_iknler:
+                card_iknler.append(ikn)
+        seen = set()
+        tender_cards = []
+        for ikn in card_iknler:
+            if ikn in card_by_ikn and ikn not in seen:
+                seen.add(ikn)
+                tender_cards.append(card_by_ikn[ikn])
+
+        assistant_msg = ChatMessage.objects.create(
+            user_id=user_id,
+            conversation=conversation,
+            role=ChatMessage.Role.ASSISTANT,
+            content=reply_text,
+            payload={"kind": "text", "tender_cards": tender_cards},
+        )
+        conversation.save(update_fields=["updated_at"])
+        return {
+            "success": True,
+            "analysis": ChatMessageSerializer(assistant_msg).data,
+            "usage": result.get("usage"),
+        }
+
+    # ── GENEL SOHBET / ÖNERİ AKIŞI ─────────────────────────────────
+    # Günün önerileri → değişken system bloğu (cache breakpoint SONRASI)
     recs = list(
         TenderRecommendation.objects.filter(user_id=user_id, date=today)
         .select_related("tender")

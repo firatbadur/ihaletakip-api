@@ -39,7 +39,10 @@ class ChatConversationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ChatConversation
-        fields = ["id", "title", "kind", "last_message", "message_count", "created_at", "updated_at"]
+        fields = [
+            "id", "title", "kind", "tender_ikn",
+            "last_message", "message_count", "created_at", "updated_at",
+        ]
         read_only_fields = fields
 
     def get_last_message(self, obj) -> str:
@@ -54,6 +57,8 @@ class ChatSendSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=2000, trim_whitespace=True)
     # Boş/gönderilmemiş → yeni konuşma açılır
     conversation = serializers.IntegerField(required=False, allow_null=True)
+    # Doluysa (ekap_id veya İKN) YENİ konuşma o ihale odaklı açılır
+    tender = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class TenderRecommendationSerializer(serializers.ModelSerializer):

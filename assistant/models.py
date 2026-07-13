@@ -85,6 +85,8 @@ class ChatConversation(models.Model):
     )
     title = models.CharField(max_length=120, blank=True)
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.CHAT)
+    # Doluysa sohbet BU ihale odaklıdır; assistant_chat_task ihale detayını bağlama koyar
+    tender_ikn = models.CharField(max_length=100, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
 

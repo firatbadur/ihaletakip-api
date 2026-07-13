@@ -191,6 +191,7 @@ class ChatSendView(APIView):
 
         content = serializer.validated_data["message"]
         conv_id = serializer.validated_data.get("conversation")
+        tender_ref = (serializer.validated_data.get("tender") or "").strip()
 
         if conv_id:
             conversation = ChatConversation.objects.filter(
@@ -199,10 +200,23 @@ class ChatSendView(APIView):
             if not conversation:
                 raise NotFound("Sohbet oturumu bulunamadı.")
         else:
+            # Yeni konuşma; tender verildiyse ihale odaklı aç (başlık ihale adı olur)
+            title = content[:120]
+            tender_ikn = ""
+            if tender_ref:
+                from django.db.models import Q
+
+                from ekap.models import Tender
+
+                t = Tender.objects.filter(Q(ekap_id=tender_ref) | Q(ikn=tender_ref)).first()
+                if t:
+                    tender_ikn = t.ikn
+                    title = f"İhale: {(t.ihale_adi or t.ikn)[:100]}"
             conversation = ChatConversation.objects.create(
                 user=request.user,
-                title=content[:120],
+                title=title,
                 kind=ChatConversation.Kind.CHAT,
+                tender_ikn=tender_ikn,
             )
 
         msg = ChatMessage.objects.create(

@@ -68,6 +68,16 @@ ai/                # Yapay zeka servisleri
 ├── tasks.py       # Celery: run_analysis_task, cleanup_expired_analyses
 └── views.py       # analyze (async), analyze-status, tts
 
+assistant/         # İhale Asistanı (firma profili + AI sohbet + günlük öneri)
+├── models.py      # CompanyProfile, TenderRecommendation, ChatMessage
+├── prompts.py     # profil haritası + sohbet system prompt şablonları
+├── services/      # profile_map.py (Claude→profil haritası), chat.py (çok turlu
+│                  #   sohbet, prompt cache breakpoint'li), matching.py (kural
+│                  #   tabanlı skorlama: şehir/tür/OKAS/anahtar kelime/bütçe)
+├── tasks.py       # Celery: generate_profile_map, match_recommendations (beat 07:00)
+├── views.py       # profile (GET/PUT), chat, messages, recommendations(+seen)
+└── urls.py        # /api/v1/assistant/...
+
 ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── signing.py     # AES-192-CBC istek imzalama (mobil calls.js karşılığı)
 ├── client.py      # EkapV2Client (curl_cffi ile TLS parmak izi taklidi)
@@ -129,6 +139,26 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   (dinamik → canlı proxy). Kullanıcı aramaları EKAP'a hiç dokunmaz.
 - **Doğrulama**: `python manage.py ekap_probe` (canlı imza testi),
   `python manage.py run_ingest --task recent|backfill|okas|authorities|detail`.
+
+## İhale Asistanı (`assistant/`)
+
+Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assistant/...`:
+
+- **Profil**: `GET/PUT profile/` — `PUT` profili kaydeder ve Claude ile **profil
+  haritası** üretimini Celery'ye atar (`generate_profile_map`); yanıt `{task_id}`
+  döner, durum mevcut `GET /ai/tasks/{task_id}` ile izlenir. Harita
+  (`keywords`, `okas_prefixes`, ...) `CompanyProfile.profile_map`'te, API'de read-only.
+- **Sohbet**: `POST chat/` (çok turlu; system prompt **prompt cache breakpoint**'li),
+  `GET messages/` (geçmiş; digest mesajları `payload.kind="digest"` +
+  `tender_cards` taşır).
+- **Öneriler**: `GET recommendations/`, `POST recommendations/{id}/seen/`.
+  Günlük eşleştirme `match_recommendations` beat görevi (07:00): **kural tabanlı**
+  skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
+  `TenderRecommendation` + push bildirimi + sohbete digest mesajı.
+  `CompanyProfile.is_active=False` ise kullanıcı atlanır.
+- Dedup: `(user, tender)` unique — aynı ihale aynı kullanıcıya iki kez önerilmez.
+- Claude çağrıları (profil haritası + sohbet) `ANTHROPIC_API_KEY` ister; anahtar
+  yoksa sohbet/profil haritası hata döner ama öneri eşleştirme çalışmaya devam eder.
 
 ## URL'de İKN (dikkat)
 
@@ -247,6 +277,8 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `cleanup_expired_analyses` — eski AI cache temizliği (günlük 03:00)
 - `check_tender_alarms` — ihale alarm kontrolü (saatlik)
 - `cleanup_old_notifications` — eski bildirim temizliği (günlük 04:00)
+- `match_recommendations` — İhale Asistanı günlük öneri eşleştirmesi (günlük 07:00,
+  gece EKAP `sync_recent` bittikten sonra)
 
 ## Veri Modeli (Firestore karşılıkları)
 

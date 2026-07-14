@@ -218,9 +218,20 @@ TTS_LANGUAGE_CODE = env("TTS_LANGUAGE_CODE", default="tr-TR")
 TTS_VOICE_NAME = env("TTS_VOICE_NAME", default="tr-TR-Standard-A")
 TTS_MAX_CHARS = 5000
 
-# FCM Push (opsiyonel)
+# FCM Push (opsiyonel — kimlik yoksa push no-op, uygulama-içi bildirim satırı yazılır)
 FCM_CREDENTIALS = env("FCM_CREDENTIALS", default="")
 FCM_PROJECT_ID = env("FCM_PROJECT_ID", default="")
+
+# ── Bildirim pacing (kullanıcıyı bombalamamak için) ────
+# Sessiz saatler: bu aralıkta (yerel saat) push atılmaz; uygulama-içi satır yine yazılır.
+# Varsayılan 22:00–07:00. Zamanlanmış görevler 07/09/10'da çalıştığı için normal akışı
+# etkilemez → bu bir güvenlik ağıdır (elle/kaza tetiklemelere karşı).
+NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
+NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
+# Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).
+NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=4)
+# Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz.
+NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=30)
 
 # ── EKAP veri toplama ──────────────────────────────────
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")

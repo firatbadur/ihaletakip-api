@@ -50,6 +50,9 @@ class SavedFilter(TimeStampedModel):
     filters = models.JSONField(default=dict)
     tags = models.JSONField(default=list, blank=True)
     alarm = models.JSONField(null=True, blank=True)
+    # Bildirim servisi: bu filtre için en son ne zaman "yeni ihale" bildirimi
+    # kontrol edildi. İlk kontrolde null → sadece taban alınır (bildirim yok).
+    last_notified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Kayıtlı Filtre"
@@ -101,6 +104,12 @@ class TenderAlarm(TimeStampedModel):
     reminder_day = models.BooleanField(default=False)
     document_change = models.BooleanField(default=False)
     completed = models.BooleanField(default=False)
+    # ── Bildirim servisi snapshot/guard alanları ──
+    # Doküman değişikliği ve durum geçişi tespiti için son görülen değerler.
+    last_dokuman_sayisi = models.IntegerField(null=True, blank=True)
+    last_ihale_durum = models.IntegerField(null=True, blank=True)
+    # "İhale sonuçlandı" bildirimi tek sefer gönderilsin diye guard.
+    completed_notified = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "İhale Alarmı"

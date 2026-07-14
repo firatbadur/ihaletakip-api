@@ -47,6 +47,56 @@ def _str_list(raw):
     return [p.strip() for p in (raw or "").split(",") if p.strip()]
 
 
+def apply_tender_filters(qs, params):
+    """
+    Tender queryset'ine ortak filtreleri uygular ve queryset döner.
+
+    `params` `.get(key)` destekleyen herhangi bir nesnedir (DRF `query_params`
+    ya da `SavedFilter.filters` gibi düz dict). Böylece bildirim servisi
+    (`check_saved_filter_matches`) kullanıcının uygulamada gördüğü sonuçla
+    **birebir aynı** filtre semantiğini kullanır. Sıralama/pagination dahil değildir.
+    """
+    q = (params.get("q") or "").strip()
+    if q:
+        qs = qs.filter(Q(ihale_adi__icontains=q) | Q(ikn__icontains=q))
+
+    if params.get("il"):
+        qs = qs.filter(il_id__in=_int_list(params.get("il")))
+    if params.get("tur"):
+        qs = qs.filter(ihale_tip__in=_int_list(params.get("tur")))
+    if params.get("usul"):
+        qs = qs.filter(ihale_usul__in=_int_list(params.get("usul")))
+    if params.get("durum"):
+        qs = qs.filter(ihale_durum__in=_int_list(params.get("durum")))
+
+    # ── Gelişmiş filtreler (detaydan doldurulan alanlar) ──
+    if params.get("idare"):
+        qs = qs.filter(idare_id__in=_str_list(params.get("idare")))
+    if params.get("kapsam"):
+        qs = qs.filter(yasa_kapsami__in=_int_list(params.get("kapsam")))
+    if params.get("ozellik"):
+        # app boolean anahtarları → EKAP özellik etiketi; her biri AND (JSONField __contains)
+        for app_key in _str_list(params.get("ozellik")):
+            tag = OZELLIK_MAP.get(app_key)
+            if tag:
+                qs = qs.filter(ozellikler__contains=[tag])
+
+    for field, gte, lte in (
+        ("ihale_tarihi", "ihale_baslangic", "ihale_bitis"),
+        ("ilan_tarihi", "ilan_baslangic", "ilan_bitis"),
+    ):
+        if params.get(gte):
+            d = parse_ekap_datetime(params.get(gte))
+            if d:
+                qs = qs.filter(**{f"{field}__gte": d})
+        if params.get(lte):
+            d = parse_ekap_datetime(params.get(lte))
+            if d:
+                qs = qs.filter(**{f"{field}__lte": d})
+
+    return qs
+
+
 # Tarih parametreleri `DD.MM.YYYY [HH:mm]` veya ISO-8601 kabul eder (bkz. utils.parse_ekap_datetime).
 # Çözümlenemeyen tarih **sessizce yok sayılır** — filtre uygulanmaz.
 _DATE_HINT = "`GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır."
@@ -146,45 +196,7 @@ class TenderListView(APIView):
 
     def get(self, request):
         qp = request.query_params
-        qs = Tender.objects.all()
-
-        q = (qp.get("q") or "").strip()
-        if q:
-            qs = qs.filter(Q(ihale_adi__icontains=q) | Q(ikn__icontains=q))
-
-        if qp.get("il"):
-            qs = qs.filter(il_id__in=_int_list(qp.get("il")))
-        if qp.get("tur"):
-            qs = qs.filter(ihale_tip__in=_int_list(qp.get("tur")))
-        if qp.get("usul"):
-            qs = qs.filter(ihale_usul__in=_int_list(qp.get("usul")))
-        if qp.get("durum"):
-            qs = qs.filter(ihale_durum__in=_int_list(qp.get("durum")))
-
-        # ── Gelişmiş filtreler (detaydan doldurulan alanlar) ──
-        if qp.get("idare"):
-            qs = qs.filter(idare_id__in=_str_list(qp.get("idare")))
-        if qp.get("kapsam"):
-            qs = qs.filter(yasa_kapsami__in=_int_list(qp.get("kapsam")))
-        if qp.get("ozellik"):
-            # app boolean anahtarları → EKAP özellik etiketi; her biri AND (JSONField __contains)
-            for app_key in _str_list(qp.get("ozellik")):
-                tag = OZELLIK_MAP.get(app_key)
-                if tag:
-                    qs = qs.filter(ozellikler__contains=[tag])
-
-        for field, gte, lte in (
-            ("ihale_tarihi", "ihale_baslangic", "ihale_bitis"),
-            ("ilan_tarihi", "ilan_baslangic", "ilan_bitis"),
-        ):
-            if qp.get(gte):
-                d = parse_ekap_datetime(qp.get(gte))
-                if d:
-                    qs = qs.filter(**{f"{field}__gte": d})
-            if qp.get(lte):
-                d = parse_ekap_datetime(qp.get(lte))
-                if d:
-                    qs = qs.filter(**{f"{field}__lte": d})
+        qs = apply_tender_filters(Tender.objects.all(), qp)
 
         # Sıralama
         order = qp.get("order", "ihaleTarihi")

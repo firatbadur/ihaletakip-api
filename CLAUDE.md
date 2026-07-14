@@ -59,7 +59,10 @@ accounts/          # Kullanıcı + kimlik doğrulama
 tenders/           # İhale ile ilgili kullanıcı içerikleri
 ├── models.py      # Favorite, SavedFilter, SavedTender, TenderAlarm, Notification
 ├── views.py       # CRUD endpoint'leri
-└── tasks.py       # Celery: alarm kontrolü, bildirim temizliği
+├── services/      # push.py (FCM gönderici), notify.py (kayıt+pacing'li dağıtıcı),
+│                  #   templates.py (Türkçe bildirim metinleri)
+├── management/    # send_test_push, run_notifications
+└── tasks.py       # Celery: alarm kontrolü, kayıtlı filtre eşleşmesi, bildirim temizliği
 
 ai/                # Yapay zeka servisleri
 ├── models.py      # AnalysisCache
@@ -313,10 +316,52 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 
 **Celery Beat** periyodik işleri yürütür (config/celery.py):
 - `cleanup_expired_analyses` — eski AI cache temizliği (günlük 03:00)
-- `check_tender_alarms` — ihale alarm kontrolü (saatlik)
 - `cleanup_old_notifications` — eski bildirim temizliği (günlük 04:00)
-- `match_recommendations` — İhale Asistanı günlük öneri eşleştirmesi (günlük 07:00,
+- `match_recommendations` — İhale Asistanı günlük öneri eşleştirmesi + push (günlük 07:00,
   gece EKAP `sync_recent` bittikten sonra)
+- `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
+- `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
+
+## Bildirim Servisi (Push)
+
+Eski `~/Desktop/ihaletakip-scheduler` (Python + `firebase-admin`, Firebase projesi
+`ihale-53fbf`) servisinin işlevi API'ye taşındı; artık kendi Postgres/EKAP verimizden
+push üretiyoruz. Üç kaynak, **kademeli ve gruplanmış** bir düzende çalışır — kullanıcı
+bombardımana tutulmaz.
+
+- **Katmanlar** (`tenders/services/`):
+  - `push.py` — FCM gönderici (`firebase_admin` **lazy** import; `FCM_CREDENTIALS` boşsa
+    no-op). `send_fcm()` durum döner: `sent`/`invalid_token`/`error`/`disabled`. Ölü token
+    (`UnregisteredError`, `SenderIdMismatchError`, token'a dair `InvalidArgumentError`) →
+    `invalid_token`.
+  - `notify.py` — **kayıt ve push ayrıdır**: `record_notification()` yalnızca uygulama-içi
+    `Notification` satırı yazar; `push_to_user()` pacing kapılarından geçen **tek** push atar.
+    `notify_and_push()` tek-olay kısayolu (öneriler).
+  - `templates.py` — Türkçe metinler (İhale Günü / Doküman Güncellendi / İhale Sonuçlandı,
+    alarm özeti, filtre eşleşmesi).
+- **Zamanlama (kademeli, ≥1 sa arayla)**: 07:00 öneri digest'i (`match_recommendations`),
+  09:00 alarm hatırlatıcıları (`check_tender_alarms`), 10:00 filtre eşleşmeleri
+  (`check_saved_filter_matches`). Her kategori **kullanıcı başına tek özet push**.
+- **Pacing kapıları** (`django.core.cache`=Redis, ayar-tabanlı): sessiz saat
+  (`NOTIF_QUIET_START/END_HOUR`, vars. 22–07), günlük limit (`NOTIF_DAILY_CAP`=4),
+  min aralık (`NOTIF_MIN_GAP_MINUTES`=30), idempotency (`cache` 7 gün TTL), kullanıcı
+  tercihi (`User.preferences["notifications"]["push"]`, vars. açık) + `is_active` + dolu
+  `fcm_token`. Kapı engellese de **uygulama-içi satır yazılır**, yalnızca push atlanır.
+- **Kaynaklar**:
+  1. **Öneri** — `match_recommendations` digest'i (mevcut) artık push de atar
+     (`type=CHAT`, `conversation_id` → mobilde digest sohbeti açılır). idem `digest:{uid}:{date}`.
+  2. **Alarm** (`TenderAlarm.reminder_day/document_change/completed`) — `ekap.Tender` ile
+     karşılaştırır: ihale günü (`ihale_tarihi`=bugün), doküman değişikliği
+     (`dokuman_sayisi != last_dokuman_sayisi`; ilk görüşte sessiz), sonuçlandı (durum
+     `DURUM_SONUCLANMIS`'e geçiş; `completed_notified` ile tek sefer). Kullanıcı başına tek
+     birleşik özet push (idem `alarm:{uid}:{date}`). Snapshot alanları `TenderAlarm`'da.
+  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan **yeni** (son kontrolden
+     sonra DB'ye giren) açık ihaleler. Filtre semantiği `ekap.views.apply_tender_filters`
+     ile view'la **ortak**. İlk kontrolde sessiz (taban `last_notified_at`). idem `filter:{uid}:{date}`.
+- **FCM kimliği**: `credentials/fcm-service-account.json` (git-ignore, TTS anahtarıyla aynı
+  yer; docker'da web+worker'a mount'lu). `.env` → `FCM_CREDENTIALS`, `FCM_PROJECT_ID=ihale-53fbf`.
+- **Elle tetikleme / test**: `python manage.py send_test_push <user_id> [--raw]`,
+  `python manage.py run_notifications --job alarms|filters|all`.
 
 ## Veri Modeli (Firestore karşılıkları)
 
@@ -453,7 +498,8 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   SQLite'a düşer; üretim/Docker daima Postgres kullanır.
 - **Google TTS kimliği**: `GOOGLE_APPLICATION_CREDENTIALS` bir servis hesabı JSON
   yolu göstermeli (`credentials/` dizini, git'e girmez).
-- **FCM push opsiyonel**: `FCM_CREDENTIALS` boşsa push devre dışıdır (no-op).
+- **FCM push opsiyonel**: `FCM_CREDENTIALS` boşsa push devre dışıdır (no-op) — uygulama-içi
+  `Notification` satırı yine yazılır. Bkz. "Bildirim Servisi (Push)".
 - **Firebase Cloud Function bug fix'leri portlandı**: `.doc` net reddedilir,
   Claude bağlantı/timeout hataları güvenli işlenir (bkz. `ai/services/claude.py`).
 ```

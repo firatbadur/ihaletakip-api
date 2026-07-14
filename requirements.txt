@@ -34,6 +34,11 @@ python-docx==1.1.2
 # ── Text-to-Speech ─────────────────────────────────────
 google-cloud-texttospeech==2.25.0
 
+# ── Push bildirim (FCM) ────────────────────────────────
+# firebase-admin: eski scheduler servisinin FCM gönderim mantığı buraya taşındı.
+# Import'lar lazy (fonksiyon içi) → manage.py check bu paket olmadan da çalışır.
+firebase-admin==6.5.0
+
 # ── Admin arayüzü ──────────────────────────────────────
 django-jazzmin==3.0.5
 

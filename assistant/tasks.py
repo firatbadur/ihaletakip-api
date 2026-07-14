@@ -311,6 +311,7 @@ def match_recommendations(since_days=1):
     )
     from assistant.services.matching import match_tenders_for_profile, tender_card
     from tenders.models import Notification
+    from tenders.services import notify
 
     today = timezone.localdate()
     since = timezone.now() - timedelta(days=since_days)
@@ -374,14 +375,17 @@ def match_recommendations(since_days=1):
         )
 
         # type=CHAT → mobilde tıklanınca ihale detayı değil, digest sohbeti açılır.
-        Notification.objects.create(
-            user=profile.user,
+        # Uygulama-içi bildirim satırı + (pacing'li) tek push. Kullanıcı başına günde
+        # tek öneri push'u (idem `digest:{uid}:{date}`) → bombardıman yok.
+        notify.notify_and_push(
+            profile.user,
             type=Notification.Type.CHAT,
             title=f"İhale Asistanı: {len(fresh)} yeni öneri",
             body=top_titles,
             tender_ikn=top[0][0].ikn if top else None,
             tender_title=top[0][0].ihale_adi[:500] if top else None,
             conversation_id=digest_conv.id,
+            idem_key=f"digest:{profile.user_id}:{today.isoformat()}",
         )
 
     logger.info("match_recommendations: %s profil işlendi, %s öneri üretildi", profiles.count(), total_recs)

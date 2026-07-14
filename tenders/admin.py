@@ -14,8 +14,9 @@ class FavoriteAdmin(admin.ModelAdmin):
 
 @admin.register(SavedFilter)
 class SavedFilterAdmin(admin.ModelAdmin):
-    list_display = ["name", "user", "created_at"]
+    list_display = ["name", "user", "created_at", "last_notified_at"]
     search_fields = ["name", "user__username", "user__email"]
+    readonly_fields = ["last_notified_at"]
     raw_id_fields = ["user"]
 
 
@@ -29,9 +30,13 @@ class SavedTenderAdmin(admin.ModelAdmin):
 
 @admin.register(TenderAlarm)
 class TenderAlarmAdmin(admin.ModelAdmin):
-    list_display = ["tender_title", "tender_id", "user", "reminder_day", "document_change", "completed"]
-    list_filter = ["reminder_day", "document_change", "completed"]
+    list_display = [
+        "tender_title", "tender_id", "user",
+        "reminder_day", "document_change", "completed", "completed_notified",
+    ]
+    list_filter = ["reminder_day", "document_change", "completed", "completed_notified"]
     search_fields = ["tender_title", "tender_id", "user__username"]
+    readonly_fields = ["last_dokuman_sayisi", "last_ihale_durum", "completed_notified"]
     raw_id_fields = ["user"]
 
 

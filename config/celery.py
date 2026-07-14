@@ -18,15 +18,21 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=0),
         "kwargs": {"days": 30},
     },
-    # İhale alarmlarını kontrol et ve push gönder (her saat başı)
-    "check-tender-alarms": {
-        "task": "tenders.tasks.check_tender_alarms",
-        "schedule": crontab(minute=0),
-    },
-    # İhale Asistanı: günlük öneri eşleştirmesi (her gün 07:00 — ekap sync sonrası)
+    # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
+    # İhale Asistanı: günlük öneri digest'i + push (her gün 07:00 — ekap sync sonrası)
     "assistant-match-recommendations": {
         "task": "assistant.tasks.match_recommendations",
         "schedule": crontab(hour=7, minute=0),
+    },
+    # İhale alarmları: ihale günü / doküman değişikliği / sonuçlandı (her gün 09:00)
+    "check-tender-alarms": {
+        "task": "tenders.tasks.check_tender_alarms",
+        "schedule": crontab(hour=9, minute=0),
+    },
+    # Kayıtlı filtre eşleşmesi: filtreye uyan yeni ihaleler (her gün 10:00)
+    "check-saved-filter-matches": {
+        "task": "tenders.tasks.check_saved_filter_matches",
+        "schedule": crontab(hour=10, minute=0),
     },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {

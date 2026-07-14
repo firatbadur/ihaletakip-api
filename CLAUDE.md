@@ -152,15 +152,26 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   `conversation` yoksa yeni oturum açar ve `{task_id, conversation_id}` döner;
   sonraki mesajlar `conversation` ile gönderilir. Bağlam yalnızca o oturumun
   mesajlarından kurulur (system prompt **prompt cache breakpoint**'li).
-  `GET conversations/` geçmiş oturumları, `GET conversations/{id}/` oturum
-  mesajlarını döner; `DELETE conversations/{id}/` oturumu siler. Digest mesajları
-  her gün kendi `kind="digest"` oturumunda açılır (`payload.kind="digest"` +
-  `tender_cards`). `GET messages/` eski (oturumsuz) uç olarak durur.
+  `GET conversations/` geçmiş oturumları (**yalnızca `updated_at` son `days`=30 gün
+  içinde** olanlar; `?days=N`, en çok 365 — eski sohbet DB'de kalır, listelenmez),
+  `GET conversations/{id}/` oturum mesajlarını döner; `DELETE conversations/{id}/`
+  oturumu siler. Digest mesajları her gün kendi `kind="digest"` oturumunda açılır
+  (`payload.kind="digest"` + `tender_cards`). `GET messages/` eski (oturumsuz) uç
+  olarak durur.
 - **Öneriler**: `GET recommendations/`, `POST recommendations/{id}/seen/`.
   Günlük eşleştirme `match_recommendations(since_days=1)` beat görevi (07:00): **kural
   tabanlı** skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
-  `TenderRecommendation` + push bildirimi + sohbete digest mesajı.
-  `CompanyProfile.is_active=False` ise kullanıcı atlanır.
+  `TenderRecommendation` + **digest sohbeti** (`kind="digest"`) + o sohbete **bağlı**
+  push bildirimi. `CompanyProfile.is_active=False` ise kullanıcı atlanır.
+  - **Eşleştirme kapsamı** (`match_tenders_for_profile`): `ilan_tarihi` liste
+    senkronunda çoğu ihalede **boş** kaldığından ona göre filtrelenmez; **durum 2/3
+    (katılıma açık) + teklifi geçmemiş** (`ihale_tarihi >= now` ya da boş) kullanılır.
+    `since` verilirse (beat) yalnızca `ilan_tarihi` DOLU olanlara ek daraltma. Kullanıcının
+    zaten **kaydettiği** ihaleler (`SavedTender`) önerilerden **exclude** edilir (İKN ile
+    açıkça sorulursa yine gelir).
+  - **Digest bildirimi = `Notification.type=CHAT`** + `conversation_id`: mobilde
+    bildirime basınca ihale detayı DEĞİL, ilgili digest **sohbeti** açılır. (`Notification`
+    modeline `CHAT` türü ve `conversation_id` alanı eklendi.)
 - **Elle tetikleme**: `python manage.py run_assistant_match [--days N]` — beat beklemeden
   (veya beat çalışmıyorsa) eşleştirmeyi çalıştırır. `DatabaseScheduler` kullanıldığından
   kodda tanımlı beat girdisi ancak **beat yeniden başlatılınca** DB'ye senkronlanır.
@@ -171,8 +182,9 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   2. **Kayıtlı ihaleler**: yalnızca açıkça sorulunca ("takip ettiğim ihaleler") → `SavedTender`
      kartları. (Aksi halde öne çıkarılmaz — alakasız sorularda kafa karıştırıyordu.)
   3. **Öneri/listeleme** ("bana uygun ihale"): kural tabanlı eşleşme kartları (LLM yok);
-     bugünkü `TenderRecommendation` yoksa **canlı eşleştirme** (son 14 gün, `profile_map`
-     zayıfsa eşik 1.0). Eşleşme yoksa yönlendirme mesajı (kayıtlı ihale SIZMAZ).
+     bugünkü `TenderRecommendation` yoksa **canlı eşleştirme** (`since=None` → tüm açık +
+     teklifi geçmemiş uygun ihaleler; `profile_map` zayıfsa eşik 1.0). Eşleşme yoksa
+     yönlendirme mesajı (kayıtlı ihale SIZMAZ).
   4. **Genel soru-cevap**: LLM, **minimal bağlam** (yalnızca tarih; profil zaten persona'da).
   Kart yalnızca bağlamdaki gerçek İKN'lere çözülür (uydurma yok). Kart çözümlemesi hep
   `ekap.Tender`'a bağlanır → doğru `ekap_id` (mobilde tıklayınca detaya gider).

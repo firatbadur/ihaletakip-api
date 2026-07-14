@@ -73,6 +73,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "tender_title",
             "tender_ikn",
             "institution",
+            "conversation_id",
             "read",
             "created_at",
         ]

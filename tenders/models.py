@@ -123,6 +123,7 @@ class Notification(models.Model):
         TENDER = "tender", "İhale"
         INFO = "info", "Bilgi"
         ALARM = "alarm", "Alarm"
+        CHAT = "chat", "Sohbet"
 
     user = models.ForeignKey(
         USER, on_delete=models.CASCADE, related_name="notifications"
@@ -134,6 +135,8 @@ class Notification(models.Model):
     tender_title = models.CharField(max_length=500, null=True, blank=True)
     tender_ikn = models.CharField(max_length=100, null=True, blank=True)
     institution = models.CharField(max_length=500, null=True, blank=True)
+    # type=CHAT bildirimlerde: tıklanınca açılacak asistan sohbetinin (ChatConversation) id'si.
+    conversation_id = models.BigIntegerField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

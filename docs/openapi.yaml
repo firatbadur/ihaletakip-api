@@ -2408,6 +2408,10 @@ components:
           type: string
           readOnly: true
           nullable: true
+        conversation_id:
+          type: integer
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -2417,6 +2421,7 @@ components:
           readOnly: true
       required:
       - body
+      - conversation_id
       - created_at
       - id
       - institution
@@ -2837,12 +2842,15 @@ components:
       - tender
       - info
       - alarm
+      - chat
       type: string
       description: '* `tender` - İhale
 
         * `info` - Bilgi
 
-        * `alarm` - Alarm'
+        * `alarm` - Alarm
+
+        * `chat` - Sohbet'
     UnreadCount:
       type: object
       properties:

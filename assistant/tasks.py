@@ -352,17 +352,8 @@ def match_recommendations(since_days=1):
         top = fresh[:5]
         top_titles = "\n".join(f"• {t.ihale_adi[:80]}" for t, _, _ in top[:3])
 
-        Notification.objects.create(
-            user=profile.user,
-            type=Notification.Type.TENDER,
-            title=f"İhale Asistanı: {len(fresh)} yeni öneri",
-            body=top_titles,
-            tender_ikn=top[0][0].ikn if top else None,
-            tender_title=top[0][0].ihale_adi[:500] if top else None,
-        )
-
         # Digest kendi konuşmasında yaşar → geçmiş sohbetler listesinde görünür,
-        # kullanıcı içinden devam edip soru sorabilir.
+        # kullanıcı içinden devam edip soru sorabilir. Bildirim bu sohbete bağlanır.
         digest_conv = ChatConversation.objects.create(
             user=profile.user,
             title=f"Günlük Öneriler · {today.strftime('%d.%m.%Y')}",
@@ -380,6 +371,17 @@ def match_recommendations(since_days=1):
                 "kind": "digest",
                 "tender_cards": [tender_card(t) for t, _, _ in top],
             },
+        )
+
+        # type=CHAT → mobilde tıklanınca ihale detayı değil, digest sohbeti açılır.
+        Notification.objects.create(
+            user=profile.user,
+            type=Notification.Type.CHAT,
+            title=f"İhale Asistanı: {len(fresh)} yeni öneri",
+            body=top_titles,
+            tender_ikn=top[0][0].ikn if top else None,
+            tender_title=top[0][0].ihale_adi[:500] if top else None,
+            conversation_id=digest_conv.id,
         )
 
     logger.info("match_recommendations: %s profil işlendi, %s öneri üretildi", profiles.count(), total_recs)

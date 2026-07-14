@@ -1,8 +1,27 @@
 """accounts admin — özelleştirilmiş kullanıcı yönetimi."""
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.db.models import Q
 
 from .models import User
+
+
+class HasFcmTokenFilter(admin.SimpleListFilter):
+    """FCM push token'ı olan/olmayan kullanıcıları süz."""
+
+    title = "FCM token"
+    parameter_name = "has_fcm"
+
+    def lookups(self, request, model_admin):
+        return [("yes", "Token var"), ("no", "Token yok")]
+
+    def queryset(self, request, queryset):
+        empty = Q(fcm_token="") | Q(fcm_token__isnull=True)
+        if self.value() == "yes":
+            return queryset.exclude(empty)
+        if self.value() == "no":
+            return queryset.filter(empty)
+        return queryset
 
 
 @admin.register(User)
@@ -12,12 +31,13 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "display_name",
         "provider",
+        "fcm_token_status",
         "is_active",
         "is_staff",
         "date_joined",
     ]
-    list_filter = ["provider", "is_active", "is_staff", "is_superuser"]
-    search_fields = ["username", "email", "display_name", "provider_uid"]
+    list_filter = [HasFcmTokenFilter, "provider", "is_active", "is_staff", "is_superuser"]
+    search_fields = ["username", "email", "display_name", "provider_uid", "fcm_token"]
     ordering = ["-date_joined"]
 
     fieldsets = BaseUserAdmin.fieldsets + (
@@ -36,3 +56,12 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
     )
+
+    @admin.display(description="Push (FCM)", ordering="fcm_token")
+    def fcm_token_status(self, obj):
+        """Liste görünümünde token durumunu özetler (kısaltılmış)."""
+        token = (obj.fcm_token or "").strip()
+        if not token:
+            return "—"
+        short = token if len(token) <= 18 else f"{token[:18]}…"
+        return f"✓ {short}"

@@ -157,5 +157,26 @@ class EkapV2Client:
         return self._post(PATH_OKAS, self._load_options(filter_expr, take))
 
     def detsis_agaci(self, take=500):
-        """DETSIS kurum ağacı (loadOptions, boş filtre)."""
+        """DETSIS kurum ağacı — boş filtre (düz arama korpusu). Ağaç için aşağıdakileri kullan."""
         return self._post(PATH_DETSIS, self._load_options([], take))
+
+    # ── DETSIS ağacı (parentIdareKimlikKodu tabanlı lazy-tree) ──
+    # Ağaç anahtarı = `detsisNo`; çocuk, ebeveynine `parentIdareKimlikKodu`=ebeveyn
+    # detsisNo ile bağlanır. Kök düğümlerin parent'ı `0`. Tüm ağaç 2 istekle çekilir.
+    def detsis_roots(self, take=100):
+        """Kök düğümler (bakanlıklar + üst kategoriler) — parent = 0."""
+        return self._post(PATH_DETSIS, self._load_options([["parentIdareKimlikKodu", "=", 0]], take))
+
+    def detsis_children(self, parent_detsis, take=5000):
+        """Bir düğümün doğrudan çocukları — parent = o düğümün detsisNo'su."""
+        flt = [["parentIdareKimlikKodu", "=", int(parent_detsis)]]
+        return self._post(PATH_DETSIS, self._load_options(flt, take))
+
+    def detsis_all_descendants(self, take=300000):
+        """Kök hariç tüm alt düğümler (parent > 0) — tek istekte tüm ağaç (~70k düğüm)."""
+        flt = [["parentIdareKimlikKodu", ">", 0]]
+        return self._post(PATH_DETSIS, self._load_options(flt, take))
+
+    def detsis_search(self, query, take=50):
+        """DETSIS ağacında ad ile arama — eşleşen düğümleri gerçek parent'larıyla döner."""
+        return self._post(PATH_DETSIS, self._load_options([["ad", "contains", query]], take))

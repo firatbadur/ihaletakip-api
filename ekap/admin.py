@@ -67,8 +67,9 @@ class OkasCodeAdmin(admin.ModelAdmin):
 
 @admin.register(Authority)
 class AuthorityAdmin(admin.ModelAdmin):
-    list_display = ["detsis_id", "ad", "ust_idare"]
-    search_fields = ["detsis_id", "ad", "idare_kod"]
+    list_display = ["detsis_no", "ad", "idare_id", "parent_detsis", "has_items", "seviye"]
+    search_fields = ["detsis_no", "ad", "idare_id"]
+    list_filter = ["has_items", "seviye"]
 
 
 @admin.register(City)

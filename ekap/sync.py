@@ -346,24 +346,49 @@ def sync_okas(client, take=5000):
     return count
 
 
-def sync_authorities(client, take=5000):
-    """DETSIS kurum ağacını çekip upsert eder."""
-    resp = client.detsis_agaci(take=take)
-    items, _ = extract_list(resp)
-    count = 0
-    for a in items:
-        detsis_id = a.get("id") or a.get("detsisNo") or a.get("detsisId")
-        ad = a.get("ad") or a.get("adi")
-        if detsis_id is None or not ad:
+def sync_authorities(client, take=300000):
+    """
+    DETSIS kurum **ağacını** çekip `Authority` tablosunu tazeler (2 EKAP isteği:
+    kökler + tüm alt düğümler). `detsis_no` üzerinden toplu upsert eder.
+
+    Alan eşlemesi (bkz. `Authority` docstring): detsisNo→detsis_no,
+    parentIdareKimlikKodu→parent_detsis (kök `0`→""), idareId→idare_id (dal
+    düğümünde boş), hasItems→has_items, seviye→seviye. `detsisNo` benzersiz olduğu
+    için tek anahtardır; aynı düğüm iki istekte de gelirse (kök) upsert son değeri yazar.
+    """
+    roots, _ = extract_list(client.detsis_roots())
+    descendants, _ = extract_list(client.detsis_all_descendants(take=take))
+
+    seen = set()
+    objs = []
+    for a in [*roots, *descendants]:
+        detsis_no = a.get("detsisNo")
+        ad = a.get("ad")
+        if detsis_no is None or not ad:
             continue
-        Authority.objects.update_or_create(
-            detsis_id=str(detsis_id),
-            defaults={
-                "ad": ad.strip(),
-                "ust_idare": a.get("ustIdare") or a.get("ustIdareAdi") or "",
-                # Filtre `idareKodList` bu id ile eşleşir
-                "idare_kod": str(a.get("idareId") or a.get("id") or ""),
-            },
+        key = str(detsis_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        parent = a.get("parentIdareKimlikKodu")
+        idare_id = a.get("idareId")
+        objs.append(
+            Authority(
+                detsis_no=key,
+                ad=ad.strip()[:500],
+                parent_detsis="" if parent in (0, None) else str(parent),
+                idare_id="" if idare_id is None else str(idare_id),
+                has_items=bool(a.get("hasItems")),
+                seviye=a.get("seviye"),
+            )
         )
-        count += 1
-    return count
+
+    # PostgreSQL upsert (Django 5.1) — tabloyu boşaltmadan yerinde tazele
+    Authority.objects.bulk_create(
+        objs,
+        update_conflicts=True,
+        unique_fields=["detsis_no"],
+        update_fields=["ad", "parent_detsis", "idare_id", "has_items", "seviye"],
+        batch_size=2000,
+    )
+    return len(objs)

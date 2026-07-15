@@ -21,9 +21,10 @@ from rest_framework.views import APIView
 from core.response import api_response
 
 from .constants import OZELLIK_MAP
+from .detsis_tree import annotate_paths, descendant_idare_ids
 from .models import Announcement, Authority, City, OkasCode, Tender
 from .serializers import (
-    AuthoritySerializer,
+    AuthorityNodeSerializer,
     CitySerializer,
     EkapAnnouncementSerializer,
     EkapTenderListSerializer,
@@ -71,12 +72,32 @@ def _as_str_list(value):
     return _str_list(str(value))
 
 
+def _tender_idare_id_set():
+    """
+    İhalede **gerçekten geçen** benzersiz `idare_id` kümesi (cache'li, 5 dk TTL).
+    İdare ağaç seçimi büyük bakanlıklarda on binlerce alt birime açılabildiğinden
+    (okullar vb.) genişletilen küme bununla kesiştirilir → küçük, hızlı IN listesi.
+    Kısa TTL: yeni bir idarenin ilk ihalesi en fazla 5 dk gecikmeyle filtrelenebilir.
+    """
+    ids = cache.get("tender_idare_id_set")
+    if ids is None:
+        ids = set(
+            Tender.objects.exclude(idare_id="").values_list("idare_id", flat=True).distinct()
+        )
+        cache.set("tender_idare_id_set", ids, 300)
+    return ids
+
+
 def apply_tender_filters(qs, params):
     """
     Tender queryset'ine filtre uygular ve queryset döner. Parametre adları **Tender model
     alan adlarıdır** (tek adlandırma): `ihale_adi`, `ikn`, `ikn_yil`, `ikn_sayi`, `il_id`,
-    `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`, `idare_id`,
+    `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`, `idare_id`, `idare_detsis`,
     `ihale_tarihi_min/max`, `ilan_tarihi_min/max`, `okas_kod`, `okas_adi`, `ozellik`.
+
+    `idare_id` doğrudan `Tender.idare_id` ile eşleşir (yaprak seçim). `idare_detsis`
+    ise DETSIS ağaç düğümlerinin `detsis_no`'sudur; üst düğüm seçilince tüm alt
+    birimlerin `idare_id`'lerine genişletilir (bkz. `detsis_tree.descendant_idare_ids`).
 
     `params` `.get(key)` destekleyen bir nesnedir: DRF `query_params` (liste alanları
     virgüllü string) ya da `SavedFilter.filters` gibi düz dict (gerçek liste). Liste
@@ -127,6 +148,21 @@ def apply_tender_filters(qs, params):
     idare_id = _as_str_list(params.get("idare_id"))
     if idare_id:
         qs = qs.filter(idare_id__in=idare_id)
+
+    # ── İdare ağaç seçimi (detsis_no) → tüm alt birimlerin idare_id'lerine genişlet ──
+    # Kullanıcı ağaçta bir ÜST düğüm (örn. bakanlık) seçince alt birimlerin
+    # ihaleleri de gelsin diye seçilen detsis_no'ları descendant idare_id'lere açarız.
+    idare_detsis = _as_str_list(params.get("idare_detsis"))
+    if idare_detsis:
+        expanded = descendant_idare_ids(idare_detsis)
+        # Büyük bakanlıklar on binlerce alt birime (örn. okullar) açılır; bunların
+        # çoğunun hiç ihalesi yoktur. IN listesini küçültmek ve sorguyu hızlandırmak
+        # için yalnızca **ihalede gerçekten geçen** idare_id'lerle kesiştir.
+        if expanded:
+            expanded &= _tender_idare_id_set()
+        # Hiç idare_id'e çözülmezse (bozuk ağaç / hiç ihalesi yok) yanlışlıkla TÜM
+        # ihaleleri döndürmemek için boş küme uygula.
+        qs = qs.filter(idare_id__in=expanded) if expanded else qs.none()
 
     # ── Yasa kapsamı — null-inclusive: detayı gelmemiş (yasa_kapsami=None) ihaleyi dışlama ──
     yasa_kapsami = _as_int_list(params.get("yasa_kapsami"))
@@ -260,7 +296,15 @@ _TENDER_KEY_PARAM = OpenApiParameter(
             examples=[OpenApiExample("Katılıma açık", value="2,3")],
         ),
         OpenApiParameter(
-            "idare_id", str, description="İdare (kurum) id listesi (virgülle).",
+            "idare_id", str, description="İdare (kurum) id listesi (virgülle) — "
+            "doğrudan `Tender.idare_id` ile eşleşir (yaprak seçim).",
+        ),
+        OpenApiParameter(
+            "idare_detsis", str,
+            description="İdare DETSIS ağaç düğümü `detsis_no` listesi (virgülle). Üst "
+            "düğüm (örn. bakanlık) seçilince altındaki tüm idarelerin ihaleleri gelir. "
+            "Ağaç uçları: `GET /ekap/authorities/tree/`, `GET /ekap/authorities/search/`.",
+            examples=[OpenApiExample("Bakanlık düğümü", value="24308110")],
         ),
         OpenApiParameter(
             "yasa_kapsami", str,
@@ -522,14 +566,50 @@ class OkasSearchView(APIView):
 
 @extend_schema(
     tags=["ekap"],
-    summary="İdare (kurum) ara",
+    summary="İdare ağacı (gözat)",
     description=(
-        "İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare kodunda "
-        "**önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner."
+        "DETSIS **kurum ağacını** gözatma için döner (lazy). `parent` verilmezse "
+        "**kök düğümler** (bakanlıklar + üst kategoriler) döner; `parent=<detsis_no>` "
+        "verilince o düğümün **doğrudan çocukları** döner.\n\n"
+        "Her düğüm: `detsis_no` (ağaç anahtarı), `idare_id` (ihale filtre anahtarı; "
+        "dal düğümünde `null`), `ad`, `has_items` (çocuğu var mı → expand göster), "
+        "`seviye`, `parent_detsis`. Seçilen düğümlerle ihale filtrelemek için "
+        "`GET /ekap/tenders/?idare_detsis=<detsis_no,...>` kullanın."
     ),
     parameters=[
         OpenApiParameter(
-            "q", str, description="İdare adı ya da idare kodu öneki.",
+            "parent", str,
+            description="Üst düğümün `detsis_no`'su. Boşsa kök düğümler döner.",
+            examples=[OpenApiExample("Bir bakanlığın çocukları", value="24308110")],
+        ),
+    ],
+    responses={200: AuthorityNodeSerializer(many=True)},
+    auth=[],
+)
+class AuthorityTreeView(APIView):
+    """GET /ekap/authorities/tree/?parent= — DETSIS ağacında gözat (lazy)."""
+
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
+
+    def get(self, request):
+        parent = (request.query_params.get("parent") or "").strip()
+        # parent boş → kökler (parent_detsis == ""); doluysa o düğümün çocukları
+        qs = Authority.objects.filter(parent_detsis=parent).order_by("ad")
+        return api_response(data=AuthorityNodeSerializer(qs, many=True).data)
+
+
+@extend_schema(
+    tags=["ekap"],
+    summary="İdare (kurum) ara",
+    description=(
+        "DETSIS kurum ağacında **ad ile** arar (kısmi eşleşme). Sonuçlar ağaç düğümüdür; "
+        "her düğümde `detsis_no`, `idare_id` (filtre anahtarı), `has_items` ve `path` "
+        "(kök→ebeveyn ata adları, breadcrumb) bulunur. Filtreleme için seçilen düğümlerin "
+        "`detsis_no`'sunu `GET /ekap/tenders/?idare_detsis=` ile gönderin."
+    ),
+    parameters=[
+        OpenApiParameter(
+            "q", str, description="İdare adında geçen metin (kısmi eşleşme). En az 2 karakter.",
             examples=[OpenApiExample("Kurum adı", value="ankara büyükşehir")],
         ),
         OpenApiParameter(
@@ -537,10 +617,11 @@ class OkasSearchView(APIView):
             description="Dönecek kayıt sayısı. **En fazla 200**.",
         ),
     ],
-    responses={200: AuthoritySerializer(many=True)},
+    responses={200: AuthorityNodeSerializer(many=True)},
+    auth=[],
 )
 class AuthoritySearchView(APIView):
-    """GET /ekap/authorities/search?q= — DB'den kurum arama."""
+    """GET /ekap/authorities/search?q= — DB'den kurum ağacı araması (ata yoluyla)."""
 
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
@@ -549,8 +630,13 @@ class AuthoritySearchView(APIView):
         take = min(int(request.query_params.get("take", 50)), 200)
         qs = Authority.objects.all()
         if q:
-            qs = qs.filter(Q(ad__icontains=q) | Q(idare_kod__startswith=q))
-        return api_response(data=AuthoritySerializer(qs[:take], many=True).data)
+            qs = qs.filter(Q(ad__icontains=q) | Q(idare_id__startswith=q))
+        nodes = list(qs.order_by("ad")[:take])
+        # Seçilebilir (idare_id dolu) düğümler önce gelsin; sonra ada göre (kararlı)
+        nodes.sort(key=lambda a: (a.idare_id == "", a.ad))
+        paths = annotate_paths(nodes)
+        ser = AuthorityNodeSerializer(nodes, many=True, context={"paths": paths})
+        return api_response(data=ser.data)
 
 
 @extend_schema(

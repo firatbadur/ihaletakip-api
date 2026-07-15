@@ -44,12 +44,30 @@ class OkasCode(models.Model):
 
 
 class Authority(models.Model):
-    """DETSIS kurum/idare kaydı (EKAP DetsisAgaci'ndan periyodik çekilir)."""
+    """
+    DETSIS kurum/idare **ağaç** düğümü (EKAP DetsisAgaci'ndan periyodik çekilir).
 
-    detsis_id = models.CharField(max_length=255, unique=True, db_index=True)
+    EKAP `DetsisAgaci` bir lazy-tree'dir; tüm ağaç 2 istekle çekilir
+    (kökler `parent=0`, tüm alt düğümler `parent>0`). Alan eşlemesi:
+      - `detsis_no`      ← `detsisNo`  (ağaç anahtarı, **benzersiz**)
+      - `parent_detsis`  ← `parentIdareKimlikKodu` (üst düğümün detsisNo'su; kök = "")
+      - `idare_id`       ← `idareId`   (ihale filtre anahtarı = `Tender.idare_id`;
+                                        dal/gruplama düğümlerinde boş)
+      - `has_items`      ← `hasItems`  (çocuğu var mı → mobilde expand chevron'u)
+      - `seviye`         ← `seviye`
+
+    Not: ağaç bağı `detsis_no` ile kurulur ama ihale filtresi `idare_id` iler.
+    Bir üst düğüm seçilince alt birimlerin ihaleleri de gelsin diye
+    `apply_tender_filters` `idare_detsis`'i tüm alt `idare_id`'lere genişletir
+    (bkz. `ekap.detsis_tree.descendant_idare_ids`).
+    """
+
+    detsis_no = models.CharField(max_length=64, unique=True, db_index=True)
     ad = models.CharField(max_length=500, db_index=True)
-    ust_idare = models.CharField(max_length=500, blank=True)
-    idare_kod = models.CharField(max_length=255, blank=True, db_index=True)
+    parent_detsis = models.CharField(max_length=64, blank=True, db_index=True)
+    idare_id = models.CharField(max_length=64, blank=True, db_index=True)
+    has_items = models.BooleanField(default=False)
+    seviye = models.IntegerField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Kurum (DETSIS)"

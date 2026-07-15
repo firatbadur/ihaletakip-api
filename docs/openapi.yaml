@@ -979,15 +979,17 @@ paths:
   /api/v1/ekap/authorities/search/:
     get:
       operationId: api_v1_ekap_authorities_search_list
-      description: İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare
-        kodunda **önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner.
+      description: DETSIS kurum ağacında **ad ile** arar (kısmi eşleşme). Sonuçlar
+        ağaç düğümüdür; her düğümde `detsis_no`, `idare_id` (filtre anahtarı), `has_items`
+        ve `path` (kök→ebeveyn ata adları, breadcrumb) bulunur. Filtreleme için seçilen
+        düğümlerin `detsis_no`'sunu `GET /ekap/tenders/?idare_detsis=` ile gönderin.
       summary: İdare (kurum) ara
       parameters:
       - in: query
         name: q
         schema:
           type: string
-        description: İdare adı ya da idare kodu öneki.
+        description: İdare adında geçen metin (kısmi eşleşme). En az 2 karakter.
         examples:
           KurumAdı:
             value: ankara büyükşehir
@@ -1000,19 +1002,37 @@ paths:
         description: Dönecek kayıt sayısı. **En fazla 200**.
       tags:
       - ekap
-      security:
-      - jwtAuth: []
-      - cookieAuth: []
-      - {}
       responses:
         '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Authority'
-          description: ''
+          description: No response body
+  /api/v1/ekap/authorities/tree/:
+    get:
+      operationId: api_v1_ekap_authorities_tree_list
+      description: 'DETSIS **kurum ağacını** gözatma için döner (lazy). `parent` verilmezse
+        **kök düğümler** (bakanlıklar + üst kategoriler) döner; `parent=<detsis_no>`
+        verilince o düğümün **doğrudan çocukları** döner.
+
+
+        Her düğüm: `detsis_no` (ağaç anahtarı), `idare_id` (ihale filtre anahtarı;
+        dal düğümünde `null`), `ad`, `has_items` (çocuğu var mı → expand göster),
+        `seviye`, `parent_detsis`. Seçilen düğümlerle ihale filtrelemek için `GET
+        /ekap/tenders/?idare_detsis=<detsis_no,...>` kullanın.'
+      summary: İdare ağacı (gözat)
+      parameters:
+      - in: query
+        name: parent
+        schema:
+          type: string
+        description: Üst düğümün `detsis_no`'su. Boşsa kök düğümler döner.
+        examples:
+          BirBakanlığınÇocukları:
+            value: '24308110'
+            summary: Bir bakanlığın çocukları
+      tags:
+      - ekap
+      responses:
+        '200':
+          description: No response body
   /api/v1/ekap/cities/:
     get:
       operationId: api_v1_ekap_cities_list
@@ -1121,10 +1141,22 @@ paths:
           Kurum:
             value: belediyesi
       - in: query
+        name: idare_detsis
+        schema:
+          type: string
+        description: 'İdare DETSIS ağaç düğümü `detsis_no` listesi (virgülle). Üst
+          düğüm (örn. bakanlık) seçilince altındaki tüm idarelerin ihaleleri gelir.
+          Ağaç uçları: `GET /ekap/authorities/tree/`, `GET /ekap/authorities/search/`.'
+        examples:
+          BakanlıkDüğümü:
+            value: '24308110'
+            summary: Bakanlık düğümü
+      - in: query
         name: idare_id
         schema:
           type: string
-        description: İdare (kurum) id listesi (virgülle).
+        description: İdare (kurum) id listesi (virgülle) — doğrudan `Tender.idare_id`
+          ile eşleşir (yaprak seçim).
       - in: query
         name: ihale_adi
         schema:
@@ -2114,24 +2146,6 @@ components:
           description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
       required:
       - identity_token
-    Authority:
-      type: object
-      properties:
-        detsis_id:
-          type: string
-          maxLength: 255
-        ad:
-          type: string
-          maxLength: 500
-        ust_idare:
-          type: string
-          maxLength: 500
-        idare_kod:
-          type: string
-          maxLength: 255
-      required:
-      - ad
-      - detsis_id
     ChatAccepted:
       type: object
       properties:

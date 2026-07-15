@@ -564,9 +564,15 @@
                   "disabled": true
                 },
                 {
+                  "key": "idare_detsis",
+                  "value": "24308110",
+                  "description": "İdare DETSIS ağaç düğümü `detsis_no` listesi (virgülle). Üst düğüm (örn. bakanlık) seçilince altındaki tüm idarelerin ihaleleri gelir. Ağaç uçları: `GET /ekap/authorities/tree/`, `GET /ekap/authorities/search/`.",
+                  "disabled": true
+                },
+                {
                   "key": "idare_id",
                   "value": "Ankara Büyükşehir Belediyesi",
-                  "description": "İdare (kurum) id listesi (virgülle).",
+                  "description": "İdare (kurum) id listesi (virgülle) — doğrudan `Tender.idare_id` ile eşleşir (yaprak seçim).",
                   "disabled": true
                 },
                 {
@@ -906,7 +912,7 @@
                 {
                   "key": "q",
                   "value": "ankara büyükşehir",
-                  "description": "İdare adı ya da idare kodu öneki.",
+                  "description": "İdare adında geçen metin (kısmi eşleşme). En az 2 karakter.",
                   "disabled": true
                 },
                 {
@@ -917,7 +923,48 @@
                 }
               ]
             },
-            "description": "İhaleyi açan idareleri arar. `q` idare adında **kısmi**, idare kodunda **önek** olarak eşleşir. `q` boşsa ilk kayıtlar döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "DETSIS kurum ağacında **ad ile** arar (kısmi eşleşme). Sonuçlar ağaç düğümüdür; her düğümde `detsis_no`, `idare_id` (filtre anahtarı), `has_items` ve `path` (kök→ebeveyn ata adları, breadcrumb) bulunur. Filtreleme için seçilen düğümlerin `detsis_no`'sunu `GET /ekap/tenders/?idare_detsis=` ile gönderin.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "İdare ağacı (gözat)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/authorities/tree/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "authorities",
+                "tree",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "parent",
+                  "value": "24308110",
+                  "description": "Üst düğümün `detsis_no`'su. Boşsa kök düğümler döner.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "DETSIS **kurum ağacını** gözatma için döner (lazy). `parent` verilmezse **kök düğümler** (bakanlıklar + üst kategoriler) döner; `parent=<detsis_no>` verilince o düğümün **doğrudan çocukları** döner.\n\nHer düğüm: `detsis_no` (ağaç anahtarı), `idare_id` (ihale filtre anahtarı; dal düğümünde `null`), `ad`, `has_items` (çocuğu var mı → expand göster), `seviye`, `parent_detsis`. Seçilen düğümlerle ihale filtrelemek için `GET /ekap/tenders/?idare_detsis=<detsis_no,...>` kullanın.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
           }
         }
       ],

@@ -86,10 +86,11 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── client.py      # EkapV2Client (curl_cffi ile TLS parmak izi taklidi)
 ├── throttle.py    # Redis tabanlı hız sınırlama (~1 istek/sn)
 ├── constants.py   # DEFAULT_SEARCH_BODY, id→isim maplar, CITIES seed
-├── models.py      # Tender + çocuklar, OkasCode, Authority, City, Sync*
+├── models.py      # Tender + çocuklar, OkasCode, Authority (DETSIS ağaç düğümü), City, Sync*
 ├── sync.py        # EKAP→DB eşleme + toplama mantığı
+├── detsis_tree.py # İdare ağaç yardımcıları (üst→alt idare_id genişletme, ata-yolu)
 ├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities
-├── views.py       # /ekap/tenders, detail, announcements, document-url, okas, authorities, cities
+├── views.py       # /ekap/tenders, detail, announcements, document-url, okas, authorities(tree/search), cities
 └── management/    # seed_cities, ekap_probe, run_ingest
 
 core/              # Ortak altyapı
@@ -153,10 +154,41 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   çalışmayı düşürmez, `SyncRun.errors`'a sayılır.
 - **Servis**: `/api/v1/ekap/tenders/` (DB'den, **EKAP alan isimleriyle** → mobil
   mapper'lar minimal değişir), `tenders/{ekap_id}/` (detay, İKN'de `/` var — key olarak
-  `ekap_id` kullan), `okas/search`, `authorities/search`, `cities`, `tenders/{id}/document-url`
-  (dinamik → canlı proxy). Kullanıcı aramaları EKAP'a hiç dokunmaz.
+  `ekap_id` kullan), `okas/search`, `authorities/tree`, `authorities/search`, `cities`,
+  `tenders/{id}/document-url` (dinamik → canlı proxy). Kullanıcı aramaları EKAP'a hiç dokunmaz.
 - **Doğrulama**: `python manage.py ekap_probe` (canlı imza testi),
   `python manage.py run_ingest --task recent|backfill|okas|authorities|detail`.
+
+### DETSIS İdare Ağacı (kurum seçimi)
+
+EKAP'ın "İdare Seç" ekranındaki gibi **hiyerarşik idare ağacı** (bakanlıklar →
+genel müdürlükler → daireler → …). EKAP `DetsisAgaci` bir **lazy-tree**'dir; alanlar:
+`detsisNo` (ağaç anahtarı, benzersiz), `parentIdareKimlikKodu` (üst düğümün detsisNo'su;
+kök=`0`), `idareId` (**ihale filtre anahtarı** = `Tender.idare_id`; dal düğümünde `null`),
+`hasItems` (çocuğu var mı), `seviye`.
+
+- **Model** (`Authority`): `detsis_no`, `parent_detsis`, `idare_id`, `ad`, `has_items`,
+  `seviye`. Eski düz `detsis_id/ust_idare/idare_kod` alanları **kaldırıldı** (migration
+  `0004_authority_tree` satırları temizleyip şemayı değiştirir → deploy sonrası
+  `run_ingest --task authorities` ile yeniden doldur).
+- **Sync** (`sync_authorities`, haftalık): **tüm ağaç 2 EKAP isteğiyle** çekilir —
+  kökler (`detsis_roots`, parent=0) + tüm alt düğümler (`detsis_all_descendants`,
+  parent>0; ~70k düğüm, tek istek). `detsis_no` üzerinden `bulk_create(update_conflicts)`
+  ile yerinde upsert (tabloyu boşaltmadan).
+- **Uçlar**:
+  - `GET /ekap/authorities/tree/?parent=<detsis_no>` — gözat (lazy). `parent` boşsa
+    **kökler** (29 bakanlık/kategori), doluysa o düğümün **doğrudan çocukları**.
+  - `GET /ekap/authorities/search/?q=` — ad ile arama; her düğümde `path` (kök→ebeveyn
+    ata adları, breadcrumb) döner. Seçilebilir (idare_id dolu) düğümler önce sıralanır.
+- **İhale filtreleme = `idare_detsis`** (bkz. `apply_tender_filters`): seçilen `detsis_no`
+  düğümleri `detsis_tree.descendant_idare_ids` ile **tüm alt birimlerin `idare_id`'lerine**
+  genişletilir (üst düğüm seçilince alt birimlerin ihaleleri de gelir — EKAP tri-state
+  karşılığı). Büyük bakanlıklar on binlerce alt birime açıldığından (MEB ~37k okul)
+  genişletilen küme **ihalede gerçekten geçen idare_id'lerle** kesiştirilir
+  (`_tender_idare_id_set`, cache 5 dk) → küçük/hızlı IN listesi. Eski `idare_id` param'ı
+  yaprak (doğrudan) seçim için durur.
+- **Mobil**: filtre ekranında "İdare Seç" **butonu** → ayrı sayfa (`AuthoritySelectScreen`,
+  lazy ağaç + arama + checkbox) → seçim `detsis_no` olarak geri döner → `idare_detsis` gönderilir.
 
 ## İhale Asistanı (`assistant/`)
 

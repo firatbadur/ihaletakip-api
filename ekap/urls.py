@@ -3,6 +3,7 @@ from django.urls import path
 
 from .views import (
     AuthoritySearchView,
+    AuthorityTreeView,
     CityListView,
     DocumentUrlView,
     OkasSearchView,
@@ -17,6 +18,7 @@ urlpatterns = [
     path("tenders/<str:key>/announcements/", TenderAnnouncementsView.as_view(), name="ekap-tender-announcements"),
     path("tenders/<str:ekap_id>/document-url/", DocumentUrlView.as_view(), name="ekap-document-url"),
     path("okas/search/", OkasSearchView.as_view(), name="ekap-okas-search"),
+    path("authorities/tree/", AuthorityTreeView.as_view(), name="ekap-authority-tree"),
     path("authorities/search/", AuthoritySearchView.as_view(), name="ekap-authority-search"),
     path("cities/", CityListView.as_view(), name="ekap-cities"),
 ]

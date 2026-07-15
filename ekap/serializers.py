@@ -46,10 +46,24 @@ class OkasCodeSerializer(serializers.ModelSerializer):
         fields = ["kod", "adi", "adi_eng"]
 
 
-class AuthoritySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Authority
-        fields = ["detsis_id", "ad", "ust_idare", "idare_kod"]
+class AuthorityNodeSerializer(serializers.Serializer):
+    """
+    DETSIS ağaç düğümü. `detsis_no` ağaç anahtarı; `idare_id` ihale filtre anahtarı
+    (dal düğümünde null); `has_items` çocuğu var mı (mobilde expand chevron'u).
+    `path` yalnızca aramada dolar — kök→ebeveyn ata adları (breadcrumb).
+    """
+
+    def to_representation(self, a: Authority):
+        paths = self.context.get("paths") or {}
+        return {
+            "detsis_no": a.detsis_no,
+            "idare_id": a.idare_id or None,
+            "ad": a.ad,
+            "parent_detsis": a.parent_detsis or None,
+            "has_items": a.has_items,
+            "seviye": a.seviye,
+            "path": paths.get(a.detsis_no, []),
+        }
 
 
 class CitySerializer(serializers.ModelSerializer):

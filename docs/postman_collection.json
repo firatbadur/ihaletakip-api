@@ -558,6 +558,12 @@
               ],
               "query": [
                 {
+                  "key": "idare_adi",
+                  "value": "belediyesi",
+                  "description": "Kurum (idare) adında geçen metin (kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
                   "key": "idare_id",
                   "value": "Ankara Büyükşehir Belediyesi",
                   "description": "İdare (kurum) id listesi (virgülle).",
@@ -566,7 +572,7 @@
                 {
                   "key": "ihale_adi",
                   "value": "bilgisayar",
-                  "description": "İhale adında geçen metin (kısmi eşleşme).",
+                  "description": "Yalnızca ihale adında geçen metin (kısmi eşleşme).",
                   "disabled": true
                 },
                 {
@@ -669,6 +675,12 @@
                   "key": "page_size",
                   "value": "10",
                   "description": "Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "siber güvenlik",
+                  "description": "Anahtar kelime — ihale adı + **kurum adı** + İKN içinde arar (mobil 'Anahtar Kelime' kutusu). Alan-özel arama için `ihale_adi`/`idare_adi`/`ikn`.",
                   "disabled": true
                 },
                 {

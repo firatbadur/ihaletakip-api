@@ -84,10 +84,21 @@ def apply_tender_filters(qs, params):
     """
     needs_distinct = False
 
-    # ── Metin arama (icontains) ──
+    # ── Anahtar kelime (ihale adı + kurum adı + İKN) — mobil "Anahtar Kelime" kutusu ──
+    q = params.get("q")
+    if q and str(q).strip():
+        q = str(q).strip()
+        qs = qs.filter(
+            Q(ihale_adi__icontains=q) | Q(idare_adi__icontains=q) | Q(ikn__icontains=q)
+        )
+
+    # ── Alan-özel metin arama (icontains) ──
     ad = params.get("ihale_adi")
     if ad and str(ad).strip():
         qs = qs.filter(ihale_adi__icontains=str(ad).strip())
+    idare_adi = params.get("idare_adi")
+    if idare_adi and str(idare_adi).strip():
+        qs = qs.filter(idare_adi__icontains=str(idare_adi).strip())
     ikn = params.get("ikn")
     if ikn and str(ikn).strip():
         qs = qs.filter(ikn__icontains=str(ikn).strip())
@@ -206,8 +217,18 @@ _TENDER_KEY_PARAM = OpenApiParameter(
     ),
     parameters=[
         OpenApiParameter(
-            "ihale_adi", str, description="İhale adında geçen metin (kısmi eşleşme).",
+            "q", str,
+            description="Anahtar kelime — ihale adı + **kurum adı** + İKN içinde arar "
+            "(mobil 'Anahtar Kelime' kutusu). Alan-özel arama için `ihale_adi`/`idare_adi`/`ikn`.",
+            examples=[OpenApiExample("Anahtar kelime", value="siber güvenlik")],
+        ),
+        OpenApiParameter(
+            "ihale_adi", str, description="Yalnızca ihale adında geçen metin (kısmi eşleşme).",
             examples=[OpenApiExample("Metin arama", value="bilgisayar")],
+        ),
+        OpenApiParameter(
+            "idare_adi", str, description="Kurum (idare) adında geçen metin (kısmi eşleşme).",
+            examples=[OpenApiExample("Kurum", value="belediyesi")],
         ),
         OpenApiParameter(
             "ikn", str, description="İKN'de geçen metin (kısmi eşleşme).",

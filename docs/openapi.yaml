@@ -1113,6 +1113,14 @@ paths:
       summary: İhale ara / listele
       parameters:
       - in: query
+        name: idare_adi
+        schema:
+          type: string
+        description: Kurum (idare) adında geçen metin (kısmi eşleşme).
+        examples:
+          Kurum:
+            value: belediyesi
+      - in: query
         name: idare_id
         schema:
           type: string
@@ -1121,7 +1129,7 @@ paths:
         name: ihale_adi
         schema:
           type: string
-        description: İhale adında geçen metin (kısmi eşleşme).
+        description: Yalnızca ihale adında geçen metin (kısmi eşleşme).
         examples:
           MetinArama:
             value: bilgisayar
@@ -1273,6 +1281,16 @@ paths:
           type: integer
           default: 10
         description: Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Anahtar kelime — ihale adı + **kurum adı** + İKN içinde arar
+          (mobil 'Anahtar Kelime' kutusu). Alan-özel arama için `ihale_adi`/`idare_adi`/`ikn`.
+        examples:
+          AnahtarKelime:
+            value: siber güvenlik
+            summary: Anahtar kelime
       - in: query
         name: siralamaTipi
         schema:

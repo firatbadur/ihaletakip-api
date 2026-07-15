@@ -558,27 +558,51 @@
               ],
               "query": [
                 {
-                  "key": "durum",
+                  "key": "idare_id",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "İdare (kurum) id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_adi",
+                  "value": "bilgisayar",
+                  "description": "İhale adında geçen metin (kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_durum",
                   "value": "2,3",
                   "description": "İhale durumu id listesi.",
                   "disabled": true
                 },
                 {
-                  "key": "idare",
-                  "value": "Ankara Büyükşehir Belediyesi",
-                  "description": "EKAP idare (kurum) id listesi (virgülle).",
+                  "key": "ihale_tarihi_max",
+                  "value": "31.12.2026",
+                  "description": "İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
                   "disabled": true
                 },
                 {
-                  "key": "ihale_baslangic",
+                  "key": "ihale_tarihi_min",
                   "value": "01.01.2026",
                   "description": "İhale tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
                   "disabled": true
                 },
                 {
-                  "key": "ihale_bitis",
-                  "value": "31.12.2026",
-                  "description": "İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "key": "ihale_tip",
+                  "value": "1,3",
+                  "description": "İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_usul",
+                  "value": "1",
+                  "description": "İhale usulü id listesi (1-4).",
+                  "disabled": true
+                },
+                {
+                  "key": "ikn",
+                  "value": "2026/271",
+                  "description": "İKN'de geçen metin (kısmi eşleşme).",
                   "disabled": true
                 },
                 {
@@ -594,51 +618,45 @@
                   "disabled": true
                 },
                 {
-                  "key": "il",
+                  "key": "il_id",
                   "value": "251,284",
-                  "description": "EKAP il id listesi (virgülle). `GET /ekap/cities/` ile alın.",
+                  "description": "İl id listesi (virgülle). `GET /ekap/cities/` ile alın.",
                   "disabled": true
                 },
                 {
-                  "key": "ilan_baslangic",
-                  "value": "01.01.2026",
-                  "description": "İlan tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
-                  "disabled": true
-                },
-                {
-                  "key": "ilan_bitis",
+                  "key": "ilan_tarihi_max",
                   "value": "31.12.2026",
-                  "description": "İlan tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "description": "İlan (yayın) tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
                   "disabled": true
                 },
                 {
-                  "key": "kapsam",
-                  "value": "ornek",
-                  "description": "Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı senkronlanmamış ihaleler (kapsam boş) dışlanmaz.",
+                  "key": "ilan_tarihi_min",
+                  "value": "01.01.2026",
+                  "description": "İlan (yayın) tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
                   "disabled": true
                 },
                 {
-                  "key": "okas_ad",
+                  "key": "okas_adi",
                   "value": "yazılım",
                   "description": "OKAS branş adı listesi (virgülle, kısmi eşleşme).",
                   "disabled": true
                 },
                 {
                   "key": "okas_kod",
-                  "value": "48000000",
+                  "value": "72415000",
                   "description": "OKAS branş kodu listesi (virgülle). Kod ile başlayan kalemleri olan ihaleler.",
                   "disabled": true
                 },
                 {
                   "key": "order",
-                  "value": "ihaleTarihi",
-                  "description": "Sıralama alanı. Geçerli değerler: `ihaleTarihi`, `ilanTarihi`.",
+                  "value": "ihale_tarihi",
+                  "description": "Sıralama alanı. Geçerli değerler: `ihale_tarihi`, `ilan_tarihi`.",
                   "disabled": true
                 },
                 {
                   "key": "ozellik",
                   "value": "ornek",
-                  "description": "Boolean özellik anahtarları (virgülle): eIhale, kismiTeklifMi, altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu, meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu, yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.",
+                  "description": "Özellik anahtarları (virgülle): eIhale, kismiTeklifMi, altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu, meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu, yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.",
                   "disabled": true
                 },
                 {
@@ -654,38 +672,20 @@
                   "disabled": true
                 },
                 {
-                  "key": "q",
-                  "value": "bilgisayar",
-                  "description": "İhale adında veya İKN'de geçen metin (kısmi eşleşme).",
-                  "disabled": true
-                },
-                {
-                  "key": "q_alan",
-                  "value": "both",
-                  "description": "`q` metni nerede aransın: `ad` (ihale adı), `ikn` veya `both` (varsayılan). Geçerli değerler: `ad`, `both`, `ikn`.",
-                  "disabled": true
-                },
-                {
                   "key": "siralamaTipi",
                   "value": "desc",
                   "description": "Sıralama yönü. Geçerli değerler: `asc`, `desc`.",
                   "disabled": true
                 },
                 {
-                  "key": "tur",
-                  "value": "1,3",
-                  "description": "İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.",
-                  "disabled": true
-                },
-                {
-                  "key": "usul",
-                  "value": "1",
-                  "description": "İhale usulü id listesi (1-4).",
+                  "key": "yasa_kapsami",
+                  "value": "ornek",
+                  "description": "Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı gelmemiş ihaleler (kapsam boş) dışlanmaz.",
                   "disabled": true
                 }
               ]
             },
-            "description": "İhaleleri **kendi veritabanımızdan** arar — EKAP'a istek gitmez, rate limit yoktur. Alan adları EKAP'ın kendi adlandırmasıyla döner.\n\nYanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.\n\n`il`, `tur`, `usul` ve `durum` **virgülle ayrılmış id listesi** alır (ör. `tur=1,3`). Sayı olmayan değerler yok sayılır.\n\n**İhale türü (`tur`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık\n\n**İhale usulü (`usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · 3 Pazarlık (MD 21 F) · 4 Doğrudan Temin\n\n**İhale durumu (`durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · 15 Sonuç İlanı Yayımlanmış · 20 Sözleşme İmzalanmış\n\n**İl id'leri** EKAP'ın kendi il kodlarıdır (plaka değil!) — `GET /api/v1/ekap/cities/` ile alın. Örn. Ankara `251`, İstanbul `284`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "İhaleleri **kendi veritabanımızdan** arar — EKAP'a istek gitmez, rate limit yoktur. Alan adları EKAP'ın kendi adlandırmasıyla döner.\n\nYanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.\n\n**Filtre parametre adları = `Tender` model alan adlarıdır** (tek adlandırma). Liste alanları (`il_id`, `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`, `idare_id`, `okas_kod`, `okas_adi`, `ozellik`) **virgülle ayrılmış** verilir (ör. `ihale_tip=1,3`).\n\n**İhale türü (`ihale_tip`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık\n\n**İhale usulü (`ihale_usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · 3 Pazarlık (MD 21 F) · 4 Doğrudan Temin\n\n**İhale durumu (`ihale_durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · 15 Sonuç İlanı Yayımlanmış · 20 Sözleşme İmzalanmış\n\n**İl id'leri (`il_id`)** EKAP'ın kendi il kodlarıdır (plaka değil!) — `GET /api/v1/ekap/cities/` ile alın. Örn. Ankara `251`, İstanbul `284`.\n\nGelişmiş alanlar (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellik`, `okas_*`) detay senkronunda dolar; henüz detayı gelmemiş ihaleler bu filtrelerde eşleşmeyebilir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

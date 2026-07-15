@@ -1086,28 +1086,48 @@ paths:
         Yanıt: `data.list` (ihaleler), `data.totalCount` (toplam kayıt), `data.page`.
 
 
-        `il`, `tur`, `usul` ve `durum` **virgülle ayrılmış id listesi** alır (ör.
-        `tur=1,3`). Sayı olmayan değerler yok sayılır.
+        **Filtre parametre adları = `Tender` model alan adlarıdır** (tek adlandırma).
+        Liste alanları (`il_id`, `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`,
+        `idare_id`, `okas_kod`, `okas_adi`, `ozellik`) **virgülle ayrılmış** verilir
+        (ör. `ihale_tip=1,3`).
 
 
-        **İhale türü (`tur`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık
+        **İhale türü (`ihale_tip`):** 1 Mal Alımı · 2 Yapım · 3 Hizmet · 4 Danışmanlık
 
 
-        **İhale usulü (`usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında · 3 Pazarlık
-        (MD 21 F) · 4 Doğrudan Temin
+        **İhale usulü (`ihale_usul`):** 1 Açık İhale · 2 Belli İstekliler Arasında
+        · 3 Pazarlık (MD 21 F) · 4 Doğrudan Temin
 
 
-        **İhale durumu (`durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme
+        **İhale durumu (`ihale_durum`):** 1 Taslak · 2/3 Katılıma Açık · 4 Değerlendirme
         Tamamlanmış · 5 Değerlendirmede · 6/10 İptal Edilmiş · 15 Sonuç İlanı Yayımlanmış
         · 20 Sözleşme İmzalanmış
 
 
-        **İl id''leri** EKAP''ın kendi il kodlarıdır (plaka değil!) — `GET /api/v1/ekap/cities/`
-        ile alın. Örn. Ankara `251`, İstanbul `284`.'
+        **İl id''leri (`il_id`)** EKAP''ın kendi il kodlarıdır (plaka değil!) — `GET
+        /api/v1/ekap/cities/` ile alın. Örn. Ankara `251`, İstanbul `284`.
+
+
+        Gelişmiş alanlar (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellik`, `okas_*`)
+        detay senkronunda dolar; henüz detayı gelmemiş ihaleler bu filtrelerde eşleşmeyebilir.'
       summary: İhale ara / listele
       parameters:
       - in: query
-        name: durum
+        name: idare_id
+        schema:
+          type: string
+        description: İdare (kurum) id listesi (virgülle).
+      - in: query
+        name: ihale_adi
+        schema:
+          type: string
+        description: İhale adında geçen metin (kısmi eşleşme).
+        examples:
+          MetinArama:
+            value: bilgisayar
+            summary: Metin arama
+      - in: query
+        name: ihale_durum
         schema:
           type: string
         description: İhale durumu id listesi.
@@ -1116,12 +1136,16 @@ paths:
             value: 2,3
             summary: Katılıma açık
       - in: query
-        name: idare
+        name: ihale_tarihi_max
         schema:
           type: string
-        description: EKAP idare (kurum) id listesi (virgülle).
+        description: İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
+          ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 31.12.2026
       - in: query
-        name: ihale_baslangic
+        name: ihale_tarihi_min
         schema:
           type: string
         description: İhale tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
@@ -1130,14 +1154,32 @@ paths:
           Tarih:
             value: 01.01.2026
       - in: query
-        name: ihale_bitis
+        name: ihale_tip
         schema:
           type: string
-        description: İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
-          ISO-8601. Geçersiz tarih yok sayılır.
+        description: 'İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.'
         examples:
-          Tarih:
-            value: 31.12.2026
+          Mal+Hizmet:
+            value: 1,3
+            summary: Mal + Hizmet
+      - in: query
+        name: ihale_usul
+        schema:
+          type: string
+        description: İhale usulü id listesi (1-4).
+        examples:
+          AçıkIhale:
+            value: '1'
+            summary: Açık ihale
+      - in: query
+        name: ikn
+        schema:
+          type: string
+        description: İKN'de geçen metin (kısmi eşleşme).
+        examples:
+          İKNParçası:
+            value: 2026/271
+            summary: İKN parçası
       - in: query
         name: ikn_sayi
         schema:
@@ -1157,40 +1199,34 @@ paths:
             value: '2026'
             summary: 2026 yılı
       - in: query
-        name: il
+        name: il_id
         schema:
           type: string
-        description: EKAP il id listesi (virgülle). `GET /ekap/cities/` ile alın.
+        description: İl id listesi (virgülle). `GET /ekap/cities/` ile alın.
         examples:
           Ankara+İstanbul:
             value: 251,284
             summary: Ankara + İstanbul
       - in: query
-        name: ilan_baslangic
+        name: ilan_tarihi_max
         schema:
           type: string
-        description: İlan tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
-          ISO-8601. Geçersiz tarih yok sayılır.
-        examples:
-          Tarih:
-            value: 01.01.2026
-      - in: query
-        name: ilan_bitis
-        schema:
-          type: string
-        description: İlan tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya
-          ISO-8601. Geçersiz tarih yok sayılır.
+        description: İlan (yayın) tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd`
+          veya ISO-8601. Geçersiz tarih yok sayılır.
         examples:
           Tarih:
             value: 31.12.2026
       - in: query
-        name: kapsam
+        name: ilan_tarihi_min
         schema:
           type: string
-        description: Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı
-          senkronlanmamış ihaleler (kapsam boş) dışlanmaz.
+        description: İlan (yayın) tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd`
+          veya ISO-8601. Geçersiz tarih yok sayılır.
+        examples:
+          Tarih:
+            value: 01.01.2026
       - in: query
-        name: okas_ad
+        name: okas_adi
         schema:
           type: string
         description: OKAS branş adı listesi (virgülle, kısmi eşleşme).
@@ -1206,25 +1242,25 @@ paths:
           olan ihaleler.
         examples:
           OKASKodu:
-            value: '48000000'
+            value: '72415000'
             summary: OKAS kodu
       - in: query
         name: order
         schema:
           type: string
           enum:
-          - ihaleTarihi
-          - ilanTarihi
-          default: ihaleTarihi
+          - ihale_tarihi
+          - ilan_tarihi
+          default: ihale_tarihi
         description: Sıralama alanı.
       - in: query
         name: ozellik
         schema:
           type: string
-        description: 'Boolean özellik anahtarları (virgülle): eIhale, kismiTeklifMi,
-          altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu,
-          meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu,
-          yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.'
+        description: 'Özellik anahtarları (virgülle): eIhale, kismiTeklifMi, altYukleniciCalistirilabilirMi,
+          fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu, meslekiTeknikYeterlilikBelgeleriIsteniyorMu,
+          yabanciIsteklilereIzinVeriliyorMu, yerliIstekliyeFiyatAvantajiUgulaniyorMu,
+          ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.'
       - in: query
         name: page
         schema:
@@ -1238,26 +1274,6 @@ paths:
           default: 10
         description: Sayfa boyutu. **En fazla 100** (aşan değer 100'e kırpılır).
       - in: query
-        name: q
-        schema:
-          type: string
-        description: İhale adında veya İKN'de geçen metin (kısmi eşleşme).
-        examples:
-          MetinArama:
-            value: bilgisayar
-            summary: Metin arama
-      - in: query
-        name: q_alan
-        schema:
-          type: string
-          enum:
-          - ad
-          - both
-          - ikn
-          default: both
-        description: '`q` metni nerede aransın: `ad` (ihale adı), `ikn` veya `both`
-          (varsayılan).'
-      - in: query
         name: siralamaTipi
         schema:
           type: string
@@ -1267,23 +1283,11 @@ paths:
           default: desc
         description: Sıralama yönü.
       - in: query
-        name: tur
+        name: yasa_kapsami
         schema:
           type: string
-        description: 'İhale türü id listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.'
-        examples:
-          Mal+Hizmet:
-            value: 1,3
-            summary: Mal + Hizmet
-      - in: query
-        name: usul
-        schema:
-          type: string
-        description: İhale usulü id listesi (1-4).
-        examples:
-          AçıkIhale:
-            value: '1'
-            summary: Açık ihale
+        description: Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı
+          gelmemiş ihaleler (kapsam boş) dışlanmaz.
       tags:
       - ekap
       security:

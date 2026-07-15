@@ -9,6 +9,7 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
@@ -198,9 +199,26 @@ def check_saved_filter_matches():
     OPEN_STATUSES = [2, 3]
     now = timezone.now()
     today = timezone.localdate()
+    # Yalnızca son `publish_days` gün içinde YAYINLANAN (ilan_tarihi) ihaleler bildirilir →
+    # eski/backfill ihaleler bildirilmez. ilan_tarihi detay senkronundan dolar.
+    publish_days = int(getattr(settings, "NOTIF_FILTER_PUBLISH_DAYS", 2))
+    window_start = now - timedelta(days=publish_days)
 
-    per_user = {}  # uid -> {"user":u, "count":int, "first_title":str, "single":Tender|None}
+    per_user = {}  # uid -> {"user":u, "count":int, "rep":Tender|None}
     processed = 0
+    seen_by_user = {}  # uid -> set(ikn): bu kullanıcıya daha önce filtre bildirimi gitmiş
+
+    def _seen_ikns(user_id):
+        if user_id not in seen_by_user:
+            seen_by_user[user_id] = set(
+                Notification.objects.filter(
+                    user_id=user_id,
+                    type=Notification.Type.TENDER,
+                    tender_ikn__isnull=False,
+                    created_at__gte=now - timedelta(days=30),
+                ).values_list("tender_ikn", flat=True)
+            )
+        return seen_by_user[user_id]
 
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
@@ -208,29 +226,29 @@ def check_saved_filter_matches():
         processed += 1
         try:
             filt = sf.filters or {}
-            # Filtrenin kendi kriterleri (searchText, ihaleTuruIdList, ihaleIlIdList...)
-            # apply_tender_filters tarafından native adlarla uygulanır.
+            # Filtrenin kendi kriterleri (ihale_adi, ihale_tip, il_id...) apply_tender_filters
+            # ile uygulanır (parametre adları = Tender model alan adları).
             base = apply_tender_filters(Tender.objects.all(), filt)
             # Filtre kendi durumunu belirtmediyse yalnızca katılıma açık ihaleleri öner.
-            if not (filt.get("ihaleDurumIdList") or filt.get("durum")):
+            if not filt.get("ihale_durum"):
                 base = base.filter(ihale_durum__in=OPEN_STATUSES)
-            # Teklifi geçmemiş (biddable) ihaleler.
+            # Teklifi geçmemiş (biddable) + son `publish_days` günde yayınlanmış.
             base = base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
+            base = base.filter(ilan_tarihi__gte=window_start)
 
-            # İlk kontrol → taban al, bildirim üretme (mevcut eşleşmeleri boca etme).
-            if sf.last_notified_at is None:
-                sf.last_notified_at = now
-                sf.save(update_fields=["last_notified_at"])
-                continue
-
-            new_list = list(
-                base.filter(created_at__gt=sf.last_notified_at).order_by("-created_at")[:20]
-            )
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
 
+            # Bu kullanıcıya daha önce bildirilmemiş (yeni yayınlanan) ihaleler.
+            seen = _seen_ikns(sf.user_id)
+            new_list = [
+                t for t in base.order_by("-ilan_tarihi")[:50]
+                if t.ikn and t.ikn not in seen
+            ][:20]
             if not new_list:
                 continue
+            for t in new_list:
+                seen.add(t.ikn)  # aynı çalıştırmada başka filtreden tekrar bildirme
 
             first = new_list[0]
             title, body = templates.saved_filter_match(

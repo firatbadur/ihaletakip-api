@@ -113,6 +113,32 @@ def _as_int(value):
 
 
 # ── Detay upsert ───────────────────────────────────────
+def _publish_date_from_ilanlar(data, announcements):
+    """
+    Detay `ilanList`'inden ihalenin **yayın (ilan) tarihini** çıkarır.
+    İhale İlanı (`ilanTip=1`) tercih edilir; yoksa en erken ilan tarihi kullanılır.
+    (EKAP `ilanTarihi`'yi liste yanıtında boş döndürür → tender.ilan_tarihi ancak
+    burada, detaydan dolar.)
+    """
+    ilan_list = list(data.get("ilanList") or [])
+    if announcements:
+        try:
+            extra, _ = extract_list(announcements)
+            ilan_list += extra
+        except Exception:
+            pass
+    ihale_ilani = None
+    dates = []
+    for i in ilan_list:
+        d = parse_ekap_datetime(i.get("ilanTarihi"))
+        if not d:
+            continue
+        dates.append(d)
+        if _as_int(i.get("ilanTip")) == 1 and ihale_ilani is None:
+            ihale_ilani = d
+    return ihale_ilani or (min(dates) if dates else None)
+
+
 def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     """Detay response'unu Tender + çocuk tablolara yazar."""
     data = detail.get("item", detail) if isinstance(detail, dict) else {}
@@ -170,6 +196,16 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.ust_idare = idare.get("ustIdare") or idare.get("enUstIdareAdi") or tender.ust_idare
     tender.idare_telefon = str(idare.get("telefon") or "") or tender.idare_telefon
     tender.idare_fax = str(idare.get("fax") or "") or tender.idare_fax
+
+    # İlan (yayın) tarihi — detayın ilanList'inden (liste yanıtında boş gelir)
+    pub = _publish_date_from_ilanlar(data, announcements)
+    if pub:
+        tender.ilan_tarihi = pub
+    # Doküman sayısı / ilan var mı — detaydan da tazele
+    if data.get("dokumanSayisi") is not None:
+        tender.dokuman_sayisi = _as_int(data.get("dokumanSayisi")) or 0
+    if data.get("ilanVarMi") is not None:
+        tender.ilan_var_mi = bool(data.get("ilanVarMi"))
 
     tender.detail_raw = detail
     tender.detail_synced_at = timezone.now()

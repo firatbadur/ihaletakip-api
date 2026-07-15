@@ -232,6 +232,9 @@ NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=4)
 # Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz.
 NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=30)
+# Kayıtlı filtre bildirimi: yalnızca son bu kadar günde YAYINLANAN (ilan_tarihi)
+# ihaleler bildirilir → eski/backfill ihaleler bildirilmez.
+NOTIF_FILTER_PUBLISH_DAYS = env.int("NOTIF_FILTER_PUBLISH_DAYS", default=2)
 
 # ── EKAP veri toplama ──────────────────────────────────
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")

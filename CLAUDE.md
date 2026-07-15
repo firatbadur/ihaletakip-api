@@ -370,23 +370,25 @@ bombardımana tutulmaz.
      (`dokuman_sayisi != last_dokuman_sayisi`; ilk görüşte sessiz), sonuçlandı (durum
      `DURUM_SONUCLANMIS`'e geçiş; `completed_notified` ile tek sefer). Kullanıcı başına tek
      birleşik özet push (idem `alarm:{uid}:{date}`). Snapshot alanları `TenderAlarm`'da.
-  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan **yeni** (son kontrolden
-     sonra DB'ye giren) açık ihaleler. Filtre semantiği `ekap.views.apply_tender_filters`
-     ile view'la **ortak**. `SavedFilter.filters` mobilde **EKAP-native adlarla**
-     (`searchText`, `ihaleTuruIdList`, `ihaleIlIdList`...) saklandığından `apply_tender_filters`
-     hem kısa adları (`q`, `tur`, `il`, `durum`...) hem native adları **sessiz alias** olarak
-     tanır → filtre doğrudan uygulanır (yoksa filtre uygulanmadan tüm yeni ihaleler dönerdi).
-     Bildirim `tender_id`/`tender_ikn`'yi en üstteki eşleşen ihaleyle doldurur (derin bağlantı).
-     İlk kontrolde sessiz (taban `last_notified_at`). idem `filter:{uid}:{date}`.
+  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **yalnızca son
+     `NOTIF_FILTER_PUBLISH_DAYS`=2 günde YAYINLANAN** (`ilan_tarihi`) açık ihaleler.
+     Eski/backfill ihaleler bildirilmez. Dedup: kullanıcıya daha önce (son 30 gün) filtre
+     bildirimi gitmiş İKN tekrar bildirilmez. Filtre semantiği `ekap.views.apply_tender_filters`
+     ile view'la **ortak**. Bildirim `tender_id`/`tender_ikn`'yi en üstteki eşleşen ihaleyle
+     doldurur (derin bağlantı). idem `filter:{uid}:{date}`.
 
-- **`ekap.views.apply_tender_filters`** (arama ucu + bildirim ortak filtresi) desteklediği
-  alanlar: metin (`q`/`searchText` + `q_alan` ad/ikn/both), `il`/`ihaleIlIdList`,
-  `tur`/`ihaleTuruIdList`, `usul`/`ihaleUsulIdList`, `durum`/`ihaleDurumIdList`,
-  `idare`/`idareKodList`, `kapsam`/`yasaKapsami4734List` (null-inclusive → detayı gelmemiş
-  ihaleyi dışlamaz), `okas_kod`/`okasBransKodList`, `okas_ad`/`okasBransAdiList`,
-  `ikn_yil`/`iknYili`, `ikn_sayi`/`iknSayi`, tarih aralıkları, boolean özellikler (OZELLIK_MAP).
-  Gelişmiş alanlar (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellikler`, `okas_kalemleri`)
-  **detay senkronunda** dolar (`upsert_tender_detail`); liste senkronu temel alanları doldurur.
+- **`ekap.views.apply_tender_filters`** (arama ucu + bildirim ortak filtresi) — **tek
+  adlandırma: parametre adları `Tender` model alan adlarıdır** (native/kısa alias YOK).
+  Desteklenen alanlar: `ihale_adi`, `ikn`, `ikn_yil`, `ikn_sayi`, `il_id`, `ihale_tip`,
+  `ihale_usul`, `ihale_durum`, `idare_id`, `yasa_kapsami` (null-inclusive → detayı gelmemiş
+  ihaleyi dışlamaz), `okas_kod`, `okas_adi`, `ozellik` (OZELLIK_MAP anahtarları),
+  `ihale_tarihi_min/max`, `ilan_tarihi_min/max`. Liste alanları hem virgüllü string (query
+  param) hem gerçek liste (`SavedFilter.filters` JSON) kabul eder. **Mobil, arama VE kayıtlı
+  filtre gövdesini bu model adlarıyla göndermeli** (Postman güncel). Gelişmiş alanlar
+  (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellikler`, `okas_kalemleri`, **`ilan_tarihi`**)
+  **detay senkronunda** dolar (`upsert_tender_detail`); `ilan_tarihi` EKAP liste yanıtında
+  boş gelir, detay `ilanList`'inden (İhale İlanı `ilanTip=1`) `_publish_date_from_ilanlar`
+  ile doldurulur.
 - **FCM kimliği**: `credentials/fcm-service-account.json` (git-ignore, TTS anahtarıyla aynı
   yer; docker'da web+worker'a mount'lu). `.env` → `FCM_CREDENTIALS`, `FCM_PROJECT_ID=ihale-53fbf`.
 - **Elle tetikleme / test**: `python manage.py send_test_push <user_id> [--raw]`,

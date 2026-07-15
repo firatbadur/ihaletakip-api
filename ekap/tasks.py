@@ -67,6 +67,19 @@ def _upsert_item_safe(item):
         return None, 1
 
 
+def _window_floor():
+    """EKAP toplama penceresinin alt sınırı: son ``EKAP_BACKFILL_YEARS`` yıl.
+
+    ``(datetime, ISO string)`` döner. Sınır **ihale tarihine** göredir; EKAP
+    aramasına ``ihaleTarihSaatBaslangic`` olarak geçilir. EKAP bu alanı yalnızca
+    ISO (``YYYY-MM-DDTHH:MM:SS``) formatıyla kabul eder (DD.MM.YYYY → HTTP 400).
+    Liste seviyesinde ``ilanTarihi`` boş geldiği için pencereyi **EKAP'ın kendi**
+    filtresiyle sunucu tarafında sınırlamak tek güvenilir yoldur (aksi halde EKAP
+    2002'ye kadar ~1.96M kayıt döndürür ve backfill hiç durmaz)."""
+    floor = timezone.now() - timedelta(days=365 * settings.EKAP_BACKFILL_YEARS)
+    return floor, floor.strftime("%Y-%m-%dT%H:%M:%S")
+
+
 # ── Detay ──────────────────────────────────────────────
 @shared_task(name="ekap.tasks.sync_detail", bind=True, max_retries=2, default_retry_delay=60)
 def sync_detail(self, ekap_id):
@@ -88,11 +101,13 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
             return
         client = EkapV2Client()
         floor = timezone.now() - timedelta(days=days)
+        _, window_iso = _window_floor()
         total = 0
         errors = 0
         for page in range(max_pages):
             body = client.build_search_body(
                 orderBy="ilanTarihi", siralamaTipi="desc",
+                ihaleTarihSaatBaslangic=window_iso,
                 paginationSkip=page * page_size, paginationTake=page_size,
             )
             items, total_count = sync_mod.extract_list(client.search(body))
@@ -117,8 +132,14 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
 
 # ── Backfill (sürekli, yavaş) ──────────────────────────
 @shared_task(name="ekap.tasks.backfill")
-def backfill(max_pages=3, page_size=50, defer_detail=True):
-    """İmleçten geriye doğru, son N yıl tabanına kadar geçmişi doldurur."""
+def backfill(max_pages=10, page_size=50, defer_detail=True):
+    """Pencere tabanından (son N yıl) ileriye doğru imleçle geçmişi doldurur.
+
+    Arama ``ihaleTarihSaatBaslangic`` ile EKAP tarafında son ``EKAP_BACKFILL_YEARS``
+    yıla sınırlanır; ``ihaleTarihi`` **asc** sıralanır (en eski → yeni). Böylece
+    DB'deki asıl boşluk (eski yıllar) önce dolar ve imleç, en yeni kayıtlar listenin
+    sonuna eklendiği için kaymaz. ``skip >= total_count`` (pencere içi toplam) ya da
+    boş sayfada biter."""
     with _run("backfill") as run:
         if run is None:
             return
@@ -127,7 +148,7 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
             return {"status": "done"}
 
         client = EkapV2Client()
-        floor = timezone.now() - timedelta(days=365 * settings.EKAP_BACKFILL_YEARS)
+        floor, floor_iso = _window_floor()
         total = 0
         errors = 0
         skip = cp.cursor_skip
@@ -135,7 +156,8 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
         aborted = None
         for _ in range(max_pages):
             body = client.build_search_body(
-                orderBy="ilanTarihi", siralamaTipi="desc",
+                orderBy="ihaleTarihi", siralamaTipi="asc",
+                ihaleTarihSaatBaslangic=floor_iso,
                 paginationSkip=skip, paginationTake=page_size,
             )
             # EKAP gün içinde yavaş/yanıtsız olabilir. Sayfa çekilemezse çalışmayı
@@ -157,8 +179,8 @@ def backfill(max_pages=3, page_size=50, defer_detail=True):
                 if tender:
                     total += 1
                     _enqueue_detail(tender.ekap_id, defer=defer_detail)
-                    if tender.ilan_tarihi:
-                        oldest = tender.ilan_tarihi if oldest is None else min(oldest, tender.ilan_tarihi)
+                    if tender.ihale_tarihi:
+                        oldest = tender.ihale_tarihi if oldest is None else min(oldest, tender.ihale_tarihi)
             skip += page_size
             if (oldest and oldest < floor) or skip >= (total_count or 0):
                 cp.done = True

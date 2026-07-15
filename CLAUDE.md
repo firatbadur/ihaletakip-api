@@ -120,16 +120,31 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   karşılığı; anahtar `EKAP_SIGNING_KEY` (env).
 - **Rate limit**: `throttle.py` (~1 istek/sn) + EKAP görevleri ayrı `ekap` Celery
   kuyruğunda **tek concurrency** ile serileştirilir (`ekap-worker` servisi).
-- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00), `refresh_stale` (3 saatte bir,
-  akıllı kural: geçmiş+sonuçlanmamış → detay yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1
-  yıl**), `backfill` (**tüm gün** 15 dk'da bir, son `EKAP_BACKFILL_YEARS`=5 yıl;
-  5 yıl tabanına ulaşınca DB kontrolüyle anında döner → boşta bedava. EKAP gün içinde
-  yavaş/yanıtsız olabildiğinden görev sayfa hatasını **zarifçe yutar**: kısmi ilerlemeyi
-  `SyncCheckpoint`'e kaydeder, çalışmayı *error* saymaz — `SyncRun.note`'a "EKAP kısmi"
-  düşer — ve bir sonraki tetikte kaldığı yerden devam eder. Kilit=1sa üst üste binmeyi,
-  throttle ~1istek/sn + tek concurrency EKAP'ı korur),
+- **Pencere = EKAP tarafı tarih filtresi (kritik)**: Toplama son `EKAP_BACKFILL_YEARS`
+  (vars. 5) yılla sınırlıdır ve bu sınır **EKAP aramasında** `ihaleTarihSaatBaslangic`
+  ile uygulanır (`sync_recent` + `backfill`, ortak yardımcı `_window_floor()`). EKAP bu
+  alanı **yalnızca ISO** (`YYYY-MM-DDTHH:MM:SS`) kabul eder — DD.MM.YYYY → HTTP 400.
+  **Neden istemci tarafı yetmez**: `ilanTarihi` liste seviyesinde **%100 boş** gelir;
+  eski kod `oldest`'ı ona göre hesapladığı için pencere kontrolü hiç tetiklenmiyordu →
+  backfill EKAP'ın **~1.96M / 2002'ye kadar** havuzunu sonsuza dek kazıyordu (DB her
+  tarihten kayıtla doluyordu). Artık sınır **ihale tarihine** göre EKAP'ta uygulanır;
+  istemci `oldest` kontrolü yedek olarak `ihale_tarihi` (dolu alan) kullanır. Pencere
+  daraltmak/genişletmek için tek düğme: `.env` → `EKAP_BACKFILL_YEARS`.
+- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00; en yeni ilanlar, `ilanTarihi` desc,
+  20 sayfa), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
+  yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da
+  bir; pencere tabanından **ileriye** `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
+  yıllar olduğu için önce onları doldurur, en yeni kayıtlar listenin sonuna eklendiğinden
+  imleç kaymaz; `skip >= total_count` [pencere içi toplam] ya da boş sayfada `done=True`.
+  EKAP gün içinde yavaş/yanıtsız olabildiğinden görev sayfa hatasını **zarifçe yutar**:
+  kısmi ilerlemeyi `SyncCheckpoint`'e kaydeder, çalışmayı *error* saymaz — `SyncRun.note`'a
+  "EKAP kısmi" düşer — ve bir sonraki tetikte kaldığı yerden devam eder. Kilit=1sa üst üste
+  binmeyi, throttle ~1istek/sn + tek concurrency EKAP'ı korur),
   `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
   ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
+  ⚠️ **Pencere değişince** (`EKAP_BACKFILL_YEARS` veya filtre mantığı) backfill
+  checkpoint'i sıfırla ki yeni pencereyle baştan taransın:
+  `SyncCheckpoint.objects.filter(name="backfill").update(cursor_skip=0, done=False, oldest_date=None)`.
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
   (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
   `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı

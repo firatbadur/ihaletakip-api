@@ -1116,6 +1116,11 @@ paths:
             value: 2,3
             summary: Katılıma açık
       - in: query
+        name: idare
+        schema:
+          type: string
+        description: EKAP idare (kurum) id listesi (virgülle).
+      - in: query
         name: ihale_baslangic
         schema:
           type: string
@@ -1133,6 +1138,24 @@ paths:
         examples:
           Tarih:
             value: 31.12.2026
+      - in: query
+        name: ikn_sayi
+        schema:
+          type: string
+        description: İKN sıra sayısı — İKN `.../SAYI` ile bitenler.
+        examples:
+          SıraNo:
+            value: '271215'
+            summary: Sıra no
+      - in: query
+        name: ikn_yil
+        schema:
+          type: string
+        description: İKN yılı — İKN `YIL/...` ile başlayanlar.
+        examples:
+          2026Yılı:
+            value: '2026'
+            summary: 2026 yılı
       - in: query
         name: il
         schema:
@@ -1161,6 +1184,31 @@ paths:
           Tarih:
             value: 31.12.2026
       - in: query
+        name: kapsam
+        schema:
+          type: string
+        description: Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı
+          senkronlanmamış ihaleler (kapsam boş) dışlanmaz.
+      - in: query
+        name: okas_ad
+        schema:
+          type: string
+        description: OKAS branş adı listesi (virgülle, kısmi eşleşme).
+        examples:
+          OKASAdı:
+            value: yazılım
+            summary: OKAS adı
+      - in: query
+        name: okas_kod
+        schema:
+          type: string
+        description: OKAS branş kodu listesi (virgülle). Kod ile başlayan kalemleri
+          olan ihaleler.
+        examples:
+          OKASKodu:
+            value: '48000000'
+            summary: OKAS kodu
+      - in: query
         name: order
         schema:
           type: string
@@ -1169,6 +1217,14 @@ paths:
           - ilanTarihi
           default: ihaleTarihi
         description: Sıralama alanı.
+      - in: query
+        name: ozellik
+        schema:
+          type: string
+        description: 'Boolean özellik anahtarları (virgülle): eIhale, kismiTeklifMi,
+          altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu,
+          meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu,
+          yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.'
       - in: query
         name: page
         schema:
@@ -1190,6 +1246,17 @@ paths:
           MetinArama:
             value: bilgisayar
             summary: Metin arama
+      - in: query
+        name: q_alan
+        schema:
+          type: string
+          enum:
+          - ad
+          - both
+          - ikn
+          default: both
+        description: '`q` metni nerede aransın: `ad` (ihale adı), `ikn` veya `both`
+          (varsayılan).'
       - in: query
         name: siralamaTipi
         schema:

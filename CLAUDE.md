@@ -372,7 +372,21 @@ bombardımana tutulmaz.
      birleşik özet push (idem `alarm:{uid}:{date}`). Snapshot alanları `TenderAlarm`'da.
   3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan **yeni** (son kontrolden
      sonra DB'ye giren) açık ihaleler. Filtre semantiği `ekap.views.apply_tender_filters`
-     ile view'la **ortak**. İlk kontrolde sessiz (taban `last_notified_at`). idem `filter:{uid}:{date}`.
+     ile view'la **ortak**. `SavedFilter.filters` mobilde **EKAP-native adlarla**
+     (`searchText`, `ihaleTuruIdList`, `ihaleIlIdList`...) saklandığından `apply_tender_filters`
+     hem kısa adları (`q`, `tur`, `il`, `durum`...) hem native adları **sessiz alias** olarak
+     tanır → filtre doğrudan uygulanır (yoksa filtre uygulanmadan tüm yeni ihaleler dönerdi).
+     Bildirim `tender_id`/`tender_ikn`'yi en üstteki eşleşen ihaleyle doldurur (derin bağlantı).
+     İlk kontrolde sessiz (taban `last_notified_at`). idem `filter:{uid}:{date}`.
+
+- **`ekap.views.apply_tender_filters`** (arama ucu + bildirim ortak filtresi) desteklediği
+  alanlar: metin (`q`/`searchText` + `q_alan` ad/ikn/both), `il`/`ihaleIlIdList`,
+  `tur`/`ihaleTuruIdList`, `usul`/`ihaleUsulIdList`, `durum`/`ihaleDurumIdList`,
+  `idare`/`idareKodList`, `kapsam`/`yasaKapsami4734List` (null-inclusive → detayı gelmemiş
+  ihaleyi dışlamaz), `okas_kod`/`okasBransKodList`, `okas_ad`/`okasBransAdiList`,
+  `ikn_yil`/`iknYili`, `ikn_sayi`/`iknSayi`, tarih aralıkları, boolean özellikler (OZELLIK_MAP).
+  Gelişmiş alanlar (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellikler`, `okas_kalemleri`)
+  **detay senkronunda** dolar (`upsert_tender_detail`); liste senkronu temel alanları doldurur.
 - **FCM kimliği**: `credentials/fcm-service-account.json` (git-ignore, TTS anahtarıyla aynı
   yer; docker'da web+worker'a mount'lu). `.env` → `FCM_CREDENTIALS`, `FCM_PROJECT_ID=ihale-53fbf`.
 - **Elle tetikleme / test**: `python manage.py send_test_push <user_id> [--raw]`,

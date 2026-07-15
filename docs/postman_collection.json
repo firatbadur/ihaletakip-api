@@ -564,6 +564,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "idare",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "EKAP idare (kurum) id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
                   "key": "ihale_baslangic",
                   "value": "01.01.2026",
                   "description": "İhale tarihi alt sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
@@ -573,6 +579,18 @@
                   "key": "ihale_bitis",
                   "value": "31.12.2026",
                   "description": "İhale tarihi üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "ikn_sayi",
+                  "value": "271215",
+                  "description": "İKN sıra sayısı — İKN `.../SAYI` ile bitenler.",
+                  "disabled": true
+                },
+                {
+                  "key": "ikn_yil",
+                  "value": "2026",
+                  "description": "İKN yılı — İKN `YIL/...` ile başlayanlar.",
                   "disabled": true
                 },
                 {
@@ -594,9 +612,33 @@
                   "disabled": true
                 },
                 {
+                  "key": "kapsam",
+                  "value": "ornek",
+                  "description": "Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). Detayı senkronlanmamış ihaleler (kapsam boş) dışlanmaz.",
+                  "disabled": true
+                },
+                {
+                  "key": "okas_ad",
+                  "value": "yazılım",
+                  "description": "OKAS branş adı listesi (virgülle, kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
+                  "key": "okas_kod",
+                  "value": "48000000",
+                  "description": "OKAS branş kodu listesi (virgülle). Kod ile başlayan kalemleri olan ihaleler.",
+                  "disabled": true
+                },
+                {
                   "key": "order",
                   "value": "ihaleTarihi",
                   "description": "Sıralama alanı. Geçerli değerler: `ihaleTarihi`, `ilanTarihi`.",
+                  "disabled": true
+                },
+                {
+                  "key": "ozellik",
+                  "value": "ornek",
+                  "description": "Boolean özellik anahtarları (virgülle): eIhale, kismiTeklifMi, altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu, meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu, yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.",
                   "disabled": true
                 },
                 {
@@ -615,6 +657,12 @@
                   "key": "q",
                   "value": "bilgisayar",
                   "description": "İhale adında veya İKN'de geçen metin (kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
+                  "key": "q_alan",
+                  "value": "both",
+                  "description": "`q` metni nerede aransın: `ad` (ihale adı), `ikn` veya `both` (varsayılan). Geçerli değerler: `ad`, `both`, `ikn`.",
                   "disabled": true
                 },
                 {

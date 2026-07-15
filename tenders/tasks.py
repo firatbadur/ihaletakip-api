@@ -207,10 +207,15 @@ def check_saved_filter_matches():
             continue
         processed += 1
         try:
-            base = apply_tender_filters(Tender.objects.all(), sf.filters or {})
-            base = base.filter(ihale_durum__in=OPEN_STATUSES).filter(
-                Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True)
-            )
+            filt = sf.filters or {}
+            # Filtrenin kendi kriterleri (searchText, ihaleTuruIdList, ihaleIlIdList...)
+            # apply_tender_filters tarafından native adlarla uygulanır.
+            base = apply_tender_filters(Tender.objects.all(), filt)
+            # Filtre kendi durumunu belirtmediyse yalnızca katılıma açık ihaleleri öner.
+            if not (filt.get("ihaleDurumIdList") or filt.get("durum")):
+                base = base.filter(ihale_durum__in=OPEN_STATUSES)
+            # Teklifi geçmemiş (biddable) ihaleler.
+            base = base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
 
             # İlk kontrol → taban al, bildirim üretme (mevcut eşleşmeleri boca etme).
             if sf.last_notified_at is None:
@@ -233,28 +238,26 @@ def check_saved_filter_matches():
                 count=len(new_list),
                 first_title=first.ihale_adi,
             )
-            single = first if len(new_list) == 1 else None
+            # Bildirime basınca ilgili ihaleye gitsin → her zaman en üstteki (en yeni)
+            # eşleşen ihalenin id/İKN'sini doldur.
             notify.record_notification(
                 sf.user,
                 type=Notification.Type.TENDER,
                 title=title,
                 body=body,
-                tender_id=(single.ekap_id if single else None),
-                tender_ikn=(single.ikn if single else None),
+                tender_id=first.ekap_id,
+                tender_ikn=first.ikn,
                 tender_title=first.ihale_adi,
                 institution=first.idare_adi,
             )
 
             bucket = per_user.setdefault(
                 sf.user_id,
-                {"user": sf.user, "count": 0, "first_title": None, "single": None},
+                {"user": sf.user, "count": 0, "rep": None},
             )
             bucket["count"] += len(new_list)
-            if bucket["first_title"] is None:
-                bucket["first_title"] = first.ihale_adi
-                bucket["single"] = single
-            else:
-                bucket["single"] = None  # birden çok kaynak → tekil bağlantı yok
+            if bucket["rep"] is None:
+                bucket["rep"] = first  # push derin bağlantısı için temsili ihale
         except Exception:
             logger.exception("check_saved_filter_matches: filtre %s işlenemedi", sf.pk)
             continue
@@ -263,17 +266,18 @@ def check_saved_filter_matches():
     pushed = 0
     for uid, b in per_user.items():
         count = b["count"]
-        if count == 1:
+        rep = b["rep"]
+        if count == 1 and rep is not None:
             title, body = templates.saved_filter_match(
-                filter_name="Kayıtlı Filtreleriniz", count=1, first_title=b["first_title"]
+                filter_name="Kayıtlı Filtreleriniz", count=1, first_title=rep.ihale_adi
             )
         else:
             title = "Kayıtlı Filtreleriniz"
             body = f"Filtrelerinize uygun {count} yeni ihale"
         data = {"type": Notification.Type.TENDER}
-        if b["single"] is not None:
-            data["tenderId"] = b["single"].ekap_id
-            data["tenderIkn"] = b["single"].ikn
+        if rep is not None:  # bildirime basınca temsili ihaleye gitsin
+            data["tenderId"] = rep.ekap_id
+            data["tenderIkn"] = rep.ikn
         ok = notify.push_to_user(
             b["user"],
             title=title,

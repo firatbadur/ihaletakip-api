@@ -38,7 +38,7 @@ def _int_list(raw):
     out = []
     for part in (raw or "").split(","):
         part = part.strip()
-        if part.isdigit():
+        if part.lstrip("-").isdigit():
             out.append(int(part))
     return out
 
@@ -47,53 +47,164 @@ def _str_list(raw):
     return [p.strip() for p in (raw or "").split(",") if p.strip()]
 
 
+def _as_int_list(value):
+    """list ([1,2]) ya da virgüllü string ('1,2') → [int]. `SavedFilter.filters`
+    JSON'da gerçek liste, query param'da virgüllü string gelir; ikisini de destekler."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        out = []
+        for x in value:
+            try:
+                out.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        return out
+    return _int_list(str(value))
+
+
+def _as_str_list(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(x).strip() for x in value if str(x).strip()]
+    return _str_list(str(value))
+
+
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in ("1", "true", "yes", "on", "evet", "var")
+
+
+def _pick(params, *keys):
+    """Verilen anahtarlardan ilk dolu olanın değerini döner (boş string/liste atlanır)."""
+    for k in keys:
+        val = params.get(k)
+        if val is None:
+            continue
+        if val == "" or val == []:
+            continue
+        return val
+    return None
+
+
 def apply_tender_filters(qs, params):
     """
     Tender queryset'ine ortak filtreleri uygular ve queryset döner.
 
     `params` `.get(key)` destekleyen herhangi bir nesnedir (DRF `query_params`
-    ya da `SavedFilter.filters` gibi düz dict). Böylece bildirim servisi
-    (`check_saved_filter_matches`) kullanıcının uygulamada gördüğü sonuçla
-    **birebir aynı** filtre semantiğini kullanır. Sıralama/pagination dahil değildir.
+    ya da `SavedFilter.filters` gibi düz dict). **İki adlandırmayı da tanır**:
+    dokümante kısa adlar (`q`, `il`, `tur`, `durum`, `okas_kod`, `ikn_yil`...) ve
+    bunların **EKAP-native karşılıkları** (`searchText`, `ihaleIlIdList`,
+    `ihaleTuruIdList`, `okasBransKodList`, `iknYili`...) sessiz alias'tır. Böylece
+    hem arama ucu hem bildirim servisi (`check_saved_filter_matches` → `sf.filters`)
+    aynı fonksiyonu kullanır. Sıralama/pagination dahil değildir.
     """
-    q = (params.get("q") or "").strip()
-    if q:
-        qs = qs.filter(Q(ihale_adi__icontains=q) | Q(ikn__icontains=q))
+    needs_distinct = False
 
-    if params.get("il"):
-        qs = qs.filter(il_id__in=_int_list(params.get("il")))
-    if params.get("tur"):
-        qs = qs.filter(ihale_tip__in=_int_list(params.get("tur")))
-    if params.get("usul"):
-        qs = qs.filter(ihale_usul__in=_int_list(params.get("usul")))
-    if params.get("durum"):
-        qs = qs.filter(ihale_durum__in=_int_list(params.get("durum")))
+    # ── Metin arama (searchText/q) — hangi alanda aranacağı ikNdeAra/ihaleAdindaAra ile ──
+    text = _pick(params, "searchText", "q")
+    if text:
+        text = str(text).strip()
+    if text:
+        in_ad = params.get("ihaleAdindaAra")
+        in_ikn = params.get("ikNdeAra")
+        alan = str(params.get("q_alan") or "").strip().lower()  # "ad" | "ikn" | "both"
+        search_ad = (alan in ("", "ad", "both", "hepsi")) if not alan else alan in ("ad", "both", "hepsi")
+        search_ikn = (alan in ("", "ikn", "both", "hepsi")) if not alan else alan in ("ikn", "both", "hepsi")
+        # native bayraklar verilmişse onları uygula
+        if in_ad is not None or in_ikn is not None:
+            search_ad = _truthy(in_ad) if in_ad is not None else False
+            search_ikn = _truthy(in_ikn) if in_ikn is not None else False
+        cond = Q()
+        if search_ad:
+            cond |= Q(ihale_adi__icontains=text)
+        if search_ikn:
+            cond |= Q(ikn__icontains=text)
+        if not cond:  # hiçbiri seçilmediyse ikisinde de ara
+            cond = Q(ihale_adi__icontains=text) | Q(ikn__icontains=text)
+        qs = qs.filter(cond)
 
-    # ── Gelişmiş filtreler (detaydan doldurulan alanlar) ──
-    if params.get("idare"):
-        qs = qs.filter(idare_id__in=_str_list(params.get("idare")))
-    if params.get("kapsam"):
-        qs = qs.filter(yasa_kapsami__in=_int_list(params.get("kapsam")))
-    if params.get("ozellik"):
-        # app boolean anahtarları → EKAP özellik etiketi; her biri AND (JSONField __contains)
-        for app_key in _str_list(params.get("ozellik")):
-            tag = OZELLIK_MAP.get(app_key)
-            if tag:
-                qs = qs.filter(ozellikler__contains=[tag])
+    # ── İKN yıl / sayı ──
+    ikn_yil = _pick(params, "ikn_yil", "iknYili")
+    if ikn_yil:
+        qs = qs.filter(ikn__startswith=f"{str(ikn_yil).strip()}/")
+    ikn_sayi = _pick(params, "ikn_sayi", "iknSayi")
+    if ikn_sayi:
+        qs = qs.filter(ikn__endswith=f"/{str(ikn_sayi).strip()}")
 
-    for field, gte, lte in (
-        ("ihale_tarihi", "ihale_baslangic", "ihale_bitis"),
-        ("ilan_tarihi", "ilan_baslangic", "ilan_bitis"),
+    # ── İl / tür / usul / durum ──
+    il = _as_int_list(_pick(params, "il", "ihaleIlIdList"))
+    if il:
+        qs = qs.filter(il_id__in=il)
+    tur = _as_int_list(_pick(params, "tur", "ihaleTuruIdList"))
+    if tur:
+        qs = qs.filter(ihale_tip__in=tur)
+    usul = _as_int_list(_pick(params, "usul", "ihaleUsulIdList"))
+    if usul:
+        qs = qs.filter(ihale_usul__in=usul)
+    durum = _as_int_list(_pick(params, "durum", "ihaleDurumIdList"))
+    if durum:
+        qs = qs.filter(ihale_durum__in=durum)
+
+    # ── İdare (kurum) ──
+    idare = _as_str_list(_pick(params, "idare", "idareKodList"))
+    if idare:
+        qs = qs.filter(idare_id__in=idare)
+
+    # ── Yasa kapsamı — null-inclusive: detayı senkronlanmamış (yasa_kapsami=None)
+    #    ihaleleri DIŞLAMA (mobil toEkapQuery bu yüzden hiç göndermiyordu). ──
+    kapsam = _as_int_list(_pick(params, "kapsam", "yasaKapsami4734List"))
+    if kapsam:
+        qs = qs.filter(Q(yasa_kapsami__in=kapsam) | Q(yasa_kapsami__isnull=True))
+
+    # ── OKAS branş kodu / adı (ihaleye özel OkasItem üzerinden) ──
+    okas_kod = _as_str_list(_pick(params, "okas_kod", "okasBransKodList"))
+    if okas_kod:
+        cond = Q()
+        for kod in okas_kod:
+            cond |= Q(okas_kalemleri__kodu__startswith=kod)
+        qs = qs.filter(cond)
+        needs_distinct = True
+    okas_ad = _as_str_list(_pick(params, "okas_ad", "okasBransAdiList"))
+    if okas_ad:
+        cond = Q()
+        for ad in okas_ad:
+            cond |= Q(okas_kalemleri__adi__icontains=ad)
+        qs = qs.filter(cond)
+        needs_distinct = True
+
+    # ── Boolean özellikler → ozellikler JSON etiketleri (OZELLIK_MAP) ──
+    ozellik_keys = set(_as_str_list(params.get("ozellik")))  # kısa: ozellik=eIhale,kismiTeklifMi
+    for app_key in OZELLIK_MAP:  # native: her biri ayrı boolean alan
+        if _truthy(params.get(app_key)):
+            ozellik_keys.add(app_key)
+    for app_key in ozellik_keys:
+        tag = OZELLIK_MAP.get(app_key)
+        if tag:
+            qs = qs.filter(ozellikler__contains=[tag])
+
+    # ── Tarih aralıkları ──
+    for field, gte_keys, lte_keys in (
+        ("ihale_tarihi", ("ihale_baslangic", "ihaleTarihSaatBaslangic"), ("ihale_bitis", "ihaleTarihSaatBitis")),
+        ("ilan_tarihi", ("ilan_baslangic", "ilanTarihSaatBaslangic"), ("ilan_bitis", "ilanTarihSaatBitis")),
     ):
-        if params.get(gte):
-            d = parse_ekap_datetime(params.get(gte))
+        gte_raw = _pick(params, *gte_keys)
+        if gte_raw:
+            d = parse_ekap_datetime(str(gte_raw))
             if d:
                 qs = qs.filter(**{f"{field}__gte": d})
-        if params.get(lte):
-            d = parse_ekap_datetime(params.get(lte))
+        lte_raw = _pick(params, *lte_keys)
+        if lte_raw:
+            d = parse_ekap_datetime(str(lte_raw))
             if d:
                 qs = qs.filter(**{f"{field}__lte": d})
 
+    if needs_distinct:
+        qs = qs.distinct()
     return qs
 
 
@@ -156,6 +267,43 @@ _TENDER_KEY_PARAM = OpenApiParameter(
         OpenApiParameter(
             "durum", str, description="İhale durumu id listesi.",
             examples=[OpenApiExample("Katılıma açık", value="2,3")],
+        ),
+        OpenApiParameter(
+            "q_alan", str, enum=["ad", "ikn", "both"], default="both",
+            description="`q` metni nerede aransın: `ad` (ihale adı), `ikn` veya `both` (varsayılan).",
+        ),
+        OpenApiParameter(
+            "ikn_yil", str, description="İKN yılı — İKN `YIL/...` ile başlayanlar.",
+            examples=[OpenApiExample("2026 yılı", value="2026")],
+        ),
+        OpenApiParameter(
+            "ikn_sayi", str, description="İKN sıra sayısı — İKN `.../SAYI` ile bitenler.",
+            examples=[OpenApiExample("Sıra no", value="271215")],
+        ),
+        OpenApiParameter(
+            "okas_kod", str,
+            description="OKAS branş kodu listesi (virgülle). Kod ile başlayan kalemleri olan ihaleler.",
+            examples=[OpenApiExample("OKAS kodu", value="48000000")],
+        ),
+        OpenApiParameter(
+            "okas_ad", str,
+            description="OKAS branş adı listesi (virgülle, kısmi eşleşme).",
+            examples=[OpenApiExample("OKAS adı", value="yazılım")],
+        ),
+        OpenApiParameter(
+            "idare", str, description="EKAP idare (kurum) id listesi (virgülle).",
+        ),
+        OpenApiParameter(
+            "kapsam", str,
+            description="Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). "
+            "Detayı senkronlanmamış ihaleler (kapsam boş) dışlanmaz.",
+        ),
+        OpenApiParameter(
+            "ozellik", str,
+            description="Boolean özellik anahtarları (virgülle): eIhale, kismiTeklifMi, "
+            "altYukleniciCalistirilabilirMi, fiyatFarkiVerilecekMi, isDeneyimiGosterenBelgelerIsteniyorMu, "
+            "meslekiTeknikYeterlilikBelgeleriIsteniyorMu, yabanciIsteklilereIzinVeriliyorMu, "
+            "yerliIstekliyeFiyatAvantajiUgulaniyorMu, ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu.",
         ),
         OpenApiParameter(
             "ihale_baslangic", str, description=f"İhale tarihi alt sınırı. {_DATE_HINT}",

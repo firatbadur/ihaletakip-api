@@ -54,6 +54,7 @@ LOCAL_APPS = [
     "assistant",
     "core",
     "ekap",
+    "subscription",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -221,6 +222,17 @@ TTS_MAX_CHARS = 5000
 # FCM Push (opsiyonel — kimlik yoksa push no-op, uygulama-içi bildirim satırı yazılır)
 FCM_CREDENTIALS = env("FCM_CREDENTIALS", default="")
 FCM_PROJECT_ID = env("FCM_PROJECT_ID", default="")
+
+# ── RevenueCat abonelik (Pro) ──────────────────────────
+# app_user_id = str(user.id). `subscription/verify` (mobil→backend, senkron) ve
+# `subscription/revenuecat-webhook` (RC→backend, async) RC v2 REST ile aktif
+# entitlement'ı çeker ve accounts.User.subscription_tier/expires'i senkronlar.
+# SECRET_KEY boşsa uçlar 502 döner (kimlik yok). WEBHOOK_AUTH RC panelindeki
+# webhook Authorization başlığıyla birebir eşleşmeli.
+REVENUECAT_SECRET_KEY = env("REVENUECAT_SECRET_KEY", default="")
+REVENUECAT_PROJECT_ID = env("REVENUECAT_PROJECT_ID", default="")
+REVENUECAT_ENTITLEMENT = env("REVENUECAT_ENTITLEMENT", default="pro")
+REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 
 # ── Bildirim pacing (kullanıcıyı bombalamamak için) ────
 # Sessiz saatler: bu aralıkta (yerel saat) push atılmaz; uygulama-içi satır yine yazılır.

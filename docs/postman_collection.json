@@ -2340,6 +2340,79 @@
           }
         }
       ]
+    },
+    {
+      "name": "subscription",
+      "item": [
+        {
+          "name": "RevenueCat webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/revenuecat-webhook/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "revenuecat-webhook",
+                ""
+              ]
+            },
+            "description": "RevenueCat sunucu-sunucu webhook'u. `Authorization` başlığı sunucudaki `REVENUECAT_WEBHOOK_AUTH` ile birebir eşleşmeli (aksi halde **401**). Event'ten kullanıcı çözülür (`app_user_id`/`aliases` → sayısal `user.id`); senkron Celery'ye atılır ve **200** döner. Kullanıcı eşleşmezse (ör. anonim id) yine 200 döner (`handled=false`) — RC gereksiz yere tekrar denemesin.\n\nBu uç kimlik doğrulaması (JWT) İSTEMEZ; RC'nin gönderdiği Authorization başlığıyla korunur.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": {\n    \"type\": \"INITIAL_PURCHASE\",\n    \"app_user_id\": \"42\",\n    \"aliases\": [\n      \"42\",\n      \"$RCAnonymousID:abc123\"\n    ],\n    \"entitlement_ids\": [\n      \"pro\"\n    ],\n    \"product_id\": \"pro_monthly\",\n    \"expiration_at_ms\": 1794835200000,\n    \"store\": \"APP_STORE\",\n    \"environment\": \"SANDBOX\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Aboneliği doğrula (RevenueCat)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/verify/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "verify",
+                ""
+              ]
+            },
+            "description": "Kullanıcının RevenueCat aboneliğini **senkron** doğrular ve katmanını günceller. `app_user_id = str(user.id)` ile RC v2 `active_entitlements` sorgulanır; aktif `pro` entitlement varsa `subscription_tier=pro` yapılır (expiry RC'den alınır), yoksa `free`'ye çekilir.\n\n**Gövde boştur** (`{}`). Yanıt, login/profile ile aynı şekildeki güncel kullanıcı objesidir: `data.user`. Mobil satın alma tamamlanınca bunu çağırır.\n\nSunucuda `REVENUECAT_SECRET_KEY` tanımlı değilse veya RC'ye ulaşılamazsa **502** döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
     }
   ]
 }

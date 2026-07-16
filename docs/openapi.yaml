@@ -2035,6 +2035,96 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/subscription/revenuecat-webhook/:
+    post:
+      operationId: api_v1_subscription_revenuecat_webhook_create
+      description: 'RevenueCat sunucu-sunucu webhook''u. `Authorization` başlığı sunucudaki
+        `REVENUECAT_WEBHOOK_AUTH` ile birebir eşleşmeli (aksi halde **401**). Event''ten
+        kullanıcı çözülür (`app_user_id`/`aliases` → sayısal `user.id`); senkron Celery''ye
+        atılır ve **200** döner. Kullanıcı eşleşmezse (ör. anonim id) yine 200 döner
+        (`handled=false`) — RC gereksiz yere tekrar denemesin.
+
+
+        Bu uç kimlik doğrulaması (JWT) İSTEMEZ; RC''nin gönderdiği Authorization başlığıyla
+        korunur.'
+      summary: RevenueCat webhook
+      tags:
+      - subscription
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevenueCatWebhookEvent'
+            examples:
+              RCEvent:
+                value:
+                  event:
+                    type: INITIAL_PURCHASE
+                    app_user_id: '42'
+                    aliases:
+                    - '42'
+                    - $RCAnonymousID:abc123
+                    entitlement_ids:
+                    - pro
+                    product_id: pro_monthly
+                    expiration_at_ms: 1794835200000
+                    store: APP_STORE
+                    environment: SANDBOX
+                summary: RC event
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RevenueCatWebhookEvent'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RevenueCatWebhookEvent'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookHandled'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookUnauthorized'
+          description: ''
+  /api/v1/subscription/verify/:
+    post:
+      operationId: api_v1_subscription_verify_create
+      description: 'Kullanıcının RevenueCat aboneliğini **senkron** doğrular ve katmanını
+        günceller. `app_user_id = str(user.id)` ile RC v2 `active_entitlements` sorgulanır;
+        aktif `pro` entitlement varsa `subscription_tier=pro` yapılır (expiry RC''den
+        alınır), yoksa `free`''ye çekilir.
+
+
+        **Gövde boştur** (`{}`). Yanıt, login/profile ile aynı şekildeki güncel kullanıcı
+        objesidir: `data.user`. Mobil satın alma tamamlanınca bunu çağırır.
+
+
+        Sunucuda `REVENUECAT_SECRET_KEY` tanımlı değilse veya RC''ye ulaşılamazsa
+        **502** döner.'
+      summary: Aboneliği doğrula (RevenueCat)
+      tags:
+      - subscription
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionVerified'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionVerifyError'
+          description: ''
   /api/v1/support/:
     get:
       operationId: api_v1_support_list
@@ -2727,6 +2817,12 @@ components:
       required:
       - email
       - password
+    RevenueCatWebhookEvent:
+      type: object
+      properties:
+        event: {}
+      required:
+      - event
     RoleEnum:
       enum:
       - user
@@ -2807,6 +2903,20 @@ components:
       description: '* `free` - Ücretsiz
 
         * `pro` - Pro'
+    SubscriptionVerified:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - user
+    SubscriptionVerifyError:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
     SupportTicket:
       type: object
       properties:
@@ -3086,6 +3196,20 @@ components:
       - subscription_expires_at
       - subscription_tier
       - username
+    WebhookHandled:
+      type: object
+      properties:
+        handled:
+          type: boolean
+      required:
+      - handled
+    WebhookUnauthorized:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
   securitySchemes:
     cookieAuth:
       type: apiKey

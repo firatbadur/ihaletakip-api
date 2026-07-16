@@ -339,8 +339,40 @@ kodu görünce abonelik paketlerini sunar.
 - **Mobil görünürlük**: `UserSerializer` `is_premium` + `subscription_tier` +
   `subscription_expires_at` alanlarını (read-only) döner → login ve `GET /auth/profile`
   yanıtında gelir; mobil Pro özellikleri buna göre gösterir/gizler.
-- ⚠️ Pro'ya **geçiş mekanizması** (mağaza makbuzu / ödeme doğrulama) henüz yok; şu an
-  yalnızca admin Pro atayabilir. İleride abonelik satın-alma ucu ayrı eklenecek.
+- **Pro'ya geçiş = RevenueCat** (bkz. aşağıdaki bölüm). Admin de elle Pro atayabilir.
+
+### RevenueCat entegrasyonu (`subscription/`)
+
+Pro aboneliği **RevenueCat (RC)** ile satılır; backend RC'yi doğrulayıp `User`
+katmanını senkronlar. Sözleşme: **`app_user_id = str(user.id)`**.
+
+- **Ayarlar** (`.env` → settings): `REVENUECAT_SECRET_KEY` (`sk_...`),
+  `REVENUECAT_PROJECT_ID` (`proj3e35bc67`), `REVENUECAT_ENTITLEMENT` (vars. `pro`),
+  `REVENUECAT_WEBHOOK_AUTH` (webhook paylaşılan sırrı — RC panelindeki Authorization
+  başlığıyla birebir aynı). `.env.prod`'da (gitignore) gerçek değerler; `.env.example`'da
+  placeholder. Anahtar boşsa uçlar 502 döner.
+- **Servis** (`subscription/services/revenuecat.py`): `resolve_pro_status(cust_id)` →
+  RC v2 `GET .../customers/{id}/active_entitlements` sorgular; `lookup_key == pro` varsa
+  Pro. Expiry önce entitlement'ın `expires_at`'inden, yoksa `.../subscriptions`'ın en ileri
+  `current_period_ends_at`'inden alınır (RC ms-epoch → aware datetime). `sync_user_subscription`
+  katmanı yazar (yalnızca değiştiyse — idempotent). `requests` kullanılır (RC'de TLS
+  parmak izi engeli YOK; EKAP kuralı burada geçerli değil). `resolve_user_from_event`
+  event'teki `app_user_id`/`aliases`'tan **sayısal** id'yi (=`user.id`) çözer (RC anonim
+  `$RCAnonymousID:...` atlanır). `apply_event_fallback` yalnızca RC API'ye ulaşılamazsa
+  event verisinden kaba senkron yapar (EXPIRATION/geçmiş expiry→Free; grant/CANCELLATION +
+  gelecek expiry→Pro).
+- **Uçlar** (`/api/v1/subscription/...`):
+  - `POST verify/` (mobil→backend, **JWT**, gövde boş `{}`): RC'yi **senkron** sorgular,
+    katmanı günceller, güncel kullanıcıyı `data.user` (login/profile şeklinde) döner. Mobil
+    satın alma sonrası çağırır → anında Pro görür. RC hatası → 502.
+  - `POST revenuecat-webhook/` (RC→backend, **JWT yok**): `Authorization` başlığı
+    `REVENUECAT_WEBHOOK_AUTH` ile eşleşmeli (yoksa 401). Event'ten kullanıcı çözülür,
+    senkron **Celery'ye atılır** (`sync_subscription_task`, event yedeğiyle) ve **hızlıca
+    200** döner. Kullanıcı eşleşmezse (anonim id) yine 200 `handled:false`. Test Store
+    da webhook fırlatır → sandbox'ta test edilebilir.
+- **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i
+  yeniden sorgular → durum her zaman RC ile tutarlı. `verify` ve webhook aynı
+  `sync_user_subscription`'ı kullanır.
 
 ## Kimlik Doğrulama Akışı
 

@@ -31,12 +31,20 @@ class UserAdmin(BaseUserAdmin):
         "email",
         "display_name",
         "provider",
+        "subscription_tier",
         "fcm_token_status",
         "is_active",
         "is_staff",
         "date_joined",
     ]
-    list_filter = [HasFcmTokenFilter, "provider", "is_active", "is_staff", "is_superuser"]
+    list_filter = [
+        "subscription_tier",
+        HasFcmTokenFilter,
+        "provider",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+    ]
     search_fields = ["username", "email", "display_name", "provider_uid", "fcm_token"]
     ordering = ["-date_joined"]
 
@@ -53,6 +61,16 @@ class UserAdmin(BaseUserAdmin):
                     "fcm_token",
                     "deactivated_at",
                 )
+            },
+        ),
+        (
+            "Abonelik",
+            {
+                "fields": ("subscription_tier", "subscription_expires_at"),
+                "description": (
+                    "Pro katman tüm premium özellikleri açar. Bitiş boşsa süresiz; "
+                    "doluysa o tarihten sonra otomatik Free'ye düşer."
+                ),
             },
         ),
     )

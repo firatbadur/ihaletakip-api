@@ -1006,7 +1006,7 @@
                 ""
               ]
             },
-            "description": "Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu almak için `GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).\n\nİstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner (`{\"status\": \"completed\", \"cached\": true}`).\n\n**Zorunlu alanlar `analysis_type`'a göre değişir:**\n\n| analysis_type | Ek zorunlu alanlar |\n|---|---|\n| `tech_spec` | `file_base64`, `file_name` |\n| `admin_spec` | `file_base64`, `file_name` |\n| `cost_analysis` | `tender_meta` |\n| `generate_keywords` | `tender_meta` |\n\n`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` ham base64'tür (`data:` öneki olmadan).\n\n---\n\n### Alternatif gövde örnekleri\n\n**MaliyetAnalizi(meta)** — tender_meta gerektiren türler: cost_analysis, generate_keywords.\n\n```json\n{\n  \"analysis_type\": \"cost_analysis\",\n  \"ikn\": \"2025/1234567\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\",\n    \"ihaleTarihi\": \"23.03.2027 14:00\",\n    \"yaklasikMaliyet\": 2500000\n  },\n  \"similar_tenders\": [\n    {\n      \"ikn\": \"2024/1122334\",\n      \"sozlesmeBedeli\": 2310000\n    }\n  ]\n}\n```\n\n**AnahtarKelimeÜret**\n\n```json\n{\n  \"analysis_type\": \"generate_keywords\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\"\n  }\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Analizi Celery kuyruğuna alır ve `202` ile `task_id` döner. Sonucu almak için `GET /api/v1/ai/tasks/{task_id}` ucunu yoklayın (poll).\n\nİstisna: `ikn` gönderilmişse ve o İKN için aynı `analysis_type` daha önce hesaplanmışsa, kuyruk atlanır ve sonuç `200` ile anında döner (`{\"status\": \"completed\", \"cached\": true}`).\n\n**Zorunlu alanlar `analysis_type`'a göre değişir:**\n\n| analysis_type | Ek zorunlu alanlar |\n|---|---|\n| `tech_spec` | `file_base64`, `file_name` |\n| `admin_spec` | `file_base64`, `file_name` |\n| `cost_analysis` | `tender_meta` |\n| `generate_keywords` | `tender_meta` |\n\n`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` ham base64'tür (`data:` öneki olmadan).\n\n**Pro özellik:** Doküman analizi yalnızca Pro üyelere açıktır. Free üye dokümanı indirebilir ancak analiz isteğinde **403** alır (`errors.code = premium_required`); istek işlenmez.\n\n---\n\n### Alternatif gövde örnekleri\n\n**MaliyetAnalizi(meta)** — tender_meta gerektiren türler: cost_analysis, generate_keywords.\n\n```json\n{\n  \"analysis_type\": \"cost_analysis\",\n  \"ikn\": \"2025/1234567\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\",\n    \"ihaleTarihi\": \"23.03.2027 14:00\",\n    \"yaklasikMaliyet\": 2500000\n  },\n  \"similar_tenders\": [\n    {\n      \"ikn\": \"2024/1122334\",\n      \"sozlesmeBedeli\": 2310000\n    }\n  ]\n}\n```\n\n**AnahtarKelimeÜret**\n\n```json\n{\n  \"analysis_type\": \"generate_keywords\",\n  \"tender_meta\": {\n    \"ihaleAdi\": \"Bilgisayar ve Çevre Birimi Alımı\",\n    \"idareAdi\": \"Ankara Büyükşehir Belediyesi\"\n  }\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"analysis_type\": \"tech_spec\",\n  \"file_name\": \"teknik_sartname.pdf\",\n  \"file_base64\": \"JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9GaWx0ZXI...\",\n  \"ikn\": \"2025/1234567\"\n}",
@@ -1283,7 +1283,7 @@
                 ""
               ]
             },
-            "description": "İhaleyi kayıtlılara ekler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "İhaleyi kayıtlılara ekler.\n\n**Ücretsiz (Free) üyelik:** en fazla 3 ihale kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN'nin güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"tender_type\": \"Mal Alımı\",\n  \"tender_status\": \"Katılıma Açık\",\n  \"tender_city\": \"ANKARA\",\n  \"tender_date\": \"23.03.2027 14:00\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\"\n}",
@@ -1418,7 +1418,7 @@
                 ""
               ]
             },
-            "description": "Yeni bir arama filtresi kaydeder.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Yeni bir arama filtresi kaydeder.\n\n**Ücretsiz (Free) üyelik:** en fazla 3 filtre kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini sunar. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
@@ -1897,7 +1897,7 @@
                 ""
               ]
             },
-            "description": "Yeni bir destek talebi oluşturur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Yeni bir destek talebi oluşturur.\n\n**Pro özellik:** Destek talebi oluşturma yalnızca Pro üyelere açıktır. Free üye talep gönderirse **403** alır (`errors.code = premium_required`). Mevcut talepleri listeleme (GET) her üyeye açıktır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"phone\": \"05551234567\",\n  \"message\": \"Analiz sonucu gelmiyor, yardımcı olabilir misiniz?\"\n}",
@@ -2171,7 +2171,7 @@
                 ""
               ]
             },
-            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation, role, content, tender_cards, created_at}`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation, role, content, tender_cards, created_at}`.\n\n**Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye profilini oluşturabilir ancak mesaj gönderince **403** alır (`errors.code = premium_required`) — mobil abonelik paketlerini sunar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"message\": \"Bana uygun ihale var mı?\",\n  \"conversation\": null\n}",

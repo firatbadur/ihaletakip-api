@@ -9,6 +9,8 @@ from rest_framework import generics, permissions, serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
+from accounts.premium import MSG_SUPPORT, require_premium
+
 from .models import SupportTicket
 from .serializers import SupportTicketSerializer
 
@@ -47,7 +49,12 @@ def health_check(request):
     post=extend_schema(
         tags=["support"],
         summary="Destek talebi aç",
-        description="Yeni bir destek talebi oluşturur.",
+        description=(
+            "Yeni bir destek talebi oluşturur.\n\n"
+            "**Pro özellik:** Destek talebi oluşturma yalnızca Pro üyelere açıktır. "
+            "Free üye talep gönderirse **403** alır (`errors.code = premium_required`). "
+            "Mevcut talepleri listeleme (GET) her üyeye açıktır."
+        ),
         examples=[
             OpenApiExample(
                 "Destek talebi aç",
@@ -75,6 +82,8 @@ class SupportTicketView(generics.ListCreateAPIView):
         return SupportTicket.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
+        # Destek talebi oluşturma Pro'ya özeldir (listeleme herkese açık).
+        require_premium(self.request.user, MSG_SUPPORT)
         serializer.save(
             user=self.request.user,
             email=self.request.data.get("email") or self.request.user.email,

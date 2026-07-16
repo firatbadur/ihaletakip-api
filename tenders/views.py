@@ -10,6 +10,14 @@ from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.premium import (
+    FREE_SAVED_FILTER_LIMIT,
+    FREE_SAVED_TENDER_LIMIT,
+    MSG_SAVED_FILTER_LIMIT,
+    MSG_SAVED_TENDER_LIMIT,
+    enforce_free_limit,
+)
+
 from .models import Favorite, Notification, SavedFilter, SavedTender, TenderAlarm
 from .serializers import (
     FavoriteSerializer,
@@ -162,13 +170,29 @@ _FILTER_ID_PARAM = OpenApiParameter(
     post=extend_schema(
         tags=["saved-filters"],
         summary="Filtre kaydet",
-        description="Yeni bir arama filtresi kaydeder.",
+        description=(
+            "Yeni bir arama filtresi kaydeder.\n\n"
+            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_SAVED_FILTER_LIMIT} filtre "
+            "kaydedilebilir. Sınır aşılırsa **403** döner "
+            "(`errors.code = premium_required`) — mobil abonelik paketlerini sunar. "
+            "Pro üyelikte sınır yoktur."
+        ),
         examples=[_SAVED_FILTER_EXAMPLE],
     ),
 )
 class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     serializer_class = SavedFilterSerializer
     queryset_model = SavedFilter
+
+    def perform_create(self, serializer):
+        # Free üyelik filtre limiti (her POST yeni bir filtredir; upsert yok).
+        enforce_free_limit(
+            self.request.user,
+            current_count=SavedFilter.objects.filter(user=self.request.user).count(),
+            limit=FREE_SAVED_FILTER_LIMIT,
+            message=MSG_SAVED_FILTER_LIMIT,
+        )
+        serializer.save(user=self.request.user)
 
 
 @extend_schema_view(
@@ -208,7 +232,13 @@ class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAP
     post=extend_schema(
         tags=["saved-tenders"],
         summary="İhaleyi kaydet",
-        description="İhaleyi kayıtlılara ekler.",
+        description=(
+            "İhaleyi kayıtlılara ekler.\n\n"
+            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_SAVED_TENDER_LIMIT} ihale "
+            "kaydedilebilir. Sınır aşılırsa **403** döner "
+            "(`errors.code = premium_required`). Zaten kayıtlı bir İKN'nin "
+            "güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur."
+        ),
         examples=[
             OpenApiExample(
                 "İhaleyi kaydet",
@@ -233,9 +263,20 @@ class SavedTenderListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = SavedTender
 
     def perform_create(self, serializer):
+        user = self.request.user
+        ikn = serializer.validated_data["tender_ikn"]
+        # Free limiti yalnızca YENİ bir kayıt için uygulanır; mevcut İKN güncellemesi
+        # (upsert) sayılmaz — kullanıcı zaten kayıtlı ihalesini serbestçe güncelleyebilir.
+        if not SavedTender.objects.filter(user=user, tender_ikn=ikn).exists():
+            enforce_free_limit(
+                user,
+                current_count=SavedTender.objects.filter(user=user).count(),
+                limit=FREE_SAVED_TENDER_LIMIT,
+                message=MSG_SAVED_TENDER_LIMIT,
+            )
         SavedTender.objects.update_or_create(
-            user=self.request.user,
-            tender_ikn=serializer.validated_data["tender_ikn"],
+            user=user,
+            tender_ikn=ikn,
             defaults=serializer.validated_data,
         )
 

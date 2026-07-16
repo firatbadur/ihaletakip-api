@@ -304,6 +304,44 @@ Hata durumunda:
 - Özel mesaj/durum için `core.response.api_response(data, message, success, status)`.
 - Beklenmeyen hatalar dahil **her hata** JSON zarfı döner (asla ham HTML 500 yok).
 
+## Abonelik / Premium (Pro) Katmanı
+
+Uygulama **abonelik usulüdür**: bazı özellikler yalnızca Pro üyelere açıktır. Free
+(ücretsiz) üyeler sınırlanır ama üzülmez — kısıtlı uçlar net bir Türkçe mesaj ve
+makine-okunur `errors.code = "premium_required"` ile **HTTP 403** döner; mobil bu
+kodu görünce abonelik paketlerini sunar.
+
+- **Model** (`accounts.User`): `subscription_tier` (`free`/`pro`, `Tier` choices) +
+  `subscription_expires_at` (boş=süresiz; dolu=o tarihten sonra otomatik Free). Katman
+  **API'de read-only**; admin panelinden (kullanıcı → "Abonelik" bölümü) veya ileride
+  ödeme entegrasyonundan ayarlanır. `User.is_premium` property tek doğruluk kaynağıdır:
+  `superuser` her zaman premium; aksi halde `tier==pro` ve (varsa) `expires_at` gelecekte.
+- **Kapılama altyapısı** (`accounts/premium.py`): `PremiumRequired` (APIException, 403,
+  `errors={code,detail}`), `require_premium(user, mesaj)` (bir işlemi Pro'ya kilitler),
+  `enforce_free_limit(user, current_count, limit, mesaj)` (sayı-tabanlı Free limiti),
+  limit sabitleri (`FREE_SAVED_FILTER_LIMIT`/`FREE_SAVED_TENDER_LIMIT` = **3**) ve uca
+  özel Türkçe mesajlar. Model importu yapmaz → sirküler import yok. Yeni bir premium
+  kısıt eklerken **bu modülü kullan**, elle `{success:false}` kurma.
+- **Free kısıtları** (Pro'da hepsi sınırsız):
+  - Kayıtlı **filtre** > 3 → 403 (`SavedFilterListCreateView.perform_create`).
+  - Kayıtlı **ihale** > 3 → 403 (`SavedTenderListCreateView.perform_create`; upsert ile
+    **mevcut** İKN güncellemesi limiti tetiklemez, yalnızca yeni kayıt sayılır).
+  - **Asistan sohbeti** (`ChatSendView`) → 403 (profil oluşturma **serbest**; yalnızca
+    mesaj gönderme kilitli).
+  - **AI doküman analizi** (`AnalyzeView`) → 403, en başta (cache dahil hiç işlenmez).
+    Doküman **indirme** (`ekap document-url`) serbesttir; TTS de kısıtlanmaz.
+  - **İhale Asistanı bildirimleri** → `match_recommendations` Free üyeyi **atlar**
+    (öneri/digest/push üretilmez; `.select_related("user")` + `is_premium` kontrolü).
+    Not: alarm (`check_tender_alarms`) ve kayıtlı-filtre (`check_saved_filter_matches`)
+    bildirimleri asistan bildirimi DEĞİL → kısıtlanmadı.
+  - **Destek talebi oluşturma** (`SupportTicketView.perform_create`) → 403; talep
+    **listeleme** (GET) her üyeye açık.
+- **Mobil görünürlük**: `UserSerializer` `is_premium` + `subscription_tier` +
+  `subscription_expires_at` alanlarını (read-only) döner → login ve `GET /auth/profile`
+  yanıtında gelir; mobil Pro özellikleri buna göre gösterir/gizler.
+- ⚠️ Pro'ya **geçiş mekanizması** (mağaza makbuzu / ödeme doğrulama) henüz yok; şu an
+  yalnızca admin Pro atayabilir. İleride abonelik satın-alma ucu ayrı eklenecek.
+
 ## Kimlik Doğrulama Akışı
 
 - **JWT**: `Authorization: Bearer <access>` header'ı. Access 1 gün, refresh 30 gün.

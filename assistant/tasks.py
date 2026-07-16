@@ -316,10 +316,19 @@ def match_recommendations(since_days=1):
     today = timezone.localdate()
     since = timezone.now() - timedelta(days=since_days)
 
-    profiles = CompanyProfile.objects.filter(is_active=True).exclude(profile_map__isnull=True)
+    profiles = (
+        CompanyProfile.objects.filter(is_active=True)
+        .exclude(profile_map__isnull=True)
+        .select_related("user")
+    )
     total_recs = 0
+    skipped_free = 0
 
     for profile in profiles.iterator():
+        # İhale Asistanı bildirimleri Pro'ya özeldir → Free üyeye öneri/digest/push YOK.
+        if not profile.user.is_premium:
+            skipped_free += 1
+            continue
         try:
             matches = match_tenders_for_profile(profile, since=since)
         except Exception:
@@ -388,5 +397,12 @@ def match_recommendations(since_days=1):
             idem_key=f"digest:{profile.user_id}:{today.isoformat()}",
         )
 
-    logger.info("match_recommendations: %s profil işlendi, %s öneri üretildi", profiles.count(), total_recs)
-    return {"profiles": profiles.count(), "recommendations": total_recs}
+    logger.info(
+        "match_recommendations: %s profil işlendi, %s öneri üretildi, %s free atlandı",
+        profiles.count(), total_recs, skipped_free,
+    )
+    return {
+        "profiles": profiles.count(),
+        "recommendations": total_recs,
+        "skipped_free": skipped_free,
+    }

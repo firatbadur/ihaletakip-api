@@ -9,6 +9,10 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     """Kullanıcı profili (istemciye dönen)."""
 
+    # Abonelik durumu — mobil bunu okuyarak Pro özellikleri gösterir/gizler.
+    # Katman salt okunurdur; API üzerinden değiştirilemez (admin/ödeme ile ayarlanır).
+    is_premium = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -20,8 +24,19 @@ class UserSerializer(serializers.ModelSerializer):
             "provider",
             "preferences",
             "date_joined",
+            "is_premium",
+            "subscription_tier",
+            "subscription_expires_at",
         ]
-        read_only_fields = ["id", "username", "provider", "date_joined"]
+        read_only_fields = [
+            "id",
+            "username",
+            "provider",
+            "date_joined",
+            "is_premium",
+            "subscription_tier",
+            "subscription_expires_at",
+        ]
 
 
 class RegisterSerializer(serializers.ModelSerializer):

@@ -33,7 +33,12 @@ paths:
 
 
         `.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64`
-        ham base64''tür (`data:` öneki olmadan).'
+        ham base64''tür (`data:` öneki olmadan).
+
+
+        **Pro özellik:** Doküman analizi yalnızca Pro üyelere açıktır. Free üye dokümanı
+        indirebilir ancak analiz isteğinde **403** alır (`errors.code = premium_required`);
+        istek işlenmez.'
       summary: Doküman analizi başlat
       tags:
       - ai
@@ -297,7 +302,12 @@ paths:
         yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda
         gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile
         sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation,
-        role, content, tender_cards, created_at}`.'
+        role, content, tender_cards, created_at}`.
+
+
+        **Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye profilini
+        oluşturabilir ancak mesaj gönderince **403** alır (`errors.code = premium_required`)
+        — mobil abonelik paketlerini sunar.'
       summary: Asistana mesaj gönder
       tags:
       - assistant
@@ -1701,7 +1711,12 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_filters_create
-      description: Yeni bir arama filtresi kaydeder.
+      description: 'Yeni bir arama filtresi kaydeder.
+
+
+        **Ücretsiz (Free) üyelik:** en fazla 3 filtre kaydedilebilir. Sınır aşılırsa
+        **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini
+        sunar. Pro üyelikte sınır yoktur.'
       summary: Filtre kaydet
       tags:
       - saved-filters
@@ -1924,7 +1939,12 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_tenders_create
-      description: İhaleyi kayıtlılara ekler.
+      description: 'İhaleyi kayıtlılara ekler.
+
+
+        **Ücretsiz (Free) üyelik:** en fazla 3 ihale kaydedilebilir. Sınır aşılırsa
+        **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN''nin
+        güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.'
       summary: İhaleyi kaydet
       tags:
       - saved-tenders
@@ -2036,7 +2056,12 @@ paths:
           description: ''
     post:
       operationId: api_v1_support_create
-      description: Yeni bir destek talebi oluşturur.
+      description: 'Yeni bir destek talebi oluşturur.
+
+
+        **Pro özellik:** Destek talebi oluşturma yalnızca Pro üyelere açıktır. Free
+        üye talep gönderirse **403** alır (`errors.code = premium_required`). Mevcut
+        talepleri listeleme (GET) her üyeye açıktır.'
       summary: Destek talebi aç
       tags:
       - support
@@ -2617,6 +2642,21 @@ components:
           format: date-time
           readOnly: true
           title: Katılma tarihi
+        is_premium:
+          type: boolean
+          readOnly: true
+        subscription_tier:
+          allOf:
+          - $ref: '#/components/schemas/SubscriptionTierEnum'
+          readOnly: true
+          title: Abonelik katmanı
+        subscription_expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Abonelik bitişi
+          description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
     Preferences:
       type: object
       description: Tercih güncelleme (serbest JSON).
@@ -2759,6 +2799,14 @@ components:
       - id
       - saved_at
       - tender_ikn
+    SubscriptionTierEnum:
+      enum:
+      - free
+      - pro
+      type: string
+      description: '* `free` - Ücretsiz
+
+        * `pro` - Pro'
     SupportTicket:
       type: object
       properties:
@@ -3014,11 +3062,29 @@ components:
           format: date-time
           readOnly: true
           title: Katılma tarihi
+        is_premium:
+          type: boolean
+          readOnly: true
+        subscription_tier:
+          allOf:
+          - $ref: '#/components/schemas/SubscriptionTierEnum'
+          readOnly: true
+          title: Abonelik katmanı
+        subscription_expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Abonelik bitişi
+          description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
       required:
       - date_joined
       - email
       - id
+      - is_premium
       - provider
+      - subscription_expires_at
+      - subscription_tier
       - username
   securitySchemes:
     cookieAuth:

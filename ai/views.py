@@ -19,6 +19,7 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, serializers, status
 from rest_framework.views import APIView
 
+from accounts.premium import MSG_ANALYSIS, require_premium
 from config import celery_app
 from core.response import api_response
 
@@ -68,7 +69,10 @@ _TASK_QUEUED = inline_serializer(
         "| `cost_analysis` | `tender_meta` |\n"
         "| `generate_keywords` | `tender_meta` |\n\n"
         "`.doc` (eski Word) reddedilir — `.docx` veya `.pdf` gönderin. `file_base64` "
-        "ham base64'tür (`data:` öneki olmadan)."
+        "ham base64'tür (`data:` öneki olmadan).\n\n"
+        "**Pro özellik:** Doküman analizi yalnızca Pro üyelere açıktır. Free üye "
+        "dokümanı indirebilir ancak analiz isteğinde **403** alır "
+        "(`errors.code = premium_required`); istek işlenmez."
     ),
     request=AnalyzeRequestSerializer,
     examples=[
@@ -120,6 +124,9 @@ class AnalyzeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # Yapay zeka doküman analizi Pro'ya özeldir (cache dahil hiç işlenmez).
+        require_premium(request.user, MSG_ANALYSIS)
+
         serializer = AnalyzeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

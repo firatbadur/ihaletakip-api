@@ -10,6 +10,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.premium import MSG_CHAT, require_premium
 from core.response import api_response
 
 from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
@@ -154,7 +155,10 @@ class ChatMessageListView(APIView):
         "yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda "
         "gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile "
         "sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: "
-        "`{id, conversation, role, content, tender_cards, created_at}`."
+        "`{id, conversation, role, content, tender_cards, created_at}`.\n\n"
+        "**Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye "
+        "profilini oluşturabilir ancak mesaj gönderince **403** alır "
+        "(`errors.code = premium_required`) — mobil abonelik paketlerini sunar."
     ),
     request=ChatSendSerializer,
     responses={
@@ -178,6 +182,9 @@ class ChatSendView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # Asistanla sohbet Pro'ya özeldir (profil oluşturma serbesttir).
+        require_premium(request.user, MSG_CHAT)
+
         serializer = ChatSendSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

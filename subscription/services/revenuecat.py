@@ -48,8 +48,8 @@ def _entitlement_key() -> str:
     return getattr(settings, "REVENUECAT_ENTITLEMENT", "pro") or "pro"
 
 
-def _get(customer_id: str, resource: str):
-    """RC v2 `projects/{proj}/customers/{id}/{resource}` GET. 404 → None (müşteri yok)."""
+def _request(path: str):
+    """RC v2 `projects/{proj}/{path}` GET. `path` proje köküne görelidir. 404 → None."""
     import requests
 
     key = getattr(settings, "REVENUECAT_SECRET_KEY", "")
@@ -57,7 +57,7 @@ def _get(customer_id: str, resource: str):
     if not key or not project:
         raise RevenueCatError("REVENUECAT_SECRET_KEY / REVENUECAT_PROJECT_ID tanımlı değil.")
 
-    url = f"{_BASE}/projects/{project}/customers/{customer_id}/{resource}"
+    url = f"{_BASE}/projects/{project}/{path}"
     headers = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
     try:
         resp = requests.get(url, headers=headers, timeout=_TIMEOUT)
@@ -65,13 +65,43 @@ def _get(customer_id: str, resource: str):
         raise RevenueCatError(f"RevenueCat isteği başarısız: {e}") from e
 
     if resp.status_code == 404:
-        return None  # RC'de müşteri yok → hiç satın alma yapmamış (free)
+        return None  # kaynak yok (ör. müşteri hiç satın alma yapmamış) → free
     if resp.status_code >= 400:
         raise RevenueCatError(f"RevenueCat HTTP {resp.status_code}: {resp.text[:200]}")
     try:
         return resp.json()
     except ValueError as e:
         raise RevenueCatError(f"RevenueCat yanıtı JSON değil: {e}") from e
+
+
+def _get(customer_id: str, resource: str):
+    """Müşteri-kapsamlı kısayol: `customers/{id}/{resource}`."""
+    return _request(f"customers/{customer_id}/{resource}")
+
+
+def _entitlement_id_map(refresh: bool = False) -> dict:
+    """
+    RC iç entitlement kimliği (`entl...`) → `lookup_key` haritası.
+
+    KRİTİK: v2 `active_entitlements` her item'da yalnızca iç `entitlement_id` döndürür —
+    `lookup_key` YOKTUR. "pro" ile eşleştirmek için proje entitlement listesinden bu
+    haritayı kurarız. Nadiren değiştiği için 1 saat cache'lenir (`refresh=True` atlar).
+    """
+    from django.core.cache import cache
+
+    ckey = "rc:entitlement_map"
+    if not refresh:
+        cached = cache.get(ckey)
+        if cached is not None:
+            return cached
+    data = _request("entitlements")
+    mapping = {
+        it["id"]: (it.get("lookup_key") or "")
+        for it in (data or {}).get("items", []) or []
+        if it.get("id")
+    }
+    cache.set(ckey, mapping, 3600)
+    return mapping
 
 
 def _parse_rc_ts(value):
@@ -110,26 +140,38 @@ def resolve_pro_status(customer_id: str) -> tuple[bool, datetime | None]:
     """
     RC v2 `active_entitlements`'i sorgular.
 
-    Dönen: (is_pro, expiry). `is_pro`, aktif entitlement'larda lookup_key == entitlement
-    (vars. "pro") varsa True. Expiry önce entitlement'ın `expires_at`'inden, yoksa
+    Dönen: (is_pro, expiry). v2 `active_entitlements` her item'da yalnızca iç
+    `entitlement_id` (`entl...`) döndürür — `lookup_key` YOKTUR. Bu yüzden iç kimliği
+    `_entitlement_id_map` ile `lookup_key`'e çevirip entitlement (vars. "pro") aktif mi
+    diye bakarız. Expiry önce entitlement'ın `expires_at`'inden, yoksa
     `subscriptions.current_period_ends_at`'ten alınır (yoksa None = süresiz).
     """
     ent_key = _entitlement_key()
     data = _get(customer_id, "active_entitlements")
     items = (data or {}).get("items", []) or []
-
-    pro_items = [
-        it for it in items
-        if (it.get("lookup_key") or it.get("entitlement_id")) == ent_key
-    ]
-    if not pro_items:
+    if not items:
         return False, None
 
+    id_map = _entitlement_id_map()
+    # Aktif bir entitlement_id haritada yoksa harita bayat olabilir → bir kez tazele.
+    if any(it.get("entitlement_id") not in id_map for it in items):
+        id_map = _entitlement_id_map(refresh=True)
+
+    is_pro = False
     expiry = None
-    for it in pro_items:
+    for it in items:
+        eid = it.get("entitlement_id")
+        # id_map'ten lookup_key; bazı sürümler doğrudan lookup_key gömerse ona da bak.
+        lookup = id_map.get(eid) or it.get("lookup_key")
+        if lookup != ent_key:
+            continue
+        is_pro = True
         ts = _parse_rc_ts(it.get("expires_at"))
         if ts and (expiry is None or ts > expiry):
             expiry = ts
+
+    if not is_pro:
+        return False, None
     if expiry is None:
         try:
             expiry = _latest_subscription_end(customer_id)

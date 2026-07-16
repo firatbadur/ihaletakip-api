@@ -626,6 +626,12 @@ class AuthorityTreeView(APIView):
             "take", int, default=50,
             description="Dönecek kayıt sayısı. **En fazla 200**.",
         ),
+        OpenApiParameter(
+            "only_with_tenders", bool, default=True,
+            description="Varsayılan `true`: yalnızca **ihalesi olan** idareler + dal "
+            "düğümleri döner (aynı kurumun ihalesiz kopyaları elenir → çıkmaz sokak yok). "
+            "`false` verilirse ağaçtaki tüm eşleşen düğümler döner.",
+        ),
     ],
     responses={200: AuthorityNodeSerializer(many=True)},
     auth=[],
@@ -638,10 +644,20 @@ class AuthoritySearchView(APIView):
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
         take = min(int(request.query_params.get("take", 50)), 200)
+        only_useful = (request.query_params.get("only_with_tenders", "true")).lower() not in (
+            "0", "false", "no",
+        )
         qs = Authority.objects.all()
         if q:
             # Türkçe-i güvenli: normalize edilmiş ad + idare_id öneki
             qs = qs.filter(Q(ad_norm__contains=normalize_tr(q)) | Q(idare_id__startswith=q))
+        if only_useful:
+            # DETSIS'te aynı kurum (ör. ASKİ) birçok kez farklı idareId ile var; ihaleler
+            # yalnızca birinin idareId'i altında. İhalesi OLMAYAN yaprak kopyalar kullanıcıyı
+            # çıkmaza sokuyordu → yalnızca ihalesi geçen idareler + dal düğümlerini (seçilince
+            # alt birimlere genişler) bırak.
+            tender_ids = _tender_idare_id_set()
+            qs = qs.filter(Q(has_items=True) | Q(idare_id__in=tender_ids))
         nodes = list(qs.order_by("ad")[:take])
         # Seçilebilir (idare_id dolu) düğümler önce gelsin; sonra ada göre (kararlı)
         nodes.sort(key=lambda a: (a.idare_id == "", a.ad))

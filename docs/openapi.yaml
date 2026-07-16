@@ -986,6 +986,14 @@ paths:
       summary: İdare (kurum) ara
       parameters:
       - in: query
+        name: only_with_tenders
+        schema:
+          type: boolean
+          default: true
+        description: 'Varsayılan `true`: yalnızca **ihalesi olan** idareler + dal
+          düğümleri döner (aynı kurumun ihalesiz kopyaları elenir → çıkmaz sokak yok).
+          `false` verilirse ağaçtaki tüm eşleşen düğümler döner.'
+      - in: query
         name: q
         schema:
           type: string

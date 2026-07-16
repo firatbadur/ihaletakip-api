@@ -910,6 +910,12 @@
               ],
               "query": [
                 {
+                  "key": "only_with_tenders",
+                  "value": "True",
+                  "description": "Varsayılan `true`: yalnızca **ihalesi olan** idareler + dal düğümleri döner (aynı kurumun ihalesiz kopyaları elenir → çıkmaz sokak yok). `false` verilirse ağaçtaki tüm eşleşen düğümler döner.",
+                  "disabled": true
+                },
+                {
                   "key": "q",
                   "value": "ankara büyükşehir",
                   "description": "İdare adında geçen metin (kısmi eşleşme). En az 2 karakter.",

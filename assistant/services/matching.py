@@ -32,8 +32,12 @@ def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: f
     """
     from ekap.models import Tender
 
+    from ekap.utils import normalize_tr
+
     pm = profile.profile_map or {}
-    keywords = [k.lower() for k in pm.get("keywords", []) if k]
+    # Türkçe-i güvenli anahtar kelime eşleştirmesi: profil keyword'leri ve ihale adı
+    # aynı normalize biçime indirgenir (yalın .lower() İ↔i, ş↔s katlamaz → kaçırırdı).
+    keywords = [normalize_tr(k) for k in pm.get("keywords", []) if k]
     okas_prefixes = [p for p in pm.get("okas_prefixes", []) if p]
     city_ids = profile.cities or pm.get("city_ids") or []
     tender_types = profile.tender_types or pm.get("tender_types") or []
@@ -68,7 +72,7 @@ def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: f
         score = 0.0
         reasons = []
 
-        name = (tender.ihale_adi or "").lower()
+        name = tender.ihale_adi_norm or normalize_tr(tender.ihale_adi)
         hits = [kw for kw in keywords if kw in name][:3]
         for kw in hits:
             score += 3.0

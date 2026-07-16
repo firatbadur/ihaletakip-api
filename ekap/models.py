@@ -33,6 +33,8 @@ class OkasCode(models.Model):
     kod = models.CharField(max_length=255, unique=True, db_index=True)
     adi = models.CharField(max_length=500, db_index=True)
     adi_eng = models.CharField(max_length=500, blank=True)
+    # Türkçe+aksan-duyarsız arama (normalize_tr(adi)); senkronda doldurulur.
+    adi_norm = models.CharField(max_length=500, blank=True, db_index=True)
 
     class Meta:
         verbose_name = "OKAS Kodu"
@@ -64,6 +66,8 @@ class Authority(models.Model):
 
     detsis_no = models.CharField(max_length=64, unique=True, db_index=True)
     ad = models.CharField(max_length=500, db_index=True)
+    # Türkçe+aksan-duyarsız arama (normalize_tr(ad)); senkronda doldurulur.
+    ad_norm = models.CharField(max_length=500, blank=True, db_index=True)
     parent_detsis = models.CharField(max_length=64, blank=True, db_index=True)
     idare_id = models.CharField(max_length=64, blank=True, db_index=True)
     has_items = models.BooleanField(default=False)
@@ -94,6 +98,10 @@ class Tender(models.Model):
     # Temel bilgiler
     ihale_adi = models.TextField(blank=True)
     idare_adi = models.CharField(max_length=500, blank=True)
+    # Türkçe+aksan-duyarsız arama (normalize_tr); senkronda doldurulur. `q`, `ihale_adi`,
+    # `idare_adi` filtreleri bu sütunlar üzerinden çalışır (Türkçe-i güvenli).
+    ihale_adi_norm = models.TextField(blank=True)
+    idare_adi_norm = models.CharField(max_length=500, blank=True)
     idare_id = models.CharField(max_length=255, blank=True, db_index=True)
     ihale_il_adi = models.CharField(max_length=100, blank=True)
     il_id = models.IntegerField(null=True, blank=True, db_index=True)

@@ -22,7 +22,7 @@ from .models import (
     Tender,
     TenderDate,
 )
-from .utils import parse_ekap_datetime, parse_money
+from .utils import normalize_tr, parse_ekap_datetime, parse_money
 
 logger = logging.getLogger("ihaletakip")
 
@@ -78,6 +78,8 @@ def upsert_tender_from_list(item) -> Tender | None:
         "ekap_id": str(ekap_id),
         "ihale_adi": item.get("ihaleAdi", "") or "",
         "idare_adi": item.get("idareAdi", "") or "",
+        "ihale_adi_norm": normalize_tr(item.get("ihaleAdi", "")),
+        "idare_adi_norm": normalize_tr(item.get("idareAdi", "")),
         "ihale_il_adi": (item.get("ihaleIlAdi") or "").upper(),
         "il_id": _resolve_il_id(item),
         "ihale_tarih_saat": item.get("ihaleTarihSaat", "") or "",
@@ -154,6 +156,8 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.ikn = str(data.get("ikn") or bilgi.get("ikn") or tender.ikn)
     tender.ihale_adi = data.get("ihaleAdi") or bilgi.get("ihaleAdi") or tender.ihale_adi
     tender.idare_adi = data.get("idareAdi") or bilgi.get("idareAdi") or tender.idare_adi
+    tender.ihale_adi_norm = normalize_tr(tender.ihale_adi)
+    tender.idare_adi_norm = normalize_tr(tender.idare_adi)
     tender.idare_id = str(data.get("idareId") or bilgi.get("idareId") or tender.idare_id or "")
     tender.e_ihale = bool(data.get("eIhale", tender.e_ihale))
     tender.ihale_usul = _as_int(data.get("ihaleUsul")) or tender.ihale_usul
@@ -335,33 +339,62 @@ def sync_okas(client, take=5000):
         kod = o.get("kod") or o.get("kodu") or o.get("kalemKodu")
         if not kod:
             continue
+        adi = o.get("kalemAdi") or o.get("adi") or ""
         OkasCode.objects.update_or_create(
             kod=str(kod),
             defaults={
-                "adi": o.get("kalemAdi") or o.get("adi") or "",
+                "adi": adi,
                 "adi_eng": o.get("kalemAdiEng") or "",
+                "adi_norm": normalize_tr(adi)[:500],
             },
         )
         count += 1
     return count
 
 
+# "Bağlantısız Kurumlar" (ağaca bağlı olmayan idareler) EKAP'ta parent sentinel'i
+UNCONNECTED_PARENT = -999999
+
+
 def sync_authorities(client, take=300000):
     """
-    DETSIS kurum **ağacını** çekip `Authority` tablosunu tazeler (2 EKAP isteği:
-    kökler + tüm alt düğümler). `detsis_no` üzerinden toplu upsert eder.
+    DETSIS kurum **ağacını** çekip `Authority` tablosunu tazeler (3 EKAP isteği:
+    kökler + tüm bağlı alt düğümler + Bağlantısız Kurumlar). `detsis_no` üzerinden
+    toplu upsert eder.
 
     Alan eşlemesi (bkz. `Authority` docstring): detsisNo→detsis_no,
     parentIdareKimlikKodu→parent_detsis (kök `0`→""), idareId→idare_id (dal
     düğümünde boş), hasItems→has_items, seviye→seviye. `detsisNo` benzersiz olduğu
     için tek anahtardır; aynı düğüm iki istekte de gelirse (kök) upsert son değeri yazar.
+
+    **Bağlantısız Kurumlar** (parent=-999999): belediyelerin Bilgi İşlem
+    Müdürlükleri gibi ağaca bağlı OLMAYAN ama **ihale açan** (idareId dolu) idareler.
+    EKAP aramasında görünürler; `parent>0` sorgusu bunları kaçırdığı için ayrıca
+    çekilir ve sentetik bir "Bağlantısız Kurumlar" kökü altına yerleştirilir.
     """
     roots, _ = extract_list(client.detsis_roots())
     descendants, _ = extract_list(client.detsis_all_descendants(take=take))
+    unconnected, _ = extract_list(client.detsis_children(UNCONNECTED_PARENT, take=take))
 
     seen = set()
     objs = []
-    for a in [*roots, *descendants]:
+
+    # Sentetik "Bağlantısız Kurumlar" kökü (browse'da görünsün; alt düğümleri aramayla bulunur)
+    if unconnected:
+        seen.add(str(UNCONNECTED_PARENT))
+        objs.append(
+            Authority(
+                detsis_no=str(UNCONNECTED_PARENT),
+                ad="Bağlantısız Kurumlar",
+                ad_norm=normalize_tr("Bağlantısız Kurumlar")[:500],
+                parent_detsis="",
+                idare_id="",
+                has_items=True,
+                seviye=0,
+            )
+        )
+
+    for a in [*roots, *descendants, *unconnected]:
         detsis_no = a.get("detsisNo")
         ad = a.get("ad")
         if detsis_no is None or not ad:
@@ -376,6 +409,7 @@ def sync_authorities(client, take=300000):
             Authority(
                 detsis_no=key,
                 ad=ad.strip()[:500],
+                ad_norm=normalize_tr(ad)[:500],
                 parent_detsis="" if parent in (0, None) else str(parent),
                 idare_id="" if idare_id is None else str(idare_id),
                 has_items=bool(a.get("hasItems")),
@@ -388,7 +422,7 @@ def sync_authorities(client, take=300000):
         objs,
         update_conflicts=True,
         unique_fields=["detsis_no"],
-        update_fields=["ad", "parent_detsis", "idare_id", "has_items", "seviye"],
+        update_fields=["ad", "ad_norm", "parent_detsis", "idare_id", "has_items", "seviye"],
         batch_size=2000,
     )
     return len(objs)

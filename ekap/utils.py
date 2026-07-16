@@ -1,7 +1,32 @@
-"""EKAP verisi için yardımcılar — para ve tarih parse."""
+"""EKAP verisi için yardımcılar — para/tarih parse + Türkçe arama normalizasyonu."""
 import re
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
+
+
+# ── Türkçe arama normalizasyonu ────────────────────────────
+# Büyük/küçük harf ve Türkçe karakterleri ASCII'ye katlar; böylece arama
+# **Türkçe-i güvenli ve aksan-duyarsız** olur:
+#   "bilgi işlem" == "BİLGİ İŞLEM" == "Bilgi İşlem" == "bilgi islem"
+# Neden gerekli: DB `icontains`/ILIKE Türkçe İ↔i, ş↔s katlamasını yapmaz →
+# kullanıcı küçük harf Türkçe yazınca hiçbir şey eşleşmiyordu (EKAP eşleşiyor).
+# Model tarafında normalize edilmiş sütuna (`*_norm`) yazılır, sorgu da normalize
+# edilip `__contains` ile aranır (iki taraf da lowercase ASCII → DB-bağımsız).
+_TR_FOLD = str.maketrans({
+    "İ": "i", "I": "i", "ı": "i",
+    "Ş": "s", "ş": "s",
+    "Ğ": "g", "ğ": "g",
+    "Ü": "u", "ü": "u",
+    "Ö": "o", "ö": "o",
+    "Ç": "c", "ç": "c",
+})
+
+
+def normalize_tr(text) -> str:
+    """Metni Türkçe+aksan-duyarsız arama biçimine indirger (lowercase ASCII)."""
+    if not text:
+        return ""
+    return str(text).translate(_TR_FOLD).lower().strip()
 
 
 def parse_money(value) -> Decimal | None:

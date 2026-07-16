@@ -30,7 +30,7 @@ from .serializers import (
     EkapTenderListSerializer,
     OkasCodeSerializer,
 )
-from .utils import parse_ekap_datetime
+from .utils import normalize_tr, parse_ekap_datetime
 
 logger = logging.getLogger("ihaletakip")
 
@@ -106,20 +106,22 @@ def apply_tender_filters(qs, params):
     needs_distinct = False
 
     # ── Anahtar kelime (ihale adı + kurum adı + İKN) — mobil "Anahtar Kelime" kutusu ──
+    # İhale adı/kurum adı **Türkçe-i güvenli** normalize sütunlar üzerinden aranır
+    # (bkz. normalize_tr); İKN ASCII olduğundan icontains yeterli.
     q = params.get("q")
     if q and str(q).strip():
-        q = str(q).strip()
+        nq = normalize_tr(q)
         qs = qs.filter(
-            Q(ihale_adi__icontains=q) | Q(idare_adi__icontains=q) | Q(ikn__icontains=q)
+            Q(ihale_adi_norm__contains=nq) | Q(idare_adi_norm__contains=nq) | Q(ikn__icontains=str(q).strip())
         )
 
-    # ── Alan-özel metin arama (icontains) ──
+    # ── Alan-özel metin arama (normalize edilmiş, Türkçe-i güvenli) ──
     ad = params.get("ihale_adi")
     if ad and str(ad).strip():
-        qs = qs.filter(ihale_adi__icontains=str(ad).strip())
+        qs = qs.filter(ihale_adi_norm__contains=normalize_tr(ad))
     idare_adi = params.get("idare_adi")
     if idare_adi and str(idare_adi).strip():
-        qs = qs.filter(idare_adi__icontains=str(idare_adi).strip())
+        qs = qs.filter(idare_adi_norm__contains=normalize_tr(idare_adi))
     ikn = params.get("ikn")
     if ikn and str(ikn).strip():
         qs = qs.filter(ikn__icontains=str(ikn).strip())
@@ -560,7 +562,10 @@ class OkasSearchView(APIView):
         take = min(int(request.query_params.get("take", 50)), 200)
         qs = OkasCode.objects.all()
         if q:
-            qs = qs.filter(Q(adi__icontains=q) | Q(adi_eng__icontains=q) | Q(kod__startswith=q))
+            # Türkçe-i güvenli: normalize edilmiş Türkçe ad + İngilizce ad + kod öneki
+            qs = qs.filter(
+                Q(adi_norm__contains=normalize_tr(q)) | Q(adi_eng__icontains=q) | Q(kod__startswith=q)
+            )
         return api_response(data=OkasCodeSerializer(qs[:take], many=True).data)
 
 
@@ -591,10 +596,15 @@ class AuthorityTreeView(APIView):
 
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
+    # Bir dalın döneceği azami çocuk sayısı. Bağlı ağaçta en kalabalık düğüm ~900
+    # çocuk; yalnızca "Bağlantısız Kurumlar" (~87k) bunu aşar → orada ilk dilim döner,
+    # kullanıcı arama ile bulur (aksi halde devasa payload).
+    TREE_CHILD_LIMIT = 2000
+
     def get(self, request):
         parent = (request.query_params.get("parent") or "").strip()
         # parent boş → kökler (parent_detsis == ""); doluysa o düğümün çocukları
-        qs = Authority.objects.filter(parent_detsis=parent).order_by("ad")
+        qs = Authority.objects.filter(parent_detsis=parent).order_by("ad")[: self.TREE_CHILD_LIMIT]
         return api_response(data=AuthorityNodeSerializer(qs, many=True).data)
 
 
@@ -630,7 +640,8 @@ class AuthoritySearchView(APIView):
         take = min(int(request.query_params.get("take", 50)), 200)
         qs = Authority.objects.all()
         if q:
-            qs = qs.filter(Q(ad__icontains=q) | Q(idare_id__startswith=q))
+            # Türkçe-i güvenli: normalize edilmiş ad + idare_id öneki
+            qs = qs.filter(Q(ad_norm__contains=normalize_tr(q)) | Q(idare_id__startswith=q))
         nodes = list(qs.order_by("ad")[:take])
         # Seçilebilir (idare_id dolu) düğümler önce gelsin; sonra ada göre (kararlı)
         nodes.sort(key=lambda a: (a.idare_id == "", a.ad))

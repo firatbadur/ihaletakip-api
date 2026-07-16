@@ -560,6 +560,17 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.
 - **Başlatma**: `docker compose up -d --build`. `web` healthcheck'i (`/health/`)
   geçmeden nginx başlamaz. Entrypoint yalnızca `web`'de migrate + collectstatic yapar.
+- **⚠️ Ağır data-migration (dolu tabloda backfill)**: Entrypoint `migrate`'i senkron
+  çalıştırır; **dolu bir tabloda** uzun süren bir backfill (ör. `0005_search_norm` norm
+  sütunları) `web` healthcheck penceresini (`start_period=180s`) aşarsa `web` "unhealthy"
+  olur ve `up` başarısız görünür. Migration'lar **atomic**'tir (kesilirse temiz rollback),
+  ama bu durumda migrate'i **elle** çalıştır (healthcheck baskısı yok):
+  `docker compose exec worker python manage.py migrate` → bitince `docker compose up -d`.
+  (Taze deploy'da tablolar boş → backfill anlık, bu sorun yaşanmaz.)
+  - **Yarım kalmış migration kurtarma** (eski `atomic=False` sürümünden kalma
+    "column already exists"): sütunlar var ama migration kayıtlı değilse
+    `... migrate ekap 0005 --fake` ile kaydet, sonra norm'u elle doldur (Tender/Okas
+    bulk_update + `run_ingest --task authorities`).
 - **Dağıtım sonrası doğrulama**: `docker compose exec web python manage.py ekap_probe`
   (imza + canlı EKAP), `curl -I https://<domain>/health/` → `200`.
 

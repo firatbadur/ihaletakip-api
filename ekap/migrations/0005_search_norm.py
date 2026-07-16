@@ -3,8 +3,14 @@ Türkçe+aksan-duyarsız arama sütunları (`*_norm`) + mevcut satırların back
 
 DB `icontains`/ILIKE Türkçe İ↔i, ş↔s katlamasını yapmadığı için kullanıcı küçük
 harf Türkçe yazınca arama boş dönüyordu. `normalize_tr` ile normalize edilmiş
-sütunlar eklenir ve mevcut kayıtlar doldurulur. Büyük `Tender` tablosunda tek dev
-transaction/lock olmasın diye `atomic = False` + batch'li bulk_update.
+sütunlar eklenir ve mevcut kayıtlar doldurulur.
+
+⚠️ Migration **atomic**'tir (bilerek): önceki sürüm `atomic = False` idi; migrate
+büyük tabloda backfill sürerken kesilirse (ör. konteyner restart) sütunlar EKLENMİŞ
+ama migration KAYDEDİLMEMİŞ kalıyordu → tekrar çalışınca "column already exists".
+Atomic ile ya hepsi uygulanır ya temiz rollback → yeniden çalıştırma daima güvenli.
+Taze deploy'da tablolar boş olduğundan backfill anlık; dolu tabloda (yükseltme)
+migrate elle çalıştırılır (healthcheck baskısı olmadan) — bkz. CLAUDE.md deploy notu.
 """
 from django.db import migrations, models
 
@@ -36,8 +42,7 @@ def backfill_norm(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
+    # atomic=True (varsayılan) — kesilirse temiz rollback; yeniden çalıştırma güvenli.
     dependencies = [
         ("ekap", "0004_authority_tree"),
     ]

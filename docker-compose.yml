@@ -52,7 +52,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      # entrypoint migrate+collectstatic tamamlanana kadar sağlıksız sayma.
+      # Dolu tabloda ağır bir data-migration'ı (backfill) entrypoint'in çalıştırması
+      # bu pencereyi aşabilir → o durumda migrate'i ELLE çalıştır (bkz. CLAUDE.md).
+      start_period: 180s
     depends_on:
       db:
         condition: service_healthy

@@ -11,8 +11,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.premium import (
+    FREE_FAVORITE_AUTHORITY_LIMIT,
     FREE_SAVED_FILTER_LIMIT,
     FREE_SAVED_TENDER_LIMIT,
+    MSG_FAVORITE_AUTHORITY_LIMIT,
     MSG_SAVED_FILTER_LIMIT,
     MSG_SAVED_TENDER_LIMIT,
     enforce_free_limit,
@@ -178,7 +180,11 @@ def _enrich_authority(detsis_no):
         description=(
             "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` "
             "ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` "
-            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez."
+            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n"
+            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_FAVORITE_AUTHORITY_LIMIT} idare "
+            "favorilenebilir. Sınır aşılırsa **403** döner "
+            "(`errors.code = premium_required`). Zaten favorideki bir idarenin güncellenmesi "
+            "(upsert) limiti tetiklemez. Pro üyelikte sınır yoktur."
         ),
         examples=[
             OpenApiExample(
@@ -194,10 +200,19 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
     queryset_model = FavoriteAuthority
 
     def perform_create(self, serializer):
-        # Aynı idare tekrar eklenirse günceller (upsert); ad/idare_id DB'den zenginleşir.
+        user = self.request.user
         detsis_no = serializer.validated_data["detsis_no"]
+        # Free limiti yalnızca YENİ bir favori için uygulanır; mevcut idarenin güncellemesi
+        # (upsert) sayılmaz. Aynı idare tekrar eklenirse günceller; ad/idare_id DB'den zenginleşir.
+        if not FavoriteAuthority.objects.filter(user=user, detsis_no=detsis_no).exists():
+            enforce_free_limit(
+                user,
+                current_count=FavoriteAuthority.objects.filter(user=user).count(),
+                limit=FREE_FAVORITE_AUTHORITY_LIMIT,
+                message=MSG_FAVORITE_AUTHORITY_LIMIT,
+            )
         FavoriteAuthority.objects.update_or_create(
-            user=self.request.user,
+            user=user,
             detsis_no=detsis_no,
             defaults=_enrich_authority(detsis_no),
         )

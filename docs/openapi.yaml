@@ -1519,9 +1519,14 @@ paths:
           description: ''
     post:
       operationId: api_v1_favorite_authorities_create
-      description: İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`,
-        `idare_id` ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no`
-        tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.
+      description: 'İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`,
+        `idare_id` ve `has_items` sunucuda `ekap.Authority`''den doldurulur. Aynı
+        `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.
+
+
+        **Ücretsiz (Free) üyelik:** en fazla 10 idare favorilenebilir. Sınır aşılırsa
+        **403** döner (`errors.code = premium_required`). Zaten favorideki bir idarenin
+        güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.'
       summary: İdareyi favoriye ekle
       tags:
       - favorites
@@ -1819,7 +1824,7 @@ paths:
       description: 'Yeni bir arama filtresi kaydeder.
 
 
-        **Ücretsiz (Free) üyelik:** en fazla 3 filtre kaydedilebilir. Sınır aşılırsa
+        **Ücretsiz (Free) üyelik:** en fazla 10 filtre kaydedilebilir. Sınır aşılırsa
         **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini
         sunar. Pro üyelikte sınır yoktur.'
       summary: Filtre kaydet
@@ -2047,7 +2052,7 @@ paths:
       description: 'İhaleyi kayıtlılara ekler.
 
 
-        **Ücretsiz (Free) üyelik:** en fazla 3 ihale kaydedilebilir. Sınır aşılırsa
+        **Ücretsiz (Free) üyelik:** en fazla 10 ihale kaydedilebilir. Sınır aşılırsa
         **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN''nin
         güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.'
       summary: İhaleyi kaydet

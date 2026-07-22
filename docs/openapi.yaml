@@ -2752,6 +2752,10 @@ components:
           type: integer
           readOnly: true
           nullable: true
+        filter_id:
+          type: integer
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -2763,6 +2767,7 @@ components:
       - body
       - conversation_id
       - created_at
+      - filter_id
       - id
       - institution
       - read

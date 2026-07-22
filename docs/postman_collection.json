@@ -1283,7 +1283,7 @@
                 ""
               ]
             },
-            "description": "İhaleyi kayıtlılara ekler.\n\n**Ücretsiz (Free) üyelik:** en fazla 10 ihale kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN'nin güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "İhaleyi kayıtlılara ekler.\n\n**Ücretsiz (Free) üyelik:** en fazla 5 ihale kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN'nin güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"tender_type\": \"Mal Alımı\",\n  \"tender_status\": \"Katılıma Açık\",\n  \"tender_city\": \"ANKARA\",\n  \"tender_date\": \"23.03.2027 14:00\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\"\n}",
@@ -1418,7 +1418,7 @@
                 ""
               ]
             },
-            "description": "Yeni bir arama filtresi kaydeder.\n\n**Ücretsiz (Free) üyelik:** en fazla 10 filtre kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini sunar. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Yeni bir arama filtresi kaydeder.\n\n**Ücretsiz (Free) üyelik:** en fazla 5 filtre kaydedilebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini sunar. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
@@ -1645,7 +1645,7 @@
                 ""
               ]
             },
-            "description": "İhale için alarm kurar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "İhale için alarm kurar.\n\n**İhale alarmları Pro aboneliğe özeldir.** Free üyelik alarm kuramaz → **403** döner (`errors.code = premium_required`); mobil abonelik paketlerini sunar. Alarmları listeleme/silme her üyeye açıktır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\",\n  \"reminder_day\": true,\n  \"document_change\": true\n}",
@@ -2395,7 +2395,7 @@
                 ""
               ]
             },
-            "description": "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n**Ücretsiz (Free) üyelik:** en fazla 10 idare favorilenebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`). Zaten favorideki bir idarenin güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n**Ücretsiz (Free) üyelik:** en fazla 5 idare favorilenebilir. Sınır aşılırsa **403** döner (`errors.code = premium_required`). Zaten favorideki bir idarenin güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"detsis_no\": \"24308110\"\n}",

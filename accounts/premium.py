@@ -16,9 +16,9 @@ from rest_framework.exceptions import APIException
 
 # ── Free (ücretsiz) katman limitleri ───────────────────
 # Free kullanıcı en fazla bu kadar filtre/ihale/idare kaydedebilir; fazlası Pro ister.
-FREE_SAVED_FILTER_LIMIT = 10
-FREE_SAVED_TENDER_LIMIT = 10
-FREE_FAVORITE_AUTHORITY_LIMIT = 10
+FREE_SAVED_FILTER_LIMIT = 5
+FREE_SAVED_TENDER_LIMIT = 5
+FREE_FAVORITE_AUTHORITY_LIMIT = 5
 
 # ── Türkçe kullanıcı mesajları (uçlara özel) ───────────
 MSG_SAVED_FILTER_LIMIT = (
@@ -32,6 +32,10 @@ MSG_SAVED_TENDER_LIMIT = (
 MSG_FAVORITE_AUTHORITY_LIMIT = (
     f"Ücretsiz üyelikte en fazla {FREE_FAVORITE_AUTHORITY_LIMIT} idare favorileyebilirsiniz. "
     "Sınırsız idare favorilemek için Pro'ya geçin."
+)
+MSG_ALARM = (
+    "İhale alarmı kurma Pro aboneliğe özeldir. Alarmlar (ihale günü, doküman değişikliği, "
+    "sonuçlanma) için Pro'ya geçin."
 )
 MSG_CHAT = (
     "İhale Asistanı ile sohbet Pro aboneliğe özeldir. Profilinizi oluşturabilirsiniz; "

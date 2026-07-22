@@ -14,10 +14,12 @@ from accounts.premium import (
     FREE_FAVORITE_AUTHORITY_LIMIT,
     FREE_SAVED_FILTER_LIMIT,
     FREE_SAVED_TENDER_LIMIT,
+    MSG_ALARM,
     MSG_FAVORITE_AUTHORITY_LIMIT,
     MSG_SAVED_FILTER_LIMIT,
     MSG_SAVED_TENDER_LIMIT,
     enforce_free_limit,
+    require_premium,
 )
 
 from .models import (
@@ -433,7 +435,12 @@ class SavedTenderDetailView(APIView):
     post=extend_schema(
         tags=["alarms"],
         summary="Alarm kur",
-        description="İhale için alarm kurar.",
+        description=(
+            "İhale için alarm kurar.\n\n"
+            "**İhale alarmları Pro aboneliğe özeldir.** Free üyelik alarm kuramaz → **403** "
+            "döner (`errors.code = premium_required`); mobil abonelik paketlerini sunar. "
+            "Alarmları listeleme/silme her üyeye açıktır."
+        ),
         examples=[
             OpenApiExample(
                 "İhale alarmı kur",
@@ -460,6 +467,8 @@ class TenderAlarmListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = TenderAlarm
 
     def perform_create(self, serializer):
+        # İhale alarmı kurma Pro'ya özeldir (kurma/güncelleme kilitli; listeleme/silme serbest).
+        require_premium(self.request.user, MSG_ALARM)
         TenderAlarm.objects.update_or_create(
             user=self.request.user,
             tender_id=serializer.validated_data["tender_id"],

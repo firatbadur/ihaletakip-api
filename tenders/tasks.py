@@ -76,6 +76,9 @@ def check_tender_alarms():
             | Q(completed=True, completed_notified=False)
         ).select_related("user")
     )
+    # İhale alarmları Pro'ya özeldir → Pro iken alarm kurup Free'ye düşen kullanıcıya
+    # bildirim gitmesin (is_premium DB alanı değil, property → Python'da eleriz).
+    alarms = [a for a in alarms if a.user.is_premium]
     if not alarms:
         logger.info("check_tender_alarms: aktif alarm yok")
         return {"alarms": 0, "pushed": 0}

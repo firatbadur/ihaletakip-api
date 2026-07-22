@@ -1498,6 +1498,111 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/v1/favorite-authorities/:
+    get:
+      operationId: api_v1_favorite_authorities_list
+      description: Oturum açmış kullanıcının favori idarelerini (DETSIS kurum) döner.
+      summary: Favori idareleri listele
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FavoriteAuthority'
+          description: ''
+    post:
+      operationId: api_v1_favorite_authorities_create
+      description: İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`,
+        `idare_id` ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no`
+        tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.
+      summary: İdareyi favoriye ekle
+      tags:
+      - favorites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FavoriteAuthority'
+            examples:
+              İdareyiFavoriyeEkle:
+                value:
+                  detsis_no: '24308110'
+                summary: İdareyi favoriye ekle
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FavoriteAuthority'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FavoriteAuthority'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteAuthority'
+          description: ''
+  /api/v1/favorite-authorities/{detsis_no}/:
+    get:
+      operationId: api_v1_favorite_authorities_retrieve
+      description: İdarenin kullanıcının favorilerinde olup olmadığını döner.
+      summary: İdare favoride mi?
+      parameters:
+      - in: path
+        name: detsis_no
+        schema:
+          type: string
+        description: İdarenin DETSIS ağaç anahtarı (`detsis_no`).
+        required: true
+        examples:
+          DETSISNo:
+            value: '24308110'
+            summary: DETSIS no
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IsFavoriteAuthority'
+          description: ''
+    delete:
+      operationId: api_v1_favorite_authorities_destroy
+      description: İdareyi favorilerden siler. Kayıt yoksa da `204` döner (idempotent).
+      summary: İdareyi favoriden çıkar
+      parameters:
+      - in: path
+        name: detsis_no
+        schema:
+          type: string
+        description: İdarenin DETSIS ağaç anahtarı (`detsis_no`).
+        required: true
+        examples:
+          DETSISNo:
+            value: '24308110'
+            summary: DETSIS no
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/favorites/:
     get:
       operationId: api_v1_favorites_list
@@ -2540,6 +2645,36 @@ components:
       - added_at
       - id
       - tender_id
+    FavoriteAuthority:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        detsis_no:
+          type: string
+          maxLength: 64
+        idare_id:
+          type: string
+          readOnly: true
+          nullable: true
+        ad:
+          type: string
+          readOnly: true
+        has_items:
+          type: boolean
+          readOnly: true
+        added_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - ad
+      - added_at
+      - detsis_no
+      - has_items
+      - id
+      - idare_id
     GoogleLogin:
       type: object
       properties:
@@ -2559,6 +2694,13 @@ components:
       - service
       - status
     IsFavorite:
+      type: object
+      properties:
+        is_favorite:
+          type: boolean
+      required:
+      - is_favorite
+    IsFavoriteAuthority:
       type: object
       properties:
         is_favorite:

@@ -2342,6 +2342,140 @@
       ]
     },
     {
+      "name": "favorite-authorities",
+      "item": [
+        {
+          "name": "Favori idareleri listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-authorities/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-authorities",
+                ""
+              ]
+            },
+            "description": "Oturum açmış kullanıcının favori idarelerini (DETSIS kurum) döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İdareyi favoriye ekle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-authorities/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-authorities",
+                ""
+              ]
+            },
+            "description": "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"detsis_no\": \"24308110\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "İdare favoride mi?",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-authorities/:detsis_no/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-authorities",
+                ":detsis_no",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "detsis_no",
+                  "value": "24308110",
+                  "description": "**Zorunlu.** İdarenin DETSIS ağaç anahtarı (`detsis_no`)."
+                }
+              ]
+            },
+            "description": "İdarenin kullanıcının favorilerinde olup olmadığını döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İdareyi favoriden çıkar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-authorities/:detsis_no/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-authorities",
+                ":detsis_no",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "detsis_no",
+                  "value": "24308110",
+                  "description": "**Zorunlu.** İdarenin DETSIS ağaç anahtarı (`detsis_no`)."
+                }
+              ]
+            },
+            "description": "İdareyi favorilerden siler. Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
       "name": "subscription",
       "item": [
         {

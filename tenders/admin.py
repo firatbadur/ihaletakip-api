@@ -1,7 +1,14 @@
 """tenders admin kayıtları."""
 from django.contrib import admin
 
-from .models import Favorite, Notification, SavedFilter, SavedTender, TenderAlarm
+from .models import (
+    Favorite,
+    FavoriteAuthority,
+    Notification,
+    SavedFilter,
+    SavedTender,
+    TenderAlarm,
+)
 
 
 @admin.register(Favorite)
@@ -9,6 +16,14 @@ class FavoriteAdmin(admin.ModelAdmin):
     list_display = ["tender_title", "tender_id", "user", "source", "added_at"]
     list_filter = ["source", "added_at"]
     search_fields = ["tender_title", "tender_id", "user__username", "user__email"]
+    raw_id_fields = ["user"]
+
+
+@admin.register(FavoriteAuthority)
+class FavoriteAuthorityAdmin(admin.ModelAdmin):
+    list_display = ["ad", "detsis_no", "idare_id", "user", "added_at"]
+    list_filter = ["added_at"]
+    search_fields = ["ad", "detsis_no", "idare_id", "user__username", "user__email"]
     raw_id_fields = ["user"]
 
 

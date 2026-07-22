@@ -40,6 +40,39 @@ class Favorite(models.Model):
         return f"{self.tender_title or self.tender_id}"
 
 
+class FavoriteAuthority(models.Model):
+    """
+    Favori idare (DETSIS kurum ağacı düğümü, `ekap.Authority`).
+
+    Doğal anahtar = `detsis_no` (ağaç anahtarı, benzersiz, ASCII → `/` içermez).
+    `ad`/`idare_id`/`has_items` `ekap.Authority`'den zenginleştirilir; mobil yalnızca
+    `detsis_no` göndermesi yeterlidir. Kullanıcı favoriye basınca mobil, o idarenin
+    ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler.
+    """
+
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="favorite_authorities"
+    )
+    detsis_no = models.CharField(max_length=64, db_index=True)
+    idare_id = models.CharField(max_length=64, null=True, blank=True)
+    ad = models.CharField(max_length=500, blank=True)
+    has_items = models.BooleanField(default=False)
+    added_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Favori İdare"
+        verbose_name_plural = "Favori İdareler"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "detsis_no"], name="uniq_user_favorite_authority"
+            )
+        ]
+        ordering = ["-added_at"]
+
+    def __str__(self):
+        return self.ad or self.detsis_no
+
+
 class SavedFilter(TimeStampedModel):
     """Kaydedilmiş arama filtresi (opsiyonel alarm ile)."""
 

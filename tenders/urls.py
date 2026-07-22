@@ -2,6 +2,8 @@
 from django.urls import path
 
 from .views import (
+    FavoriteAuthorityDetailView,
+    FavoriteAuthorityListCreateView,
     FavoriteDetailView,
     FavoriteListCreateView,
     NotificationListView,
@@ -20,6 +22,9 @@ urlpatterns = [
     # Favoriler
     path("favorites/", FavoriteListCreateView.as_view(), name="favorites"),
     path("favorites/<str:tender_id>/", FavoriteDetailView.as_view(), name="favorite-detail"),
+    # Favori idareler (DETSIS kurum düğümü)
+    path("favorite-authorities/", FavoriteAuthorityListCreateView.as_view(), name="favorite-authorities"),
+    path("favorite-authorities/<str:detsis_no>/", FavoriteAuthorityDetailView.as_view(), name="favorite-authority-detail"),
     # Kayıtlı filtreler
     path("saved-filters/", SavedFilterListCreateView.as_view(), name="saved-filters"),
     path("saved-filters/<int:pk>/", SavedFilterDetailView.as_view(), name="saved-filter-detail"),

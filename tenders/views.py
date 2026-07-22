@@ -18,8 +18,16 @@ from accounts.premium import (
     enforce_free_limit,
 )
 
-from .models import Favorite, Notification, SavedFilter, SavedTender, TenderAlarm
+from .models import (
+    Favorite,
+    FavoriteAuthority,
+    Notification,
+    SavedFilter,
+    SavedTender,
+    TenderAlarm,
+)
 from .serializers import (
+    FavoriteAuthoritySerializer,
     FavoriteSerializer,
     NotificationSerializer,
     SavedFilterSerializer,
@@ -133,6 +141,96 @@ class FavoriteDetailView(APIView):
     def get(self, request, tender_id):
         exists = Favorite.objects.filter(
             user=request.user, tender_id=tender_id
+        ).exists()
+        return Response({"is_favorite": exists})
+
+
+# ── Favori İdareler ────────────────────────────────────
+_DETSIS_NO_PARAM = OpenApiParameter(
+    name="detsis_no",
+    location=OpenApiParameter.PATH,
+    type=str,
+    required=True,
+    description="İdarenin DETSIS ağaç anahtarı (`detsis_no`).",
+    examples=[OpenApiExample("DETSIS no", value="24308110")],
+)
+
+
+def _enrich_authority(detsis_no):
+    """`detsis_no`'dan `ekap.Authority` bulup ad/idare_id/has_items döndürür (yoksa boş)."""
+    from ekap.models import Authority
+
+    a = Authority.objects.filter(detsis_no=detsis_no).first()
+    if not a:
+        return {}
+    return {"ad": a.ad, "idare_id": a.idare_id or None, "has_items": a.has_items}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["favorites"],
+        summary="Favori idareleri listele",
+        description="Oturum açmış kullanıcının favori idarelerini (DETSIS kurum) döner.",
+    ),
+    post=extend_schema(
+        tags=["favorites"],
+        summary="İdareyi favoriye ekle",
+        description=(
+            "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` "
+            "ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` "
+            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez."
+        ),
+        examples=[
+            OpenApiExample(
+                "İdareyi favoriye ekle",
+                request_only=True,
+                value={"detsis_no": "24308110"},
+            )
+        ],
+    ),
+)
+class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
+    serializer_class = FavoriteAuthoritySerializer
+    queryset_model = FavoriteAuthority
+
+    def perform_create(self, serializer):
+        # Aynı idare tekrar eklenirse günceller (upsert); ad/idare_id DB'den zenginleşir.
+        detsis_no = serializer.validated_data["detsis_no"]
+        FavoriteAuthority.objects.update_or_create(
+            user=self.request.user,
+            detsis_no=detsis_no,
+            defaults=_enrich_authority(detsis_no),
+        )
+
+
+@extend_schema(tags=["favorites"], parameters=[_DETSIS_NO_PARAM])
+class FavoriteAuthorityDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="İdareyi favoriden çıkar",
+        description="İdareyi favorilerden siler. Kayıt yoksa da `204` döner (idempotent).",
+        responses={204: None},
+    )
+    def delete(self, request, detsis_no):
+        FavoriteAuthority.objects.filter(
+            user=request.user, detsis_no=detsis_no
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="İdare favoride mi?",
+        description="İdarenin kullanıcının favorilerinde olup olmadığını döner.",
+        responses={
+            200: inline_serializer(
+                name="IsFavoriteAuthority",
+                fields={"is_favorite": serializers.BooleanField()},
+            )
+        },
+    )
+    def get(self, request, detsis_no):
+        exists = FavoriteAuthority.objects.filter(
+            user=request.user, detsis_no=detsis_no
         ).exists()
         return Response({"is_favorite": exists})
 

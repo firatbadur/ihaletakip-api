@@ -1,7 +1,14 @@
 """tenders serializer'ları."""
 from rest_framework import serializers
 
-from .models import Favorite, Notification, SavedFilter, SavedTender, TenderAlarm
+from .models import (
+    Favorite,
+    FavoriteAuthority,
+    Notification,
+    SavedFilter,
+    SavedTender,
+    TenderAlarm,
+)
 
 
 class FavoriteSerializer(serializers.ModelSerializer):
@@ -16,6 +23,15 @@ class FavoriteSerializer(serializers.ModelSerializer):
             "added_at",
         ]
         read_only_fields = ["id", "added_at"]
+
+
+class FavoriteAuthoritySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FavoriteAuthority
+        fields = ["id", "detsis_no", "idare_id", "ad", "has_items", "added_at"]
+        # `ad`/`idare_id`/`has_items` sunucuda `ekap.Authority`'den doldurulur;
+        # mobil yalnızca `detsis_no` gönderir.
+        read_only_fields = ["id", "idare_id", "ad", "has_items", "added_at"]
 
 
 class SavedFilterSerializer(serializers.ModelSerializer):

@@ -43,6 +43,7 @@ def record_notification(
     tender_title: str | None = None,
     institution: str | None = None,
     conversation_id: int | None = None,
+    filter_id: int | None = None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -57,6 +58,7 @@ def record_notification(
         tender_title=(tender_title[:500] if tender_title else None),
         institution=(institution[:500] if institution else None),
         conversation_id=conversation_id,
+        filter_id=filter_id,
     )
 
 
@@ -166,6 +168,7 @@ def notify_and_push(
     tender_title: str | None = None,
     institution: str | None = None,
     conversation_id: int | None = None,
+    filter_id: int | None = None,
     idem_key: str | None = None,
     data: dict[str, Any] | None = None,
 ) -> bool:
@@ -180,6 +183,7 @@ def notify_and_push(
         tender_title=tender_title,
         institution=institution,
         conversation_id=conversation_id,
+        filter_id=filter_id,
     )
 
     payload = {
@@ -189,6 +193,7 @@ def notify_and_push(
         "tenderTitle": tender_title,
         "institution": institution,
         "conversationId": conversation_id,
+        "filterId": filter_id,
     }
     if data:
         payload.update(data)

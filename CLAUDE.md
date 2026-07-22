@@ -528,8 +528,11 @@ bombardımana tutulmaz.
      `NOTIF_FILTER_PUBLISH_DAYS`=2 günde YAYINLANAN** (`ilan_tarihi`) açık ihaleler.
      Eski/backfill ihaleler bildirilmez. Dedup: kullanıcıya daha önce (son 30 gün) filtre
      bildirimi gitmiş İKN tekrar bildirilmez. Filtre semantiği `ekap.views.apply_tender_filters`
-     ile view'la **ortak**. Bildirim `tender_id`/`tender_ikn`'yi en üstteki eşleşen ihaleyle
-     doldurur (derin bağlantı). idem `filter:{uid}:{date}`.
+     ile view'la **ortak**. **Derin bağlantı = filtre** (tek ihale DEĞİL): bildirim
+     `type=TENDER` + `filter_id=SavedFilter.id`; `tender_id`/`tender_ikn` **doldurulmaz**.
+     Mobil bildirime basınca tek ihaleye gitmez, `filter_id` ile filtreyi (`GET
+     /saved-filters/{id}/`) yükleyip **arama sonuçlarını** açar (push data → `filterId`;
+     çok filtre eşleşirse temsili = ilk eşleşen filtre). idem `filter:{uid}:{date}`.
 
 - **`ekap.views.apply_tender_filters`** (arama ucu + bildirim ortak filtresi) — **tek
   adlandırma: parametre adları `Tender` model alan adlarıdır** (native/kısa alias YOK).

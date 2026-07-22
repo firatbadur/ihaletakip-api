@@ -259,26 +259,29 @@ def check_saved_filter_matches():
                 count=len(new_list),
                 first_title=first.ihale_adi,
             )
-            # Bildirime basınca ilgili ihaleye gitsin → her zaman en üstteki (en yeni)
-            # eşleşen ihalenin id/İKN'sini doldur.
+            # Bu bir **filtre eşleşmesi** bildirimidir → bildirime basınca tek bir ihale
+            # DEĞİL, bu filtrenin sonuç listesi açılmalı. Bu yüzden tender_id/tender_ikn
+            # DOLDURULMAZ (aksi halde mobil yanlışlıkla tek ihaleye giderdi); yerine
+            # `filter_id=sf.id` verilir → mobil filtreyi yükleyip uygular.
             notify.record_notification(
                 sf.user,
                 type=Notification.Type.TENDER,
                 title=title,
                 body=body,
-                tender_id=first.ekap_id,
-                tender_ikn=first.ikn,
-                tender_title=first.ihale_adi,
-                institution=first.idare_adi,
+                filter_id=sf.id,
             )
 
             bucket = per_user.setdefault(
                 sf.user_id,
-                {"user": sf.user, "count": 0, "rep": None},
+                {"user": sf.user, "count": 0, "rep": None, "filter_id": None, "filter_name": None},
             )
             bucket["count"] += len(new_list)
             if bucket["rep"] is None:
-                bucket["rep"] = first  # push derin bağlantısı için temsili ihale
+                bucket["rep"] = first  # push özet metni için temsili ihale başlığı
+            if bucket["filter_id"] is None:
+                # Push derin bağlantısı için temsili filtre (birden çok filtre eşleşirse ilki).
+                bucket["filter_id"] = sf.id
+                bucket["filter_name"] = sf.name
         except Exception:
             logger.exception("check_saved_filter_matches: filtre %s işlenemedi", sf.pk)
             continue
@@ -296,9 +299,9 @@ def check_saved_filter_matches():
             title = "Kayıtlı Filtreleriniz"
             body = f"Filtrelerinize uygun {count} yeni ihale"
         data = {"type": Notification.Type.TENDER}
-        if rep is not None:  # bildirime basınca temsili ihaleye gitsin
-            data["tenderId"] = rep.ekap_id
-            data["tenderIkn"] = rep.ikn
+        # Bildirime basınca tek ihaleye DEĞİL, temsili filtrenin sonuçlarına gitsin.
+        if b["filter_id"] is not None:
+            data["filterId"] = b["filter_id"]
         ok = notify.push_to_user(
             b["user"],
             title=title,

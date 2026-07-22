@@ -179,6 +179,11 @@ class Notification(models.Model):
     institution = models.CharField(max_length=500, null=True, blank=True)
     # type=CHAT bildirimlerde: tıklanınca açılacak asistan sohbetinin (ChatConversation) id'si.
     conversation_id = models.BigIntegerField(null=True, blank=True)
+    # type=TENDER (kayıtlı filtre eşleşmesi) bildirimlerde: tıklanınca **tek ihale detayı
+    # DEĞİL**, bu kayıtlı filtrenin (SavedFilter) arama sonuçları açılır. Mobil `filter_id`
+    # ile `GET /saved-filters/{id}/` filtresini yükleyip uygular. Bu alan doluysa mobil
+    # tender_id/tender_ikn yerine filtreyi önceler.
+    filter_id = models.BigIntegerField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

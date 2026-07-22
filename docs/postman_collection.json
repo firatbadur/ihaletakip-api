@@ -707,7 +707,7 @@
           }
         },
         {
-          "name": "İhale detayı",
+          "name": "api_v1_ekap_tenders_retrieve",
           "request": {
             "method": "GET",
             "header": [
@@ -732,12 +732,12 @@
               "variable": [
                 {
                   "key": "key",
-                  "value": "1234567",
-                  "description": "**Zorunlu.** **EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\nView, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash içermeyen `ekap_id` kullanın."
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
                 }
               ]
             },
-            "description": "İhale detayını EKAP'ın ham detay şekliyle döner (`item` açılmış olarak).\n\nDetay veritabanında varsa oradan servis edilir; bayatsa arka planda yenilenir ve eldeki sürüm hemen döner. Detay hiç çekilmemişse EKAP'a **canlı** gidilir (bu istek yavaş olabilir) ve sonuç saklanır.\n\nEKAP'a ulaşılamaz ve elde eski bir kopya varsa `200` + `message: \"Detay güncel değil.\"` döner. Hiç kayıt yoksa `404`.\n\nYanıt `ilanList` alanını zaten içerir — ilanlar için ayrıca `/announcements/` çağırmanız gerekmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

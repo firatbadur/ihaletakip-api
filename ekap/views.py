@@ -409,6 +409,33 @@ class TenderListView(APIView):
     # Detay EKAP'ın ham şeklidir; sabit bir serializer'a bağlanmaz.
     responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
 )
+def _attach_idare_detsis(data):
+    """İhale detayının `idare` bloğuna `detsis_no` ekler (favori idare için gerekli).
+
+    Ham EKAP detayı yalnızca `idare.id` (= `idare_id`) taşır; favori idare uçları ise
+    `detsis_no` ile anahtarlanır. `ekap.Authority` üzerinden idare_id → detsis_no çözer;
+    eşleşme yoksa `None` yazar (mobil buna göre "kaydet"i pasife alabilir).
+    """
+    if not isinstance(data, dict):
+        return data
+    idare = data.get("idare")
+    if not isinstance(idare, dict) or idare.get("detsis_no"):
+        return data
+    idare_id = idare.get("id")
+    if idare_id in (None, ""):
+        return data
+    idare["detsis_no"] = (
+        Authority.objects.filter(idare_id=str(idare_id))
+        .values_list("detsis_no", flat=True)
+        .first()
+    )
+    return data
+
+
+def _unwrap_item(raw):
+    return raw.get("item", raw) if isinstance(raw, dict) else raw
+
+
 class TenderDetailView(APIView):
     """GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde)."""
 
@@ -421,9 +448,8 @@ class TenderDetailView(APIView):
         if tender and tender.detail_synced_at and tender.detail_raw:
             # Bayatsa arka planda yenile, eldekini dön
             self._maybe_refresh(tender)
-            raw = tender.detail_raw
-            data = raw.get("item", raw) if isinstance(raw, dict) else raw
-            return api_response(data=data)
+            data = _unwrap_item(tender.detail_raw)
+            return api_response(data=_attach_idare_detsis(data))
 
         # Detay yoksa → canlı çek (lazy sync)
         ekap_id = tender.ekap_id if tender else key
@@ -434,11 +460,12 @@ class TenderDetailView(APIView):
             client = EkapV2Client()
             detail = client.get_detail(ekap_id)
             sync_mod.upsert_tender_detail(ekap_id, detail)
-            return api_response(data=detail.get("item", detail) if isinstance(detail, dict) else detail)
+            return api_response(data=_attach_idare_detsis(_unwrap_item(detail)))
         except Exception as e:
             logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
             if tender:
-                return api_response(data=tender.detail_raw or {}, message="Detay güncel değil.")
+                data = _attach_idare_detsis(_unwrap_item(tender.detail_raw or {}))
+                return api_response(data=data, message="Detay güncel değil.")
             return api_response(message="İhale bulunamadı.", success=False, status=404)
 
     @staticmethod

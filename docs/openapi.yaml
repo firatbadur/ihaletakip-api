@@ -1413,60 +1413,22 @@ paths:
   /api/v1/ekap/tenders/{key}/:
     get:
       operationId: api_v1_ekap_tenders_retrieve
-      description: 'İhale detayını EKAP''ın ham detay şekliyle döner (`item` açılmış
-        olarak).
-
-
-        Detay veritabanında varsa oradan servis edilir; bayatsa arka planda yenilenir
-        ve eldeki sürüm hemen döner. Detay hiç çekilmemişse EKAP''a **canlı** gidilir
-        (bu istek yavaş olabilir) ve sonuç saklanır.
-
-
-        EKAP''a ulaşılamaz ve elde eski bir kopya varsa `200` + `message: "Detay güncel
-        değil."` döner. Hiç kayıt yoksa `404`.
-
-
-        Yanıt `ilanList` alanını zaten içerir — ilanlar için ayrıca `/announcements/`
-        çağırmanız gerekmez.'
-      summary: İhale detayı
+      description: GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde).
       parameters:
       - in: path
         name: key
         schema:
           type: string
-        description: '**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.
-
-
-          View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez
-          ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar).
-          Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash
-          içermeyen `ekap_id` kullanın.'
         required: true
-        examples:
-          EKAPIçKimliği:
-            value: '1234567'
-            summary: EKAP iç kimliği
       tags:
-      - ekap
+      - api
       security:
       - jwtAuth: []
       - cookieAuth: []
       - {}
       responses:
         '200':
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: {}
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: {}
-          description: ''
+          description: No response body
   /api/v1/ekap/tenders/{key}/announcements/:
     get:
       operationId: api_v1_ekap_tenders_announcements_list

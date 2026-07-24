@@ -1984,6 +1984,39 @@
       "description": "Oturumu sonlandıran uçlar — **kasıtlı olarak en sonda**.\n\n`Çıkış yap` refresh token'ı kara listeye alır, `Hesabı devre dışı bırak` ise hesabı kapatır ve sonraki tüm istekler `401` döner. Koleksiyonu baştan sona çalıştırıyorsanız bu klasör en son çalışmalıdır."
     },
     {
+      "name": "app-status",
+      "item": [
+        {
+          "name": "Uygulama durumu (bakım + zorunlu güncelleme)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/app-status/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "app-status",
+                ""
+              ]
+            },
+            "description": "Mobil uygulamanın açılışta okuduğu genel durum bilgisi. Kimlik doğrulaması **istemez** (giriş öncesi de çağrılır).\n\n- `maintenance.active` **true** ise uygulama yalnızca bakım ekranını gösterir.\n- İstemci, cihaz sürümünü `version.min_ios` / `version.min_android` ile karşılaştırır; altındaysa zorunlu güncelleme ekranı gösterir ve ilgili mağaza bağlantısına yönlendirir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "assistant",
       "item": [
         {

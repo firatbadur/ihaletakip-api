@@ -342,6 +342,7 @@ JAZZMIN_SETTINGS = {
         "ai": "fas fa-brain",
         "ai.AnalysisCache": "fas fa-microchip",
         "core": "fas fa-cogs",
+        "core.AppConfig": "fas fa-triangle-exclamation",
         "core.AppSetting": "fas fa-sliders-h",
         "core.SupportTicket": "fas fa-life-ring",
         "django_celery_beat": "fas fa-clock",

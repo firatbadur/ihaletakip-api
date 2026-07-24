@@ -300,6 +300,28 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/app-status/:
+    get:
+      operationId: api_v1_app_status_retrieve
+      description: 'Mobil uygulamanın açılışta okuduğu genel durum bilgisi. Kimlik
+        doğrulaması **istemez** (giriş öncesi de çağrılır).
+
+
+        - `maintenance.active` **true** ise uygulama yalnızca bakım ekranını gösterir.
+
+        - İstemci, cihaz sürümünü `version.min_ios` / `version.min_android` ile karşılaştırır;
+        altındaysa zorunlu güncelleme ekranı gösterir ve ilgili mağaza bağlantısına
+        yönlendirir.'
+      summary: Uygulama durumu (bakım + zorunlu güncelleme)
+      tags:
+      - app
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppStatus'
+          description: ''
   /api/v1/assistant/chat/:
     post:
       operationId: api_v1_assistant_chat_create
@@ -2336,6 +2358,51 @@ components:
           nullable: true
       required:
       - analysis_type
+    AppStatus:
+      type: object
+      properties:
+        maintenance:
+          $ref: '#/components/schemas/AppStatusMaintenance'
+        version:
+          $ref: '#/components/schemas/AppStatusVersion'
+      required:
+      - maintenance
+      - version
+    AppStatusMaintenance:
+      type: object
+      properties:
+        active:
+          type: boolean
+        title:
+          type: string
+        message:
+          type: string
+      required:
+      - active
+      - message
+      - title
+    AppStatusVersion:
+      type: object
+      properties:
+        min_ios:
+          type: string
+        min_android:
+          type: string
+        ios_store_url:
+          type: string
+        android_store_url:
+          type: string
+        update_title:
+          type: string
+        update_message:
+          type: string
+      required:
+      - android_store_url
+      - ios_store_url
+      - min_android
+      - min_ios
+      - update_message
+      - update_title
     AppleLogin:
       type: object
       properties:

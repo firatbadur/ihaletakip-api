@@ -247,6 +247,9 @@ NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=30)
 # Kayıtlı filtre bildirimi: yalnızca son bu kadar günde YAYINLANAN (ilan_tarihi)
 # ihaleler bildirilir → eski/backfill ihaleler bildirilmez.
 NOTIF_FILTER_PUBLISH_DAYS = env.int("NOTIF_FILTER_PUBLISH_DAYS", default=2)
+# OKAS önerisi (recommend_by_saved_okas): kayıtlı ihalelerin OKAS kodlarıyla yalnızca
+# son bu kadar günde YAYINLANAN ihaleler önerilir (vars. 1 gün = "bugün yayınlanan").
+NOTIF_OKAS_PUBLISH_DAYS = env.int("NOTIF_OKAS_PUBLISH_DAYS", default=1)
 
 # ── EKAP veri toplama ──────────────────────────────────
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")

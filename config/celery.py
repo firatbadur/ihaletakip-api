@@ -24,6 +24,12 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.match_recommendations",
         "schedule": crontab(hour=7, minute=0),
     },
+    # OKAS önerisi: kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan ihaleler
+    # (her gün 08:00 — Free/Pro herkese; asistan önerisinden ayrı, premium değil)
+    "recommend-by-saved-okas": {
+        "task": "tenders.tasks.recommend_by_saved_okas",
+        "schedule": crontab(hour=8, minute=0),
+    },
     # İhale alarmları: ihale günü / doküman değişikliği / sonuçlandı (her gün 09:00)
     "check-tender-alarms": {
         "task": "tenders.tasks.check_tender_alarms",

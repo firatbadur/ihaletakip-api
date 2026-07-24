@@ -93,6 +93,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "conversation_id",
             "filter_id",
             "authority_detsis",
+            "okas_kodlar",
             "read",
             "created_at",
         ]

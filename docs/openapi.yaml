@@ -2763,6 +2763,10 @@ components:
           type: string
           readOnly: true
           nullable: true
+        okas_kodlar:
+          type: string
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -2778,6 +2782,7 @@ components:
       - filter_id
       - id
       - institution
+      - okas_kodlar
       - read
       - tender_id
       - tender_ikn

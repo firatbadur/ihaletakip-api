@@ -63,13 +63,26 @@ def alarm_summary(
 # ── Kayıtlı filtre: yeni ihale eşleşmesi ───────────────
 
 def saved_filter_match(*, filter_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:
-    """Bir filtreye uyan yeni ihale(ler) için başlık = filtre adı."""
-    title = clip(filter_name or "Kayıtlı Filtre")
-    if count == 1 and first_title:
-        body = f"Yeni ihale: {clip(first_title, 80)}"
-    else:
-        body = f"Filtrenize uygun {count} yeni ihale"
-    return title, body
+    """
+    Bir filtreye uyan yeni ihale(ler) için bildirim. Başlık = filtre adı, gövde =
+    "{filtre} filtrenize uygun N adet ihale bulundu." (ör. "Otomasyon filtrenize uygun
+    5 adet ihale bulundu."). `first_title` artık kullanılmaz (bildirime basınca tek ihale
+    DEĞİL, filtrenin sonuç listesi açılır — bkz. `filter_id` derin bağlantısı).
+    """
+    name = clip(filter_name or "Kayıtlı Filtre")
+    body = f"{name} filtrenize uygun {count} adet ihale bulundu."
+    return name, body
+
+
+def okas_recommendation(*, count: int) -> tuple[str, str]:
+    """
+    Kayıtlı ihalelerin OKAS kodlarına göre günlük öneri bildirimi (Free/Pro herkese).
+    Bildirime basınca `okas_kodlar` ile OKAS arama sonuçları açılır.
+    """
+    return (
+        "Size Özel İhaleler",
+        f"İlgilendiğiniz kategorilerde {count} yeni ihale yayınlandı.",
+    )
 
 
 # ── Favori idare: yeni ihale yayını ────────────────────

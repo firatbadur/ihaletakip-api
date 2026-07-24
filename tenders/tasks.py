@@ -257,16 +257,13 @@ def check_saved_filter_matches():
             for t in new_list:
                 seen.add(t.ikn)  # aynı çalıştırmada başka filtreden tekrar bildirme
 
-            first = new_list[0]
+            # Bu bir **filtre eşleşmesi** bildirimidir → başlık = filtre adı, gövde =
+            # "{filtre} filtrenize uygun N adet ihale bulundu." Bildirime basınca tek bir
+            # ihale DEĞİL, bu filtrenin sonuç listesi açılmalı; bu yüzden tender_id/tender_ikn
+            # DOLDURULMAZ, yerine `filter_id=sf.id` verilir → mobil filtreyi yükleyip uygular.
             title, body = templates.saved_filter_match(
-                filter_name=sf.name,
-                count=len(new_list),
-                first_title=first.ihale_adi,
+                filter_name=sf.name, count=len(new_list),
             )
-            # Bu bir **filtre eşleşmesi** bildirimidir → bildirime basınca tek bir ihale
-            # DEĞİL, bu filtrenin sonuç listesi açılmalı. Bu yüzden tender_id/tender_ikn
-            # DOLDURULMAZ (aksi halde mobil yanlışlıkla tek ihaleye giderdi); yerine
-            # `filter_id=sf.id` verilir → mobil filtreyi yükleyip uygular.
             notify.record_notification(
                 sf.user,
                 type=Notification.Type.TENDER,
@@ -277,11 +274,11 @@ def check_saved_filter_matches():
 
             bucket = per_user.setdefault(
                 sf.user_id,
-                {"user": sf.user, "count": 0, "rep": None, "filter_id": None, "filter_name": None},
+                {"user": sf.user, "count": 0, "filter_id": None,
+                 "filter_name": None, "filter_count": 0},
             )
             bucket["count"] += len(new_list)
-            if bucket["rep"] is None:
-                bucket["rep"] = first  # push özet metni için temsili ihale başlığı
+            bucket["filter_count"] += 1
             if bucket["filter_id"] is None:
                 # Push derin bağlantısı için temsili filtre (birden çok filtre eşleşirse ilki).
                 bucket["filter_id"] = sf.id
@@ -294,14 +291,14 @@ def check_saved_filter_matches():
     pushed = 0
     for uid, b in per_user.items():
         count = b["count"]
-        rep = b["rep"]
-        if count == 1 and rep is not None:
+        # Tek filtre eşleştiyse o filtrenin adıyla; birden çok filtre eşleştiyse genel özet.
+        if b["filter_count"] == 1 and b["filter_name"]:
             title, body = templates.saved_filter_match(
-                filter_name="Kayıtlı Filtreleriniz", count=1, first_title=rep.ihale_adi
+                filter_name=b["filter_name"], count=count,
             )
         else:
             title = "Kayıtlı Filtreleriniz"
-            body = f"Filtrelerinize uygun {count} yeni ihale"
+            body = f"Filtrelerinize uygun {count} adet ihale bulundu."
         data = {"type": Notification.Type.TENDER}
         # Bildirime basınca tek ihaleye DEĞİL, temsili filtrenin sonuçlarına gitsin.
         if b["filter_id"] is not None:
@@ -457,6 +454,113 @@ def check_favorite_authority_matches():
         processed, notified_users, pushed,
     )
     return {"favorites": processed, "users_notified": notified_users, "pushed": pushed}
+
+
+@shared_task(name="tenders.tasks.recommend_by_saved_okas")
+def recommend_by_saved_okas():
+    """
+    Kayıtlı ihalelere göre günlük OKAS önerisi — **Free/Pro fark etmeksizin HERKESE**.
+
+    Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar; o kodlarla
+    **son 24 saatte yayınlanan** (ilan_tarihi) açık + teklifi geçmemiş ihaleleri bulur.
+    Kullanıcının zaten kaydettiği ihaleler hariç tutulur. Eşleşme varsa kullanıcı başına
+    tek özet bildirim + push atılır; push/bildirim OKAS kodlarını `okas_kodlar` (CSV) ile
+    taşır → mobil bildirime basınca tek ihale DEĞİL, `GET /ekap/tenders/?okas_kod=<CSV>`
+    ile o kategorilerdeki arama sonuçlarını açar.
+
+    Not: Bu bildirim **premium değildir** (herkese) — İhale Asistanı önerisinden (Pro,
+    profil tabanlı) ayrıdır. Pencere `NOTIF_OKAS_PUBLISH_DAYS` (vars. 1 gün) ile ayarlanır.
+    """
+    from django.contrib.auth import get_user_model
+
+    from ekap.models import OkasItem, Tender
+
+    from .models import Notification, SavedTender
+    from .services import notify, templates
+
+    OPEN_STATUSES = [2, 3]
+    MAX_OKAS = 20  # push/arama derin bağlantısını makul tut
+    now = timezone.now()
+    today = timezone.localdate()
+    publish_days = int(getattr(settings, "NOTIF_OKAS_PUBLISH_DAYS", 1))
+    window_start = now - timedelta(days=publish_days)
+
+    User = get_user_model()
+    user_ids = list(
+        SavedTender.objects.values_list("user_id", flat=True).distinct()
+    )
+    if not user_ids:
+        logger.info("recommend_by_saved_okas: kayıtlı ihalesi olan kullanıcı yok")
+        return {"users": 0, "pushed": 0}
+
+    users = {u.id: u for u in User.objects.filter(id__in=user_ids)}
+    pushed = 0
+    notified_users = 0
+
+    for uid in user_ids:
+        user = users.get(uid)
+        if user is None or not getattr(user, "is_active", True):
+            continue
+        try:
+            saved_ikns = list(
+                SavedTender.objects.filter(user_id=uid)
+                .exclude(tender_ikn="")
+                .values_list("tender_ikn", flat=True)
+            )
+            if not saved_ikns:
+                continue
+            # Kayıtlı ihalelerin OKAS kodları (benzersiz, boş olmayan; azami MAX_OKAS).
+            okas_codes = list(
+                OkasItem.objects.filter(tender__ikn__in=saved_ikns)
+                .exclude(kodu="")
+                .values_list("kodu", flat=True)
+                .distinct()
+            )[:MAX_OKAS]
+            if not okas_codes:
+                continue
+
+            # Aynı OKAS kodlarıyla son 24 saatte yayınlanan açık + teklifi geçmemiş ihaleler
+            # (kullanıcının zaten kaydettikleri hariç).
+            matches = (
+                Tender.objects.filter(
+                    okas_kalemleri__kodu__in=okas_codes,
+                    ihale_durum__in=OPEN_STATUSES,
+                )
+                .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
+                .filter(ilan_tarihi__gte=window_start)
+                .exclude(ikn__in=saved_ikns)
+                .distinct()
+            )
+            count = matches.count()
+            if count <= 0:
+                continue
+
+            okas_csv = ",".join(okas_codes)
+            title, body = templates.okas_recommendation(count=count)
+            notify.record_notification(
+                user,
+                type=Notification.Type.TENDER,
+                title=title,
+                body=body,
+                okas_kodlar=okas_csv,
+            )
+            notified_users += 1
+
+            data = {"type": Notification.Type.TENDER, "okasKodlar": okas_csv}
+            ok = notify.push_to_user(
+                user, title=title, body=body, data=data,
+                idem_key=f"okas:{uid}:{today.isoformat()}",
+            )
+            if ok:
+                pushed += 1
+        except Exception:
+            logger.exception("recommend_by_saved_okas: kullanıcı %s işlenemedi", uid)
+            continue
+
+    logger.info(
+        "recommend_by_saved_okas: %s kullanıcıya bildirim, %s push", notified_users, pushed,
+    )
+    return {"users": notified_users, "pushed": pushed}
 
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")

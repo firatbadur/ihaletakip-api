@@ -194,6 +194,10 @@ class Notification(models.Model):
     # listesi açılır → mobil `GET /ekap/tenders/?idare_detsis=<authority_detsis>` sorgular.
     # Bu alan doluysa mobil tek ihale yerine idare listesini önceler (filter_id gibi).
     authority_detsis = models.CharField(max_length=64, null=True, blank=True)
+    # type=TENDER (OKAS öneri) bildirimlerde: kullanıcının kayıtlı ihalelerinden türetilen
+    # OKAS kodları (virgülle ayrılmış CSV). Tıklanınca tek ihale DEĞİL, o OKAS kodlarıyla
+    # arama açılır → mobil `GET /ekap/tenders/?okas_kod=<okas_kodlar>` sorgular.
+    okas_kodlar = models.CharField(max_length=500, null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

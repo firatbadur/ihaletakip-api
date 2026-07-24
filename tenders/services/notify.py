@@ -45,6 +45,7 @@ def record_notification(
     conversation_id: int | None = None,
     filter_id: int | None = None,
     authority_detsis: str | None = None,
+    okas_kodlar: str | None = None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -61,6 +62,7 @@ def record_notification(
         conversation_id=conversation_id,
         filter_id=filter_id,
         authority_detsis=authority_detsis,
+        okas_kodlar=(okas_kodlar[:500] if okas_kodlar else None),
     )
 
 
@@ -115,7 +117,7 @@ def push_to_user(
         logger.info("push atlandı (sessiz saat) uid=%s", user.pk)
         return False
 
-    # İdempotency: aynı mantıksal bildirim daha önce GÖNDERİLDİYSE atla.
+    # İdempotency (hızlı yol): aynı mantıksal bildirim daha önce GÖNDERİLDİYSE atla.
     if idem_key and cache.get(idem_key) is not None:
         logger.debug("push atlandı (idempotent) key=%s", idem_key)
         return False
@@ -137,6 +139,15 @@ def push_to_user(
             logger.info("push atlandı (min aralık %sdk) uid=%s", gap_min, user.pk)
             return False
 
+    # İdempotency (ATOMİK rezervasyon): gönderimden HEMEN ÖNCE `cache.add` ile anahtarı
+    # rezerve et. get→set arasındaki yarış penceresini kapatır: aynı mantıksal bildirimi
+    # eşzamanlı iki görev (ör. django_celery_beat'te yinelenmiş beat girdisi 07:00'de aynı
+    # anda tetiklenirse) tetiklese bile yalnızca İLK çağrı gönderir, ikincisi burada elenir
+    # (→ "peşpeşe 2 bildirim" bug'ının kök çözümü). Gönderim başarısız olursa geri alınır.
+    if idem_key and not cache.add(idem_key, 1, _IDEM_TTL):
+        logger.debug("push atlandı (idempotent/rezerve) key=%s", idem_key)
+        return False
+
     status = push_mod.send_fcm(token, title, body, data)
 
     if status == push_mod.INVALID_TOKEN:
@@ -145,15 +156,18 @@ def push_to_user(
             user.save(update_fields=["fcm_token"])
         except Exception:
             logger.exception("ölü fcm_token temizlenemedi uid=%s", user.pk)
+        if idem_key:
+            cache.delete(idem_key)  # gönderilemedi → rezervasyonu geri al
         return False
 
     if status != push_mod.SENT:
-        # DISABLED (kimlik yok) veya ERROR → sayaç/idem güncellenmez, satır zaten yazıldı.
+        # DISABLED (kimlik yok) veya ERROR → rezervasyonu geri al, sayaç güncellenmez,
+        # uygulama-içi satır zaten yazıldı. Sonraki tetik yeniden deneyebilir.
+        if idem_key:
+            cache.delete(idem_key)
         return False
 
-    # Başarılı → sayaç, son-zaman ve idem güncelle.
-    if idem_key:
-        cache.set(idem_key, 1, _IDEM_TTL)
+    # Başarılı → sayaç ve son-zaman güncelle (idem zaten rezerve edildi).
     cache.set(f"{_LAST_PREFIX}{user.pk}", timezone.now().timestamp(), _LAST_TTL)
     cache.set(cap_key, int(sent_today) + 1, _CAP_TTL)
     return True

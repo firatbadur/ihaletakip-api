@@ -226,6 +226,10 @@ def check_saved_filter_matches():
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
             continue
+        # Filtre alarmı Pro'ya özeldir → Pro iken alarmlı filtre kurup Free'ye düşen
+        # kullanıcıya bildirim gitmesin (is_premium property → Python'da eleriz).
+        if not sf.user.is_premium:
+            continue
         processed += 1
         try:
             filt = sf.filters or {}
@@ -317,6 +321,142 @@ def check_saved_filter_matches():
         processed, len(per_user), pushed,
     )
     return {"filters": processed, "users_notified": len(per_user), "pushed": pushed}
+
+
+@shared_task(name="tenders.tasks.check_favorite_authority_matches")
+def check_favorite_authority_matches():
+    """
+    Favori idareler (alarm açık) için, o idarenin **yeni yayınladığı** açık ihaleleri bulur
+    ve kullanıcıya bildirir. Kayıtlı filtre eşleşmesiyle aynı desendedir; fark: filtre yerine
+    idare, seçilen `detsis_no` tüm alt birimlerin `idare_id`'lerine genişletilir
+    (`descendant_idare_ids`, ihale/tarama uçlarıyla ortak).
+
+    Her yeni ihale için uygulama-içi satır yazılır (type=TENDER; **`authority_detsis` dolu** →
+    tıklanınca tek ihale DEĞİL, o idarenin ihale listesi `GET /ekap/tenders/?idare_detsis=`
+    açılır). `tender_ikn` de yazılır ama yalnızca **dedup** için (mobil authority_detsis'i
+    önceler). Kullanıcı başına tek özet push atılır. **Favori idare alarmı Pro'ya özeldir.**
+    """
+    from ekap.detsis_tree import descendant_idare_ids
+    from ekap.models import Tender
+    from ekap.views import _tender_idare_id_set
+
+    from .models import FavoriteAuthority, Notification
+    from .services import notify, templates
+
+    OPEN_STATUSES = [2, 3]
+    now = timezone.now()
+    today = timezone.localdate()
+    # Yalnızca son `publish_days` günde YAYINLANAN (ilan_tarihi) ihaleler bildirilir →
+    # eski/backfill ihaleler bildirilmez (kayıtlı filtre görevi ile aynı pencere).
+    publish_days = int(getattr(settings, "NOTIF_FILTER_PUBLISH_DAYS", 2))
+    window_start = now - timedelta(days=publish_days)
+
+    per_user = {}  # uid -> {"user","count","rep","authority_detsis","authority_ad","seen"}
+    processed = 0
+
+    for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
+        # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
+        if not fav.user.is_premium:
+            continue
+        processed += 1
+        try:
+            # detsis_no → tüm alt birimlerin idare_id'leri (ihalede gerçekten geçenlerle kesiş).
+            expanded = descendant_idare_ids([fav.detsis_no])
+            if expanded:
+                expanded &= _tender_idare_id_set()
+            if not expanded:
+                continue
+            base = (
+                Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
+                .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
+                .filter(ilan_tarihi__gte=window_start)
+                .order_by("-ilan_tarihi")
+            )
+
+            bucket = per_user.setdefault(
+                fav.user_id,
+                {"user": fav.user, "count": 0, "rep": None,
+                 "authority_detsis": None, "authority_ad": None, "seen": None},
+            )
+            # Bu kullanıcıya daha önce (son 30 gün) bildirilmiş İKN'ler → tekrar bildirme.
+            # type=TENDER + tender_ikn dolu bildirimler; aynı ihale filtre/idare kanalından
+            # ikinci kez gitmez. (Kullanıcı başına bir kez sorgula, kova içinde önbelleğe al.)
+            if bucket["seen"] is None:
+                bucket["seen"] = set(
+                    Notification.objects.filter(
+                        user_id=fav.user_id,
+                        type=Notification.Type.TENDER,
+                        tender_ikn__isnull=False,
+                        created_at__gte=now - timedelta(days=30),
+                    ).values_list("tender_ikn", flat=True)
+                )
+            seen = bucket["seen"]
+
+            new_list = [t for t in base[:50] if t.ikn and t.ikn not in seen][:20]
+            if not new_list:
+                continue
+
+            fav.last_notified_at = now
+            fav.save(update_fields=["last_notified_at"])
+
+            for t in new_list:
+                seen.add(t.ikn)  # aynı çalıştırmada başka favori idareden tekrar bildirme
+                title, body = templates.authority_match(
+                    authority_name=fav.ad or "Favori İdare", count=1, first_title=t.ihale_adi,
+                )
+                notify.record_notification(
+                    fav.user,
+                    type=Notification.Type.TENDER,
+                    title=title,
+                    body=body,
+                    tender_ikn=t.ikn,           # yalnızca dedup için
+                    tender_title=t.ihale_adi,
+                    institution=fav.ad or None,
+                    authority_detsis=fav.detsis_no,  # tıklanınca idare listesi
+                )
+
+            bucket["count"] += len(new_list)
+            if bucket["rep"] is None:
+                bucket["rep"] = new_list[0]
+            if bucket["authority_detsis"] is None:
+                bucket["authority_detsis"] = fav.detsis_no
+                bucket["authority_ad"] = fav.ad
+        except Exception:
+            logger.exception("check_favorite_authority_matches: favori %s işlenemedi", fav.pk)
+            continue
+
+    # Kullanıcı başına tek özet push (idare listesine derin bağlantı).
+    pushed = 0
+    notified_users = 0
+    for uid, b in per_user.items():
+        count = b["count"]
+        if count <= 0:
+            continue
+        notified_users += 1
+        rep = b["rep"]
+        if count == 1 and rep is not None:
+            title, body = templates.authority_match(
+                authority_name=b["authority_ad"] or "Favori İdare", count=1, first_title=rep.ihale_adi,
+            )
+        else:
+            title = "Favori İdareleriniz"
+            body = f"Favori idarelerinizden {count} yeni ihale"
+        data = {"type": Notification.Type.TENDER}
+        # Bildirime basınca tek ihaleye DEĞİL, temsili idarenin ihale listesine gitsin.
+        if b["authority_detsis"]:
+            data["authorityDetsis"] = b["authority_detsis"]
+        ok = notify.push_to_user(
+            b["user"], title=title, body=body, data=data,
+            idem_key=f"authority:{uid}:{today.isoformat()}",
+        )
+        if ok:
+            pushed += 1
+
+    logger.info(
+        "check_favorite_authority_matches: %s favori, %s kullanıcıya bildirim, %s push",
+        processed, notified_users, pushed,
+    )
+    return {"favorites": processed, "users_notified": notified_users, "pushed": pushed}
 
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")

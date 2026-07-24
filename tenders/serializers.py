@@ -28,9 +28,10 @@ class FavoriteSerializer(serializers.ModelSerializer):
 class FavoriteAuthoritySerializer(serializers.ModelSerializer):
     class Meta:
         model = FavoriteAuthority
-        fields = ["id", "detsis_no", "idare_id", "ad", "has_items", "added_at"]
+        fields = ["id", "detsis_no", "alarm", "idare_id", "ad", "has_items", "added_at"]
         # `ad`/`idare_id`/`has_items` sunucuda `ekap.Authority`'den doldurulur;
-        # mobil yalnızca `detsis_no` gönderir.
+        # mobil yalnızca `detsis_no` (+ ist/opsiyonel `alarm`) gönderir. `alarm`
+        # varsayılan `True` → favorileyince yeni ihale bildirimi açık gelir.
         read_only_fields = ["id", "idare_id", "ad", "has_items", "added_at"]
 
 
@@ -91,6 +92,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "institution",
             "conversation_id",
             "filter_id",
+            "authority_detsis",
             "read",
             "created_at",
         ]

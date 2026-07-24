@@ -57,6 +57,12 @@ class FavoriteAuthority(models.Model):
     idare_id = models.CharField(max_length=64, null=True, blank=True)
     ad = models.CharField(max_length=500, blank=True)
     has_items = models.BooleanField(default=False)
+    # Alarm açıksa (varsayılan), bu idare yeni bir ihale YAYINLADIĞINDA kullanıcıya
+    # bildirim gider (`check_favorite_authority_matches` beat görevi). Bildirime basınca
+    # mobil o idarenin ihale listesini `GET /ekap/tenders/?idare_detsis=<detsis_no>` açar.
+    alarm = models.BooleanField(default=True)
+    # Alarm görevinin bu favori için en son ne zaman çalıştığı (bilgilendirme/hata ayıklama).
+    last_notified_at = models.DateTimeField(null=True, blank=True)
     added_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -184,6 +190,10 @@ class Notification(models.Model):
     # ile `GET /saved-filters/{id}/` filtresini yükleyip uygular. Bu alan doluysa mobil
     # tender_id/tender_ikn yerine filtreyi önceler.
     filter_id = models.BigIntegerField(null=True, blank=True)
+    # type=TENDER (favori idare eşleşmesi) bildirimlerde: tıklanınca o idarenin ihale
+    # listesi açılır → mobil `GET /ekap/tenders/?idare_detsis=<authority_detsis>` sorgular.
+    # Bu alan doluysa mobil tek ihale yerine idare listesini önceler (filter_id gibi).
+    authority_detsis = models.CharField(max_length=64, null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

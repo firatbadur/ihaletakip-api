@@ -10,17 +10,7 @@ from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.premium import (
-    FREE_FAVORITE_AUTHORITY_LIMIT,
-    FREE_SAVED_FILTER_LIMIT,
-    FREE_SAVED_TENDER_LIMIT,
-    MSG_ALARM,
-    MSG_FAVORITE_AUTHORITY_LIMIT,
-    MSG_SAVED_FILTER_LIMIT,
-    MSG_SAVED_TENDER_LIMIT,
-    enforce_free_limit,
-    require_premium,
-)
+from accounts.premium import MSG_ALARM, MSG_FILTER_ALARM, require_premium
 
 from .models import (
     Favorite,
@@ -182,17 +172,17 @@ def _enrich_authority(detsis_no):
         description=(
             "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` "
             "ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` "
-            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n"
-            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_FAVORITE_AUTHORITY_LIMIT} idare "
-            "favorilenebilir. Sınır aşılırsa **403** döner "
-            "(`errors.code = premium_required`). Zaten favorideki bir idarenin güncellenmesi "
-            "(upsert) limiti tetiklemez. Pro üyelikte sınır yoktur."
+            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez. Sınır yoktur "
+            "(Free + Pro).\n\n"
+            "`alarm` (varsayılan `true`): açıkken bu idare **yeni bir ihale yayınladığında** "
+            "kullanıcıya bildirim gider; bildirime basınca o idarenin ihale listesi açılır. "
+            "Yalnızca hızlı erişim için favorilemek isteyen kullanıcı `alarm:false` gönderebilir."
         ),
         examples=[
             OpenApiExample(
                 "İdareyi favoriye ekle",
                 request_only=True,
-                value={"detsis_no": "24308110"},
+                value={"detsis_no": "24308110", "alarm": True},
             )
         ],
     ),
@@ -202,21 +192,15 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
     queryset_model = FavoriteAuthority
 
     def perform_create(self, serializer):
-        user = self.request.user
+        # Sınır yok (Free dahil). Aynı idare tekrar eklenirse günceller (upsert);
+        # ad/idare_id/has_items DB'den zenginleşir, alarm tercihi korunur.
         detsis_no = serializer.validated_data["detsis_no"]
-        # Free limiti yalnızca YENİ bir favori için uygulanır; mevcut idarenin güncellemesi
-        # (upsert) sayılmaz. Aynı idare tekrar eklenirse günceller; ad/idare_id DB'den zenginleşir.
-        if not FavoriteAuthority.objects.filter(user=user, detsis_no=detsis_no).exists():
-            enforce_free_limit(
-                user,
-                current_count=FavoriteAuthority.objects.filter(user=user).count(),
-                limit=FREE_FAVORITE_AUTHORITY_LIMIT,
-                message=MSG_FAVORITE_AUTHORITY_LIMIT,
-            )
+        defaults = _enrich_authority(detsis_no)
+        defaults["alarm"] = serializer.validated_data.get("alarm", True)
         FavoriteAuthority.objects.update_or_create(
-            user=user,
+            user=self.request.user,
             detsis_no=detsis_no,
-            defaults=_enrich_authority(detsis_no),
+            defaults=defaults,
         )
 
 
@@ -286,11 +270,11 @@ _FILTER_ID_PARAM = OpenApiParameter(
         tags=["saved-filters"],
         summary="Filtre kaydet",
         description=(
-            "Yeni bir arama filtresi kaydeder.\n\n"
-            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_SAVED_FILTER_LIMIT} filtre "
-            "kaydedilebilir. Sınır aşılırsa **403** döner "
-            "(`errors.code = premium_required`) — mobil abonelik paketlerini sunar. "
-            "Pro üyelikte sınır yoktur."
+            "Yeni bir arama filtresi kaydeder. Filtre kaydetmenin **sınırı yoktur** "
+            "(Free + Pro).\n\n"
+            "**Filtre alarmı Pro'ya özeldir:** `alarm` açık gönderilirse ve üyelik Free "
+            "ise **403** döner (`errors.code = premium_required`). Alarmsız kaydetmek "
+            "serbesttir; alarm (uygun yeni ihale bildirimi) için Pro gerekir."
         ),
         examples=[_SAVED_FILTER_EXAMPLE],
     ),
@@ -300,13 +284,11 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = SavedFilter
 
     def perform_create(self, serializer):
-        # Free üyelik filtre limiti (her POST yeni bir filtredir; upsert yok).
-        enforce_free_limit(
-            self.request.user,
-            current_count=SavedFilter.objects.filter(user=self.request.user).count(),
-            limit=FREE_SAVED_FILTER_LIMIT,
-            message=MSG_SAVED_FILTER_LIMIT,
-        )
+        # Filtre kaydetme serbest; ancak ALARM açıksa Pro gerekir (yeni ihale bildirimi).
+        from .tasks import _alarm_enabled
+
+        if _alarm_enabled(serializer.validated_data.get("alarm")):
+            require_premium(self.request.user, MSG_FILTER_ALARM)
         serializer.save(user=self.request.user)
 
 
@@ -319,12 +301,18 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     put=extend_schema(
         tags=["saved-filters"], summary="Filtreyi değiştir",
         parameters=[_FILTER_ID_PARAM], examples=[_SAVED_FILTER_EXAMPLE],
-        description="Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir.",
+        description=(
+            "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. Sonuçta `alarm` "
+            "açık kalır/olursa **Pro** gerekir (Free → 403)."
+        ),
     ),
     patch=extend_schema(
         tags=["saved-filters"], summary="Filtreyi kısmi güncelle",
         parameters=[_FILTER_ID_PARAM], examples=[_SAVED_FILTER_EXAMPLE],
-        description="Yalnızca gönderilen alanları günceller.",
+        description=(
+            "Yalnızca gönderilen alanları günceller. Sonuçta `alarm` açık kalır/olursa "
+            "**Pro** gerekir (Free → 403). Alarmı **kapatmak** her üyeye serbesttir."
+        ),
     ),
     delete=extend_schema(
         tags=["saved-filters"], summary="Filtreyi sil",
@@ -335,6 +323,16 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
 class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = SavedFilterSerializer
     queryset_model = SavedFilter
+
+    def perform_update(self, serializer):
+        # Güncelleme sonrası ALARM açık kalıyorsa Pro gerekir. PATCH'te alarm gönderilmediyse
+        # mevcut (instance) değeri temel alınır → alarmı kapatmak serbest, açık tutmak Pro.
+        from .tasks import _alarm_enabled
+
+        alarm = serializer.validated_data.get("alarm", getattr(serializer.instance, "alarm", None))
+        if _alarm_enabled(alarm):
+            require_premium(self.request.user, MSG_FILTER_ALARM)
+        serializer.save()
 
 
 # ── Kayıtlı İhaleler ───────────────────────────────────
@@ -348,11 +346,8 @@ class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAP
         tags=["saved-tenders"],
         summary="İhaleyi kaydet",
         description=(
-            "İhaleyi kayıtlılara ekler.\n\n"
-            f"**Ücretsiz (Free) üyelik:** en fazla {FREE_SAVED_TENDER_LIMIT} ihale "
-            "kaydedilebilir. Sınır aşılırsa **403** döner "
-            "(`errors.code = premium_required`). Zaten kayıtlı bir İKN'nin "
-            "güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur."
+            "İhaleyi kayıtlılara ekler. Aynı `tender_ikn` tekrar gönderilirse kayıt "
+            "güncellenir (upsert). Sınır yoktur (Free + Pro)."
         ),
         examples=[
             OpenApiExample(
@@ -378,20 +373,10 @@ class SavedTenderListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = SavedTender
 
     def perform_create(self, serializer):
-        user = self.request.user
-        ikn = serializer.validated_data["tender_ikn"]
-        # Free limiti yalnızca YENİ bir kayıt için uygulanır; mevcut İKN güncellemesi
-        # (upsert) sayılmaz — kullanıcı zaten kayıtlı ihalesini serbestçe güncelleyebilir.
-        if not SavedTender.objects.filter(user=user, tender_ikn=ikn).exists():
-            enforce_free_limit(
-                user,
-                current_count=SavedTender.objects.filter(user=user).count(),
-                limit=FREE_SAVED_TENDER_LIMIT,
-                message=MSG_SAVED_TENDER_LIMIT,
-            )
+        # Sınır yok (Free dahil). Aynı İKN tekrar gönderilirse günceller (upsert).
         SavedTender.objects.update_or_create(
-            user=user,
-            tender_ikn=ikn,
+            user=self.request.user,
+            tender_ikn=serializer.validated_data["tender_ikn"],
             defaults=serializer.validated_data,
         )
 

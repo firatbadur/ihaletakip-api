@@ -21,9 +21,10 @@ class FavoriteAdmin(admin.ModelAdmin):
 
 @admin.register(FavoriteAuthority)
 class FavoriteAuthorityAdmin(admin.ModelAdmin):
-    list_display = ["ad", "detsis_no", "idare_id", "user", "added_at"]
-    list_filter = ["added_at"]
+    list_display = ["ad", "detsis_no", "idare_id", "user", "alarm", "last_notified_at", "added_at"]
+    list_filter = ["alarm", "added_at"]
     search_fields = ["ad", "detsis_no", "idare_id", "user__username", "user__email"]
+    readonly_fields = ["last_notified_at"]
     raw_id_fields = ["user"]
 
 

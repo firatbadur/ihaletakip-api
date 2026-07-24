@@ -70,3 +70,15 @@ def saved_filter_match(*, filter_name: str, count: int, first_title: str | None 
     else:
         body = f"Filtrenize uygun {count} yeni ihale"
     return title, body
+
+
+# ── Favori idare: yeni ihale yayını ────────────────────
+
+def authority_match(*, authority_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:
+    """Favori idarenin yayınladığı yeni ihale(ler) için başlık = idare adı."""
+    title = clip(authority_name or "Favori İdare")
+    if count == 1 and first_title:
+        body = f"Yeni ihale: {clip(first_title, 80)}"
+    else:
+        body = f"{count} yeni ihale yayımlandı"
+    return title, body

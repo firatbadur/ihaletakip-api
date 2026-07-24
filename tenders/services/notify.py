@@ -44,6 +44,7 @@ def record_notification(
     institution: str | None = None,
     conversation_id: int | None = None,
     filter_id: int | None = None,
+    authority_detsis: str | None = None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -59,6 +60,7 @@ def record_notification(
         institution=(institution[:500] if institution else None),
         conversation_id=conversation_id,
         filter_id=filter_id,
+        authority_detsis=authority_detsis,
     )
 
 

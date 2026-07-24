@@ -34,6 +34,11 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_saved_filter_matches",
         "schedule": crontab(hour=10, minute=0),
     },
+    # Favori idare eşleşmesi: favori idarelerin yeni yayınladığı ihaleler (her gün 11:00)
+    "check-favorite-authority-matches": {
+        "task": "tenders.tasks.check_favorite_authority_matches",
+        "schedule": crontab(hour=11, minute=0),
+    },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {
         "task": "tenders.tasks.cleanup_old_notifications",

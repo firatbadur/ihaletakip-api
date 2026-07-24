@@ -1489,11 +1489,12 @@ paths:
       description: 'İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`,
         `idare_id` ve `has_items` sunucuda `ekap.Authority`''den doldurulur. Aynı
         `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.
+        Sınır yoktur (Free + Pro).
 
 
-        **Ücretsiz (Free) üyelik:** en fazla 5 idare favorilenebilir. Sınır aşılırsa
-        **403** döner (`errors.code = premium_required`). Zaten favorideki bir idarenin
-        güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.'
+        `alarm` (varsayılan `true`): açıkken bu idare **yeni bir ihale yayınladığında**
+        kullanıcıya bildirim gider; bildirime basınca o idarenin ihale listesi açılır.
+        Yalnızca hızlı erişim için favorilemek isteyen kullanıcı `alarm:false` gönderebilir.'
       summary: İdareyi favoriye ekle
       tags:
       - favorites
@@ -1506,6 +1507,7 @@ paths:
               İdareyiFavoriyeEkle:
                 value:
                   detsis_no: '24308110'
+                  alarm: true
                 summary: İdareyi favoriye ekle
           application/x-www-form-urlencoded:
             schema:
@@ -1788,12 +1790,13 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_filters_create
-      description: 'Yeni bir arama filtresi kaydeder.
+      description: 'Yeni bir arama filtresi kaydeder. Filtre kaydetmenin **sınırı
+        yoktur** (Free + Pro).
 
 
-        **Ücretsiz (Free) üyelik:** en fazla 5 filtre kaydedilebilir. Sınır aşılırsa
-        **403** döner (`errors.code = premium_required`) — mobil abonelik paketlerini
-        sunar. Pro üyelikte sınır yoktur.'
+        **Filtre alarmı Pro''ya özeldir:** `alarm` açık gönderilirse ve üyelik Free
+        ise **403** döner (`errors.code = premium_required`). Alarmsız kaydetmek serbesttir;
+        alarm (uygun yeni ihale bildirimi) için Pro gerekir.'
       summary: Filtre kaydet
       tags:
       - saved-filters
@@ -1865,7 +1868,8 @@ paths:
           description: ''
     put:
       operationId: api_v1_saved_filters_update
-      description: Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir.
+      description: Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. Sonuçta
+        `alarm` açık kalır/olursa **Pro** gerekir (Free → 403).
       summary: Filtreyi değiştir
       parameters:
       - in: path
@@ -1920,7 +1924,8 @@ paths:
           description: ''
     patch:
       operationId: api_v1_saved_filters_partial_update
-      description: Yalnızca gönderilen alanları günceller.
+      description: Yalnızca gönderilen alanları günceller. Sonuçta `alarm` açık kalır/olursa
+        **Pro** gerekir (Free → 403). Alarmı **kapatmak** her üyeye serbesttir.
       summary: Filtreyi kısmi güncelle
       parameters:
       - in: path
@@ -2016,12 +2021,8 @@ paths:
           description: ''
     post:
       operationId: api_v1_saved_tenders_create
-      description: 'İhaleyi kayıtlılara ekler.
-
-
-        **Ücretsiz (Free) üyelik:** en fazla 5 ihale kaydedilebilir. Sınır aşılırsa
-        **403** döner (`errors.code = premium_required`). Zaten kayıtlı bir İKN''nin
-        güncellenmesi (upsert) limiti tetiklemez. Pro üyelikte sınır yoktur.'
+      description: İhaleyi kayıtlılara ekler. Aynı `tender_ikn` tekrar gönderilirse
+        kayıt güncellenir (upsert). Sınır yoktur (Free + Pro).
       summary: İhaleyi kaydet
       tags:
       - saved-tenders
@@ -2626,6 +2627,8 @@ components:
         detsis_no:
           type: string
           maxLength: 64
+        alarm:
+          type: boolean
         idare_id:
           type: string
           readOnly: true
@@ -2756,6 +2759,10 @@ components:
           type: integer
           readOnly: true
           nullable: true
+        authority_detsis:
+          type: string
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -2764,6 +2771,7 @@ components:
           format: date-time
           readOnly: true
       required:
+      - authority_detsis
       - body
       - conversation_id
       - created_at

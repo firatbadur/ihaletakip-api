@@ -14,28 +14,19 @@ from __future__ import annotations
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
-# ── Free (ücretsiz) katman limitleri ───────────────────
-# Free kullanıcı en fazla bu kadar filtre/ihale/idare kaydedebilir; fazlası Pro ister.
-FREE_SAVED_FILTER_LIMIT = 5
-FREE_SAVED_TENDER_LIMIT = 5
-FREE_FAVORITE_AUTHORITY_LIMIT = 5
+# ── Free (ücretsiz) katman sayısal limitleri ───────────
+# Not: kayıtlı filtre / kayıtlı ihale / favori idare artık Free'de de **sınırsızdır**
+# (limit sabitleri kaldırıldı). Sayı-tabanlı bir Free limiti gerekirse `enforce_free_limit`
+# yardımcısı jenerik olarak durur — yeni sabit + mesaj tanımlayıp ilgili view'da çağır.
 
 # ── Türkçe kullanıcı mesajları (uçlara özel) ───────────
-MSG_SAVED_FILTER_LIMIT = (
-    f"Ücretsiz üyelikte en fazla {FREE_SAVED_FILTER_LIMIT} filtre kaydedebilirsiniz. "
-    "Sınırsız filtre kaydetmek için Pro'ya geçin."
-)
-MSG_SAVED_TENDER_LIMIT = (
-    f"Ücretsiz üyelikte en fazla {FREE_SAVED_TENDER_LIMIT} ihale kaydedebilirsiniz. "
-    "Sınırsız ihale kaydetmek için Pro'ya geçin."
-)
-MSG_FAVORITE_AUTHORITY_LIMIT = (
-    f"Ücretsiz üyelikte en fazla {FREE_FAVORITE_AUTHORITY_LIMIT} idare favorileyebilirsiniz. "
-    "Sınırsız idare favorilemek için Pro'ya geçin."
-)
 MSG_ALARM = (
     "İhale alarmı kurma Pro aboneliğe özeldir. Alarmlar (ihale günü, doküman değişikliği, "
     "sonuçlanma) için Pro'ya geçin."
+)
+MSG_FILTER_ALARM = (
+    "Filtre alarmı (uygun yeni ihale bildirimi) Pro aboneliğe özeldir. Filtreyi alarmsız "
+    "kaydedebilirsiniz; alarm kurmak için Pro'ya geçin."
 )
 MSG_CHAT = (
     "İhale Asistanı ile sohbet Pro aboneliğe özeldir. Profilinizi oluşturabilirsiniz; "

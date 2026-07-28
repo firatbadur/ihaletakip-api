@@ -20,15 +20,19 @@ OPEN_STATUSES = [2, 3]
 TENDER_TYPE_LABELS = {1: "Mal Alımı", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
 
 
-def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: float = 3.0) -> list:
+def match_tenders_for_profile(profile, since=None, published_on=None, limit: int = 10, min_score: float = 3.0) -> list:
     """
     Profil haritasına göre AÇIK (katılıma açık) ve teklifi geçmemiş ihaleleri skorlar.
     Dönen: [(tender, score, reasons), ...] — skora göre azalan, en fazla `limit` adet.
 
-    Not: `ilan_tarihi` verisi liste senkronunda çoğu zaman boş kaldığından ona göre
-    filtrelenmez. Bunun yerine durum (2/3) + teklifi geçmemiş (ihale_tarihi >= şimdi
-    veya boş) kullanılır. `since` verilirse ek olarak son X günde ilan edilenlere
-    daraltır (yalnızca ilan_tarihi DOLU olanlar için). Tekrar önerme dedup ile önlenir.
+    Not: `ilan_tarihi` verisi liste senkronunda çoğu zaman boş kaldığından varsayılan olarak
+    ona göre filtrelenmez. Bunun yerine durum (2/3) + teklifi geçmemiş (ihale_tarihi >= şimdi
+    veya boş) kullanılır (sohbet/canlı eşleştirme bu geniş kapsamı kullanır).
+    - `since` verilirse ek olarak son X günde ilan edilenlere daraltır (ilan_tarihi DOLU ya da
+      boş olanlar dahil; gevşek pencere).
+    - `published_on` (bir tarih) verilirse **KATI**: yalnızca `ilan_tarihi` tarihi tam o güne
+      eşit olan ihaleler (NULL ilan_tarihi HARİÇ). Günlük öneri bildirimi (beat) bunu bugünle
+      çağırır → yalnızca bugün yayınlanan ihaleler önerilir. Tekrar önerme dedup ile önlenir.
     """
     from ekap.models import Tender
 
@@ -47,8 +51,12 @@ def match_tenders_for_profile(profile, since=None, limit: int = 10, min_score: f
     qs = Tender.objects.filter(ihale_durum__in=OPEN_STATUSES).filter(
         Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True)
     )
-    # since verildiyse VE ilan_tarihi doluysa son X güne daralt (beat için opsiyonel)
-    if since is not None:
+    # published_on (KATI): yalnızca ilan_tarihi o güne eşit (NULL hariç). Günlük öneri
+    # bildirimi bugünle çağırır → yalnızca bugün yayınlananlar önerilir.
+    if published_on is not None:
+        qs = qs.filter(ilan_tarihi__date=published_on)
+    # since (gevşek): ilan_tarihi doluysa son X güne daralt, boşları da kapsar.
+    elif since is not None:
         qs = qs.filter(Q(ilan_tarihi__gte=since) | Q(ilan_tarihi__isnull=True))
     # İndexli ön-filtreler: kullanıcı şehir/tür seçtiyse kapsamı daralt
     if city_ids:

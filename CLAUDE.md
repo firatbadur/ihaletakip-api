@@ -211,8 +211,8 @@ ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorile
   kullanıcıya bildirim gider — `check_favorite_authority_matches` beat görevi (her gün
   **11:00**), kayıtlı-filtre eşleşmesiyle **aynı desen**. Fark: filtre yerine idare;
   seçilen `detsis_no` `descendant_idare_ids` ile tüm alt birimlerin `idare_id`'lerine
-  genişletilir (ihale/tarama uçlarıyla ortak), açık + son `NOTIF_FILTER_PUBLISH_DAYS`
-  günde yayınlanmış ihaleler bulunur. Uygulama-içi satır `type=TENDER` + **`authority_detsis`
+  genişletilir (ihale/tarama uçlarıyla ortak), açık + **`ilan_tarihi` BUGÜN olan** ihaleler
+  bulunur. Uygulama-içi satır `type=TENDER` + **`authority_detsis`
   dolu** yazılır → mobil bildirime basınca **tek ihale DEĞİL**, o idarenin ihale listesini
   (`idare_detsis=<detsis_no>`) açar (`tender_ikn` yalnızca dedup için yazılır, mobil
   `authority_detsis`'i önceler). Kullanıcı başına tek özet push. **Alarm Pro'ya özeldir**:
@@ -268,12 +268,14 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   tabanlı** skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
   `TenderRecommendation` + **digest sohbeti** (`kind="digest"`) + o sohbete **bağlı**
   push bildirimi. `CompanyProfile.is_active=False` ise kullanıcı atlanır.
-  - **Eşleştirme kapsamı** (`match_tenders_for_profile`): `ilan_tarihi` liste
-    senkronunda çoğu ihalede **boş** kaldığından ona göre filtrelenmez; **durum 2/3
-    (katılıma açık) + teklifi geçmemiş** (`ihale_tarihi >= now` ya da boş) kullanılır.
-    `since` verilirse (beat) yalnızca `ilan_tarihi` DOLU olanlara ek daraltma. Kullanıcının
-    zaten **kaydettiği** ihaleler (`SavedTender`) önerilerden **exclude** edilir (İKN ile
-    açıkça sorulursa yine gelir).
+  - **Eşleştirme kapsamı** (`match_tenders_for_profile`): temel filtre **durum 2/3 (katılıma
+    açık) + teklifi geçmemiş** (`ihale_tarihi >= now` ya da boş). İki opsiyonel pencere:
+    (a) `published_on=<tarih>` **KATI** → yalnızca `ilan_tarihi` tarihi tam o güne eşit (NULL
+    hariç); **günlük öneri bildirimi (beat) bunu BUGÜN'le çağırır** → yalnızca bugün yayınlanan
+    ihaleler önerilir. (b) `since` **gevşek** → son X gün, `ilan_tarihi` boş olanlar dahil
+    (`--days N`, N>1 backfill). Sohbet/canlı eşleştirme ikisini de vermez (geniş kapsam).
+    Kullanıcının zaten **kaydettiği** ihaleler (`SavedTender`) önerilerden **exclude** edilir
+    (İKN ile açıkça sorulursa yine gelir).
   - **Digest bildirimi = `Notification.type=CHAT`** + `conversation_id`: mobilde
     bildirime basınca ihale detayı DEĞİL, ilgili digest **sohbeti** açılır. (`Notification`
     modeline `CHAT` türü ve `conversation_id` alanı eklendi.)
@@ -565,19 +567,20 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
      push (o ihalenin olayları `templates.alarm_tender` ile tek bildirimde birleşir; başlık =
      ihale adı). `type=ALARM` + `tenderId`/`tenderIkn` → tıklanınca ihale detayı. Gün-kilidi
      `alarm:{uid}:{ekap_id}:{date}`. Snapshot alanları `TenderAlarm`'da.
-  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **yalnızca son
-     `NOTIF_FILTER_PUBLISH_DAYS`=2 günde YAYINLANAN** (`ilan_tarihi`) açık ihaleler; ayrıca
-     `last_notified_at` watermark'ından (son kontrolden) sonrakiler. Eski/backfill ihaleler
-     bildirilmez. Filtre semantiği `ekap.views.apply_tender_filters` ile view'la **ortak**.
+  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **yalnızca `ilan_tarihi`
+     BUGÜN olan** açık ihaleler (dün/eski/backfill DEĞİL; "bugün" filtresi cross-day dedup'ı da
+     sağlar → watermark KALDIRILDI). `ilan_tarihi` detay senkronundan dolduğundan bugün yayınlanan
+     bir ihale ancak detayı gelip `ilan_tarihi=bugün` olunca eşleşir. Filtre semantiği
+     `ekap.views.apply_tender_filters` ile view'la **ortak**.
      **Her filtre için AYRI** bildirim/push (10 filtreden 8'i eşleşirse 8 ayrı). **Mesaj**:
      başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu."
      (`templates.saved_filter_match`). **Derin bağlantı = filtre**: `type=TENDER` +
      `filter_id=SavedFilter.id`; `tender_id`/`tender_ikn` **doldurulmaz**. Mobil `filter_id`
      ile filtreyi (`GET /saved-filters/{id}/`) yükleyip arama sonuçlarını açar (push data →
      `filterId`). Gün-kilidi `filter:{uid}:{sf.id}:{date}`. **Pro'ya özel** (premium olmayan atlanır).
-  4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yeni yayınladığı**
-     (son `NOTIF_FILTER_PUBLISH_DAYS` günde `ilan_tarihi` + `last_notified_at` watermark'ından
-     sonrakiler) açık ihaleler. `detsis_no` `descendant_idare_ids` ile alt birim
+  4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yalnızca `ilan_tarihi`
+     BUGÜN olan** açık ihaleleri (dün/eski DEĞİL; "bugün" filtresi cross-day dedup'ı sağlar).
+     `detsis_no` `descendant_idare_ids` ile alt birim
      `idare_id`'lerine genişletilir (ihale/tarama uçlarıyla ortak). **Her favori idare için
      AYRI** bildirim/push (başlık = idare adı). **Derin bağlantı = idare listesi**: `type=TENDER`
      + `authority_detsis=detsis_no`; mobil o idarenin listesini (`GET /ekap/tenders/?idare_detsis=`)

@@ -247,8 +247,9 @@ NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=50)
 # Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz. 0 → KAPALI.
 # Abonelik push'ları aynı görev turunda arka arkaya gittiğinden 0'dır (30 dk olsa 2.+ push düşerdi).
 NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=0)
-# Kayıtlı filtre bildirimi: yalnızca son bu kadar günde YAYINLANAN (ilan_tarihi)
-# ihaleler bildirilir → eski/backfill ihaleler bildirilmez.
+# (ARTIK KULLANILMIYOR) Kayıtlı filtre/idare bildirimi eskiden bu pencereyi kullanırdı;
+# artık yalnızca `ilan_tarihi` BUGÜN olan ihaleler bildirilir (bkz. tenders/tasks.py).
+# Geriye dönük uyumluluk için ayar durur.
 NOTIF_FILTER_PUBLISH_DAYS = env.int("NOTIF_FILTER_PUBLISH_DAYS", default=2)
 # OKAS önerisi (recommend_by_saved_okas): kayıtlı ihalelerin OKAS kodlarıyla yalnızca
 # son bu kadar günde YAYINLANAN ihaleler önerilir (vars. 1 gün = "bugün yayınlanan").

@@ -295,11 +295,12 @@ def assistant_chat_task(user_id, message_id):
 @shared_task(name="assistant.tasks.match_recommendations")
 def match_recommendations(since_days=1):
     """
-    Günlük eşleştirme: her aktif profil için son `since_days` günde ilan edilen açık
-    ihaleleri skorlar; öneri + bildirim + digest sohbet mesajı üretir.
+    Günlük eşleştirme: her aktif profil için **yalnızca ilan_tarihi BUGÜN olan** açık ihaleleri
+    skorlar; öneri + bildirim + digest sohbet mesajı üretir (dün/eski yayınlananlar DEĞİL).
 
     since_days: elle tetiklerken geniş pencere için artırılabilir (bkz.
-    `manage.py run_assistant_match --days N`).
+    `manage.py run_assistant_match --days N`). `since_days>1` verilirse "bugün" katı filtresi
+    yerine son N günün gevşek penceresi (`since`) kullanılır (backfill/test için).
     """
     from datetime import timedelta
 
@@ -314,7 +315,10 @@ def match_recommendations(since_days=1):
     from tenders.services import notify
 
     today = timezone.localdate()
-    since = timezone.now() - timedelta(days=since_days)
+    # Varsayılan (beat, since_days=1): yalnızca BUGÜN yayınlananlar (katı).
+    # Elle geniş pencere (since_days>1): eski gevşek `since` (backfill/test).
+    published_on = today if since_days <= 1 else None
+    since = None if since_days <= 1 else (timezone.now() - timedelta(days=since_days))
 
     profiles = (
         CompanyProfile.objects.filter(is_active=True)
@@ -330,7 +334,7 @@ def match_recommendations(since_days=1):
             skipped_free += 1
             continue
         try:
-            matches = match_tenders_for_profile(profile, since=since)
+            matches = match_tenders_for_profile(profile, since=since, published_on=published_on)
         except Exception:
             logger.exception("match_recommendations: profil %s eşleştirme hatası", profile.id)
             continue

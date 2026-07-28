@@ -179,12 +179,13 @@ def _alarm_enabled(alarm) -> bool:
 @shared_task(name="tenders.tasks.check_saved_filter_matches")
 def check_saved_filter_matches():
     """
-    Alarmı açık kayıtlı filtreler için, filtreye uyan yeni ihaleleri bulur. **Her filtre için
-    AYRI** uygulama-içi satır + push atılır (kullanıcı başına birleşik özet DEĞİL): 10 filtreden
-    8'i eşleşirse 8 ayrı bildirim gider. Başlık = filtre adı, gövde = "{filtre} filtrenize uygun
-    N adet ihale bulundu."; tıklanınca tek ihale DEĞİL, `filter_id` ile o filtrenin sonuç listesi
-    açılır. Filtre başına atomik gün-kilidi (aynı gün çoğalma yok) + `last_notified_at` watermark
-    (dün bildirilen ihale bugün tekrar bildirilmez). **Filtre alarmı Pro'ya özeldir.**
+    Alarmı açık kayıtlı filtreler için, filtreye uyan ve **yalnızca ilan_tarihi BUGÜN olan**
+    açık ihaleleri bulur (eski/dün yayınlananlar DEĞİL). **Her filtre için AYRI** uygulama-içi
+    satır + push atılır (kullanıcı başına birleşik özet DEĞİL): 10 filtreden 8'i eşleşirse 8 ayrı
+    bildirim gider. Başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu.";
+    tıklanınca tek ihale DEĞİL, `filter_id` ile o filtrenin sonuç listesi açılır. Filtre başına
+    atomik gün-kilidi (aynı gün çoğalma yok; "bugün" filtresi cross-day dedup'ı zaten sağlar).
+    **Filtre alarmı Pro'ya özeldir.**
     """
     from ekap.models import Tender
     from ekap.views import apply_tender_filters
@@ -195,10 +196,6 @@ def check_saved_filter_matches():
     OPEN_STATUSES = [2, 3]
     now = timezone.now()
     today = timezone.localdate()
-    # Yalnızca son `publish_days` gün içinde YAYINLANAN (ilan_tarihi) ihaleler bildirilir →
-    # eski/backfill ihaleler bildirilmez. ilan_tarihi detay senkronundan dolar.
-    publish_days = int(getattr(settings, "NOTIF_FILTER_PUBLISH_DAYS", 2))
-    window_start = now - timedelta(days=publish_days)
 
     processed = 0
     notified = 0
@@ -217,7 +214,6 @@ def check_saved_filter_matches():
             continue
         processed += 1
         try:
-            prev_watermark = sf.last_notified_at
             filt = sf.filters or {}
             # Filtrenin kendi kriterleri (ihale_adi, ihale_tip, il_id...) apply_tender_filters
             # ile uygulanır (parametre adları = Tender model alan adları).
@@ -225,12 +221,12 @@ def check_saved_filter_matches():
             # Filtre kendi durumunu belirtmediyse yalnızca katılıma açık ihaleleri öner.
             if not filt.get("ihale_durum"):
                 base = base.filter(ihale_durum__in=OPEN_STATUSES)
-            # Teklifi geçmemiş (biddable) + son `publish_days` günde yayınlanmış.
+            # Teklifi geçmemiş (biddable).
             base = base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-            base = base.filter(ilan_tarihi__gte=window_start)
-            # Cross-day dedup: yalnızca son kontrolden (watermark) sonra yayınlananlar.
-            if prev_watermark:
-                base = base.filter(ilan_tarihi__gt=prev_watermark)
+            # YALNIZCA ilan_tarihi BUGÜN olan ihaleler bildirilir (kullanıcı isteği): dün/eski/
+            # backfill yayınlananlar bildirilmez. ilan_tarihi detay senkronundan dolar; bugün
+            # yayınlanan bir ihale ancak detayı gelip ilan_tarihi=bugün olduğunda eşleşir.
+            base = base.filter(ilan_tarihi__date=today)
 
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
@@ -270,12 +266,13 @@ def check_saved_filter_matches():
 @shared_task(name="tenders.tasks.check_favorite_authority_matches")
 def check_favorite_authority_matches():
     """
-    Favori idareler (alarm açık) için, o idarenin yeni yayınladığı açık ihaleleri bulur.
-    **Her favori idare için AYRI** uygulama-içi satır + push atılır (kullanıcı başına birleşik
-    özet DEĞİL). Başlık = idare adı; tıklanınca tek ihale DEĞİL, `authority_detsis` ile o
-    idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`) açılır. Seçilen `detsis_no`
-    `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir. İdare başına atomik
-    gün-kilidi + `last_notified_at` watermark. **Favori idare alarmı Pro'ya özeldir.**
+    Favori idareler (alarm açık) için, o idarenin **yalnızca ilan_tarihi BUGÜN olan** açık
+    ihalelerini bulur (eski/dün yayınlananlar DEĞİL). **Her favori idare için AYRI** uygulama-içi
+    satır + push atılır (kullanıcı başına birleşik özet DEĞİL). Başlık = idare adı; tıklanınca
+    tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`)
+    açılır. Seçilen `detsis_no` `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir.
+    İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori idare
+    alarmı Pro'ya özeldir.**
     """
     from ekap.detsis_tree import descendant_idare_ids
     from ekap.models import Tender
@@ -287,10 +284,6 @@ def check_favorite_authority_matches():
     OPEN_STATUSES = [2, 3]
     now = timezone.now()
     today = timezone.localdate()
-    # Yalnızca son `publish_days` günde YAYINLANAN (ilan_tarihi) ihaleler bildirilir →
-    # eski/backfill ihaleler bildirilmez (kayıtlı filtre görevi ile aynı pencere).
-    publish_days = int(getattr(settings, "NOTIF_FILTER_PUBLISH_DAYS", 2))
-    window_start = now - timedelta(days=publish_days)
 
     processed = 0
     notified = 0
@@ -311,16 +304,13 @@ def check_favorite_authority_matches():
                 expanded &= _tender_idare_id_set()
             if not expanded:
                 continue
-            prev_watermark = fav.last_notified_at
+            # YALNIZCA ilan_tarihi BUGÜN olan açık + teklifi geçmemiş ihaleler.
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__gte=window_start)
+                .filter(ilan_tarihi__date=today)
+                .order_by("-ilan_tarihi")
             )
-            # Cross-day dedup: yalnızca son kontrolden (watermark) sonra yayınlananlar.
-            if prev_watermark:
-                base = base.filter(ilan_tarihi__gt=prev_watermark)
-            base = base.order_by("-ilan_tarihi")
 
             fav.last_notified_at = now
             fav.save(update_fields=["last_notified_at"])

@@ -513,8 +513,12 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 
 Eski `~/Desktop/ihaletakip-scheduler` (Python + `firebase-admin`, Firebase projesi
 `ihale-53fbf`) servisinin işlevi API'ye taşındı; artık kendi Postgres/EKAP verimizden
-push üretiyoruz. Beş kaynak, **kademeli ve gruplanmış** bir düzende çalışır — kullanıcı
-bombardımana tutulmaz.
+push üretiyoruz. Beş kaynak vardır. Bildirimler **abonelik-başına AYRI**dır: her kayıtlı
+filtre / favori idare / ihale alarmı için **ayrı** uygulama-içi satır + **ayrı** push atılır
+(kullanıcı başına birleşik özet DEĞİL) — 10 filtreden 8'i eşleşirse **8 ayrı bildirim** gider.
+OKAS önerisi istisnadır (kullanıcı başına tek özet). Çoğalma **abonelik-başına atomik
+gün-kilidiyle** (Redis `cache.add`, `tenders.tasks._ROW_DEDUP_TTL`) önlenir: görev yinelenmiş/
+interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
 
 - **Katmanlar** (`tenders/services/`):
   - `push.py` — FCM gönderici (`firebase_admin` **lazy** import; `FCM_CREDENTIALS` boşsa
@@ -525,55 +529,60 @@ bombardımana tutulmaz.
     `Notification` satırı yazar; `push_to_user()` pacing kapılarından geçen **tek** push atar.
     `notify_and_push()` tek-olay kısayolu (öneriler).
   - `templates.py` — Türkçe metinler (İhale Günü / Doküman Güncellendi / İhale Sonuçlandı,
-    alarm özeti, filtre eşleşmesi, favori idare eşleşmesi, OKAS önerisi).
+    `alarm_tender` (ihale-başına birleşik), filtre eşleşmesi, favori idare eşleşmesi, OKAS önerisi).
 - **Zamanlama (kademeli, ≥1 sa arayla)**: 07:00 asistan öneri digest'i (`match_recommendations`),
   08:00 OKAS önerisi (`recommend_by_saved_okas`), 09:00 alarm hatırlatıcıları
   (`check_tender_alarms`), 10:00 filtre eşleşmeleri (`check_saved_filter_matches`), 11:00
-  favori idare eşleşmeleri (`check_favorite_authority_matches`). Her kategori **kullanıcı
-  başına tek özet push**.
+  favori idare eşleşmeleri (`check_favorite_authority_matches`). Alarm/filtre/idare kategorileri
+  **abonelik-başına ayrı push** atar (o kategorinin görev turunda arka arkaya).
+- **Çoğalma önleme = abonelik-başına ATOMİK gün-kilidi** (`cache.add`, race-safe): her filtre/
+  idare/alarm için `{"filter"|"authority"|"alarm"|"okasrec"}:{uid}:{item_id}:{date}` anahtarı
+  öğe işlenmeden **atomik** rezerve edilir. Görev yinelenmiş/interval beat ile aynı gün çok kez
+  tetiklense bile öğe **bir kez** işlenir → uygulama-içi satır da push da çoğalmaz. Filtre/idare
+  ayrıca `last_notified_at` **watermark**'ıyla cross-day dedup yapar (dün bildirilen ihale bugün
+  tekrar bildirilmez; `_seen_ikns` KALDIRILDI). Alarm'da mevcut snapshot/`completed_notified`
+  guard'ları + gün-kilidi yeterli.
 - **Pacing kapıları** (`django.core.cache`=Redis, ayar-tabanlı): sessiz saat
-  (`NOTIF_QUIET_START/END_HOUR`, vars. 22–07), günlük limit (`NOTIF_DAILY_CAP`=4),
-  min aralık (`NOTIF_MIN_GAP_MINUTES`=30), idempotency (`cache` 7 gün TTL), kullanıcı
-  tercihi (`User.preferences["notifications"]["push"]`, vars. açık) + `is_active` + dolu
-  `fcm_token`. Kapı engellese de **uygulama-içi satır yazılır**, yalnızca push atlanır.
-  - **İdempotency = ATOMİK rezervasyon** (`push_to_user`): idem anahtarı gönderimden hemen
-    önce `cache.add` ile **atomik** rezerve edilir (get→set yarışı KAPALI). Aynı mantıksal
-    push'u eşzamanlı iki görev tetiklese bile (ör. `django_celery_beat`'te **yinelenmiş beat
-    girdisi** 08:00'de aynı anda tetiklenirse) yalnızca ilki gider → "peşpeşe 2 bildirim"
-    engellenir. Gönderim başarısız olursa (`disabled`/`error`/ölü token) rezervasyon geri
-    alınır (`cache.delete`) → sonraki tetik yeniden dener. **Not**: mobil uygulamada özel
-    FCM handler yok (bildirim OS sistem tepsisinden `notification` bloğuyla gösterilir) →
-    çift bildirim gelirse kaynak backend'de **çift gönderim**tir (kod artık atomik; kalırsa
-    prod'da **yinelenmiş `PeriodicTask`** ya da hâlâ çalışan eski `ihaletakip-scheduler`).
+  (`NOTIF_QUIET_START/END_HOUR`, vars. 22–07), günlük limit (`NOTIF_DAILY_CAP`=**50**, `≤0`=
+  sınırsız), min aralık (`NOTIF_MIN_GAP_MINUTES`=**0**=kapalı), kullanıcı tercihi
+  (`User.preferences["notifications"]["push"]`, vars. açık) + `is_active` + dolu `fcm_token`.
+  Kapı engellese de **uygulama-içi satır yazılır**, yalnızca push atlanır. **Cap/min-gap neden
+  gevşek?** Abonelik-başına ayrı push tasarımında (bir görev turunda çok push) düşük cap/min-gap
+  meşru bildirimleri **düşürürdü** (ör. 8 filtreden 7'si). Bombardıman kontrolü artık:
+  abonelik-başına gün-kilidi + kategori-başına staggered saat + sessiz saat + gün-kilidi.
+  - **Not (çift bildirim)**: mobil uygulamada özel FCM handler yok (bildirim OS sistem
+    tepsisinden `notification` bloğuyla gösterilir) → çift bildirim gelirse kaynak backend'de
+    **çift gönderim**tir. Kod artık gün-kilidiyle idempotent; kalırsa prod'da **yinelenmiş
+    `PeriodicTask`** (django_celery_beat) ya da hâlâ çalışan eski `ihaletakip-scheduler`.
+    Denetim: admin → Periodic Tasks (aynı `task` için yinelenmiş/interval girdi = sil).
 - **Kaynaklar**:
   1. **Öneri** — `match_recommendations` digest'i (mevcut) artık push de atar
      (`type=CHAT`, `conversation_id` → mobilde digest sohbeti açılır). idem `digest:{uid}:{date}`.
   2. **Alarm** (`TenderAlarm.reminder_day/document_change/completed`) — `ekap.Tender` ile
      karşılaştırır: ihale günü (`ihale_tarihi`=bugün), doküman değişikliği
      (`dokuman_sayisi != last_dokuman_sayisi`; ilk görüşte sessiz), sonuçlandı (durum
-     `DURUM_SONUCLANMIS`'e geçiş; `completed_notified` ile tek sefer). Kullanıcı başına tek
-     birleşik özet push (idem `alarm:{uid}:{date}`). Snapshot alanları `TenderAlarm`'da.
+     `DURUM_SONUCLANMIS`'e geçiş; `completed_notified` ile tek sefer). **Her ihale için AYRI**
+     push (o ihalenin olayları `templates.alarm_tender` ile tek bildirimde birleşir; başlık =
+     ihale adı). `type=ALARM` + `tenderId`/`tenderIkn` → tıklanınca ihale detayı. Gün-kilidi
+     `alarm:{uid}:{ekap_id}:{date}`. Snapshot alanları `TenderAlarm`'da.
   3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **yalnızca son
-     `NOTIF_FILTER_PUBLISH_DAYS`=2 günde YAYINLANAN** (`ilan_tarihi`) açık ihaleler.
-     Eski/backfill ihaleler bildirilmez. Dedup: kullanıcıya daha önce (son 30 gün) filtre
-     bildirimi gitmiş İKN tekrar bildirilmez. Filtre semantiği `ekap.views.apply_tender_filters`
-     ile view'la **ortak**. **Mesaj**: başlık = filtre adı, gövde = "{filtre} filtrenize
-     uygun N adet ihale bulundu." (ör. "Otomasyon filtrenize uygun 5 adet ihale bulundu.";
-     `templates.saved_filter_match`). **Derin bağlantı = filtre** (tek ihale DEĞİL): bildirim
-     `type=TENDER` + `filter_id=SavedFilter.id`; `tender_id`/`tender_ikn` **doldurulmaz**.
-     Mobil bildirime basınca tek ihaleye gitmez, `filter_id` ile filtreyi (`GET
-     /saved-filters/{id}/`) yükleyip **arama sonuçlarını** açar (push data → `filterId`;
-     çok filtre eşleşirse temsili = ilk eşleşen filtre). idem `filter:{uid}:{date}`.
-     **Alarm Pro'ya özel**: `check_saved_filter_matches` premium olmayan kullanıcıyı atlar.
+     `NOTIF_FILTER_PUBLISH_DAYS`=2 günde YAYINLANAN** (`ilan_tarihi`) açık ihaleler; ayrıca
+     `last_notified_at` watermark'ından (son kontrolden) sonrakiler. Eski/backfill ihaleler
+     bildirilmez. Filtre semantiği `ekap.views.apply_tender_filters` ile view'la **ortak**.
+     **Her filtre için AYRI** bildirim/push (10 filtreden 8'i eşleşirse 8 ayrı). **Mesaj**:
+     başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu."
+     (`templates.saved_filter_match`). **Derin bağlantı = filtre**: `type=TENDER` +
+     `filter_id=SavedFilter.id`; `tender_id`/`tender_ikn` **doldurulmaz**. Mobil `filter_id`
+     ile filtreyi (`GET /saved-filters/{id}/`) yükleyip arama sonuçlarını açar (push data →
+     `filterId`). Gün-kilidi `filter:{uid}:{sf.id}:{date}`. **Pro'ya özel** (premium olmayan atlanır).
   4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yeni yayınladığı**
-     (son `NOTIF_FILTER_PUBLISH_DAYS` günde `ilan_tarihi`) açık ihaleler. `detsis_no`
-     `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir (ihale/tarama
-     uçlarıyla ortak). **Derin bağlantı = idare listesi**: bildirim `type=TENDER` +
-     `authority_detsis=detsis_no`; mobil bildirime basınca tek ihaleye gitmez, o idarenin
-     ihale listesini (`GET /ekap/tenders/?idare_detsis=`) açar (`tender_ikn` yalnızca dedup
-     için yazılır → mobil `authority_detsis`'i önceler; push data → `authorityDetsis`).
-     Dedup: kullanıcıya son 30 günde `tender_ikn` ile bildirilmiş İKN tekrar bildirilmez.
-     idem `authority:{uid}:{date}`. **Alarm Pro'ya özel**: görev premium olmayanı atlar.
+     (son `NOTIF_FILTER_PUBLISH_DAYS` günde `ilan_tarihi` + `last_notified_at` watermark'ından
+     sonrakiler) açık ihaleler. `detsis_no` `descendant_idare_ids` ile alt birim
+     `idare_id`'lerine genişletilir (ihale/tarama uçlarıyla ortak). **Her favori idare için
+     AYRI** bildirim/push (başlık = idare adı). **Derin bağlantı = idare listesi**: `type=TENDER`
+     + `authority_detsis=detsis_no`; mobil o idarenin listesini (`GET /ekap/tenders/?idare_detsis=`)
+     açar (push data → `authorityDetsis`). Gün-kilidi `authority:{uid}:{detsis_no}:{date}`.
+     **Pro'ya özel**: görev premium olmayanı atlar.
   5. **OKAS önerisi** (`recommend_by_saved_okas`, 08:00) — **Free/Pro fark etmez, HERKESE**.
      Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar (benzersiz,
      azami 20 kod; `OkasItem.kodu`), o kodlarla **son `NOTIF_OKAS_PUBLISH_DAYS`=1 günde

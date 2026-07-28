@@ -241,9 +241,12 @@ REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
 NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 # Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).
-NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=4)
-# Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz.
-NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=30)
+# 0/negatif → SINIRSIZ. Abonelik-başına ayrı bildirim (her filtre/idare/alarm için ayrı push)
+# olduğundan yüksek tutulur → meşru push'lar düşmez; çoğalma abonelik-başına gün-kilidiyle önlenir.
+NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=50)
+# Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz. 0 → KAPALI.
+# Abonelik push'ları aynı görev turunda arka arkaya gittiğinden 0'dır (30 dk olsa 2.+ push düşerdi).
+NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=0)
 # Kayıtlı filtre bildirimi: yalnızca son bu kadar günde YAYINLANAN (ilan_tarihi)
 # ihaleler bildirilir → eski/backfill ihaleler bildirilmez.
 NOTIF_FILTER_PUBLISH_DAYS = env.int("NOTIF_FILTER_PUBLISH_DAYS", default=2)

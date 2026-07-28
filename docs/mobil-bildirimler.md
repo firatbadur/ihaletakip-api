@@ -226,8 +226,10 @@ POST /alarms/
 }
 ```
 
-Alarm bildirimleri günde bir (09:00) kontrol edilir; kullanıcı başına **tek özet push**
-(`data.type = "alarm"`; tek olayda `tenderId`/`tenderIkn` ile ihale detayına gider).
+Alarm bildirimleri günde bir (09:00) kontrol edilir. **Her ihale için AYRI push** gider
+(`data.type = "alarm"` + `tenderId`/`tenderIkn` → ihale detayı). Bir ihalede birden çok olay
+(ihale günü + doküman) varsa tek bildirimde birleşir. Kullanıcının 3 alarmlı ihalesi bugün
+tetiklenirse **3 ayrı bildirim** düşer (birleşik özet DEĞİL).
 
 ---
 

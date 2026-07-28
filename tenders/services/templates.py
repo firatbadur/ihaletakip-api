@@ -30,8 +30,26 @@ def completed(tender) -> tuple[str, str]:
     return "İhale Sonuçlandı", f"{clip(tender.ihale_adi or 'İhale')} ihalesi tamamlandı"
 
 
-# ── Alarm: kullanıcı başına birleşik özet push ─────────
-# 09:00 alarm görevinde tek push atmak için, kullanıcının o günkü tüm olayları özetlenir.
+# ── Alarm: ihale başına birleşik bildirim (her ihale için ayrı push) ──
+
+def alarm_tender(tender, events) -> tuple[str, str]:
+    """
+    Tek bir ihale için birleşik alarm bildirimi. `events` = {"reminder","document","completed"}
+    alt kümesi. Başlık = ihale adı, gövde = o ihalede tetiklenen olayların birleşimi. Her ihale
+    için ayrı push atıldığından (birleşik kullanıcı özeti DEĞİL) tıklanınca ihale detayı açılır.
+    """
+    parts: list[str] = []
+    if "reminder" in events:
+        parts.append("Bugün ihale günü")
+    if "document" in events:
+        parts.append("Doküman güncellendi")
+    if "completed" in events:
+        parts.append("İhale sonuçlandı")
+    body = " · ".join(parts) if parts else "İhale güncellemesi"
+    return clip(tender.ihale_adi or "İhale Hatırlatıcısı"), body
+
+
+# ── Alarm: kullanıcı başına birleşik özet (artık kullanılmıyor; ileride lazım olursa dursun) ──
 
 def alarm_summary(
     *, reminder_count: int, document_count: int, completed_count: int

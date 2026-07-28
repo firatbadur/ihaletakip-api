@@ -123,10 +123,12 @@ def push_to_user(
         return False
 
     today = timezone.localdate().isoformat()
-    cap = int(getattr(settings, "NOTIF_DAILY_CAP", 4))
+    # cap <= 0 → günlük limit KAPALI (sınırsız). Abonelik-başına ayrı bildirim tasarımında
+    # (her filtre/idare/alarm için ayrı push) düşük bir limit meşru push'ları düşürürdü.
+    cap = int(getattr(settings, "NOTIF_DAILY_CAP", 50))
     cap_key = f"{_CAP_PREFIX}{user.pk}:{today}"
     sent_today = cache.get(cap_key, 0)
-    if sent_today >= cap:
+    if cap > 0 and sent_today >= cap:
         logger.info("push atlandı (günlük limit %s) uid=%s", cap, user.pk)
         return False
 

@@ -1,4 +1,5 @@
-"""tenders view'ları — favoriler, filtreler, kayıtlı ihaleler, alarmlar, bildirimler."""
+"""tenders view'ları — favoriler, filtreler, kayıtlı ihaleler, klasörler, alarmlar, bildirimler."""
+from django.db.models import Count
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -7,18 +8,22 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import generics, permissions, serializers, status
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.premium import MSG_ALARM, MSG_FILTER_ALARM, require_premium
 
 from .models import (
+    DEFAULT_TENDER_GROUP_NAME,
+    MAX_TENDER_GROUPS,
     Favorite,
     FavoriteAuthority,
     Notification,
     SavedFilter,
     SavedTender,
     TenderAlarm,
+    TenderGroup,
 )
 from .serializers import (
     FavoriteAuthoritySerializer,
@@ -27,6 +32,7 @@ from .serializers import (
     SavedFilterSerializer,
     SavedTenderSerializer,
     TenderAlarmSerializer,
+    TenderGroupSerializer,
 )
 
 # Tüm tenders uçları kullanıcıya özeldir; kayıtlar otomatik olarak istekteki
@@ -335,6 +341,73 @@ class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAP
         serializer.save()
 
 
+# ── Kayıtlı İhale Klasörleri ───────────────────────────
+# Varsayılan klasör ("Genel") bir satır DEĞİLDİR: `SavedTender.group is None`
+# demektir, bu uçlarda dönmez ve oluşturulamaz. Mobil listenin başına ekler.
+@extend_schema_view(
+    get=extend_schema(
+        tags=["tender-groups"],
+        summary="Klasörleri listele",
+        description=(
+            "Kullanıcının kayıtlı ihale klasörlerini (her birinin ihale sayısıyla) döner. "
+            "Varsayılan **Genel** klasörü listeye dahil değildir; `group` alanı boş olan "
+            "kayıtlar oraya aittir."
+        ),
+    ),
+    post=extend_schema(
+        tags=["tender-groups"],
+        summary="Klasör oluştur",
+        description=(
+            f"Yeni klasör açar. Ad benzersiz olmalıdır (büyük/küçük harf duyarsız), "
+            f'"{DEFAULT_TENDER_GROUP_NAME}" adı kullanılamaz ve kullanıcı başına en fazla '
+            f"{MAX_TENDER_GROUPS} klasör açılabilir. Sınır yoktur (Free + Pro)."
+        ),
+        examples=[
+            OpenApiExample("Klasör oluştur", request_only=True, value={"name": "Ankara İşleri"})
+        ],
+    ),
+)
+class TenderGroupListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
+    serializer_class = TenderGroupSerializer
+    queryset_model = TenderGroup
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(tender_count=Count("tenders"))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["tender-groups"], summary="Klasör detayı", description="Tek klasörü döner."
+    ),
+    patch=extend_schema(
+        tags=["tender-groups"],
+        summary="Klasörü yeniden adlandır",
+        examples=[
+            OpenApiExample("Yeniden adlandır", request_only=True, value={"name": "Yapım İşleri"})
+        ],
+    ),
+    put=extend_schema(tags=["tender-groups"], summary="Klasörü güncelle (tam)"),
+    delete=extend_schema(
+        tags=["tender-groups"],
+        summary="Klasörü sil",
+        description=(
+            "Klasörü siler. **İçindeki kayıtlar silinmez**, varsayılan **Genel** "
+            "klasörüne döner (`group` → null)."
+        ),
+        responses={204: None},
+    ),
+)
+class TenderGroupDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = TenderGroupSerializer
+    queryset_model = TenderGroup
+
+    def get_object(self):
+        row = self.get_queryset().filter(pk=self.kwargs["pk"]).first()
+        if row is None:
+            raise NotFound("Klasör bulunamadı.")
+        return row
+
+
 # ── Kayıtlı İhaleler ───────────────────────────────────
 @extend_schema_view(
     get=extend_schema(
@@ -372,8 +445,12 @@ class SavedTenderListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     serializer_class = SavedTenderSerializer
     queryset_model = SavedTender
 
+    def get_queryset(self):
+        return super().get_queryset().select_related("group")
+
     def perform_create(self, serializer):
         # Sınır yok (Free dahil). Aynı İKN tekrar gönderilirse günceller (upsert).
+        # `group` gönderilmezse mevcut klasör korunur (yeni kayıtta null = "Genel").
         SavedTender.objects.update_or_create(
             user=self.request.user,
             tender_ikn=serializer.validated_data["tender_ikn"],
@@ -395,19 +472,66 @@ class SavedTenderDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
-        summary="Kayıtlı mı?",
-        description="İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner.",
+        summary="Kayıtlı mı? (hangi klasörde?)",
+        description=(
+            "İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner. "
+            "Kayıtlıysa bulunduğu klasör de gelir; `group: null` → varsayılan "
+            "**Genel** klasörü."
+        ),
         responses={
             200: inline_serializer(
-                name="IsSaved", fields={"is_saved": serializers.BooleanField()}
+                name="IsSaved",
+                fields={
+                    "is_saved": serializers.BooleanField(),
+                    "group": serializers.IntegerField(allow_null=True),
+                    "group_name": serializers.CharField(allow_null=True),
+                },
             )
         },
     )
     def get(self, request, ikn):
-        exists = SavedTender.objects.filter(
-            user=request.user, tender_ikn=ikn
-        ).exists()
-        return Response({"is_saved": exists})
+        row = (
+            SavedTender.objects.filter(user=request.user, tender_ikn=ikn)
+            .select_related("group")
+            .first()
+        )
+        return Response(
+            {
+                "is_saved": row is not None,
+                "group": row.group_id if row else None,
+                "group_name": row.group.name if row and row.group else None,
+            }
+        )
+
+    @extend_schema(
+        summary="Kaydı klasöre taşı",
+        description=(
+            "Kayıtlı ihalenin klasörünü değiştirir. `group` gövdede klasör kimliği "
+            "veya `null` (varsayılan **Genel** klasörü) olmalıdır. Kayıt yoksa `404`."
+        ),
+        request=inline_serializer(
+            name="SavedTenderMove",
+            fields={"group": serializers.IntegerField(allow_null=True)},
+        ),
+        responses={200: SavedTenderSerializer},
+        examples=[
+            OpenApiExample("Klasöre taşı", request_only=True, value={"group": 3}),
+            OpenApiExample(
+                "Genel'e taşı (varsayılan)", request_only=True, value={"group": None}
+            ),
+        ],
+    )
+    def patch(self, request, ikn):
+        row = SavedTender.objects.filter(user=request.user, tender_ikn=ikn).first()
+        if row is None:
+            raise NotFound("Kayıtlı ihale bulunamadı.")
+        serializer = SavedTenderSerializer(
+            row, data={"group": request.data.get("group")}, partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 # ── Alarmlar ───────────────────────────────────────────

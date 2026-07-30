@@ -8,6 +8,7 @@ from .models import (
     SavedFilter,
     SavedTender,
     TenderAlarm,
+    TenderGroup,
 )
 
 
@@ -36,12 +37,24 @@ class SavedFilterAdmin(admin.ModelAdmin):
     raw_id_fields = ["user"]
 
 
+@admin.register(TenderGroup)
+class TenderGroupAdmin(admin.ModelAdmin):
+    list_display = ["name", "user", "tender_count", "created_at"]
+    search_fields = ["name", "user__username", "user__email"]
+    raw_id_fields = ["user"]
+
+    @admin.display(description="İhale sayısı")
+    def tender_count(self, obj):
+        return obj.tenders.count()
+
+
 @admin.register(SavedTender)
 class SavedTenderAdmin(admin.ModelAdmin):
-    list_display = ["tender_title", "tender_ikn", "user", "tender_status", "saved_at"]
+    # `group` boş → varsayılan "Genel" klasörü
+    list_display = ["tender_title", "tender_ikn", "user", "group", "tender_status", "saved_at"]
     list_filter = ["tender_status", "saved_at"]
     search_fields = ["tender_title", "tender_ikn", "user__username"]
-    raw_id_fields = ["user"]
+    raw_id_fields = ["user", "group"]
 
 
 @admin.register(TenderAlarm)

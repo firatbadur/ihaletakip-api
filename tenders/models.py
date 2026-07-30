@@ -15,6 +15,11 @@ from core.models import TimeStampedModel
 
 USER = settings.AUTH_USER_MODEL
 
+# Kayıtlı ihale klasörleri (bkz. TenderGroup): varsayılan klasör bir satır değildir,
+# `SavedTender.group is None` demektir. Bu ad kullanıcı klasörüne verilemez.
+DEFAULT_TENDER_GROUP_NAME = "Genel"
+MAX_TENDER_GROUPS = 20  # varsayılan hariç, kullanıcı başına
+
 
 class Favorite(models.Model):
     """Favori ihale."""
@@ -102,11 +107,49 @@ class SavedFilter(TimeStampedModel):
         return self.name
 
 
+class TenderGroup(TimeStampedModel):
+    """
+    Kayıtlı ihale klasörü (grup).
+
+    Kullanıcı kayıtlı ihalelerini klasörlere ayırabilir. **Varsayılan klasör
+    ("Genel") bir satır DEĞİLDİR**: `SavedTender.group` boş (null) olan her kayıt
+    varsayılan klasörde sayılır. Böylece klasör özelliği gelmeden önce kaydedilmiş
+    tüm ihaleler kendiliğinden "Genel" içinde görünür, veri taşıma gerekmez.
+    """
+
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="tender_groups"
+    )
+    name = models.CharField(max_length=60)
+
+    class Meta:
+        verbose_name = "İhale Klasörü"
+        verbose_name_plural = "İhale Klasörleri"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"], name="uniq_user_tender_group"
+            )
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return self.name
+
+
 class SavedTender(models.Model):
     """Kaydedilmiş (takip edilen) ihale."""
 
     user = models.ForeignKey(
         USER, on_delete=models.CASCADE, related_name="saved_tenders"
+    )
+    # Boş (null) = varsayılan "Genel" klasörü. Klasör silinince kayıtlar SİLİNMEZ,
+    # yalnızca `group` null'a düşer → ihaleler Genel'e döner (SET_NULL).
+    group = models.ForeignKey(
+        "TenderGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tenders",
     )
     tender_id = models.CharField(max_length=100, blank=True)
     tender_ikn = models.CharField(max_length=100, db_index=True)

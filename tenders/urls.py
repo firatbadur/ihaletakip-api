@@ -16,6 +16,8 @@ from .views import (
     SavedTenderListCreateView,
     TenderAlarmDetailView,
     TenderAlarmListCreateView,
+    TenderGroupDetailView,
+    TenderGroupListCreateView,
 )
 
 urlpatterns = [
@@ -28,6 +30,10 @@ urlpatterns = [
     # Kayıtlı filtreler
     path("saved-filters/", SavedFilterListCreateView.as_view(), name="saved-filters"),
     path("saved-filters/<int:pk>/", SavedFilterDetailView.as_view(), name="saved-filter-detail"),
+    # Kayıtlı ihale klasörleri (varsayılan "Genel" klasörü bu uçlarda dönmez;
+    # `SavedTender.group` boş olan kayıtlar oraya aittir)
+    path("tender-groups/", TenderGroupListCreateView.as_view(), name="tender-groups"),
+    path("tender-groups/<int:pk>/", TenderGroupDetailView.as_view(), name="tender-group-detail"),
     # Kayıtlı ihaleler
     path("saved-tenders/", SavedTenderListCreateView.as_view(), name="saved-tenders"),
     # İKN `2025/1234567` biçimindedir; `str` dönüştürücüsü `/` eşleştirmez ve WSGI

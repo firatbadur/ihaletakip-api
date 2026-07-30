@@ -631,6 +631,25 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
 | `detsis` | `core.Detsis` |
 | `config/ai_service` | `core.AppSetting` |
 
+(Firestore karşılığı olmayan) `tenders.TenderGroup` — kayıtlı ihale klasörleri, bkz. aşağıda.
+
+## Kayıtlı İhale Klasörleri (`tenders.TenderGroup`)
+
+Kullanıcı kayıtlı ihalelerini klasörlere ayırabilir (`/tender-groups/` uçları).
+
+- **Varsayılan klasör ("Genel") bir satır DEĞİLDİR**: `SavedTender.group is None`
+  demektir. Uçlarda dönmez, oluşturulamaz (`DEFAULT_TENDER_GROUP_NAME` rezerve),
+  mobil listenin başına kendisi ekler. Böylece özellik öncesi kayıtlar taşıma
+  gerektirmeden Genel'de görünür.
+- `SavedTender.group` → `TenderGroup` FK, **SET_NULL**: klasör silinince kayıtlar
+  silinmez, Genel'e döner.
+- Uçlar: `GET/POST /tender-groups/`, `GET/PATCH/DELETE /tender-groups/<pk>/`,
+  kayıt taşıma `PATCH /saved-tenders/<ikn>/` (`{"group": <pk|null>}`),
+  `GET /saved-tenders/<ikn>/` artık `is_saved` + `group` + `group_name` döner.
+- Sınırlar: kullanıcı başına `MAX_TENDER_GROUPS` (20) klasör, ad benzersiz.
+  Benzersizlik karşılaştırması `_tr_fold` ile (İ/I → i/ı): `casefold()`/`iexact`
+  Türkçe İ'de yanılır ("İşleri" ≠ "işleri"). Sınır yok (Free + Pro).
+
 ## İş Akışı Kuralları (ÖNEMLİ)
 
 Bu proje için her oturumda uyulması ZORUNLU kurallar:

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -iE \"\\\\.env$|sqlite3$|credentials/\")",
+      "Bash(cd \"/Users/tinyfect/.claude/projects/-Users-tinyfect-Desktop-ihaletakip-api/memory/\")",
+      "Bash(cat MEMORY.md)",
+      "Bash(python3 -c \"import secrets,string; a=string.ascii_letters+string.digits; print\\('ADMIN_PW='+''.join\\(secrets.choice\\(a\\) for _ in range\\(20\\)\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(python3 -m py_compile ekap/client.py)",
+      "Bash(python3 -m py_compile config/celery.py ekap/tasks.py)",
+      "Bash(git -C /Users/tinyfect/Desktop/ihaletakip-api show --stat HEAD)",
+      "Bash(git -C /Users/tinyfect/Desktop/ihaletakip-api show HEAD -- config/celery.py config/settings.py config/urls.py)",
+      "Bash(git --no-pager diff CLAUDE.md)",
+      "Bash(cd /Users/tinyfect/Desktop/IhaleTakip 2>/dev/null && echo \"=== DIR EXISTS ===\" && ls -la && echo \"=== PACKAGE.JSON DEPS ===\" && cat package.json 2>/dev/null | grep -A60 '\"dependencies\"')",
+      "Read(//Users/tinyfect/Desktop/IhaleTakip/**)",
+      "Bash(cd /Users/tinyfect/Desktop/IhaleTakip 2>/dev/null && echo \"=== FCM/messaging refs ===\" && grep -rn \"getToken\\\\|onTokenRefresh\\\\|registerDeviceForRemoteMessages\\\\|requestPermission\\\\|setBackgroundMessageHandler\\\\|onMessage\\\\|getInitialNotification\\\\|onNotificationOpenedApp\" --include=\"*.js\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.jsx\" . 2>/dev/null | grep -v node_modules | head -80)",
+      "Bash(cd /Users/tinyfect/Desktop/IhaleTakip 2>/dev/null && echo \"=== fcm token key refs ===\" && grep -rn \"fcmToken\\\\|fcm_token\\\\|fcm-token\\\\|saveFcmToken\\\\|registerToken\\\\|updateToken\\\\|saveToken\\\\|deviceToken\" --include=\"*.js\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.jsx\" . 2>/dev/null | grep -v node_modules | head -80)",
+      "Read(//Users/tinyfect/Desktop/IhaleTakip/src/components/helpers/**)",
+      "Read(//Users/tinyfect/Desktop/IhaleTakip/src/api/**)",
+      "Read(//Users/tinyfect/Desktop/IhaleTakip/src/**)",
+      "Bash(grep -rn \"ihaleTarihSaatBaslangic\\\\|ilanTarihSaatBaslangic\\\\|TarihSaatBaslangic\\\\|TarihSaatBitis\" --include=*.py . 2>/dev/null; echo \"--- mobil referans var mı? ---\"; ls ~/Desktop/IhaleTakip/src/api/v1/ 2>/dev/null || echo \"mobil dizin erişilemez\")",
+      "Read(//Users/tinyfect/Desktop/IhaleTakip/src/api/v1/**)",
+      "Bash(python3 -m py_compile ekap/tasks.py)",
+      "Bash(git config *)",
+      "Bash(.venv/bin/python -c \"import django; print\\('django', django.get_version\\(\\)\\)\")",
+      "Bash(cd /Users/tinyfect/Desktop/IhaleTakip *)",
+      "Bash(.venv/bin/python manage.py check)",
+      "Bash(python manage.py makemigrations tenders)",
+      "Bash(git check-ignore *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tenders/management/commands/test_push_all.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python manage.py test_push_all --help)",
+      "Bash(docker compose *)",
+      "Bash(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@91.241.49.109 'cd ~/ihaletakip-api 2>/dev/null || cd /root/ihaletakip-api; docker compose exec -T web python manage.py shell -c \" *)",
+      "Bash(cd ~/Desktop/IhaleTakip 2>/dev/null && echo \"=== saved-filters / savedFilters kullanımı ===\" && grep -rln \"saved-filters\\\\|savedFilters\\\\|SavedFilter\\\\|saved_filter\" src/ | head; echo; echo \"=== ekap/tenders arama çağrısı ===\" && grep -rln \"ekap/tenders\\\\|/tenders\\\\|searchTenders\\\\|getTenders\" src/ | head; echo; echo \"=== DEFAULT_SEARCH_BODY / searchBody / buildBody ===\" && grep -rln \"DEFAULT_SEARCH_BODY\\\\|searchBody\\\\|buildSearch\\\\|searchText\\\\|ihaleDurumIdList\" src/ | head)"
+    ]
+  }
+}

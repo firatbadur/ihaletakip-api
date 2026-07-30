@@ -2087,8 +2087,10 @@ paths:
   /api/v1/saved-tenders/{ikn}/:
     get:
       operationId: api_v1_saved_tenders_retrieve
-      description: İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner.
-      summary: Kayıtlı mı?
+      description: 'İhalenin kullanıcının kayıtlıları arasında olup olmadığını döner.
+        Kayıtlıysa bulunduğu klasör de gelir; `group: null` → varsayılan **Genel**
+        klasörü.'
+      summary: Kayıtlı mı? (hangi klasörde?)
       parameters:
       - in: path
         name: ikn
@@ -2111,6 +2113,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IsSaved'
+          description: ''
+    patch:
+      operationId: api_v1_saved_tenders_partial_update
+      description: Kayıtlı ihalenin klasörünü değiştirir. `group` gövdede klasör kimliği
+        veya `null` (varsayılan **Genel** klasörü) olmalıdır. Kayıt yoksa `404`.
+      summary: Kaydı klasöre taşı
+      parameters:
+      - in: path
+        name: ikn
+        schema:
+          type: string
+        description: İhale Kayıt Numarası (ör. `2025/1234567`). İçerdiği `/` olduğu
+          gibi gönderilebilir; kodlanmış biçim (`2025%2F1234567`) de kabul edilir.
+        required: true
+        examples:
+          İKN:
+            value: 2025/1234567
+      tags:
+      - saved-tenders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedTenderMove'
+            examples:
+              KlasöreTaşı:
+                value:
+                  group: 3
+                summary: Klasöre taşı
+              Genel'eTaşı(varsayılan):
+                value:
+                  group: null
+                summary: Genel'e taşı (varsayılan)
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedTenderMove'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedTenderMove'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedTender'
           description: ''
     delete:
       operationId: api_v1_saved_tenders_destroy
@@ -2286,6 +2336,176 @@ paths:
               schema:
                 $ref: '#/components/schemas/SupportTicket'
           description: ''
+  /api/v1/tender-groups/:
+    get:
+      operationId: api_v1_tender_groups_list
+      description: Kullanıcının kayıtlı ihale klasörlerini (her birinin ihale sayısıyla)
+        döner. Varsayılan **Genel** klasörü listeye dahil değildir; `group` alanı
+        boş olan kayıtlar oraya aittir.
+      summary: Klasörleri listele
+      tags:
+      - tender-groups
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TenderGroup'
+          description: ''
+    post:
+      operationId: api_v1_tender_groups_create
+      description: Yeni klasör açar. Ad benzersiz olmalıdır (büyük/küçük harf duyarsız),
+        "Genel" adı kullanılamaz ve kullanıcı başına en fazla 20 klasör açılabilir.
+        Sınır yoktur (Free + Pro).
+      summary: Klasör oluştur
+      tags:
+      - tender-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+            examples:
+              KlasörOluştur:
+                value:
+                  name: Ankara İşleri
+                summary: Klasör oluştur
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderGroup'
+          description: ''
+  /api/v1/tender-groups/{id}/:
+    get:
+      operationId: api_v1_tender_groups_retrieve
+      description: Tek klasörü döner.
+      summary: Klasör detayı
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - tender-groups
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderGroup'
+          description: ''
+    put:
+      operationId: api_v1_tender_groups_update
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      summary: Klasörü güncelle (tam)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - tender-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TenderGroup'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderGroup'
+          description: ''
+    patch:
+      operationId: api_v1_tender_groups_partial_update
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      summary: Klasörü yeniden adlandır
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - tender-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTenderGroup'
+            examples:
+              YenidenAdlandır:
+                value:
+                  name: Yapım İşleri
+                summary: Yeniden adlandır
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTenderGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTenderGroup'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenderGroup'
+          description: ''
+    delete:
+      operationId: api_v1_tender_groups_destroy
+      description: Klasörü siler. **İçindeki kayıtlar silinmez**, varsayılan **Genel**
+        klasörüne döner (`group` → null).
+      summary: Klasörü sil
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - tender-groups
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /health/:
     get:
       operationId: health_retrieve
@@ -2754,7 +2974,15 @@ components:
       properties:
         is_saved:
           type: boolean
+        group:
+          type: integer
+          nullable: true
+        group_name:
+          type: string
+          nullable: true
       required:
+      - group
+      - group_name
       - is_saved
     KindEnum:
       enum:
@@ -2889,6 +3117,32 @@ components:
         tags: {}
         alarm:
           nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedSavedTenderMove:
+      type: object
+      properties:
+        group:
+          type: integer
+          nullable: true
+    PatchedTenderGroup:
+      type: object
+      description: 'Kayıtlı ihale klasörü. Varsayılan klasör ("Genel") burada dönmez
+        — o,
+
+        `SavedTender.group is None` demektir; mobil listenin başına kendisi ekler.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 60
+        tender_count:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -3086,11 +3340,18 @@ components:
           type: string
           nullable: true
           maxLength: 500
+        group:
+          type: integer
+          nullable: true
+        group_name:
+          type: string
+          readOnly: true
         saved_at:
           type: string
           format: date-time
           readOnly: true
       required:
+      - group_name
       - id
       - saved_at
       - tender_ikn
@@ -3226,6 +3487,31 @@ components:
       - id
       - tender_id
       - updated_at
+    TenderGroup:
+      type: object
+      description: 'Kayıtlı ihale klasörü. Varsayılan klasör ("Genel") burada dönmez
+        — o,
+
+        `SavedTender.group is None` demektir; mobil listenin başına kendisi ekler.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 60
+        tender_count:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - tender_count
     TenderRecommendation:
       type: object
       properties:

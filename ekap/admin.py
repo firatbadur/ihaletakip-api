@@ -6,6 +6,9 @@ from .models import (
     Authority,
     City,
     Contract,
+    Contractor,
+    ContractorAlias,
+    ContractorMembership,
     ContractSection,
     OkasCode,
     OkasItem,
@@ -54,9 +57,70 @@ class TenderAdmin(admin.ModelAdmin):
 
 @admin.register(Contract)
 class ContractAdmin(admin.ModelAdmin):
-    list_display = ["tender", "yuklenici_adi", "sozlesme_bedeli", "yaklasik_maliyet"]
-    search_fields = ["tender__ikn", "yuklenici_adi"]
-    raw_id_fields = ["tender"]
+    list_display = [
+        "tender", "yuklenici_adi", "sozlesme_bedeli_num", "yaklasik_maliyet_num",
+        "indirim_orani", "sozlesme_tarihi", "yuklenici",
+    ]
+    list_filter = ["yaklasik_maliyet_kaynak", "ihale_tip"]
+    search_fields = ["tender__ikn", "yuklenici_adi", "ekap_sozlesme_id"]
+    raw_id_fields = ["tender", "yuklenici"]
+    date_hierarchy = "sozlesme_tarihi"
+
+
+class ContractorAliasInline(admin.TabularInline):
+    model = ContractorAlias
+    extra = 0
+    fields = ["ham_ad", "kaynak", "son_gorulme"]
+    readonly_fields = ["son_gorulme"]
+
+
+class ContractorMembershipInline(admin.TabularInline):
+    """Ortak girişimin üyeleri."""
+
+    model = ContractorMembership
+    fk_name = "ortak_girisim"
+    extra = 0
+    fields = ["uye", "sira", "pilot", "guven", "kaynak_metin"]
+    raw_id_fields = ["uye"]
+
+
+@admin.register(Contractor)
+class ContractorAdmin(admin.ModelAdmin):
+    list_display = [
+        "kanonik_ad_kisa", "kind", "sozlesme_sayisi", "ihale_sayisi", "idare_sayisi",
+        "toplam_sozlesme_bedeli", "ortalama_indirim_orani", "il_adi", "son_sozlesme_tarihi",
+    ]
+    # `uyeleri_cozumlendi=False` → ortak girişim üyeleri güvenle ayrıştırılamadı,
+    # elle inceleme bekliyor (bkz. contractors.split_joint_venture yazma politikası).
+    list_filter = ["kind", "uyeleri_cozumlendi", "tuzel_tip"]
+    search_fields = ["kanonik_ad", "kanonik_anahtar", "arama_norm", "aliaslar__ham_ad"]
+    readonly_fields = [
+        "kanonik_anahtar", "arama_norm", "sozlesme_sayisi", "ihale_sayisi", "idare_sayisi",
+        "toplam_sozlesme_bedeli", "ilk_sozlesme_tarihi", "son_sozlesme_tarihi",
+        "ortalama_indirim_orani", "indirim_orani_ornek_sayisi", "uye_sayisi",
+        "ortak_girisim_sayisi", "agrega_guncelleme", "ilk_gorulme", "updated_at",
+    ]
+    inlines = [ContractorAliasInline, ContractorMembershipInline]
+
+    @admin.display(description="Yüklenici")
+    def kanonik_ad_kisa(self, obj):
+        return (obj.kanonik_ad or "")[:60]
+
+
+@admin.register(ContractorAlias)
+class ContractorAliasAdmin(admin.ModelAdmin):
+    list_display = ["ham_ad", "contractor", "kaynak", "son_gorulme"]
+    list_filter = ["kaynak"]
+    search_fields = ["ham_ad", "ham_ad_norm", "contractor__kanonik_ad"]
+    raw_id_fields = ["contractor"]
+
+
+@admin.register(ContractorMembership)
+class ContractorMembershipAdmin(admin.ModelAdmin):
+    list_display = ["ortak_girisim", "uye", "sira", "pilot", "guven"]
+    list_filter = ["guven", "pilot"]
+    search_fields = ["ortak_girisim__kanonik_ad", "uye__kanonik_ad"]
+    raw_id_fields = ["ortak_girisim", "uye"]
 
 
 @admin.register(OkasCode)

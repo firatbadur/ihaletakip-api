@@ -154,6 +154,15 @@ class Tender(models.Model):
     detail_raw = models.JSONField(null=True, blank=True)
     list_raw = models.JSONField(null=True, blank=True)
 
+    # Yüklenici/sonuç çözümlemesi (bkz. ekap/contractors.py, ekap/sonuc_ilani.py)
+    contractors_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # İhalenin TAMAMININ yaklaşık maliyeti — yalnızca Sonuç İlanı'ndan gelir
+    yaklasik_maliyet_num = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True
+    )
+    # Sözleşmesi olup henüz Sonuç İlanı yayımlanmamış → detayı daha sık tazele
+    sonuc_ilani_eksik = models.BooleanField(default=False, db_index=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -199,6 +208,8 @@ class Announcement(models.Model):
 
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="ilanlar")
     ekap_ilan_id = models.CharField(max_length=255, blank=True, db_index=True)
+    # ilanList[].sozlesmeId → Sonuç İlanı'nı (ilanTip=4) sözleşmeye bağlayan JOIN anahtarı
+    ekap_sozlesme_id = models.CharField(max_length=64, blank=True, db_index=True)
     ilan_tip = models.IntegerField(null=True, blank=True)  # 1-5,10
     ilan_tarihi = models.DateTimeField(null=True, blank=True)
     baslik = models.CharField(max_length=500, blank=True)
@@ -211,32 +222,204 @@ class Announcement(models.Model):
         ordering = ["-ilan_tarihi"]
 
 
+# ── Yüklenici (firma) kaydı ────────────────────────────
+# EKAP payload'ında VKN/vergi no/TCKN YOKTUR → kimlik, ünvanın kanonikleştirilmiş
+# hâlidir (`ekap.contractors.canonical_key`). Ham yazımlar `ContractorAlias`'ta izlenir.
+
+class Contractor(models.Model):
+    """Sözleşme imzalayan yüklenici — firma, şahıs ya da ortak girişim."""
+
+    class Kind(models.TextChoices):
+        FIRMA = "firma", "Firma"
+        SAHIS = "sahis", "Şahıs"
+        ORTAK_GIRISIM = "ortak_girisim", "Ortak Girişim"
+
+    # Kimlik
+    kanonik_ad = models.CharField(max_length=500, db_index=True)      # gösterim
+    kanonik_anahtar = models.CharField(max_length=500, unique=True)   # KİMLİK
+    # ad + anahtar + alias'lar tek aranabilir blob. 1000 char sınırı bilinçli: normalize_tr
+    # ASCII'ye katladığı için ≤2000 byte → Postgres btree 2704-byte sınırının altında.
+    arama_norm = models.CharField(max_length=1000, blank=True, db_index=True)
+    kind = models.CharField(
+        max_length=20, choices=Kind.choices, default=Kind.FIRMA, db_index=True
+    )
+    tuzel_tip = models.CharField(max_length=20, blank=True)  # ltdsti|as|kollektif|…
+
+    # Sonuç İlanı'ndan zenginleştirme (opsiyonel — her sözleşmede ilan olmayabilir)
+    uyruk = models.CharField(max_length=100, blank=True)
+    adres = models.TextField(blank=True)
+    il_adi = models.CharField(max_length=100, blank=True, db_index=True)
+    il_id = models.IntegerField(null=True, blank=True, db_index=True)
+
+    # ── Denormalize agregalar ──
+    # Kural: firmalar arası SIRALAMA anahtarları denormalize (milyonlarca sözleşmede
+    # istek başına GROUP BY tam tarama demek); tek firma kırılımları canlı hesaplanır.
+    sozlesme_sayisi = models.IntegerField(default=0, db_index=True)
+    # ⚠️ `ihale_sayisi` AYRI tutulur: kısımlı ihalede bir firma 3 kısım alırsa
+    # 3 sözleşme / 1 ihale olur; sözleşme sayısını "kaç ihale aldı" diye göstermek yanlış.
+    ihale_sayisi = models.IntegerField(default=0)
+    idare_sayisi = models.IntegerField(default=0)
+    toplam_sozlesme_bedeli = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True
+    )
+    ilk_sozlesme_tarihi = models.DateTimeField(null=True, blank=True)
+    son_sozlesme_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
+    ortalama_indirim_orani = models.DecimalField(
+        max_digits=7, decimal_places=4, null=True, blank=True
+    )
+    # Yaklaşık maliyet kapsamı kısmi olduğu için ortalama TEK BAŞINA yanıltıcı →
+    # örnek sayısı her zaman yanında taşınır.
+    indirim_orani_ornek_sayisi = models.IntegerField(default=0)
+    uye_sayisi = models.IntegerField(default=0)            # kind=ortak_girisim için
+    ortak_girisim_sayisi = models.IntegerField(default=0)  # üye firma için
+    uyeleri_cozumlendi = models.BooleanField(default=True)  # False → elle çözüm bekliyor
+    agrega_guncelleme = models.DateTimeField(null=True, blank=True)
+
+    ilk_gorulme = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Yüklenici"
+        verbose_name_plural = "Yükleniciler"
+        ordering = ["-sozlesme_sayisi"]
+        indexes = [
+            models.Index(fields=["-sozlesme_sayisi"]),
+            models.Index(fields=["-toplam_sozlesme_bedeli"]),
+            models.Index(fields=["kind", "-sozlesme_sayisi"]),
+            models.Index(fields=["-son_sozlesme_tarihi"]),
+        ]
+
+    def __str__(self):
+        return self.kanonik_ad[:80]
+
+
+class ContractorAlias(models.Model):
+    """Bir yüklenicinin gördüğümüz ham yazımları (+ ingest cache)."""
+
+    class Kaynak(models.TextChoices):
+        SOZLESME = "sozlesme", "Sözleşme yüklenici adı"
+        KISIM = "kisim", "Kısım yüklenici adı"
+        ILAN = "ilan", "Sonuç ilanı istekli adı"
+        MANUEL = "manuel", "Elle"
+
+    contractor = models.ForeignKey(
+        Contractor, on_delete=models.CASCADE, related_name="aliaslar"
+    )
+    ham_ad = models.CharField(max_length=500)
+    # GLOBAL unique — hem O(1) ingest cache anahtarı, hem "bir yazım tam olarak bir
+    # firmaya gider" DB-seviyesi garantisi.
+    ham_ad_norm = models.CharField(max_length=500, unique=True)
+    kaynak = models.CharField(
+        max_length=20, choices=Kaynak.choices, default=Kaynak.SOZLESME
+    )
+    ilk_gorulme = models.DateTimeField(auto_now_add=True)
+    son_gorulme = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Yüklenici Yazımı"
+        verbose_name_plural = "Yüklenici Yazımları"
+
+    def __str__(self):
+        return self.ham_ad[:80]
+
+
+class ContractorMembership(models.Model):
+    """Ortak girişim ↔ üye firma bağı."""
+
+    class Guven(models.TextChoices):
+        YUKSEK = "yuksek", "Yüksek"
+        ORTA = "orta", "Orta"
+        DUSUK = "dusuk", "Düşük"
+
+    ortak_girisim = models.ForeignKey(
+        Contractor, on_delete=models.CASCADE, related_name="uyelikler"
+    )
+    uye = models.ForeignKey(
+        Contractor, on_delete=models.CASCADE, related_name="ortakliklar"
+    )
+    sira = models.IntegerField(default=0)
+    pilot = models.BooleanField(default=False)
+    kaynak_metin = models.CharField(max_length=500, blank=True)
+    guven = models.CharField(max_length=10, choices=Guven.choices, default=Guven.YUKSEK)
+
+    class Meta:
+        verbose_name = "Ortak Girişim Üyeliği"
+        verbose_name_plural = "Ortak Girişim Üyelikleri"
+        constraints = [
+            models.UniqueConstraint(fields=["ortak_girisim", "uye"], name="uniq_jv_uye")
+        ]
+        indexes = [models.Index(fields=["uye"])]
+
+
 class Contract(models.Model):
     """sozlesmeBilgiList elemanı."""
 
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="sozlesmeler")
+    # sozlesmeBilgiList[].id — kararlı EKAP anahtarı. Upsert bunun üzerinden yapılır;
+    # olmadan her detay senkronunda satırlar silinip yeniden yaratılıyordu (PK churn).
+    ekap_sozlesme_id = models.CharField(max_length=64, blank=True, db_index=True)
     yuklenici_adi = models.CharField(max_length=500, blank=True)
-    sozlesme_tarih = models.CharField(max_length=255, blank=True)
+    yuklenici_adi_norm = models.CharField(max_length=500, blank=True, db_index=True)
+    yuklenici = models.ForeignKey(
+        Contractor, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="sozlesmeler",
+    )
+    sozlesme_tarih = models.CharField(max_length=255, blank=True)  # ham string
+    sozlesme_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
     sozlesme_bedeli = models.CharField(max_length=100, blank=True)
     sozlesme_bedeli_num = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
     en_dusuk_teklif = models.CharField(max_length=100, blank=True)
     en_dusuk_teklif_num = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
     en_yuksek_teklif = models.CharField(max_length=100, blank=True)
     en_yuksek_teklif_num = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    # ⚠️ `yaklasik_maliyet` (string) EKAP tarafında BOZUK üretilir → sayısala çevrilmez.
+    # `yaklasik_maliyet_num` yalnızca Sonuç İlanı'ndan doldurulur, yoksa NULL kalır.
     yaklasik_maliyet = models.CharField(max_length=100, blank=True)
     yaklasik_maliyet_num = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    yaklasik_maliyet_kaynak = models.CharField(max_length=20, blank=True)  # "sonuc_ilani"|""
     fesih_string = models.CharField(max_length=255, blank=True)
     tasfiye_transfer_string = models.CharField(max_length=255, blank=True)
+
+    # Sonuç İlanı türevleri
+    tender_yaklasik_maliyet_num = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True
+    )
+    teklif_sayisi = models.IntegerField(null=True, blank=True)
+    gecerli_teklif_sayisi = models.IntegerField(null=True, blank=True)
+    dokuman_indiren_sayisi = models.IntegerField(null=True, blank=True)
+    indirim_orani = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    ekap_ilan_id = models.CharField(max_length=64, blank=True)  # izlenebilirlik
+
+    # İngest-kopyası denormalizasyonlar — firma sorgularından Tender JOIN'ini çıkarır.
+    # Milyonlarca sözleşme satırında bu JOIN, indeks taraması ile nested loop farkıdır.
+    idare_id = models.CharField(max_length=255, blank=True, db_index=True)
+    il_id = models.IntegerField(null=True, blank=True, db_index=True)
+    ihale_tip = models.IntegerField(null=True, blank=True, db_index=True)
 
     class Meta:
         verbose_name = "Sözleşme"
         verbose_name_plural = "Sözleşmeler"
+        indexes = [
+            models.Index(fields=["yuklenici", "-sozlesme_tarihi"]),
+            models.Index(fields=["-sozlesme_tarihi"]),
+        ]
+
+    def __str__(self):
+        return f"{self.yuklenici_adi[:50]} — {self.sozlesme_bedeli}"
 
 
 class ContractSection(models.Model):
-    """kisimItemDto.kisimList elemanı."""
+    """
+    kisimItemDto.kisimList elemanı.
+
+    ⚠️ `en_dusuk_teklif` / `en_yuksek_teklif` / `yaklasik_maliyet` string'leri EKAP
+    tarafında **bozuk ölçekte** üretilir (float'ın ondalık noktası silinip yeniden
+    gruplanır → 10×/100× şişme). Sayısal karşılıkları YOKTUR ve eklenmemelidir;
+    API'de de gösterilmezler. Yalnızca kanıt olarak saklanırlar.
+    """
 
     contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="kisimlar")
+    ekap_kisim_id = models.CharField(max_length=64, blank=True, db_index=True)
     kisim_adi = models.CharField(max_length=500, blank=True)
     en_dusuk_teklif = models.CharField(max_length=100, blank=True)
     en_yuksek_teklif = models.CharField(max_length=100, blank=True)

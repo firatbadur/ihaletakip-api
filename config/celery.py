@@ -72,6 +72,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/15"),
     },
     # OKAS kodları — haftalık (Pazartesi 05:00)
+    # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır);
+    # backfill'in */15 slotlarıyla çakışmaması için 5/35 dakikalarında.
+    "ekap-sync-contractors": {
+        "task": "ekap.tasks.sync_contractors",
+        "schedule": crontab(minute="5,35"),
+    },
     "ekap-sync-okas": {
         "task": "ekap.tasks.sync_okas",
         "schedule": crontab(hour=5, minute=0, day_of_week=1),

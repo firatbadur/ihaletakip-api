@@ -20,15 +20,19 @@ from rest_framework.views import APIView
 
 from core.response import api_response
 
-from .constants import OZELLIK_MAP
+from .constants import CITIES, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids
-from .models import Announcement, Authority, City, OkasCode, Tender
+from .models import Announcement, Authority, City, Contract, Contractor, OkasCode, Tender
 from .serializers import (
     AuthorityNodeSerializer,
     CitySerializer,
+    ContractorListSerializer,
+    ContractSerializer,
     EkapAnnouncementSerializer,
     EkapTenderListSerializer,
     OkasCodeSerializer,
+    TenderContractSerializer,
+    _dec,
 )
 from .utils import normalize_tr, parse_ekap_datetime
 
@@ -185,6 +189,30 @@ def apply_tender_filters(qs, params):
         for adi in okas_adi:
             cond |= Q(okas_kalemleri__adi__icontains=adi)
         qs = qs.filter(cond)
+        needs_distinct = True
+
+    # ── Yüklenici (sözleşme imzalayan firma) ──
+    # `ortakliklari_dahil_et` (vars. açık): firma bir ORTAK GİRİŞİMİN üyesi olarak da
+    # iş almış olabilir → "hangi firma hangi işi aldı" semantiği bunu kapsamalı.
+    ortakliklar_dahil = str(
+        params.get("ortakliklari_dahil_et", "true")
+    ).lower() not in ("0", "false", "no", "hayir")
+
+    yuklenici_id = _as_int_list(params.get("yuklenici_id"))
+    if yuklenici_id:
+        cond = Q(sozlesmeler__yuklenici_id__in=yuklenici_id)
+        if ortakliklar_dahil:
+            cond |= Q(sozlesmeler__yuklenici__uyelikler__uye_id__in=yuklenici_id)
+        qs = qs.filter(cond)
+        needs_distinct = True
+
+    yuklenici = params.get("yuklenici")
+    if yuklenici and str(yuklenici).strip():
+        nq = normalize_tr(yuklenici)
+        qs = qs.filter(
+            Q(sozlesmeler__yuklenici__arama_norm__contains=nq)
+            | Q(sozlesmeler__yuklenici_adi_norm__contains=nq)  # henüz çözülmemiş satırlar
+        )
         needs_distinct = True
 
     # ── Özellikler: OZELLIK_MAP anahtarları (virgülle) → ozellikler JSON etiketi ──
@@ -718,3 +746,344 @@ class CityListView(APIView):
 
     def get(self, request):
         return api_response(data=CitySerializer(City.objects.all(), many=True).data)
+
+
+# ── Yüklenici (firma) uçları ───────────────────────────
+def _paginate(request, qs, serializer_class, default_page_size=20, context=None):
+    """assistant.views._paginate ile aynı zarf: {list, totalCount, page}."""
+    qp = request.query_params
+    try:
+        page = max(1, int(qp.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(100, max(1, int(qp.get("page_size", default_page_size))))
+    except (TypeError, ValueError):
+        page_size = default_page_size
+
+    total = qs.count()
+    start = (page - 1) * page_size
+    data = serializer_class(qs[start:start + page_size], many=True,
+                            context=context or {}).data
+    return api_response(data={"list": data, "totalCount": total, "page": page})
+
+
+_CONTRACTOR_PK_PARAM = OpenApiParameter(
+    name="pk", location=OpenApiParameter.PATH, type=int, required=True,
+    description="Yüklenici (firma) kimliği.",
+    examples=[OpenApiExample("Firma id", value=1)],
+)
+
+_CONTRACTOR_PAGE = inline_serializer(
+    name="ContractorPage",
+    fields={
+        "list": ContractorListSerializer(many=True),
+        "totalCount": serializers.IntegerField(),
+        "page": serializers.IntegerField(),
+    },
+)
+
+_CONTRACT_PAGE = inline_serializer(
+    name="ContractPage",
+    fields={
+        "list": ContractSerializer(many=True),
+        "totalCount": serializers.IntegerField(),
+        "page": serializers.IntegerField(),
+    },
+)
+
+_ORDER_MAP = {
+    "sozlesme_sayisi": "-sozlesme_sayisi",
+    "toplam_bedel": "-toplam_sozlesme_bedeli",
+    "son_sozlesme": "-son_sozlesme_tarihi",
+    "ad": "kanonik_ad",
+}
+
+
+@extend_schema(
+    tags=["ekap"],
+    auth=[],
+    operation_id="ekap_contractors_list",
+    summary="Yüklenici (firma) ara / listele",
+    description=(
+        "Sözleşme imzalamış yüklenicileri **kendi veritabanımızdan** arar.\n\n"
+        "Yanıt: `data.list`, `data.totalCount`, `data.page`.\n\n"
+        "**Kimlik notu:** EKAP yüklenici için VKN/vergi no vermez; firma kimliği "
+        "normalize edilmiş ünvandır. Aynı ünvanın farklı yazımları tek firmada "
+        "birleştirilir ve `GET /ekap/contractors/{id}/` yanıtındaki `aliaslar` "
+        "alanında hangi yazımların birleştiği görülebilir.\n\n"
+        "**`sozlesme_sayisi` ≠ `ihale_sayisi`:** kısımlı ihalede bir firma birden çok "
+        "kısım kazanabilir (3 sözleşme / 1 ihale).\n\n"
+        "**`ortalama_indirim_orani` her zaman `indirim_orani_ornek_sayisi` ile birlikte "
+        "okunmalıdır** — yaklaşık maliyet yalnızca Sonuç İlanı yayımlanmış "
+        "sözleşmelerde bilinir, kapsam kısmidir."
+    ),
+    parameters=[
+        OpenApiParameter("q", str, description="Ünvan araması (Türkçe-i güvenli).",
+                         examples=[OpenApiExample("Firma adı", value="decoline")]),
+        OpenApiParameter("kind", str,
+                         description="Tür listesi (virgülle): `firma`, `sahis`, `ortak_girisim`.",
+                         examples=[OpenApiExample("Yalnız firmalar", value="firma")]),
+        OpenApiParameter("il_id", str, description="İl id listesi (virgülle)."),
+        OpenApiParameter("min_sozlesme", int,
+                         description="En az bu kadar sözleşmesi olan firmalar."),
+        OpenApiParameter("order", str,
+                         enum=list(_ORDER_MAP), default="sozlesme_sayisi",
+                         description="Sıralama alanı."),
+        OpenApiParameter("siralamaTipi", str, enum=["desc", "asc"], default="desc"),
+        OpenApiParameter("page", int, default=1),
+        OpenApiParameter("page_size", int, default=20, description="En fazla 100."),
+    ],
+    responses={200: _CONTRACTOR_PAGE},
+)
+class ContractorListView(APIView):
+    """GET /ekap/contractors/ — firma arama/listeleme."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        qp = request.query_params
+        qs = Contractor.objects.all()
+
+        q = qp.get("q")
+        if q and q.strip():
+            # Türkçe-i güvenli: normalize sütunda `contains` (asla `icontains`)
+            qs = qs.filter(arama_norm__contains=normalize_tr(q))
+
+        kinds = _as_str_list(qp.get("kind"))
+        if kinds:
+            qs = qs.filter(kind__in=kinds)
+
+        il_ids = _as_int_list(qp.get("il_id"))
+        if il_ids:
+            qs = qs.filter(il_id__in=il_ids)
+
+        min_soz = qp.get("min_sozlesme")
+        if min_soz and str(min_soz).isdigit():
+            qs = qs.filter(sozlesme_sayisi__gte=int(min_soz))
+
+        field = _ORDER_MAP.get(qp.get("order", "sozlesme_sayisi"), "-sozlesme_sayisi")
+        if qp.get("siralamaTipi") == "asc":
+            field = field[1:] if field.startswith("-") else f"-{field}"
+        qs = qs.order_by(field, "kanonik_ad")
+
+        return _paginate(request, qs, ContractorListSerializer)
+
+
+@extend_schema(
+    tags=["ekap"],
+    auth=[],
+    parameters=[_CONTRACTOR_PK_PARAM],
+    operation_id="ekap_contractor_detail",
+    summary="Yüklenici detayı + istatistikleri",
+    description=(
+        "Firmanın kimliği, toplam istatistikleri ve kırılımları.\n\n"
+        "`dagilim` (ihale tipi / il / yıl / idare) **canlı hesaplanır** — yalnızca o "
+        "firmanın sözleşmeleri üzerinden, `idare` en çok 10 satır.\n\n"
+        "`aliaslar` bu firmada birleştirilen ham yazımlardır (kimlik ünvan tabanlı "
+        "olduğu için şeffaflık gerekir).\n\n"
+        "⚠️ **Kazanma oranı hesaplanamaz:** EKAP yalnızca imzalanmış sözleşmeleri "
+        "yayımlar, kaybedilen teklifler veri kaynağında yoktur."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class ContractorDetailView(APIView):
+    """GET /ekap/contractors/<pk>/ — firma detayı + kırılımlar."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk):
+        try:
+            c = Contractor.objects.get(pk=pk)
+        except Contractor.DoesNotExist:
+            return api_response(
+                data=None, message="Yüklenici bulunamadı.", success=False, status=404
+            )
+
+        # Kırılımlar tek firmanın sözleşmeleriyle sınırlı (tipik <100 satır) →
+        # denormalize edilmez, canlı hesaplanır. İngest-kopyası sütunlar sayesinde
+        # Tender JOIN'i yapılmaz.
+        base = Contract.objects.filter(yuklenici=c)
+        data = {
+            "id": c.pk,
+            "ad": c.kanonik_ad,
+            "kanonik_anahtar": c.kanonik_anahtar,
+            "kind": c.kind,
+            "kind_aciklama": c.get_kind_display(),
+            "tuzel_tip": c.tuzel_tip or None,
+            "uyruk": c.uyruk or None,
+            "adres": c.adres or None,
+            "il_adi": c.il_adi or None,
+            "il_id": c.il_id,
+            "istatistik": {
+                "sozlesme_sayisi": c.sozlesme_sayisi,
+                "ihale_sayisi": c.ihale_sayisi,
+                "idare_sayisi": c.idare_sayisi,
+                "toplam_sozlesme_bedeli": _dec(c.toplam_sozlesme_bedeli),
+                "ilk_sozlesme_tarihi": (
+                    c.ilk_sozlesme_tarihi.isoformat() if c.ilk_sozlesme_tarihi else None
+                ),
+                "son_sozlesme_tarihi": (
+                    c.son_sozlesme_tarihi.isoformat() if c.son_sozlesme_tarihi else None
+                ),
+                "ortalama_indirim_orani": _dec(c.ortalama_indirim_orani),
+                "indirim_orani_ornek_sayisi": c.indirim_orani_ornek_sayisi,
+            },
+            "dagilim": self._dagilim(base),
+            "aliaslar": list(c.aliaslar.values_list("ham_ad", flat=True)[:50]),
+            "ortak_girisimler": [
+                {"id": m.ortak_girisim.pk, "ad": m.ortak_girisim.kanonik_ad,
+                 "sozlesme_sayisi": m.ortak_girisim.sozlesme_sayisi, "pilot": m.pilot}
+                for m in c.ortakliklar.select_related("ortak_girisim").all()
+            ],
+            "uyeler": [
+                {"id": m.uye.pk, "ad": m.uye.kanonik_ad, "pilot": m.pilot,
+                 "sozlesme_sayisi": m.uye.sozlesme_sayisi}
+                for m in c.uyelikler.select_related("uye").all()
+            ],
+            "uyeleri_cozumlendi": c.uyeleri_cozumlendi,
+        }
+        return api_response(data=data)
+
+    @staticmethod
+    def _dagilim(base):
+        from decimal import Decimal
+
+        from django.db.models import Count, Sum
+        from django.db.models.functions import ExtractYear
+
+        def money(v):
+            # Sum() Decimal hassasiyetini genişletir → 2 haneye sabitle
+            return str(v.quantize(Decimal("0.01"))) if v is not None else None
+
+        def rows(qs, key):
+            return [
+                {key: r[key], "adet": r["adet"], "toplam_bedel": money(r["toplam"])}
+                for r in qs.values(key).annotate(
+                    adet=Count("id"), toplam=Sum("sozlesme_bedeli_num")
+                ).order_by("-adet")
+            ]
+
+        # İl adları statik seed'den okunur (DB'deki City tablosu boş olabilir)
+        il_adlari = {ekap_il_id: ad for ekap_il_id, _plaka, ad, _big in CITIES}
+        idare_adlari = dict(
+            base.exclude(idare_id="").values_list("idare_id", "tender__idare_adi")[:200]
+        )
+        return {
+            "ihale_tipi": [
+                {**r, "ad": IHALE_TURU.get(r["ihale_tip"], "")}
+                for r in rows(base.exclude(ihale_tip__isnull=True), "ihale_tip")
+            ],
+            "il": [
+                {**r, "ad": il_adlari.get(r["il_id"], "")}
+                for r in rows(base.exclude(il_id__isnull=True), "il_id")
+            ],
+            "yil": rows(
+                base.exclude(sozlesme_tarihi__isnull=True)
+                .annotate(yil=ExtractYear("sozlesme_tarihi")), "yil"
+            ),
+            "idare": [
+                {**r, "ad": idare_adlari.get(r["idare_id"], "")}
+                for r in rows(base.exclude(idare_id=""), "idare_id")[:10]
+            ],
+        }
+
+
+@extend_schema(
+    tags=["ekap"],
+    auth=[],
+    parameters=[
+        _CONTRACTOR_PK_PARAM,
+        OpenApiParameter("il_id", str, description="İl id listesi (virgülle)."),
+        OpenApiParameter("idare_id", str, description="İdare id listesi (virgülle)."),
+        OpenApiParameter("ihale_tip", str, description="İhale türü listesi (virgülle)."),
+        OpenApiParameter("yil", int, description="Sözleşme yılı."),
+        OpenApiParameter("order", str, enum=["sozlesme_tarihi", "sozlesme_bedeli"],
+                         default="sozlesme_tarihi"),
+        OpenApiParameter("siralamaTipi", str, enum=["desc", "asc"], default="desc"),
+        OpenApiParameter("page", int, default=1),
+        OpenApiParameter("page_size", int, default=20, description="En fazla 100."),
+    ],
+    operation_id="ekap_contractor_contracts",
+    summary="Yüklenicinin sözleşme geçmişi",
+    description=(
+        "Firmanın kazandığı işler (imzaladığı sözleşmeler), en yenisi başta.\n\n"
+        "⚠️ **Yalnızca KAZANDIĞI işler görünür.** EKAP kaybedilen teklifleri "
+        "yayımlamadığı için firmanın teklif verip kazanamadığı ihaleler bu listede "
+        "yer almaz.\n\n"
+        "⚠️ **Kısım tutarları dönmez** — EKAP onları bozuk ölçekte gönderiyor. "
+        "`kisimlar` yalnızca kısım adlarını taşır."
+    ),
+    responses={200: _CONTRACT_PAGE},
+)
+class ContractorContractsView(APIView):
+    """GET /ekap/contractors/<pk>/contracts/ — firma sözleşme geçmişi."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk):
+        if not Contractor.objects.filter(pk=pk).exists():
+            return api_response(
+                data=None, message="Yüklenici bulunamadı.", success=False, status=404
+            )
+        qp = request.query_params
+        qs = (Contract.objects.filter(yuklenici_id=pk)
+              .select_related("tender").prefetch_related("kisimlar"))
+
+        il_ids = _as_int_list(qp.get("il_id"))
+        if il_ids:
+            qs = qs.filter(il_id__in=il_ids)
+        idare_ids = _as_str_list(qp.get("idare_id"))
+        if idare_ids:
+            qs = qs.filter(idare_id__in=idare_ids)
+        tipler = _as_int_list(qp.get("ihale_tip"))
+        if tipler:
+            qs = qs.filter(ihale_tip__in=tipler)
+        yil = qp.get("yil")
+        if yil and str(yil).isdigit():
+            qs = qs.filter(sozlesme_tarihi__year=int(yil))
+
+        field = ("sozlesme_bedeli_num" if qp.get("order") == "sozlesme_bedeli"
+                 else "sozlesme_tarihi")
+        prefix = "" if qp.get("siralamaTipi") == "asc" else "-"
+        qs = qs.order_by(f"{prefix}{field}")
+
+        return _paginate(request, qs, ContractSerializer)
+
+
+@extend_schema(
+    tags=["ekap"],
+    auth=[],
+    parameters=[
+        OpenApiParameter(
+            name="key", location=OpenApiParameter.PATH, type=str, required=True,
+            description=(
+                "İhalenin EKAP iç kimliği (`ekap_id`). **İKN kullanmayın** — İKN `/` "
+                "içerir ve yol parametresi olarak eşleşmez."
+            ),
+            examples=[OpenApiExample("EKAP iç kimliği", value="e8c865a28be0b142")],
+        ),
+    ],
+    operation_id="ekap_tender_contracts",
+    summary="İhalenin sözleşmeleri ve yüklenicileri",
+    description=(
+        "İhalede imzalanmış sözleşmeler + bağlı yüklenici firmalar. Kısımlı ihalede "
+        "birden çok sözleşme olur.\n\n"
+        "`yuklenici` **null olabilir** (satır henüz firmaya çözülmemişse) — istemci "
+        "bunu tolere etmelidir. Ortak girişimlerde `yuklenici.uyeler` üye firmaları verir."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class TenderContractsView(APIView):
+    """GET /ekap/tenders/<key>/contracts/ — ihalenin sözleşmeleri."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, key):
+        tender = Tender.objects.filter(Q(ekap_id=key) | Q(ikn=key)).first()
+        if tender is None:
+            return api_response(data={"list": []})
+        qs = (tender.sozlesmeler.select_related("tender", "yuklenici")
+              .prefetch_related("kisimlar", "yuklenici__uyelikler__uye")
+              .order_by("-sozlesme_bedeli_num"))
+        return api_response(data={"list": TenderContractSerializer(qs, many=True).data})

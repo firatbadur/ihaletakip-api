@@ -10,19 +10,28 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from . import contractors as contractors_mod
 from .constants import DURUM_SONUCLANMIS
 from .models import (
     Announcement,
     Authority,
     City,
     Contract,
+    ContractorAlias,
     ContractSection,
     OkasCode,
     OkasItem,
     Tender,
     TenderDate,
 )
-from .utils import normalize_tr, parse_ekap_datetime, parse_money
+from .sonuc_ilani import parse_sonuc_ilani
+from .utils import (
+    normalize_tr,
+    parse_ekap_datetime,
+    parse_money,
+    parse_money_value,
+    pick_money,
+)
 
 logger = logging.getLogger("ihaletakip")
 
@@ -238,54 +247,330 @@ def _sync_children(tender, bilgi, data, announcements):
         for o in (data.get("ihtiyacKalemiOkasList") or [])
     ])
 
-    # İlanlar (detay içi ilanList + varsa ayrı announcements response)
+    # İlanlar + sözleşmeler + kısımlar → kararlı anahtarla upsert (bkz. aşağısı)
+    sync_contracts_from_raw(tender, detail={"item": data}, announcements=announcements)
+
+
+# ── Sözleşme / yüklenici çözümlemesi ───────────────────
+def _dedupe_by_key(rows, key_of):
+    """
+    Aynı anahtar iki kez gelirse SONUNCUSU kalır.
+
+    ⚠️ Zorunlu: `ilanList` ile ayrı announcements yanıtı birleştirildiğinde aynı `id`
+    tekrar edebiliyor; Postgres `ON CONFLICT DO UPDATE`'in aynı satıra iki kez
+    dokunmasını reddeder ("cannot affect row a second time").
+    """
+    out = {}
+    for row in rows:
+        out[key_of(row)] = row
+    return out
+
+
+def _bulk_upsert_children(model, existing, wanted, key_attr, fields, build):
+    """
+    Kararlı anahtarla toplu upsert + budama — **satır sayısından bağımsız ~4 sorgu**.
+
+    `update_or_create` döngüsü satır başına 2-3 sorgu yapıyordu; 69 kısımlı bir ihale
+    300+ sorguya çıkıyordu ki milyonlarca ihalelik backfill için kabul edilemez.
+
+    existing: {key: model örneği} · wanted: {key: alan sözlüğü} · build(key, vals) → örnek
+    Döner: {key: örnek} (yeni + güncel hepsi)
+    """
+    to_create, to_update, out = [], [], {}
+    for key, vals in wanted.items():
+        obj = existing.get(key)
+        if obj is None:
+            out[key] = build(key, vals)
+            to_create.append(out[key])
+            continue
+        changed = False
+        for f, v in vals.items():
+            if getattr(obj, f) != v:
+                setattr(obj, f, v)
+                changed = True
+        if changed:
+            to_update.append(obj)
+        out[key] = obj
+
+    if to_create:
+        model.objects.bulk_create(to_create, batch_size=500)
+    if to_update:
+        model.objects.bulk_update(to_update, fields, batch_size=500)
+
+    stale = [o.pk for key, o in existing.items() if key not in wanted]
+    if stale:
+        model.objects.filter(pk__in=stale).delete()
+    return out
+
+
+_ANNOUNCEMENT_FIELDS = [
+    "ilan_tip", "ilan_tarihi", "baslik", "veri_html", "istekli_adi", "ekap_sozlesme_id",
+]
+
+
+def _upsert_announcements(tender, data, announcements) -> dict:
+    """İlanları `ekap_ilan_id` ile upsert eder, artıkları budar. Döner: {sozlesme_id: ilan}."""
     ilan_list = list(data.get("ilanList") or [])
     if announcements:
         extra, _ = extract_list(announcements)
         ilan_list += extra
-    tender.ilanlar.all().delete()
-    Announcement.objects.bulk_create([
-        Announcement(
-            tender=tender,
-            ekap_ilan_id=str(i.get("id", "")),
-            ilan_tip=_as_int(i.get("ilanTip")),
-            ilan_tarihi=parse_ekap_datetime(i.get("ilanTarihi")),
-            baslik=i.get("baslik", "") or "",
-            veri_html=i.get("veriHtml", "") or "",
-            istekli_adi=i.get("istekliAdi", "") or "",
-        )
-        for i in ilan_list
-    ])
 
-    # Sözleşmeler + kısımlar
-    tender.sozlesmeler.all().delete()
-    for s in (data.get("sozlesmeBilgiList") or []):
-        contract = Contract.objects.create(
-            tender=tender,
-            yuklenici_adi=s.get("yukleniciAdi", "") or "",
-            sozlesme_tarih=str(s.get("sozlesmeTarih") or ""),
-            sozlesme_bedeli=str(s.get("sozlesmeBedeli") or ""),
-            sozlesme_bedeli_num=parse_money(s.get("sozlesmeBedeli")),
-            en_dusuk_teklif=str(s.get("enDusukTeklif") or ""),
-            en_dusuk_teklif_num=parse_money(s.get("enDusukTeklif")),
-            en_yuksek_teklif=str(s.get("enYuksekTeklif") or ""),
-            en_yuksek_teklif_num=parse_money(s.get("enYuksekTeklif")),
-            yaklasik_maliyet=str(s.get("yaklasikMaliyet") or ""),
-            yaklasik_maliyet_num=parse_money(s.get("yaklasikMaliyet")),
-            fesih_string=str(s.get("fesihString") or ""),
-            tasfiye_transfer_string=str(s.get("tasfiyeTransferString") or ""),
+    deduped = _dedupe_by_key(
+        [i for i in ilan_list if i], lambda i: str(i.get("id", "") or "")
+    )
+    wanted = {
+        (key or f"noid:{idx}"): {
+            "ilan_tip": _as_int(i.get("ilanTip")),
+            "ilan_tarihi": parse_ekap_datetime(i.get("ilanTarihi")),
+            "baslik": (i.get("baslik") or "")[:500],
+            "veri_html": i.get("veriHtml") or "",
+            "istekli_adi": (i.get("istekliAdi") or "")[:500],
+            "ekap_sozlesme_id": str(i.get("sozlesmeId") or "")[:64],
+        }
+        for idx, (key, i) in enumerate(deduped.items())
+    }
+
+    objs = _bulk_upsert_children(
+        Announcement,
+        {a.ekap_ilan_id: a for a in tender.ilanlar.all()},
+        wanted,
+        "ekap_ilan_id",
+        _ANNOUNCEMENT_FIELDS,
+        lambda key, vals: Announcement(tender=tender, ekap_ilan_id=key, **vals),
+    )
+    # Sonuç ilanları (ilanTip=4) sözleşmeye `sozlesmeId` ile bağlanır
+    return {
+        o.ekap_sozlesme_id: o
+        for o in objs.values()
+        if o.ilan_tip == 4 and o.ekap_sozlesme_id
+    }
+
+
+_CONTRACT_FIELDS = [
+    "yuklenici_adi", "yuklenici_adi_norm", "yuklenici",
+    "sozlesme_tarih", "sozlesme_tarihi",
+    "sozlesme_bedeli", "sozlesme_bedeli_num",
+    "en_dusuk_teklif", "en_dusuk_teklif_num",
+    "en_yuksek_teklif", "en_yuksek_teklif_num",
+    "yaklasik_maliyet", "yaklasik_maliyet_num", "yaklasik_maliyet_kaynak",
+    "tender_yaklasik_maliyet_num", "teklif_sayisi", "gecerli_teklif_sayisi",
+    "dokuman_indiren_sayisi", "indirim_orani", "ekap_ilan_id",
+    "fesih_string", "tasfiye_transfer_string",
+    "idare_id", "il_id", "ihale_tip",
+]
+
+
+def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
+    """
+    İhalenin sözleşmelerini + yüklenici bağlantılarını ham detaydan kurar.
+
+    `detail=None` ise `tender.detail_raw` kullanılır → **EKAP'a hiç gidilmez**; offline
+    backfill/onarım bu sayede mümkündür.
+
+    Döner: `{"contracts": n, "contractors": {id, ...}}`
+    """
+    raw = detail if detail is not None else tender.detail_raw
+    if not raw:
+        return {"contracts": 0, "contractors": set()}
+    data = raw.get("item", raw) if isinstance(raw, dict) else {}
+    if not isinstance(data, dict):
+        return {"contracts": 0, "contractors": set()}
+
+    # 1) İlanlar önce — sözleşmeler sonuç ilanına bağlanacak
+    sonuc_ilanlari = _upsert_announcements(tender, data, announcements)
+
+    sozlesme_list = [s for s in (data.get("sozlesmeBilgiList") or []) if s]
+    if not sozlesme_list:
+        tender.sozlesmeler.all().delete()
+        Tender.objects.filter(pk=tender.pk).update(
+            contractors_synced_at=timezone.now(), sonuc_ilani_eksik=False
         )
-        kisim_list = ((s.get("kisimItemDto") or {}).get("kisimList")) or []
-        ContractSection.objects.bulk_create([
-            ContractSection(
-                contract=contract,
-                kisim_adi=k.get("kisimAdi", "") or "",
-                en_dusuk_teklif=str(k.get("enDusukTeklif") or ""),
-                en_yuksek_teklif=str(k.get("enYuksekTeklif") or ""),
-                yaklasik_maliyet=str(k.get("yaklasikMaliyet") or ""),
+        return {"contracts": 0, "contractors": set()}
+
+    # 2) Tüm yüklenici adları TEK çağrıda çözülür (13 sözleşme de olsa ~5 sorgu)
+    resolved = contractors_mod.resolve_contractors(
+        [s.get("yukleniciAdi") for s in sozlesme_list]
+    )
+
+    now = timezone.now()
+    touched_contractors, seen_keys = set(), []
+    sonuc_eksik = False
+    wanted, kisimlar_by_key, alias_jobs = {}, {}, []
+
+    for idx, s in enumerate(sozlesme_list):
+        # Anahtar asla boş kalmamalı — koşulsuz unique constraint (R2) buna dayanır
+        key = str(s.get("id") or "").strip() or f"noid:{idx}"
+        seen_keys.append(key)
+
+        ham_ad = (s.get("yukleniciAdi") or "").strip()
+        contractor = resolved.get(ham_ad)
+
+        # ⚠️ Para: EKAP'ın hazır `*Degeri` float'ları güvenilir; string'ler formatı
+        # karıştırır. `yaklasikMaliyet` string'i BOZUK üretildiği için hiç ayrıştırılmaz
+        # (yalnızca Sonuç İlanı'ndan doldurulur).
+        defaults = {
+            "yuklenici_adi": ham_ad[:500],
+            "yuklenici_adi_norm": normalize_tr(ham_ad)[:500],
+            "yuklenici": contractor,
+            "sozlesme_tarih": str(s.get("sozlesmeTarih") or ""),
+            "sozlesme_tarihi": parse_ekap_datetime(s.get("sozlesmeTarih")),
+            "sozlesme_bedeli": str(s.get("sozlesmeBedeli") or ""),
+            "sozlesme_bedeli_num": pick_money(
+                parse_money_value(s.get("sozlesmeBedeliDegeri")),
+                parse_money(s.get("sozlesmeBedeli")),
+            ),
+            "en_dusuk_teklif": str(s.get("enDusukTeklif") or ""),
+            "en_dusuk_teklif_num": pick_money(
+                parse_money_value(s.get("enDusukTeklifDegeri")),
+                parse_money(s.get("enDusukTeklif")),
+            ),
+            "en_yuksek_teklif": str(s.get("enYuksekTeklif") or ""),
+            "en_yuksek_teklif_num": pick_money(
+                parse_money_value(s.get("enYuksekTeklifDegeri")),
+                parse_money(s.get("enYuksekTeklif")),
+            ),
+            "yaklasik_maliyet": str(s.get("yaklasikMaliyet") or ""),
+            "yaklasik_maliyet_num": None,
+            "yaklasik_maliyet_kaynak": "",
+            "tender_yaklasik_maliyet_num": None,
+            "teklif_sayisi": None,
+            "gecerli_teklif_sayisi": None,
+            "dokuman_indiren_sayisi": None,
+            "indirim_orani": None,
+            "ekap_ilan_id": "",
+            "fesih_string": str(s.get("fesihString") or "")[:255],
+            "tasfiye_transfer_string": str(s.get("tasfiyeTransferString") or "")[:255],
+            # İngest-kopyası → firma sorguları Tender JOIN'i yapmasın
+            "idare_id": tender.idare_id or "",
+            "il_id": tender.il_id,
+            "ihale_tip": tender.ihale_tip,
+        }
+
+        # 3) Sonuç İlanı — yaklaşık maliyetin TEK doğru kaynağı
+        ilan = sonuc_ilanlari.get(key)
+        if ilan is not None:
+            parsed = parse_sonuc_ilani(ilan.veri_html)
+            defaults["ekap_ilan_id"] = ilan.ekap_ilan_id[:64]
+            ym = parsed.get("kisim_yaklasik_maliyet")
+            if ym is not None:
+                defaults["yaklasik_maliyet_num"] = ym
+                defaults["yaklasik_maliyet_kaynak"] = "sonuc_ilani"
+            for src, dst in (
+                ("yaklasik_maliyet", "tender_yaklasik_maliyet_num"),
+                ("teklif_sayisi", "teklif_sayisi"),
+                ("gecerli_teklif_sayisi", "gecerli_teklif_sayisi"),
+                ("dokuman_indiren_sayisi", "dokuman_indiren_sayisi"),
+            ):
+                if parsed.get(src) is not None:
+                    defaults[dst] = parsed[src]
+            defaults["indirim_orani"] = _indirim_orani(
+                ym, defaults["sozlesme_bedeli_num"]
             )
-            for k in kisim_list
-        ])
+            if contractor is not None:
+                _enrich_contractor(contractor, parsed, ilan)
+        elif defaults["sozlesme_tarihi"] is not None:
+            # Sonuç İlanı imzadan SONRA yayımlanır → yakın tarihli sözleşmede eksikse
+            # detayı daha sık tazelemek gerekir (bkz. should_refresh_detail)
+            if (now - defaults["sozlesme_tarihi"]) <= timedelta(days=180):
+                sonuc_eksik = True
+
+        wanted[key] = defaults
+        kisimlar_by_key[key] = (s.get("kisimItemDto") or {}).get("kisimList") or []
+
+        if contractor is not None:
+            touched_contractors.add(contractor.pk)
+            # Kısım/ilan yazımları AYNI sözleşmeye ait → firması kesin; bağımsız
+            # çözülselerdi yazım farkları mükerrer firma üretirdi.
+            kisim_yuklenici = (s.get("kisimItemDto") or {}).get("yuklenici")
+            if kisim_yuklenici and kisim_yuklenici.strip() != ham_ad:
+                alias_jobs.append(
+                    (contractor, kisim_yuklenici, ContractorAlias.Kaynak.KISIM)
+                )
+            if ilan is not None and ilan.istekli_adi and ilan.istekli_adi != ham_ad:
+                alias_jobs.append(
+                    (contractor, ilan.istekli_adi, ContractorAlias.Kaynak.ILAN)
+                )
+
+    contracts = _bulk_upsert_children(
+        Contract,
+        {c.ekap_sozlesme_id: c for c in tender.sozlesmeler.all()},
+        wanted,
+        "ekap_sozlesme_id",
+        _CONTRACT_FIELDS,
+        lambda key, vals: Contract(tender=tender, ekap_sozlesme_id=key, **vals),
+    )
+    for key, contract in contracts.items():
+        _upsert_sections(contract, kisimlar_by_key.get(key) or [])
+    for contractor, raw_ad, kaynak in alias_jobs:
+        contractors_mod.attach_alias(contractor, raw_ad, kaynak)
+
+    tender_ym = next(
+        (c.tender_yaklasik_maliyet_num
+         for c in tender.sozlesmeler.all() if c.tender_yaklasik_maliyet_num is not None),
+        None,
+    )
+    Tender.objects.filter(pk=tender.pk).update(
+        contractors_synced_at=now,
+        sonuc_ilani_eksik=sonuc_eksik,
+        yaklasik_maliyet_num=tender_ym,
+    )
+    return {"contracts": len(seen_keys), "contractors": touched_contractors}
+
+
+_SECTION_FIELDS = ["kisim_adi", "en_dusuk_teklif", "en_yuksek_teklif", "yaklasik_maliyet"]
+
+
+def _upsert_sections(contract, kisim_list) -> None:
+    """Kısımları `ekap_kisim_id` ile upsert eder, artıkları budar."""
+    deduped = _dedupe_by_key(
+        [k for k in kisim_list if k], lambda k: str(k.get("id", "") or "")
+    )
+    wanted = {
+        (key or f"noid:{idx}"): {
+            "kisim_adi": (k.get("kisimAdi") or "")[:500],
+            # ⚠️ Bu tutarlar bozuk ölçekte — sayısala çevrilmez, API'de gösterilmez.
+            "en_dusuk_teklif": str(k.get("enDusukTeklif") or "")[:100],
+            "en_yuksek_teklif": str(k.get("enYuksekTeklif") or "")[:100],
+            "yaklasik_maliyet": str(k.get("yaklasikMaliyet") or "")[:100],
+        }
+        for idx, (key, k) in enumerate(deduped.items())
+    }
+    _bulk_upsert_children(
+        ContractSection,
+        {s.ekap_kisim_id: s for s in contract.kisimlar.all()},
+        wanted,
+        "ekap_kisim_id",
+        _SECTION_FIELDS,
+        lambda key, vals: ContractSection(contract=contract, ekap_kisim_id=key, **vals),
+    )
+
+
+def _indirim_orani(yaklasik_maliyet, sozlesme_bedeli):
+    """(YM − bedel) / YM. Yalnızca YM>0 ve oran [-1, 1] aralığındaysa döner."""
+    if yaklasik_maliyet is None or sozlesme_bedeli is None or yaklasik_maliyet <= 0:
+        return None
+    oran = (yaklasik_maliyet - sozlesme_bedeli) / yaklasik_maliyet
+    if oran < -1 or oran > 1:
+        return None
+    return round(oran, 4)
+
+
+def _enrich_contractor(contractor, parsed, ilan) -> None:
+    """Sonuç İlanı'ndan gelen uyruk/adres/il bilgisini firmaya yazar (boşsa doldurur)."""
+    from .models import Contractor
+
+    updates = {}
+    if parsed.get("uyruk") and not contractor.uyruk:
+        updates["uyruk"] = parsed["uyruk"]
+    if parsed.get("adres") and not contractor.adres:
+        updates["adres"] = parsed["adres"]
+    if parsed.get("il_adi") and not contractor.il_adi:
+        updates["il_adi"] = parsed["il_adi"]
+        updates["il_id"] = parsed.get("il_id")
+    if updates:
+        Contractor.objects.filter(pk=contractor.pk).update(**updates)
+        for k, v in updates.items():
+            setattr(contractor, k, v)
 
 
 # ── Yüksek seviye toplama ──────────────────────────────
@@ -314,8 +599,14 @@ def should_refresh_detail(tender, now=None) -> bool:
     if tender.detail_synced_at is None:
         return True
 
-    # Sonuçlanmış (iptal/sonuç/sözleşme) ve son 7 günde bakılmış → hayır
+    # Sonuçlanmış (sözleşme imzalanmış / iptal)
     if tender.ihale_durum in DURUM_SONUCLANMIS:
+        # ⚠️ Sonuç İlanları imza tarihinden SONRA yayımlanır → imza anında senkronlanan
+        # ihalede ilan yoktur. Bu carve-out olmadan, durum kümesinin düzeltilmesi
+        # (bkz. constants.DURUM_SONUCLANMIS) tazelemeyi 1 günden 7 güne yavaşlatıp
+        # yaklaşık maliyet verisinin gelmesini fiilen engellerdi.
+        if tender.sonuc_ilani_eksik:
+            return (now - tender.detail_synced_at) > timedelta(days=2)
         return (now - tender.detail_synced_at) > timedelta(days=7)
 
     # İhale tarihi gelecekte → detay güncelliği düşük öncelik (liste yeter)

@@ -63,7 +63,11 @@ ITEM_ORDER = {
         ("get", "/api/v1/ekap/tenders/"),
         ("get", "/api/v1/ekap/tenders/{key}/"),
         ("get", "/api/v1/ekap/tenders/{key}/announcements/"),
+        ("get", "/api/v1/ekap/tenders/{key}/contracts/"),
         ("get", "/api/v1/ekap/tenders/{ekap_id}/document-url/"),
+        ("get", "/api/v1/ekap/contractors/"),
+        ("get", "/api/v1/ekap/contractors/{id}/"),
+        ("get", "/api/v1/ekap/contractors/{id}/contracts/"),
         ("get", "/api/v1/ekap/cities/"),
         ("get", "/api/v1/ekap/okas/search/"),
         ("get", "/api/v1/ekap/authorities/search/"),
@@ -92,9 +96,15 @@ FOLDER_DESCRIPTIONS = {
         "koleksiyon değişkenleri otomatik dolar, diğer tüm klasörler bunları kullanır."
     ),
     "ekap": (
-        "İhale arama, detay, ilanlar, OKAS/idare/il referans verileri.\n\n"
+        "İhale arama, detay, ilanlar, **yüklenici (firma) kaydı**, OKAS/idare/il "
+        "referans verileri.\n\n"
         "Veriler kendi veritabanımızdan servis edilir; EKAP'a yalnızca detay ve belge "
-        "bağlantısı için canlı gidilir."
+        "bağlantısı için canlı gidilir.\n\n"
+        "**Yüklenici uçları** (`contractors/`) sözleşme imzalamış firmaların geçmişini "
+        "verir. EKAP vergi numarası yayımlamadığı için firma kimliği normalize edilmiş "
+        "ünvandır; birleştirilen yazımlar firma detayındaki `aliaslar` alanında görünür. "
+        "⚠️ Yalnızca **kazanılan** işler bilinir — EKAP kaybedilen teklifleri yayımlamaz, "
+        "bu yüzden kazanma oranı gibi bir metrik hesaplanamaz."
     ),
     "ai": "Claude ile doküman analizi (asenkron, Celery) ve Google TTS seslendirme.",
     "favorites": "Kullanıcının favori ihaleleri.",

@@ -776,6 +776,44 @@
           }
         },
         {
+          "name": "İhalenin sözleşmeleri ve yüklenicileri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/contracts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "contracts",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "e8c865a28be0b142",
+                  "description": "**Zorunlu.** İhalenin EKAP iç kimliği (`ekap_id`). **İKN kullanmayın** — İKN `/` içerir ve yol parametresi olarak eşleşmez."
+                }
+              ]
+            },
+            "description": "İhalede imzalanmış sözleşmeler + bağlı yüklenici firmalar. Kısımlı ihalede birden çok sözleşme olur.\n\n`yuklenici` **null olabilir** (satır henüz firmaya çözülmemişse) — istemci bunu tolere etmelidir. Ortak girişimlerde `yuklenici.uyeler` üye firmaları verir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Belge indirme bağlantısı",
           "request": {
             "method": "GET",
@@ -816,6 +854,220 @@
               ]
             },
             "description": "İhale dokümanının indirme bağlantısını döner (`data.url`). Bu URL EKAP tarafında **dinamik üretilir ve kısa ömürlüdür**, bu yüzden istek anında canlı olarak EKAP'a gidilir. Sonuç 5 dakika önbelleklenir.\n\nEKAP'a ulaşılamazsa `502` döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Yüklenici (firma) ara / listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/contractors/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "contractors",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "il_id",
+                  "value": "ornek",
+                  "description": "İl id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "kind",
+                  "value": "firma",
+                  "description": "Tür listesi (virgülle): `firma`, `sahis`, `ortak_girisim`.",
+                  "disabled": true
+                },
+                {
+                  "key": "min_sozlesme",
+                  "value": "1",
+                  "description": "En az bu kadar sözleşmesi olan firmalar.",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "sozlesme_sayisi",
+                  "description": "Sıralama alanı. Geçerli değerler: `ad`, `son_sozlesme`, `sozlesme_sayisi`, `toplam_bedel`.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "En fazla 100.",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "decoline",
+                  "description": "Ünvan araması (Türkçe-i güvenli).",
+                  "disabled": true
+                },
+                {
+                  "key": "siralamaTipi",
+                  "value": "desc",
+                  "description": "Geçerli değerler: `asc`, `desc`.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Sözleşme imzalamış yüklenicileri **kendi veritabanımızdan** arar.\n\nYanıt: `data.list`, `data.totalCount`, `data.page`.\n\n**Kimlik notu:** EKAP yüklenici için VKN/vergi no vermez; firma kimliği normalize edilmiş ünvandır. Aynı ünvanın farklı yazımları tek firmada birleştirilir ve `GET /ekap/contractors/{id}/` yanıtındaki `aliaslar` alanında hangi yazımların birleştiği görülebilir.\n\n**`sozlesme_sayisi` ≠ `ihale_sayisi`:** kısımlı ihalede bir firma birden çok kısım kazanabilir (3 sözleşme / 1 ihale).\n\n**`ortalama_indirim_orani` her zaman `indirim_orani_ornek_sayisi` ile birlikte okunmalıdır** — yaklaşık maliyet yalnızca Sonuç İlanı yayımlanmış sözleşmelerde bilinir, kapsam kısmidir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Yüklenici detayı + istatistikleri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/contractors/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "contractors",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                },
+                {
+                  "key": "pk",
+                  "value": "1",
+                  "description": "**Zorunlu.** Yüklenici (firma) kimliği."
+                }
+              ]
+            },
+            "description": "Firmanın kimliği, toplam istatistikleri ve kırılımları.\n\n`dagilim` (ihale tipi / il / yıl / idare) **canlı hesaplanır** — yalnızca o firmanın sözleşmeleri üzerinden, `idare` en çok 10 satır.\n\n`aliaslar` bu firmada birleştirilen ham yazımlardır (kimlik ünvan tabanlı olduğu için şeffaflık gerekir).\n\n⚠️ **Kazanma oranı hesaplanamaz:** EKAP yalnızca imzalanmış sözleşmeleri yayımlar, kaybedilen teklifler veri kaynağında yoktur.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Yüklenicinin sözleşme geçmişi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/contractors/:id/contracts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "contractors",
+                ":id",
+                "contracts",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "idare_id",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "İdare id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_tip",
+                  "value": "ornek",
+                  "description": "İhale türü listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "il_id",
+                  "value": "ornek",
+                  "description": "İl id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "sozlesme_tarihi",
+                  "description": "Geçerli değerler: `sozlesme_bedeli`, `sozlesme_tarihi`.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "En fazla 100.",
+                  "disabled": true
+                },
+                {
+                  "key": "siralamaTipi",
+                  "value": "desc",
+                  "description": "Geçerli değerler: `asc`, `desc`.",
+                  "disabled": true
+                },
+                {
+                  "key": "yil",
+                  "value": "1",
+                  "description": "Sözleşme yılı.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                },
+                {
+                  "key": "pk",
+                  "value": "1",
+                  "description": "**Zorunlu.** Yüklenici (firma) kimliği."
+                }
+              ]
+            },
+            "description": "Firmanın kazandığı işler (imzaladığı sözleşmeler), en yenisi başta.\n\n⚠️ **Yalnızca KAZANDIĞI işler görünür.** EKAP kaybedilen teklifleri yayımlamadığı için firmanın teklif verip kazanamadığı ihaleler bu listede yer almaz.\n\n⚠️ **Kısım tutarları dönmez** — EKAP onları bozuk ölçekte gönderiyor. `kisimlar` yalnızca kısım adlarını taşır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -974,7 +1226,7 @@
           }
         }
       ],
-      "description": "İhale arama, detay, ilanlar, OKAS/idare/il referans verileri.\n\nVeriler kendi veritabanımızdan servis edilir; EKAP'a yalnızca detay ve belge bağlantısı için canlı gidilir."
+      "description": "İhale arama, detay, ilanlar, **yüklenici (firma) kaydı**, OKAS/idare/il referans verileri.\n\nVeriler kendi veritabanımızdan servis edilir; EKAP'a yalnızca detay ve belge bağlantısı için canlı gidilir.\n\n**Yüklenici uçları** (`contractors/`) sözleşme imzalamış firmaların geçmişini verir. EKAP vergi numarası yayımlamadığı için firma kimliği normalize edilmiş ünvandır; birleştirilen yazımlar firma detayındaki `aliaslar` alanında görünür. ⚠️ Yalnızca **kazanılan** işler bilinir — EKAP kaybedilen teklifleri yayımlamaz, bu yüzden kazanma oranı gibi bir metrik hesaplanamaz."
     },
     {
       "name": "ai",

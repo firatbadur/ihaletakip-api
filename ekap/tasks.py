@@ -262,3 +262,93 @@ def _update_checkpoint(name, newest=None, oldest=None):
     if oldest:
         cp.oldest_date = oldest
     cp.save()
+
+
+# ── Yüklenici (firma) çözümlemesi ──────────────────────
+@shared_task(name="ekap.tasks.sync_contractors")
+def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit=50):
+    """
+    Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
+    çalışır (yalnızca `enqueue_missing_detail` dalı detay kuyruğa atar).
+
+    İki mod:
+      • Süpürme  (checkpoint bitmemişse) — PK imleciyle tüm arşivi tarar, kaymaz.
+      • Artımlı  (süpürme bitince)       — `refresh_stale` bir detayı yenilediğinde
+                                            (`contractors_synced_at < detail_synced_at`)
+                                            kendiliğinden yakalar.
+    """
+    from django.db.models import F, Q
+
+    from . import contractors as contractors_mod
+
+    with _run("sync_contractors") as run:
+        if run is None:
+            return
+
+        cp, _ = SyncCheckpoint.objects.get_or_create(name="contractors")
+        sweeping = not cp.done
+        last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
+
+        base = Tender.objects.filter(detail_raw__isnull=False)
+        if sweeping:
+            qs = base.filter(pk__gt=last_pk).order_by("pk")[:max_tenders]
+        else:
+            qs = base.filter(
+                Q(contractors_synced_at__isnull=True)
+                | Q(contractors_synced_at__lt=F("detail_synced_at"))
+            ).order_by("detail_synced_at")[:max_tenders]
+
+        processed = errors = contracts = 0
+        touched = set()
+        # detail_raw ~40 KB/satır → 500 ihale ≈ 20 MB; iterator şart
+        for tender in qs.iterator(chunk_size=50):
+            # ⚠️ İmleci try'DAN ÖNCE ilerlet: kalıcı bozuk tek ihale imleci sonsuza
+            # dek kilitlemesin (backfill `skip`'i aynı sebeple koşulsuz ilerletir).
+            if sweeping:
+                last_pk = max(last_pk, tender.pk)
+            try:
+                res = sync_mod.sync_contracts_from_raw(tender)
+                contracts += res["contracts"]
+                touched |= res["contractors"]
+                processed += 1
+            except Exception as e:
+                errors += 1
+                logger.warning("yüklenici çözümü atlandı ikn=%s: %s", tender.ikn, e)
+                continue
+
+        if sweeping:
+            if processed == 0 and errors == 0:
+                cp.done = True
+                logger.info("sync_contractors süpürmesi tamamlandı (pk=%s)", last_pk)
+            cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
+            cp.save()
+
+        if touched:
+            contractors_mod.recompute_aggregates(touched)
+
+        # `refresh_stale` yalnızca EKAP_REFRESH_YEARS geriye bakıyor → daha eski
+        # ihaleler hiç detay almaz. Bu dal tek EKAP'a dokunan parçadır, sınırlıdır.
+        enqueued = 0
+        if enqueue_missing_detail and missing_limit > 0:
+            for ekap_id in (
+                Tender.objects.filter(detail_synced_at__isnull=True)
+                .exclude(ekap_id="")
+                .order_by("-ihale_tarihi")
+                .values_list("ekap_id", flat=True)[:missing_limit]
+            ):
+                sync_detail.delay(ekap_id)
+                enqueued += 1
+
+        run.items = processed
+        run.errors = errors
+        run.note = (
+            f"mod={'süpürme' if sweeping else 'artımlı'} sözleşme={contracts} "
+            f"firma={len(touched)} detay_kuyruk={enqueued}"
+        )[:1000]
+        return {
+            "tenders": processed,
+            "contracts": contracts,
+            "contractors": len(touched),
+            "errors": errors,
+            "enqueued_detail": enqueued,
+        }

@@ -65,21 +65,26 @@ IHALE_USUL = {
     4: "Doğrudan Temin",
 }
 
-# İhale durum kodları (detay STATUS_MAP + liste DURUM_MAP birleşimi)
+# İhale durum kodları.
+# ⚠️ Eski harita yanlıştı: 5'i "Değerlendirmede" sanıyor, 10/15/20'yi gerçek kodlar
+# zannediyordu. Canlı EKAP verisinde yalnızca 1-6 görülüyor; `5` = Sözleşme İmzalanmış
+# (detayda `ihaleDurumAciklama: "Contract Signed"`). 10/15/20 hiç gözlemlenmedi.
 IHALE_DURUM = {
     1: "Taslak",
     2: "Katılıma Açık",
-    3: "Katılıma Açık",
+    3: "Teklif Değerlendirme",
     4: "Değerlendirme Tamamlanmış",
-    5: "Değerlendirmede",
+    5: "Sözleşme İmzalanmış",
     6: "İptal Edilmiş",
-    10: "İptal Edilmiş",
-    15: "Sonuç İlanı Yayımlanmış",
-    20: "Sözleşme İmzalanmış",
 }
 
-# Sonuçlanmış/kapanmış sayılan durumlar (refresh politikası için)
-DURUM_SONUCLANMIS = {10, 15, 20}
+# Sözleşme imzalanmış ihaleler (yüklenici/sonuç verisi kesin vardır)
+DURUM_SOZLESME_IMZALANDI = {5}
+
+# Sonuçlanmış/kapanmış sayılan durumlar (refresh politikası + "İhale Sonuçlandı" bildirimi).
+# ⚠️ Eski değer {10, 15, 20} hiçbir kayıtla eşleşmiyordu → bildirim hiç tetiklenemiyor,
+# `should_refresh_detail`'in ilgili dalı ölü koddu.
+DURUM_SONUCLANMIS = {5, 6}
 
 ILAN_TIP = {
     1: "İhale İlanı",

@@ -86,12 +86,14 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── client.py      # EkapV2Client (curl_cffi ile TLS parmak izi taklidi)
 ├── throttle.py    # Redis tabanlı hız sınırlama (~1 istek/sn)
 ├── constants.py   # DEFAULT_SEARCH_BODY, id→isim maplar, CITIES seed
-├── models.py      # Tender + çocuklar, OkasCode, Authority (DETSIS ağaç düğümü), City, Sync*
-├── sync.py        # EKAP→DB eşleme + toplama mantığı
+├── models.py      # Tender + çocuklar, Contractor/Alias/Membership, OkasCode, Authority (DETSIS), City, Sync*
+├── sync.py        # EKAP→DB eşleme + toplama mantığı (çocuk tablolar kararlı anahtarla upsert)
 ├── detsis_tree.py # İdare ağaç yardımcıları (üst→alt idare_id genişletme, ata-yolu)
-├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities
-├── views.py       # /ekap/tenders, detail, announcements, document-url, okas, authorities(tree/search), cities
-└── management/    # seed_cities, ekap_probe, run_ingest
+├── contractors.py # Yüklenici kimliği: kanonikleştirme, ortak girişim ayrıştırma, agregalar
+├── sonuc_ilani.py # Sonuç İlanı (ilanTip=4) HTML ayrıştırıcı — doğru yaklaşık maliyet kaynağı
+├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities/contractors
+├── views.py       # /ekap/tenders, detail, announcements, contracts, contractors, document-url, okas, authorities, cities
+└── management/    # seed_cities, ekap_probe, run_ingest, rebuild_contractors
 
 core/              # Ortak altyapı
 ├── models.py      # TimeStampedModel, AppSetting, SupportTicket
@@ -141,7 +143,8 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   kısmi ilerlemeyi `SyncCheckpoint`'e kaydeder, çalışmayı *error* saymaz — `SyncRun.note`'a
   "EKAP kısmi" düşer — ve bir sonraki tetikte kaldığı yerden devam eder. Kilit=1sa üst üste
   binmeyi, throttle ~1istek/sn + tek concurrency EKAP'ı korur),
-  `sync_okas`/`sync_authorities` (haftalık). Detay `detail_raw`'da tam saklanır;
+  `sync_okas`/`sync_authorities` (haftalık), `sync_contractors` (5/35 dk, EKAP'a gitmez —
+  bkz. "Yüklenici (Firma) Kaydı"). Detay `detail_raw`'da tam saklanır;
   ayrı ilan çağrısı yapılmaz (detay zaten `ilanList` içerir → rate limit tasarrufu).
   ⚠️ **Pencere değişince** (`EKAP_BACKFILL_YEARS` veya filtre mantığı) backfill
   checkpoint'i sıfırla ki yeni pencereyle baştan taransın:
@@ -244,6 +247,121 @@ Böylece "bilgi işlem" == "BİLGİ İŞLEM" == "bilgi islem" (EKAP'tan bile esn
   ekle + `normalize_tr(sorgu)` ile `__contains`. Bilinen istisna (henüz düzeltilmedi):
   `okas_adi` filtresi `OkasItem.adi__icontains` kullanır (mobil `okas_kod` gönderdiği için
   pratikte tetiklenmez).
+
+### Yüklenici (Firma) Kaydı — `ekap.Contractor`
+
+Sözleşme imzalayan yükleniciler normalize firma kayıtlarına dönüştürülür; her `Contract`
+o firmaya bağlanır. Böylece "hangi firma hangi işleri aldı", geçmişi, indirim oranı,
+hangi idarelerle çalıştığı sorgulanabilir.
+
+- **Kimlik = normalize ünvan** (`contractors.canonical_key`). EKAP payload'ında
+  **VKN/vergi no/TCKN YOKTUR** — başka kimlik kaynağı yok. Boru hattı: Unicode+Türkçe
+  katlama → **noktalı** kısaltma açma (`İNŞ.`→insaat, `TİC.`→ticaret; nokta şartı
+  güvenlik içindir, çıplak `İT` dokunulmaz) → noktalama temizliği → tüzel biçim
+  tekilleştirme (`LİMİTED ŞİRKETİ`≡`LTD.ŞTİ.`→`ltdsti`). **Tüzel biçim SİLİNMEZ** —
+  `X LTD ŞTİ` ile `X A.Ş.` farklı tüzel kişilerdir.
+  ⚠️ Bulanık/edit-distance eşleştirme **yoktur**: yanlış-birleştirme geri dönülmez şekilde
+  geçmişi kirletir, yanlış-ayırma ise alias tablosundan görülüp düzeltilebilir.
+- **Yazım varyantları = `ContractorAlias`** (`ham_ad_norm` GLOBAL unique → hem O(1) ingest
+  cache hem "bir yazım tek firmaya gider" DB garantisi). `kisimItemDto.yuklenici` ve sonuç
+  ilanının `istekliAdi`'sı **bağımsız çözülmez** — aynı sözleşme satırında oldukları için
+  firması kesindir, `attach_alias` ile konum üzerinden bağlanır. Gerekçe: gerçek veride
+  bunlar **yazım hatası** içeriyor (`TAAHÜT`/`TAAHHÜT`, `TIBBI`/`TIBBİ`, `İTVE` bitişik) →
+  bağımsız çözülselerdi mükerrer firma üretirlerdi.
+- **Ortak girişim**: JV'nin kendisi bir `Contractor` (`kind=ortak_girisim`), üyeler ayrı
+  firma, arada `ContractorMembership`. Ayrıştırma **marker kapısı** ister
+  (`iş ortaklığı`/`ortak girişim`/`konsorsiyum`, string'in son 40 karakterinde);
+  **marker yoksa asla bölünmez** (sıradan ünvandaki `-`/`,` bölmeyi tetiklemesin). Ayırıcı
+  şelalesi `" - "`→`" & "`→`" ile "`→…→`","` (virgül ek korumalı). Üye tavanı 6.
+  Güven `dusuk` ise **üyelik YAZILMAZ**, `uyeleri_cozumlendi=False` olur (admin'de filtre).
+- **Agregalar denormalize** (`sozlesme_sayisi`, `toplam_sozlesme_bedeli`,
+  `son_sozlesme_tarihi` = firma listesinin `ORDER BY` anahtarları). ⚠️ `sozlesme_sayisi`
+  ≠ `ihale_sayisi`: kısımlı ihalede bir firma 3 kısım alırsa 3 sözleşme / 1 ihale olur.
+  `ortalama_indirim_orani` **her zaman `indirim_orani_ornek_sayisi` ile birlikte** döner
+  (yaklaşık maliyet kapsamı kısmi). İl/yıl/idare kırılımları denormalize edilmez — tek
+  firmayla sınırlı olduğu için detay ucunda canlı hesaplanır.
+- **Uçlar** (hepsi `AllowAny`, mevcut `ekap/` uçlarıyla tutarlı):
+  - `GET /ekap/contractors/?q=&kind=&il_id=&min_sozlesme=&order=` — firma arama
+    (`q` normalize sütunda, **Türkçe-i güvenli**).
+  - `GET /ekap/contractors/<id>/` — kimlik + `istatistik` + `dagilim` + `aliaslar` +
+    `ortak_girisimler` + `uyeler`.
+  - `GET /ekap/contractors/<id>/contracts/` — sözleşme geçmişi (filtre + sayfalı).
+  - `GET /ekap/tenders/<ekap_id>/contracts/` — ihalenin sözleşmeleri + gömülü yüklenici.
+    (İKN `/` içerdiği için **ekap_id** kullanılır.)
+  - İhale listesinde yeni filtre: `yuklenici_id` / `yuklenici` (+`ortakliklari_dahil_et`,
+    vars. açık → firmanın ortak girişim üyesi olarak aldığı işler de gelir).
+  - Alan adları **snake_case Türkçe** (EKAP camelCase değil): EKAP'ta yüklenici nesnesi
+    yok, yansıtılacak şekil ve korunacak mobil mapper da yok.
+- **Toplama**: `sync_contractors` beat görevi (5/35 dk) — **EKAP'a gitmez**,
+  `Tender.detail_raw` arşivinden çalışır. Süpürme modu PK imleciyle tüm arşivi tarar,
+  bitince artımlı moda geçer (`contractors_synced_at < detail_synced_at` → `refresh_stale`
+  bir detayı yenileyince kendiliğinden yakalar). İmleç `try`'dan **önce** ilerletilir
+  (bozuk tek ihale imleci kilitlemesin). Elle: `python manage.py rebuild_contractors
+  [--dry-run] [--ikn X] [--limit N] [--aggregates-only] [--reset] [--purge]`.
+  `--dry-run` kanonikleştiricinin **ayar döngüsüdür** — kural değiştirmeden önce çalıştır.
+
+#### ⚠️ EKAP tutar verisi — bozulma haritası (KRİTİK)
+
+Canlı `detail_raw` üzerinde doğrulandı. **Bu tabloyu okumadan tutar alanına dokunmayın.**
+
+| Alan | Durum |
+|---|---|
+| `sozlesmeBilgiList[].{sozlesmeBedeli,enDusukTeklif,enYuksekTeklif}Degeri` (float) | ✅ Güvenilir — **bunları kullan** |
+| `sozlesmeBilgiList[].yaklasikMaliyet` (string) | ❌ **BOZUK, geri kazanılamaz** |
+| `sozlesmeBilgiList[].yaklasikMaliyetDegeri` | ❌ Daima `0.0` |
+| `kisimItemDto.kisimList[]` tutarları (string) | ❌ **BOZUK** (`*Degeri` karşılığı yok) |
+| Sonuç İlanı (`ilanTip=4`) HTML tutarları | ✅ **Tek doğru yaklaşık maliyet kaynağı** |
+
+EKAP `yaklasikMaliyet` string'ini float'ın **ondalık noktasını silip** yeniden gruplayarak
+üretiyor: `repr(11454672.76)` → `"1145467276"` → `1.145.467.276,00 TRY` (100× şişme),
+`repr(4991250.0)` → `"49912500"` → `49.912.500,00 TRY` (10× şişme). Ölçek kayması float'ın
+ondalık hane sayısına bağlı olduğundan **hiçbir bölenle geri alınamaz** → `yaklasik_maliyet_num`
+**yalnızca Sonuç İlanı'ndan** doldurulur, yoksa `NULL` kalır ve `yaklasik_maliyet_kaynak`
+alanı istemciye "veri yok"u ayırt ettirir. Kısım tutarları için sayısal sütun **eklenmez**.
+
+Ayrıca `utils.parse_money` artık **format tespitlidir**: EKAP aynı nesnede TR (`529.820,00`)
+ve EN (`18,128.00`) formatını karıştırıyor. Eski koşulsuz TR kuralı `"18,128.00 TRY"`ı
+`18.13`e, `"2,017,840.00 TRY"`ı `NULL`a çeviriyordu. Yeni kurallar: iki ayırıcı varsa **son
+görünen** ondalıktır; tek ayırıcıda son grup 3 hane ise binliktir. `*Degeri` float alanları
+için `parse_money_value` (0.0 → None), seçim için `pick_money(...)` kullanılır.
+
+#### İhale durum kodları düzeltmesi
+
+`IHALE_DURUM` haritası yanlıştı (`5`'i "Değerlendirmede" sanıyordu, 10/15/20 gerçek kod
+zannediliyordu). Canlı veride yalnızca **1-6** görülüyor; `5` = **Sözleşme İmzalanmış**.
+`DURUM_SONUCLANMIS` eski `{10,15,20}` değeriyle **hiçbir kayıtla eşleşmiyordu** → "İhale
+Sonuçlandı" push'u hiç tetiklenemiyor, `should_refresh_detail`'in ilgili dalı ölü koddu.
+Yeni: `DURUM_SONUCLANMIS = {5, 6}`, `DURUM_SOZLESME_IMZALANDI = {5}`.
+⚠️ Bu düzeltme **`sonuc_ilani_eksik` carve-out'u ile birlikte** gelmelidir: Sonuç İlanları
+imzadan *sonra* yayımlandığı için, sözleşmesi olup ilanı gelmemiş ihale 7 gün yerine
+**2 günde** tazelenir — aksi halde düzeltme, bu özelliğin dayandığı veriyi bastırırdı.
+(Push fırtınası riski yok: `_detect_alarm_events` bir **geçiş** arar, snapshot'ı zaten `5`
+olan alarm olay üretmez.)
+
+#### Çocuk tablolar artık upsert (PK churn giderildi)
+
+`_sync_children` eskiden her detay senkronunda `tender.sozlesmeler.all().delete()` + yeniden
+`create` yapıyordu; `refresh_stale` 3 saatte bir çalıştığı için `Contract` PK'ları sürekli
+değişiyordu — firma bağlantısı kurulacaksa kabul edilemez. Artık kararlı EKAP anahtarlarıyla
+upsert + budama yapılır: `Announcement.ekap_ilan_id`, `Contract.ekap_sozlesme_id`
+(`sozlesmeBilgiList[].id`), `ContractSection.ekap_kisim_id` (`kisimList[].id`).
+Anahtarsız satıra sentetik `noid:{i}` verilir (koşulsuz unique constraint'e hazırlık).
+- **Toplu yazma şart**: `_bulk_upsert_children` satır sayısından bağımsız ~4 sorgu yapar.
+  Satır başına `update_or_create` döngüsü 69 kısımlı ihalede **315 sorguya** çıkıyordu;
+  şimdi **16**. (13 sözleşmeli ihale: 368 → 39.)
+- **Dedupe zorunlu**: `ilanList` ile ayrı announcements yanıtı birleştiğinde aynı `id`
+  tekrar edebiliyor; Postgres `ON CONFLICT`in aynı satıra iki kez dokunmasını reddeder.
+- `Contract` üzerinde `idare_id`/`il_id`/`ihale_tip` **ingest-kopyasıdır** → firma
+  sorguları `ekap_tender` JOIN'i yapmaz (milyonlarca satırda kritik).
+
+#### Hesaplanamayanlar (API'de alan AÇILMAYACAK)
+
+- **Kazanma oranı**: `sozlesmeBilgiList` yalnızca **imzalanmış** sözleşmeleri içerir;
+  kaybedilen teklif veri kaynağında yok. `tebligatAlanIstekliList` isimsiz opak id listesi.
+- **İstekli bazlı teklif tutarları**: yalnızca teklif kümesinin min/max'ı var →
+  "hangi ihaleye ne teklif verdi" sorusu **yalnızca kazandığı işler için** yanıtlanabilir.
+- **VKN/TCKN**: yok → aynı ünvanlı iki gerçek firma birleşir, ünvan değiştiren ikiye ayrılır.
+  Şeffaflık için `aliaslar` her zaman API'de açık.
 
 ## İhale Asistanı (`assistant/`)
 
@@ -510,6 +628,8 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
+- `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (5/35 dk; EKAP'a gitmez,
+  `detail_raw` arşivinden çalışır — bkz. "Yüklenici (Firma) Kaydı")
 
 ## Bildirim Servisi (Push)
 
@@ -632,6 +752,8 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
 | `config/ai_service` | `core.AppSetting` |
 
 (Firestore karşılığı olmayan) `tenders.TenderGroup` — kayıtlı ihale klasörleri, bkz. aşağıda.
+(Firestore karşılığı olmayan) `ekap.Contractor` / `ContractorAlias` / `ContractorMembership`
+— yüklenici firma kaydı, bkz. "Yüklenici (Firma) Kaydı".
 
 ## Kayıtlı İhale Klasörleri (`tenders.TenderGroup`)
 

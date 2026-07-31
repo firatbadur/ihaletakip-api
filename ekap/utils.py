@@ -29,31 +29,110 @@ def normalize_tr(text) -> str:
     return str(text).translate(_TR_FOLD).lower().strip()
 
 
+# ── Para ayrıştırma ────────────────────────────────────────
+# ⚠️ EKAP **aynı nesnede iki farklı sayı formatı** karıştırır:
+#   sozlesmeBilgiList[].sozlesmeBedeli  → "18,128.00 TRY"  (EN: `,` binlik, `.` ondalık)
+#   sozlesmeBilgiList[].yaklasikMaliyet → "529.820,00 TRY" (TR: `.` binlik, `,` ondalık)
+# Eski sürüm koşulsuz TR kuralı uyguluyordu → "18,128.00" Decimal('18.128') oluyordu (18.13
+# olarak kaydediliyordu) ve "2,017,840.00" InvalidOperation ile NULL'a düşüyordu. Bu yüzden
+# ayrıştırıcı artık **formatı tespit eder**.
+#
+# ⚠️ Bundan da önemlisi: EKAP'ın `yaklasikMaliyet` / `kisimList[].*` string'leri **bozuk
+# üretilir** — float'ın ondalık noktası silinip yeniden gruplanır:
+#   repr(11454672.76) → "1145467276" → "1.145.467.276,00 TRY"   (100× şişmiş)
+#   repr(4991250.0)   → "49912500"   → "49.912.500,00 TRY"      (10× şişmiş)
+# Ölçek kayması float'ın ondalık hane sayısına bağlı olduğu için **hiçbir bölenle geri
+# alınamaz**. Bu alanlar sayısala ÇEVRİLMEZ; doğru yaklaşık maliyetin tek kaynağı Sonuç
+# İlanı HTML'idir (bkz. `ekap/sonuc_ilani.py`).
+
+
+def _decimal_or_none(s) -> Decimal | None:
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def parse_money(value) -> Decimal | None:
     """
-    EKAP'ın formatlı para string'ini Decimal'e çevirir.
-    Örn: "1.234.567,89 TL" → Decimal('1234567.89'). Başarısızsa None.
+    Formatlı para string'ini Decimal'e çevirir — **format tespitlidir**.
+    "1.234.567,89 TL" (TR) ve "1,234,567.89 TRY" (EN) ikisi de doğru çözülür.
+    Başarısızsa None döner (asla exception fırlatmaz).
     """
     if value is None:
         return None
     if isinstance(value, (int, float, Decimal)):
-        try:
-            return Decimal(str(value))
-        except (InvalidOperation, ValueError):
-            return None
+        return _decimal_or_none(str(value))
+
     s = str(value).strip()
     if not s:
         return None
-    # Sadece rakam, nokta, virgül bırak (TL, boşluk, ₺ vb. temizlenir)
+    # Sadece rakam, nokta, virgül, eksi bırak (TL/TRY/₺/boşluk temizlenir)
     s = re.sub(r"[^\d,.\-]", "", s)
     if not s:
         return None
-    # Türkçe format: nokta binlik, virgül ondalık → normalize
-    s = s.replace(".", "").replace(",", ".")
-    try:
-        return Decimal(s)
-    except InvalidOperation:
+
+    neg = s.startswith("-")
+    s = s.lstrip("-")
+
+    has_dot, has_comma = "." in s, "," in s
+
+    if has_dot and has_comma:
+        # İkisi de varsa **son görünen** ondalık ayırıcıdır; diğeri binliktir.
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif has_comma or has_dot:
+        sep = "," if has_comma else "."
+        parts = s.split(sep)
+        if len(parts) > 2:
+            # Birden çok ayırıcı → kesin binlik ("1,234,567" / "1.234.567")
+            s = s.replace(sep, "")
+        else:
+            # Tek ayırıcı: son grubun uzunluğu karar verir.
+            # 3 hane → binlik ("18,128" = 18128), değilse ondalık ("12,50" = 12.50)
+            if len(parts[1]) == 3:
+                s = parts[0] + parts[1]
+            else:
+                s = f"{parts[0]}.{parts[1]}"
+
+    result = _decimal_or_none(s)
+    if result is None:
         return None
+    return -result if neg else result
+
+
+def parse_money_value(value, *, zero_is_null: bool = True) -> Decimal | None:
+    """
+    EKAP'ın hazır sayısal `*Degeri` alanları için (`sozlesmeBedeliDegeri` vb.).
+    Bunlar string'lerin aksine güvenilirdir — string ayrıştırmaya tercih edilmelidir.
+
+    EKAP "bilinmiyor"u `0.0` ile temsil ediyor (`yaklasikMaliyetDegeri` DAİMA 0.0) →
+    varsayılan olarak None'a çevrilir.
+    """
+    if value is None or isinstance(value, str):
+        return None
+    if not isinstance(value, (int, float, Decimal)) or isinstance(value, bool):
+        return None
+    result = _decimal_or_none(str(value))
+    if result is None:
+        return None
+    if zero_is_null and result == 0:
+        return None
+    return result
+
+
+def pick_money(*candidates) -> Decimal | None:
+    """
+    İlk None-olmayan adayı döner. Kullanım:
+        pick_money(parse_money_value(s.get("sozlesmeBedeliDegeri")),
+                   parse_money(s.get("sozlesmeBedeli")))
+    """
+    for c in candidates:
+        if c is not None:
+            return c
+    return None
 
 
 def parse_ekap_datetime(value) -> datetime | None:

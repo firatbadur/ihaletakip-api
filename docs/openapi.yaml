@@ -1100,6 +1100,225 @@ paths:
                 items:
                   $ref: '#/components/schemas/City'
           description: ''
+  /api/v1/ekap/contractors/:
+    get:
+      operationId: ekap_contractors_list
+      description: 'Sözleşme imzalamış yüklenicileri **kendi veritabanımızdan** arar.
+
+
+        Yanıt: `data.list`, `data.totalCount`, `data.page`.
+
+
+        **Kimlik notu:** EKAP yüklenici için VKN/vergi no vermez; firma kimliği normalize
+        edilmiş ünvandır. Aynı ünvanın farklı yazımları tek firmada birleştirilir
+        ve `GET /ekap/contractors/{id}/` yanıtındaki `aliaslar` alanında hangi yazımların
+        birleştiği görülebilir.
+
+
+        **`sozlesme_sayisi` ≠ `ihale_sayisi`:** kısımlı ihalede bir firma birden çok
+        kısım kazanabilir (3 sözleşme / 1 ihale).
+
+
+        **`ortalama_indirim_orani` her zaman `indirim_orani_ornek_sayisi` ile birlikte
+        okunmalıdır** — yaklaşık maliyet yalnızca Sonuç İlanı yayımlanmış sözleşmelerde
+        bilinir, kapsam kısmidir.'
+      summary: Yüklenici (firma) ara / listele
+      parameters:
+      - in: query
+        name: il_id
+        schema:
+          type: string
+        description: İl id listesi (virgülle).
+      - in: query
+        name: kind
+        schema:
+          type: string
+        description: 'Tür listesi (virgülle): `firma`, `sahis`, `ortak_girisim`.'
+        examples:
+          YalnızFirmalar:
+            value: firma
+            summary: Yalnız firmalar
+      - in: query
+        name: min_sozlesme
+        schema:
+          type: integer
+        description: En az bu kadar sözleşmesi olan firmalar.
+      - in: query
+        name: order
+        schema:
+          type: string
+          enum:
+          - ad
+          - son_sozlesme
+          - sozlesme_sayisi
+          - toplam_bedel
+          default: sozlesme_sayisi
+        description: Sıralama alanı.
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 20
+        description: En fazla 100.
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Ünvan araması (Türkçe-i güvenli).
+        examples:
+          FirmaAdı:
+            value: decoline
+            summary: Firma adı
+      - in: query
+        name: siralamaTipi
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractorPage'
+          description: ''
+  /api/v1/ekap/contractors/{id}/:
+    get:
+      operationId: ekap_contractor_detail
+      description: 'Firmanın kimliği, toplam istatistikleri ve kırılımları.
+
+
+        `dagilim` (ihale tipi / il / yıl / idare) **canlı hesaplanır** — yalnızca
+        o firmanın sözleşmeleri üzerinden, `idare` en çok 10 satır.
+
+
+        `aliaslar` bu firmada birleştirilen ham yazımlardır (kimlik ünvan tabanlı
+        olduğu için şeffaflık gerekir).
+
+
+        ⚠️ **Kazanma oranı hesaplanamaz:** EKAP yalnızca imzalanmış sözleşmeleri yayımlar,
+        kaybedilen teklifler veri kaynağında yoktur.'
+      summary: Yüklenici detayı + istatistikleri
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: pk
+        schema:
+          type: integer
+        description: Yüklenici (firma) kimliği.
+        required: true
+        examples:
+          FirmaId:
+            value: 1
+            summary: Firma id
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/ekap/contractors/{id}/contracts/:
+    get:
+      operationId: ekap_contractor_contracts
+      description: 'Firmanın kazandığı işler (imzaladığı sözleşmeler), en yenisi başta.
+
+
+        ⚠️ **Yalnızca KAZANDIĞI işler görünür.** EKAP kaybedilen teklifleri yayımlamadığı
+        için firmanın teklif verip kazanamadığı ihaleler bu listede yer almaz.
+
+
+        ⚠️ **Kısım tutarları dönmez** — EKAP onları bozuk ölçekte gönderiyor. `kisimlar`
+        yalnızca kısım adlarını taşır.'
+      summary: Yüklenicinin sözleşme geçmişi
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: idare_id
+        schema:
+          type: string
+        description: İdare id listesi (virgülle).
+      - in: query
+        name: ihale_tip
+        schema:
+          type: string
+        description: İhale türü listesi (virgülle).
+      - in: query
+        name: il_id
+        schema:
+          type: string
+        description: İl id listesi (virgülle).
+      - in: query
+        name: order
+        schema:
+          type: string
+          enum:
+          - sozlesme_bedeli
+          - sozlesme_tarihi
+          default: sozlesme_tarihi
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 20
+        description: En fazla 100.
+      - in: path
+        name: pk
+        schema:
+          type: integer
+        description: Yüklenici (firma) kimliği.
+        required: true
+        examples:
+          FirmaId:
+            value: 1
+            summary: Firma id
+      - in: query
+        name: siralamaTipi
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+      - in: query
+        name: yil
+        schema:
+          type: integer
+        description: Sözleşme yılı.
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractPage'
+          description: ''
   /api/v1/ekap/okas/search/:
     get:
       operationId: api_v1_ekap_okas_search_list
@@ -1487,6 +1706,39 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/v1/ekap/tenders/{key}/contracts/:
+    get:
+      operationId: ekap_tender_contracts
+      description: 'İhalede imzalanmış sözleşmeler + bağlı yüklenici firmalar. Kısımlı
+        ihalede birden çok sözleşme olur.
+
+
+        `yuklenici` **null olabilir** (satır henüz firmaya çözülmemişse) — istemci
+        bunu tolere etmelidir. Ortak girişimlerde `yuklenici.uyeler` üye firmaları
+        verir.'
+      summary: İhalenin sözleşmeleri ve yüklenicileri
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: İhalenin EKAP iç kimliği (`ekap_id`). **İKN kullanmayın** — İKN
+          `/` içerir ve yol parametresi olarak eşleşmez.
+        required: true
+        examples:
+          EKAPIçKimliği:
+            value: e8c865a28be0b142
+            summary: EKAP iç kimliği
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/favorite-authorities/:
     get:
       operationId: api_v1_favorite_authorities_list
@@ -2817,6 +3069,26 @@ components:
       - profile_map
       - profile_map_generated_at
       - updated_at
+    ContractPage:
+      type: object
+      properties:
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - page
+      - totalCount
+    ContractorPage:
+      type: object
+      properties:
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - page
+      - totalCount
     ConversationDeleted:
       type: object
       properties:

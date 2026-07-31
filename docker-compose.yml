@@ -14,6 +14,68 @@ services:
     restart: unless-stopped
     # POSTGRES_DB/USER/PASSWORD .env.prod'dan gelir (tek kaynak → DATABASE_URL ile tutarlı)
     env_file: .env.prod
+    # ⚠️ Docker /dev/shm'i varsayılan 64 MB verir → paralel sorgu ve büyük hash/sort
+    # işlemleri "could not resize shared memory segment" ile patlar.
+    shm_size: 512mb
+    # ── Tuning (bkz. CLAUDE.md → "Postgres tuning") ────────────────────────────
+    # Varsayılan postgres yapılandırması 500k+ satırlık `ekap_tender` için fazla küçük:
+    # shared_buffers=128MB, work_mem=4MB, random_page_cost=4.0 (SSD için yanlış).
+    #
+    # ⚠️ Değerler BURAYA yazılır, `.env.prod`'a DEĞİL. Compose'un `${VAR}` ikamesi
+    # `env_file:`'dan okumaz (o yalnızca konteyner içi ortam değişkeni tanımlar) —
+    # kabuk ortamından ya da `.env` dosyasından okur. `.env.prod`'a yazılan bir
+    # PG_* değeri sessizce yok sayılır, bu yüzden doğrudan buraya gömülüdür.
+    #
+    # Aşağıdakiler **8 GB RAM** içindir. `free -g` ile bakıp sunucuya göre düzenleyin:
+    #   Parametre               |  4 GB  |  8 GB  | 16 GB
+    #   ------------------------|--------|--------|-------
+    #   shared_buffers          |  512MB |  2GB   |  4GB
+    #   effective_cache_size    |  1GB   |  4GB   | 10GB
+    #   work_mem                |  8MB   | 16MB   | 32MB
+    #   maintenance_work_mem    |  256MB | 512MB  |  1GB
+    #   max_connections         |  100   |  200   |  200
+    #   max_wal_size            |  2GB   |  4GB   |  8GB
+    #   shm_size                |  256mb | 512mb  |  1gb
+    # shared_buffers'ı RAM'in %25'inden az tutun: bu makinede web(3 gunicorn) +
+    # worker(4 celery) + ekap-worker + beat + redis + nginx de var. `docker stats` ile
+    # gerçek tüketimi görüp kalanın ~%40'ını Postgres'e verin.
+    #
+    # ⚠️ shared_buffers ve shared_preload_libraries runtime'da değişmez → db yeniden başlar.
+    command:
+      - postgres
+      # Ölçüm: en pahalı sorguları sıralamak için (bkz. CLAUDE.md ölçüm bölümü)
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - track_io_timing=on
+      # Bellek
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_connections=200
+      # Planlayıcı — SSD varsayılır. ⚠️ Dönen disk (lsblk ROTA=1) ise random_page_cost=4.0
+      # ve effective_io_concurrency=2 yapın, yoksa planlayıcı indeksleri fazla sever.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      # LIKE seçicilik tahminleri 500k satırda varsayılan 100 ile isabetsiz kalıyor
+      - -c
+      - default_statistics_target=200
+      # WAL — backfill sürekli yazıyor, sık checkpoint I/O dalgası yaratıyor
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - checkpoint_completion_target=0.9
+      # Bu süreyi (ms) aşan sorgular loga yazılır → `docker compose logs db | grep duration`
+      - -c
+      - log_min_duration_statement=1000
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

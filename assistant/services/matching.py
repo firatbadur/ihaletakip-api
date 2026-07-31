@@ -12,6 +12,8 @@ import logging
 from django.db.models import Q
 from django.utils import timezone
 
+from ekap.utils import local_day_range
+
 logger = logging.getLogger("ihaletakip")
 
 # Katılıma açık ihaleler (bkz. ekap/views.py durum dokümantasyonu: 2/3 Katılıma Açık)
@@ -54,7 +56,9 @@ def match_tenders_for_profile(profile, since=None, published_on=None, limit: int
     # published_on (KATI): yalnızca ilan_tarihi o güne eşit (NULL hariç). Günlük öneri
     # bildirimi bugünle çağırır → yalnızca bugün yayınlananlar önerilir.
     if published_on is not None:
-        qs = qs.filter(ilan_tarihi__date=published_on)
+        # ⚠️ `__date=` DEĞİL aralık — bkz. ekap.utils.local_day_range (indeks kullanımı).
+        _bas, _bit = local_day_range(published_on)
+        qs = qs.filter(ilan_tarihi__gte=_bas, ilan_tarihi__lt=_bit)
     # since (gevşek): ilan_tarihi doluysa son X güne daralt, boşları da kapsar.
     elif since is not None:
         qs = qs.filter(Q(ilan_tarihi__gte=since) | Q(ilan_tarihi__isnull=True))

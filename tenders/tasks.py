@@ -18,6 +18,8 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
+from ekap.utils import local_day_range
+
 logger = logging.getLogger("ihaletakip")
 
 # Abonelik-başına gün-kilidi TTL'i (Redis). Anahtarda tarih olduğundan günün bitmesini
@@ -201,6 +203,9 @@ def check_saved_filter_matches():
     notified = 0
     pushed = 0
 
+    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
+    gun_bas, gun_bit = local_day_range(today)
+
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
             continue
@@ -226,7 +231,7 @@ def check_saved_filter_matches():
             # YALNIZCA ilan_tarihi BUGÜN olan ihaleler bildirilir (kullanıcı isteği): dün/eski/
             # backfill yayınlananlar bildirilmez. ilan_tarihi detay senkronundan dolar; bugün
             # yayınlanan bir ihale ancak detayı gelip ilan_tarihi=bugün olduğunda eşleşir.
-            base = base.filter(ilan_tarihi__date=today)
+            base = base.filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
 
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
@@ -289,6 +294,9 @@ def check_favorite_authority_matches():
     notified = 0
     pushed = 0
 
+    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
+    gun_bas, gun_bit = local_day_range(today)
+
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
         # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
         if not fav.user.is_premium:
@@ -308,7 +316,7 @@ def check_favorite_authority_matches():
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__date=today)
+                .filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
                 .order_by("-ilan_tarihi")
             )
 

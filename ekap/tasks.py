@@ -278,7 +278,7 @@ def _update_checkpoint(name, newest=None, oldest=None):
 # ── Yüklenici (firma) çözümlemesi ──────────────────────
 @shared_task(name="ekap.tasks.sync_contractors")
 def sync_contractors(
-    max_tenders=50000, max_seconds=240, enqueue_missing_detail=True, missing_limit=50
+    max_tenders=50000, max_seconds=90, enqueue_missing_detail=True, missing_limit=50
 ):
     """
     Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
@@ -287,8 +287,15 @@ def sync_contractors(
     ⚠️ Sınır **süre bütçesidir**, sabit ihale sayısı değil: iş tamamen DB-içi olduğu için
     hız makineye göre çok değişir (ölçüm: ~200 ihale/sn). Sabit küçük bir batch, saatlik
     kapasitenin yüzde biri kadarını kullanıp backfill'i günlere yayardı.
-    `max_seconds=240`, global `CELERY_TASK_TIME_LIMIT=300`'ün altında kalır.
+    `max_seconds`, global `CELERY_TASK_TIME_LIMIT=300`'ün altında kalmalıdır.
     `max_tenders` yalnızca emniyet tavanıdır.
+
+    ⚠️ **Duty cycle kullanıcı sorgularıyla aynı DB'yi paylaşır.** Eskiden beat bunu 5 dk'da
+    bir 240 sn bütçeyle çağırıyordu (~%80 duty cycle); görev `detail_raw`'ı (~40 KB/satır)
+    arşiv boyunca okuduğu için Postgres buffer cache'i sürekli boşalıyor ve ihale arama
+    sorguları her seferinde diskten okumak zorunda kalıyordu. Şimdi 10 dk'da bir 90 sn
+    (~%15) — süpürme birkaç kat uzun sürer ama arama ucu nefes alır. Süpürme bitip artımlı
+    moda geçince yük zaten kendiliğinden düşer.
 
     İki mod:
       • Süpürme  (checkpoint bitmemişse) — PK imleciyle tüm arşivi tarar, kaymaz.
@@ -310,7 +317,12 @@ def sync_contractors(
         sweeping = not cp.done
         last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
 
-        base = Tender.objects.filter(detail_raw__isnull=False)
+        # `.only()`: `sync_contracts_from_raw` yalnızca bu alanları okur (+`ikn` log için).
+        # Bilhassa `list_raw` dışarıda kalmalı — `detail_raw` kadar büyük ve hiç
+        # kullanılmıyor; arşiv taramasında okunan TOAST hacmini yarıya indirir.
+        base = Tender.objects.filter(detail_raw__isnull=False).only(
+            "ikn", "detail_raw", "idare_id", "il_id", "ihale_tip"
+        )
         if sweeping:
             qs = base.filter(pk__gt=last_pk).order_by("pk")[:max_tenders]
         else:

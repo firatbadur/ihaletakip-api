@@ -4,10 +4,11 @@ ekap servis view'ları — /api/v1/ekap/...
 Hepsi kendi DB'mizden okur (hızlı, rate-limit yok). Global zarf (core renderer)
 otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 """
+import hashlib
 import logging
 
 from django.core.cache import cache
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -22,7 +23,16 @@ from core.response import api_response
 
 from .constants import CITIES, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids
-from .models import Announcement, Authority, City, Contract, Contractor, OkasCode, Tender
+from .models import (
+    Announcement,
+    Authority,
+    City,
+    Contract,
+    Contractor,
+    OkasCode,
+    OkasItem,
+    Tender,
+)
 from .serializers import (
     AuthorityNodeSerializer,
     CitySerializer,
@@ -76,19 +86,126 @@ def _as_str_list(value):
     return _str_list(str(value))
 
 
+# `EkapTenderListSerializer`'ın okuduğu alanlar + sıralama alanları. `.only()` bununla
+# daraltılır: `Tender.detail_raw`/`list_raw` (~40 KB/satır JSONB) liste yanıtında HİÇ
+# kullanılmıyor ama `SELECT *` her satırda onları TOAST'tan açıp `json.loads` ediyordu.
+# ⚠️ Serializer'a yeni alan eklerseniz buraya da ekleyin, yoksa deferred alan başına
+# ek sorgu atılır (sessiz N+1).
+_LIST_FIELDS = (
+    "ekap_id",
+    "ikn",
+    "ihale_adi",
+    "idare_adi",
+    "ihale_il_adi",
+    "ihale_tarih_saat",
+    "ihale_tip",
+    "ihale_tipi_aciklama",
+    "ihale_usul_aciklama",
+    "ihale_durum",
+    "ihale_durum_aciklama",
+    "dokuman_sayisi",
+    "ilan_var_mi",
+    "ihale_tarihi",  # sıralama
+    "ilan_tarihi",  # sıralama
+)
+
+# Sayfalama/sıralama COUNT sonucunu değiştirmez → cache anahtarından dışlanır.
+_COUNT_IGNORED_PARAMS = frozenset({"page", "page_size", "order", "siralamaTipi", "format"})
+_COUNT_TTL = 120
+
+
+def _cached_count(qs, params):
+    """
+    Toplam sonuç sayısı — filtre imzasına göre kısa süreli cache'li.
+
+    `COUNT(*)` filtreli 500k satırda tam tarama demek ve **her sayfa isteğinde** yeniden
+    hesaplanıyordu; oysa aynı aramanın 2., 3., 4. sayfası aynı sayıyı ister. Anahtar
+    yalnızca **filtre** parametrelerinden üretilir (sayfalama/sıralama dışlanır) → sayfa
+    gezinmesi tek COUNT'a iner. 2 dk'lık bayatlık kabul edilebilir: totalCount bir
+    ilerleme göstergesidir, sayfa içeriği her zaman canlı sorgudan gelir.
+    """
+    sig = sorted(
+        (k, ",".join(sorted(params.getlist(k))) if hasattr(params, "getlist") else str(params[k]))
+        for k in params
+        if k not in _COUNT_IGNORED_PARAMS
+    )
+    key = "tender_count:" + hashlib.sha1(repr(sig).encode()).hexdigest()
+    total = cache.get(key)
+    if total is None:
+        # `.order_by()`: COUNT'ta ORDER BY anlamsız ama planner'ı gereksiz sort'a itebilir.
+        total = qs.order_by().count()
+        cache.set(key, total, _COUNT_TTL)
+    return total
+
+
+def _okas_exists(cond):
+    """
+    İhalenin OKAS kalemlerinde `cond`'a uyan **en az bir** satır var mı (semi-join).
+    `cond` alanları `OkasItem` alanlarıdır (`kodu`, `adi`) — `okas_kalemleri__` öneki YOK.
+    Bkz. `apply_tender_filters` docstring'i: JOIN+`DISTINCT` yerine `Exists` kullanılır.
+    """
+    return Exists(OkasItem.objects.filter(cond, tender_id=OuterRef("pk")))
+
+
+def _contract_exists(cond):
+    """
+    İhalenin sözleşmelerinde `cond`'a uyan **en az bir** satır var mı (semi-join).
+    `cond` alanları `Contract` alanlarıdır (`yuklenici`, `yuklenici_adi_norm`, ...) —
+    `sozlesmeler__` öneki YOK.
+    """
+    return Exists(Contract.objects.filter(cond, tender_id=OuterRef("pk")))
+
+
+_IDARE_SET_KEY = "tender_idare_id_set"
+_IDARE_SET_BACKUP_KEY = "tender_idare_id_set:backup"
+_IDARE_SET_LOCK_KEY = "tender_idare_id_set:lock"
+_IDARE_SET_TTL = 900  # 15 dk — sorgu ucuzladı ama 500k satırda hâlâ seq scan
+
+
 def _tender_idare_id_set():
     """
-    İhalede **gerçekten geçen** benzersiz `idare_id` kümesi (cache'li, 5 dk TTL).
+    İhalede **gerçekten geçen** benzersiz `idare_id` kümesi (cache'li, 15 dk TTL).
     İdare ağaç seçimi büyük bakanlıklarda on binlerce alt birime açılabildiğinden
     (okullar vb.) genişletilen küme bununla kesiştirilir → küçük, hızlı IN listesi.
-    Kısa TTL: yeni bir idarenin ilk ihalesi en fazla 5 dk gecikmeyle filtrelenebilir.
+    Yeni bir idarenin ilk ihalesi en fazla 15 dk gecikmeyle filtrelenebilir olur.
+
+    ⚠️ **`.order_by()` ŞART — kaldırmayın.** `Tender.Meta.ordering = ["-ihale_tarihi"]`
+    explicit sıralama yokken uygulanır ve Django `distinct()` ile birlikte ORDER BY
+    kolonunu SELECT listesine eklemek zorunda kalır:
+        SELECT DISTINCT idare_id, ihale_tarihi FROM ekap_tender ... ORDER BY ihale_tarihi DESC
+    Yani DISTINCT `idare_id` üzerinde değil **(idare_id, ihale_tarihi) çifti** üzerinde
+    olurdu → birkaç bin satır yerine tablonun TAMAMI (~500k) sıralanıp Python'a taşınır ve
+    orada `set()` ile tekilleştirilirdi. Boş `.order_by()` sıralamayı düşürür → gerçek
+    `DISTINCT idare_id`.
+
+    Stampede koruması: TTL dolduğu an eşzamanlı tüm istekler aynı sorguyu koşmasın diye
+    hesabı tek koşucu yapar; kilidi alamayan istek uzun ömürlü **yedek** kopyayı kullanır.
+    Bayat yedek zararsızdır — bu bir kesişim kümesidir, gecikme yalnızca yepyeni bir
+    idarenin filtrede birkaç dakika geç görünmesi demektir.
     """
-    ids = cache.get("tender_idare_id_set")
-    if ids is None:
+    ids = cache.get(_IDARE_SET_KEY)
+    if ids is not None:
+        return ids
+
+    # Kilidi alan tek istek hesaplar; diğerleri bayat yedeğe düşer.
+    if not cache.add(_IDARE_SET_LOCK_KEY, "1", 60):
+        backup = cache.get(_IDARE_SET_BACKUP_KEY)
+        if backup is not None:
+            return backup
+        # Yedek de yoksa (ilk ısınma) hesaplamaktan başka çare yok.
+
+    try:
         ids = set(
-            Tender.objects.exclude(idare_id="").values_list("idare_id", flat=True).distinct()
+            Tender.objects.exclude(idare_id="")
+            .order_by()  # ⚠️ bkz. docstring — kaldırmayın
+            .values_list("idare_id", flat=True)
+            .distinct()
         )
-        cache.set("tender_idare_id_set", ids, 300)
+        cache.set(_IDARE_SET_KEY, ids, _IDARE_SET_TTL)
+        # Yedek çok daha uzun yaşar → stampede anında bayat da olsa cevap verilir.
+        cache.set(_IDARE_SET_BACKUP_KEY, ids, _IDARE_SET_TTL * 8)
+    finally:
+        cache.delete(_IDARE_SET_LOCK_KEY)
     return ids
 
 
@@ -106,17 +223,31 @@ def apply_tender_filters(qs, params):
     `params` `.get(key)` destekleyen bir nesnedir: DRF `query_params` (liste alanları
     virgüllü string) ya da `SavedFilter.filters` gibi düz dict (gerçek liste). Liste
     alanları ikisini de kabul eder. Sıralama/pagination bu fonksiyonda değildir.
+
+    ⚠️ **Çoklu-satır ilişkilerde `.filter(ilişki__…)` DEĞİL `Exists()` kullanılır.**
+    OKAS kalemi ve sözleşme birden çok satır olduğu için JOIN'li filtre ihaleyi çoğaltır
+    ve eskiden `.distinct()` ile toplanırdı. `DISTINCT` **`LIMIT`'ten önce** çalıştığı
+    için sayfa boyutu maliyeti kurtarmıyordu: Postgres eşleşen TÜM satırları (üstelik
+    `detail_raw`/`list_raw` JSONB'leriyle) sort/hash'ten geçirmek zorundaydı. `Exists`
+    semi-join'i satır çoğalmasını hiç doğurmaz → `DISTINCT` gerekmez, ilk N satır bulunca
+    durabilir. Yeni bir çoklu-satır filtresi eklerken aynı deseni izleyin.
     """
-    needs_distinct = False
 
     # ── Anahtar kelime (ihale adı + kurum adı + İKN) — mobil "Anahtar Kelime" kutusu ──
     # İhale adı/kurum adı **Türkçe-i güvenli** normalize sütunlar üzerinden aranır
-    # (bkz. normalize_tr); İKN ASCII olduğundan icontains yeterli.
+    # (bkz. normalize_tr).
+    #
+    # ⚠️ İKN'de `icontains` DEĞİL `contains` — kritik. Django Postgres'te `icontains`'i
+    # `UPPER(ikn::text) LIKE UPPER(%s)` diye derler; kolonun üstündeki `UPPER()` yüzünden
+    # `ikn` üzerindeki trigram indeksi KULLANILAMAZ. Üstelik bu üç koşul OR'lu: Postgres
+    # BitmapOr'u ancak **her dal** indekslenebiliyorsa kurar → tek indekssiz dal, diğer
+    # iki trigram indeksini de devre dışı bırakıp tüm tabloyu taratırdı. İKN saf ASCII
+    # (rakam + `/`) olduğu için `contains` ≡ `icontains`, davranış birebir aynı.
     q = params.get("q")
     if q and str(q).strip():
         nq = normalize_tr(q)
         qs = qs.filter(
-            Q(ihale_adi_norm__contains=nq) | Q(idare_adi_norm__contains=nq) | Q(ikn__icontains=str(q).strip())
+            Q(ihale_adi_norm__contains=nq) | Q(idare_adi_norm__contains=nq) | Q(ikn__contains=str(q).strip())
         )
 
     # ── Alan-özel metin arama (normalize edilmiş, Türkçe-i güvenli) ──
@@ -128,7 +259,7 @@ def apply_tender_filters(qs, params):
         qs = qs.filter(idare_adi_norm__contains=normalize_tr(idare_adi))
     ikn = params.get("ikn")
     if ikn and str(ikn).strip():
-        qs = qs.filter(ikn__icontains=str(ikn).strip())
+        qs = qs.filter(ikn__contains=str(ikn).strip())  # ⚠️ icontains DEĞİL — bkz. `q` notu
 
     # ── İKN yıl / sayı (ikn = "YIL/SAYI") ──
     ikn_yil = params.get("ikn_yil")
@@ -180,16 +311,14 @@ def apply_tender_filters(qs, params):
     if okas_kod:
         cond = Q()
         for kod in okas_kod:
-            cond |= Q(okas_kalemleri__kodu__startswith=kod)
-        qs = qs.filter(cond)
-        needs_distinct = True
+            cond |= Q(kodu__startswith=kod)
+        qs = qs.filter(_okas_exists(cond))
     okas_adi = _as_str_list(params.get("okas_adi"))
     if okas_adi:
         cond = Q()
         for adi in okas_adi:
-            cond |= Q(okas_kalemleri__adi__icontains=adi)
-        qs = qs.filter(cond)
-        needs_distinct = True
+            cond |= Q(adi__icontains=adi)
+        qs = qs.filter(_okas_exists(cond))
 
     # ── Yüklenici (sözleşme imzalayan firma) ──
     # `ortakliklari_dahil_et` (vars. açık): firma bir ORTAK GİRİŞİMİN üyesi olarak da
@@ -200,20 +329,20 @@ def apply_tender_filters(qs, params):
 
     yuklenici_id = _as_int_list(params.get("yuklenici_id"))
     if yuklenici_id:
-        cond = Q(sozlesmeler__yuklenici_id__in=yuklenici_id)
+        cond = Q(yuklenici_id__in=yuklenici_id)
         if ortakliklar_dahil:
-            cond |= Q(sozlesmeler__yuklenici__uyelikler__uye_id__in=yuklenici_id)
-        qs = qs.filter(cond)
-        needs_distinct = True
+            cond |= Q(yuklenici__uyelikler__uye_id__in=yuklenici_id)
+        qs = qs.filter(_contract_exists(cond))
 
     yuklenici = params.get("yuklenici")
     if yuklenici and str(yuklenici).strip():
         nq = normalize_tr(yuklenici)
         qs = qs.filter(
-            Q(sozlesmeler__yuklenici__arama_norm__contains=nq)
-            | Q(sozlesmeler__yuklenici_adi_norm__contains=nq)  # henüz çözülmemiş satırlar
+            _contract_exists(
+                Q(yuklenici__arama_norm__contains=nq)
+                | Q(yuklenici_adi_norm__contains=nq)  # henüz çözülmemiş satırlar
+            )
         )
-        needs_distinct = True
 
     # ── Özellikler: OZELLIK_MAP anahtarları (virgülle) → ozellikler JSON etiketi ──
     for app_key in _as_str_list(params.get("ozellik")):
@@ -234,8 +363,6 @@ def apply_tender_filters(qs, params):
             if d:
                 qs = qs.filter(**{f"{field}__lte": d})
 
-    if needs_distinct:
-        qs = qs.distinct()
     return qs
 
 
@@ -413,9 +540,10 @@ class TenderListView(APIView):
         except (TypeError, ValueError):
             page, page_size = 1, 10
 
-        total = qs.count()
+        total = _cached_count(qs, qp)
         start = (page - 1) * page_size
-        items = qs[start:start + page_size]
+        # ⚠️ `.only()` filtrelerden SONRA — `apply_tender_filters` başka alanlara bakabilir.
+        items = qs.only(*_LIST_FIELDS)[start:start + page_size]
         data = EkapTenderListSerializer(items, many=True).data
         return api_response(data={"list": data, "totalCount": total, "page": page})
 

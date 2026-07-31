@@ -161,3 +161,24 @@ def parse_ekap_datetime(value) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def local_day_range(day):
+    """
+    Yerel bir günü (`date`) `[gün başı, ertesi gün başı)` aware datetime aralığına çevirir.
+
+    ⚠️ **`ilan_tarihi__date=gun` KULLANMAYIN** — `USE_TZ=True` ile Django bunu
+    `(ilan_tarihi AT TIME ZONE 'Europe/Istanbul')::date = …` diye derler; kolonun
+    üstündeki fonksiyon yüzünden `ilan_tarihi` indeksi kullanılamaz ve 500k+ satırlık
+    tabloda tam tarama olur. Bildirim görevleri kullanıcı saatlerinde (10:00/11:00)
+    koştuğu için bu taramalar doğrudan ihale aramasıyla I/O yarışıyordu.
+
+    Kullanım:  `qs.filter(ilan_tarihi__gte=bas, ilan_tarihi__lt=bit)` — sonuç birebir
+    aynıdır (yerel gün sınırı), fark yalnızca indeksin kullanılabilmesidir.
+    """
+    from datetime import datetime as _dt, time as _time, timedelta as _td
+
+    from django.utils import timezone as dj_tz
+
+    start = dj_tz.make_aware(_dt.combine(day, _time.min))
+    return start, start + _td(days=1)

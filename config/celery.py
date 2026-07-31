@@ -74,11 +74,13 @@ app.conf.beat_schedule = {
     # OKAS kodları — haftalık (Pazartesi 05:00)
     # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →
     # `celery` kuyruğuna yönlendirilir (bkz. settings.CELERY_TASK_ROUTES) ve EKAP
-    # worker'ını bloklamaz. Her tur ~4 dk süre bütçesiyle çalışır; 5 dakikada bir
-    # tetiklenerek backfill'i sürekli ilerletir. Redis kilidi üst üste binmeyi önler.
+    # worker'ını bloklamaz. Redis kilidi üst üste binmeyi önler.
+    # ⚠️ 10 dk × ~90 sn bütçe (~%15 duty cycle) — eskiden 5 dk × 240 sn (~%80) idi ve
+    # arşivin `detail_raw`'ını sürekli okuduğu için Postgres buffer cache'ini boşaltıp
+    # ihale arama sorgularını diske düşürüyordu. Bkz. `ekap.tasks.sync_contractors`.
     "ekap-sync-contractors": {
         "task": "ekap.tasks.sync_contractors",
-        "schedule": crontab(minute="*/5"),
+        "schedule": crontab(minute="*/10"),
     },
     "ekap-sync-okas": {
         "task": "ekap.tasks.sync_okas",

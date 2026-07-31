@@ -100,6 +100,14 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     )
 }
+# Kalıcı bağlantı: Django varsayılanı 0'dır, yani **her HTTP isteği** yeni TCP + auth
+# el sıkışması yapar. Postgres'te bu, hızlı bir arama sorgusunun yanına sabit ~5-15 ms
+# ekler. ⚠️ Toplam bağlantı = CONN_MAX_AGE × (gunicorn worker + celery worker + beat);
+# Postgres `max_connections`'ı aşmamalı (docker-compose'da 200'e çıkarıldı).
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("DJANGO_CONN_MAX_AGE", default=60)
+# Kalıcı bağlantı kullanırken şart: worker'ın elindeki bağlantı (DB restart, ağ kesintisi)
+# ölmüşse istek başında sessizce yenilenir, 500 dönmez.
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 # ── Auth ───────────────────────────────────────────────
 AUTH_USER_MODEL = "accounts.User"
@@ -149,9 +157,12 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # BrowsableAPIRenderer yalnızca geliştirmede: üretimde her yanıt için HTML sayfası +
+    # form üretebilecek durumda durmasının bir faydası yok, maliyeti var.
     "DEFAULT_RENDERER_CLASSES": (
-        "core.renderers.EnvelopeJSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",
+        ("core.renderers.EnvelopeJSONRenderer", "rest_framework.renderers.BrowsableAPIRenderer")
+        if DEBUG
+        else ("core.renderers.EnvelopeJSONRenderer",)
     ),
     "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
 }

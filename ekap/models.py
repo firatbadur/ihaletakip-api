@@ -5,6 +5,7 @@ EKAP verisi modelleri.
 kısımlar) + lookup ingest (OkasCode, Authority) + City + senkron bookkeeping.
 Alan envanteri mobil ekran tüketiminden çıkarıldı (bkz. plan dosyası).
 """
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 
@@ -172,7 +173,52 @@ class Tender(models.Model):
         ordering = ["-ihale_tarihi"]
         indexes = [
             models.Index(fields=["ihale_tip", "ihale_durum"]),
-            models.Index(fields=["-ilan_tarihi"]),
+            # NOT: `Index(fields=["-ilan_tarihi"])` KALDIRILDI — `ilan_tarihi` zaten
+            # `db_index=True` (yukarıda) ve Postgres btree'yi geriye doğru tarayabildiği
+            # için birebir kopyaydı. Backfill sürekli INSERT/UPDATE attığından iki kat
+            # indeks yazma maliyeti ödeniyordu.
+            # ── Metin araması (bkz. apply_tender_filters `q`/`ihale_adi`/`idare_adi`) ──
+            # `__contains` → `LIKE '%…%'`; baştan joker olduğu için **düz B-tree işe
+            # yaramaz**, trigram GIN şart. `0005_search_norm` bu sütunları eklerken
+            # kardeş modellere (`Authority.ad_norm`, `OkasCode.adi_norm`) `db_index`
+            # verip buraya vermemişti → 500k satırda her arama seq scan'di.
+            # ⚠️ Trigram indeksi **en az 3 karakter** ister; 1-2 harflik sorgu yine
+            # seq scan'e düşer (davranış doğru kalır, yalnızca yavaştır).
+            GinIndex(
+                fields=["ihale_adi_norm"],
+                opclasses=["gin_trgm_ops"],
+                name="ekap_tender_ihaleadi_trgm",
+            ),
+            GinIndex(
+                fields=["idare_adi_norm"],
+                opclasses=["gin_trgm_ops"],
+                name="ekap_tender_idareadi_trgm",
+            ),
+            # ⚠️ İKN de trigram ister: `q` filtresi üç koşulu OR'lar ve Postgres BitmapOr'u
+            # ancak **her dal** indekslenebiliyorsa kurar. İKN dalı indekssiz kalsaydı
+            # yukarıdaki iki indeks de kullanılamaz, sorgu yine seq scan olurdu.
+            # (`unique=True` btree'si `LIKE '%…%'` için işe yaramaz; `_like`
+            # varchar_pattern_ops indeksi yalnızca `startswith`'i karşılar.)
+            GinIndex(
+                fields=["ikn"],
+                opclasses=["gin_trgm_ops"],
+                name="ekap_tender_ikn_trgm",
+            ),
+            # `ozellikler__contains=[tag]` → JSONB `@>`; jsonb_path_ops containment için
+            # varsayılan opclass'tan küçük ve hızlıdır.
+            GinIndex(
+                fields=["ozellikler"],
+                opclasses=["jsonb_path_ops"],
+                name="ekap_tender_ozellik_gin",
+            ),
+            # ── Filtre + sıralama bileşikleri ──
+            # Liste ucu daima `-ihale_tarihi` (ya da `-ilan_tarihi`) ile sıralar; tek
+            # kolonluk filtre indeksi bulduğu satırları sonra sort etmek zorunda kalıyor.
+            models.Index(fields=["ihale_durum", "-ihale_tarihi"]),
+            models.Index(fields=["il_id", "-ihale_tarihi"]),
+            models.Index(fields=["idare_id", "-ihale_tarihi"]),
+            # `ihale_usul` filtreleniyor ama hiç indekslenmemişti.
+            models.Index(fields=["ihale_usul"]),
         ]
 
     def __str__(self):
@@ -201,6 +247,13 @@ class OkasItem(models.Model):
     class Meta:
         verbose_name = "İhale OKAS Kalemi"
         verbose_name_plural = "İhale OKAS Kalemleri"
+        indexes = [
+            # `okas_kod` filtresi `kodu__startswith` ile arar (Exists alt sorgusu içinde).
+            # `tender` FK indeksi tek başına yetmiyordu → tüm OkasItem taranıyordu.
+            models.Index(fields=["kodu", "tender"]),
+            # `okas_adi` `icontains` → trigram (bkz. Tender'daki aynı gerekçe).
+            GinIndex(fields=["adi"], opclasses=["gin_trgm_ops"], name="ekap_okasitem_adi_trgm"),
+        ]
 
 
 class Announcement(models.Model):

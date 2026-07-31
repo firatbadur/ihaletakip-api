@@ -249,11 +249,64 @@ Böylece "bilgi işlem" == "BİLGİ İŞLEM" == "bilgi islem" (EKAP'tan bile esn
   `Tender.ihale_adi_norm` + `idare_adi_norm` (migration `0005_search_norm`, batched backfill).
 - **Kullanan yerler**: `apply_tender_filters` (`q`, `ihale_adi`, `idare_adi`),
   `AuthoritySearchView`, `OkasSearchView`, ve asistan `matching.py` keyword eşleştirmesi.
-  İKN ve OKAS kodu ASCII olduğundan `icontains`/`startswith` bırakıldı.
+  OKAS kodu ASCII olduğundan `startswith` bırakıldı.
 - **Yeni metin araması eklerken**: Türkçe alanda `icontains` KULLANMA → normalize sütunu
   ekle + `normalize_tr(sorgu)` ile `__contains`. Bilinen istisna (henüz düzeltilmedi):
   `okas_adi` filtresi `OkasItem.adi__icontains` kullanır (mobil `okas_kod` gönderdiği için
   pratikte tetiklenmez).
+- **⚠️ `icontains` ASCII alanda bile indeksi ÖLDÜRÜR.** Django Postgres'te `icontains`'i
+  `UPPER(kolon::text) LIKE UPPER(%s)` diye derler; kolonun üstündeki `UPPER()` yüzünden o
+  kolondaki trigram indeksi kullanılamaz. Bu yüzden `ikn` filtreleri `__contains` kullanır
+  (İKN saf ASCII → davranış birebir aynı). **Bunu geri `icontains`'e çevirmeyin.**
+- **⚠️ OR'lu arama: TEK indekssiz dal HEPSİNİ düşürür.** `q` filtresi
+  `ihale_adi_norm | idare_adi_norm | ikn` üçlüsünü OR'lar; Postgres BitmapOr'u ancak **her
+  dal** indekslenebiliyorsa kurar. Bu yüzden `ikn`'ye de trigram indeksi verildi — biri
+  eksik olsaydı diğer ikisi de boşa giderdi. `q`'ya yeni bir OR dalı eklerken o dalın da
+  indekslenebilir olduğundan emin olun.
+- **Trigram indeksleri** (`0007_search_indexes`): `Tender.ihale_adi_norm`,
+  `idare_adi_norm`, `ikn`, `OkasItem.adi` → `GinIndex(opclasses=["gin_trgm_ops"])`
+  + `pg_trgm` extension. `LIKE '%…%'` baştan joker olduğu için **düz B-tree işe yaramaz**,
+  trigram şarttır. ⚠️ Trigram **en az 3 karakter** ister; 1-2 harflik sorgu yine seq scan'e
+  düşer (sonuç doğru, sadece yavaş) — mobilde min 3 karakter dayatmak iyi olur.
+
+### İhale arama performansı (kritik — dokunmadan önce okuyun)
+
+`ekap_tender` ~500k satır (backfill tüm gün çalıştığı için 60k'dan buraya büyüdü). Bu
+boyutta "küçük veride sorun çıkarmayan" desenler ucu saniyelere çıkarır. Yaşanmış hatalar
+ve konan korumalar:
+
+- **`.distinct()` KULLANMAYIN → `Exists(OuterRef("pk"))`.** Çoklu-satır ilişkiye
+  (`okas_kalemleri`, `sozlesmeler`) `.filter(ilişki__…)` ile bağlanmak ihaleyi çoğaltır ve
+  eskiden `.distinct()` ile toplanırdı. `DISTINCT` **`LIMIT`'ten önce** çalışır → sayfa
+  boyutu maliyeti kurtarmaz; Postgres eşleşen TÜM satırları (üstelik `detail_raw`/`list_raw`
+  JSONB'leriyle) sort/hash'ten geçirir. `Exists` semi-join'i satır çoğalmasını hiç doğurmaz.
+  Yardımcılar: `ekap.views._okas_exists`, `_contract_exists`.
+- **Liste ucu `.only(_LIST_FIELDS)` kullanır.** `detail_raw` + `list_raw` (~40 KB/satır)
+  serializer'da hiç kullanılmıyor ama `SELECT *` her satırda TOAST'tan açıp `json.loads`
+  ediyordu. ⚠️ `EkapTenderListSerializer`'a alan eklerseniz `views._LIST_FIELDS`'a da
+  ekleyin, yoksa deferred alan başına ek sorgu atılır (sessiz N+1).
+  ⚠️ `.only()`'i `apply_tender_filters` İÇİNE koymayın — o fonksiyon bildirim
+  görevlerinde de kullanılıyor ve orada başka alanlar okunuyor.
+- **`totalCount` cache'li** (`views._cached_count`, 120 sn). Anahtar yalnızca **filtre**
+  parametrelerinden üretilir; `page`/`page_size`/`order`/`siralamaTipi` dışlanır → sayfa
+  gezinmesi tek `COUNT` yapar. Deny-list kullanılır (allow-list olsaydı yeni bir filtre
+  unutulunca iki farklı arama aynı anahtara düşüp **yanlış** sayı dönerdi).
+- **`_tender_idare_id_set()` içindeki `.order_by()` ŞART.** `Tender.Meta.ordering`
+  (`-ihale_tarihi`) + `.distinct()` birleşince Django ORDER BY kolonunu SELECT'e ekler →
+  `DISTINCT (idare_id, ihale_tarihi)` olur, birkaç bin satır yerine tablonun TAMAMI dönüp
+  Python'da tekilleştirilirdi. Aynı tuzak `descendant_idare_ids` BFS'inde de var
+  (`Authority.Meta.ordering = ["ad"]`) — oraya da `.order_by()` konuldu.
+- **`ilan_tarihi__date=gun` KULLANMAYIN → `ekap.utils.local_day_range`.** `USE_TZ` ile
+  Django bunu `(ilan_tarihi AT TIME ZONE …)::date = …` diye derler; kolonun üstündeki
+  fonksiyon indeksi öldürür. Bildirim görevleri kullanıcı saatlerinde (10:00/11:00)
+  koştuğu için bu taramalar doğrudan aramayla I/O yarışıyordu.
+- **`sync_contractors` duty cycle'ı arama ile aynı DB'yi paylaşır.** Eskiden 5 dk × 240 sn
+  (~%80) idi; `detail_raw` arşivini sürekli okuduğu için Postgres buffer cache'ini
+  boşaltıp aramaları diske düşürüyordu. Şimdi 10 dk × 90 sn (~%15) + `.only()`.
+- **Postgres tuning `docker-compose.yml` → `db` → `command:` içindedir**, `.env.prod`'da
+  DEĞİL: compose'un `${VAR}` ikamesi `env_file:`'dan okumaz (o yalnızca konteyner içi
+  ortam değişkeni tanımlar), kabuk ortamından ya da `.env`'den okur. Oraya yazılan bir
+  `PG_*` sessizce yok sayılırdı. RAM'e göre değer tablosu dosyadaki yorumda.
 
 ### Yüklenici (Firma) Kaydı — `ekap.Contractor`
 
@@ -323,12 +376,17 @@ hangi idarelerle çalıştığı sorgulanabilir.
     kaldırırsa/başka firmaya geçirirse kaybeden firmanın sayaçları da düşmeli. Yalnızca
     yeni listedeki firmaları toplamak onu bayat bırakırdı. Sıfır-sözleşme dalı da aynı
     şekilde önce firmaları toplar. **Firma kaydı asla silinmez** (geçmiş korunur).
-- **Toplama**: `sync_contractors` beat görevi (5 dk) — **EKAP'a gitmez**,
-  `Tender.detail_raw` arşivinden çalışır. Süpürme modu PK imleciyle tüm arşivi tarar,
-  bitince artımlı moda geçer (`contractors_synced_at < detail_synced_at` → `refresh_stale`
-  bir detayı yenileyince kendiliğinden yakalar). Sınır **süre bütçesidir**
-  (`max_seconds=240`, global `CELERY_TASK_TIME_LIMIT=300` altında), sabit sayı değil:
+- **Toplama**: `sync_contractors` beat görevi (**10 dk**) — **EKAP'a gitmez**,
+  `Tender.detail_raw` arşivinden çalışır (`.only()` ile: `list_raw` okunmaz). Süpürme modu
+  PK imleciyle tüm arşivi tarar, bitince artımlı moda geçer
+  (`contractors_synced_at < detail_synced_at` → `refresh_stale` bir detayı yenileyince
+  kendiliğinden yakalar). Sınır **süre bütçesidir**
+  (`max_seconds=90`, global `CELERY_TASK_TIME_LIMIT=300` altında), sabit sayı değil:
   iş tamamen DB-içi olduğu için hız makineye göre çok değişir (~200 ihale/sn ölçüldü).
+  ⚠️ **Duty cycle bilinçli düşük tutulur (~%15).** Eskiden 5 dk × 240 sn (~%80) idi;
+  `detail_raw` (~40 KB/satır) arşiv boyunca okunduğu için Postgres buffer cache'i sürekli
+  boşalıyor ve ihale arama sorguları diskten okumak zorunda kalıyordu. Süpürme artık
+  birkaç kat uzun sürer ama arama ucu nefes alır; artımlı moda geçince yük zaten düşer.
   Görev **`celery` kuyruğuna yönlendirilir** (settings'te `ekap.tasks.*` joker'inden
   ÖNCE gelen istisna) — EKAP'a hiç gitmediği için tek-concurrency'li `ekap` kuyruğunda
   yer tutup `sync_recent`/`backfill`'i bloklamamalı. İmleç `try`'dan **önce** ilerletilir
@@ -689,8 +747,10 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
-- `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (5/35 dk; EKAP'a gitmez,
-  `detail_raw` arşivinden çalışır — bkz. "Yüklenici (Firma) Kaydı")
+- `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (**10 dk'da bir, 90 sn
+  bütçe**; EKAP'a gitmez, `detail_raw` arşivinden çalışır — bkz. "Yüklenici (Firma)
+  Kaydı"). ⚠️ Duty cycle bilinçli olarak düşük: eskiden 5 dk × 240 sn (~%80) idi ve
+  Postgres buffer cache'ini boşaltıp ihale aramasını yavaşlatıyordu.
 
 ## Bildirim Servisi (Push)
 
@@ -938,6 +998,23 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   ama bu durumda migrate'i **elle** çalıştır (healthcheck baskısı yok):
   `docker compose exec worker python manage.py migrate` → bitince `docker compose up -d`.
   (Taze deploy'da tablolar boş → backfill anlık, bu sorun yaşanmaz.)
+- **⚠️ `atomic=False` + `CREATE INDEX CONCURRENTLY` migration'ları** (`0007_search_indexes`):
+  - Dolu tabloda düz `CREATE INDEX` yazmaları ACCESS EXCLUSIVE ile kilitler; ingest
+    görevleri sürekli çalıştığı için `AddIndexConcurrently` kullanılır. CONCURRENTLY
+    transaction içinde çalışamaz → `atomic = False` **zorunlu**, yani **rollback YOK**.
+  - **CONCURRENTLY açık uzun transaction'ları BEKLER.** `sync_contractors`/`backfill`
+    koşarken migration saatlerce asılı kalabilir. Migration boyunca admin → Periodic
+    Tasks'tan `ekap-sync-contractors` ve `ekap-backfill`'i geçici kapatın.
+  - 500k satırda GIN trigram indeksleri toplam 15-40 dk sürer, ~0.5-1 GB yer ister
+    (`df -h` ile önce bakın). `tmux` kullanın ki SSH kopunca iş sürsün.
+  - **Yarıda kesilirse geçersiz indeks kalır**:
+    `SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;` →
+    `DROP INDEX CONCURRENTLY <ad>;` → `migrate ekap` tekrar.
+  - Bitince: `ANALYZE ekap_tender; ANALYZE ekap_okasitem;`
+  - Yerel geliştirme SQLite'a düştüğü için (`DATABASE_URL` yoksa) migration'daki
+    Postgres'e özel işlemler `_PostgresOnly` karışımıyla sarmalanır — **state ilerler,
+    yalnızca DB işlemi atlanır**. `TrigramExtension` bunu `database_forwards`'ta kendi
+    yapar ama `database_backwards`'ta YAPMAZ (geri alma SQLite'ta patlar) → o da sarmalı.
   - **Yarım kalmış migration kurtarma** (eski `atomic=False` sürümünden kalma
     "column already exists"): sütunlar var ama migration kayıtlı değilse
     `... migrate ekap 0005 --fake` ile kaydet, sonra norm'u elle doldur (Tender/Okas

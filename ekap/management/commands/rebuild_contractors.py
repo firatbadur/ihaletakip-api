@@ -36,7 +36,9 @@ class Command(BaseCommand):
         parser.add_argument("--limit", type=int, default=1000,
                             help="Bu çalışmada işlenecek azami ihale (vars. 1000).")
         parser.add_argument("--from-pk", type=int, default=None,
-                            help="Bu Tender pk'sinden itibaren başla.")
+                            help="Bu Tender pk'sinden itibaren başla (imleci yok sayar).")
+        parser.add_argument("--restart", action="store_true",
+                            help="İmleci yok sayıp baştan işle (imleç yine ilerletilir).")
         parser.add_argument("--ikn", type=str, default=None,
                             help="Tek ihaleyi işle (hata ayıklama).")
         parser.add_argument("--aggregates-only", action="store_true",
@@ -64,22 +66,41 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"✅ {n} firmanın agregası güncellendi"))
             return
 
-        qs = Tender.objects.filter(detail_raw__isnull=False)
-        if o["ikn"]:
-            qs = qs.filter(ikn=o["ikn"])
+        base = Tender.objects.filter(detail_raw__isnull=False)
+        single = bool(o["ikn"])
+
+        # ⚠️ İmleç OLMADAN tekrar çalıştırma hep aynı ilk N ihaleyi işlerdi. Komut
+        # Celery görevinin (`ekap.tasks.sync_contractors`) `contractors` checkpoint'ini
+        # PAYLAŞIR → arka arkaya çalıştırınca kaldığı yerden devam eder.
+        cp = None
+        last_pk = 0
+        if single:
+            qs = base.filter(ikn=o["ikn"])
             if not qs.exists():
                 raise CommandError(f"İhale bulunamadı ya da detayı yok: {o['ikn']}")
-        elif o["from_pk"]:
-            qs = qs.filter(pk__gte=o["from_pk"])
+        else:
+            cp, _ = SyncCheckpoint.objects.get_or_create(name="contractors")
+            if o["from_pk"] is not None:
+                last_pk = o["from_pk"] - 1
+            elif not o["restart"]:
+                last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
+            qs = base.filter(pk__gt=last_pk)
+
         qs = qs.order_by("pk")[: o["limit"]]
 
         if o["dry_run"]:
             self._dry_run(qs)
             return
 
+        if cp is not None:
+            kalan = base.filter(pk__gt=last_pk).count()
+            self.stdout.write(f"imleç pk>{last_pk} · kalan ihale: {kalan}")
+
         processed = errors = contracts = 0
         touched = set()
         for tender in qs.iterator(chunk_size=50):
+            # İmleci try'DAN ÖNCE ilerlet: kalıcı bozuk tek ihale imleci kilitlemesin.
+            last_pk = max(last_pk, tender.pk)
             try:
                 res = sync_mod.sync_contracts_from_raw(tender)
                 contracts += res["contracts"]
@@ -92,10 +113,21 @@ class Command(BaseCommand):
         if touched:
             contractors_mod.recompute_aggregates(touched)
 
+        if cp is not None:
+            cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
+            cp.done = processed == 0 and errors == 0
+            cp.save()
+
         self.stdout.write(self.style.SUCCESS(
             f"✅ {processed} ihale · {contracts} sözleşme · {len(touched)} firma "
             f"· {errors} hata"
         ))
+        if cp is not None:
+            kalan = base.filter(pk__gt=last_pk).count()
+            self.stdout.write(
+                f"   imleç → pk>{last_pk} · kalan ihale: {kalan}"
+                + ("  🎉 tamamlandı" if kalan == 0 else "  (komutu tekrar çalıştırın)")
+            )
         self._report()
 
     # ── Yardımcılar ────────────────────────────────────
@@ -145,16 +177,23 @@ class Command(BaseCommand):
             f"   firma={toplam} alias={ContractorAlias.objects.count()} "
             f"üyelik={ContractorMembership.objects.count()}"
         )
-        self.stdout.write(f"   yüklenicisi bağlanmamış sözleşme: {bagsiz}")
+        # ⚠️ Bu sayaçlar TÜM veritabanını kapsar. Backfill sürerken yüksek olmaları
+        # normaldir: henüz işlenmemiş ihalelerin satırları eski sil-yeniden-yaz
+        # döneminden kalmadır (anahtarsız + yüklenicisiz). İşlendikçe sıfıra iner.
+        self.stdout.write(
+            f"   [tüm DB] yüklenicisiz sözleşme={bagsiz} anahtarsız={anahtarsiz} "
+            f"mükerrer grup={mukerrer}"
+        )
         if cozumsuz:
             self.stdout.write(self.style.WARNING(
-                f"   ⚠ {cozumsuz} ortak girişimin üyeleri çözülemedi (elle inceleyin)"
+                f"   ⚠ {cozumsuz} ortak girişimin üyeleri çözülemedi "
+                f"(admin → Yükleniciler → 'uyeleri_cozumlendi=Hayır' ile inceleyin)"
             ))
-        # 0007 unique-constraint migration'ı için geçit koşulları
-        style = self.style.SUCCESS if (anahtarsiz == 0 and mukerrer == 0) else self.style.WARNING
-        self.stdout.write(style(
-            f"   unique-constraint geçidi: anahtarsız={anahtarsiz} mükerrer={mukerrer}"
-        ))
+        # Unique-constraint migration'ının ön koşulu (backfill BİTTİKTEN sonra bakılır)
+        if anahtarsiz == 0 and mukerrer == 0:
+            self.stdout.write(self.style.SUCCESS(
+                "   ✅ unique-constraint geçidi temiz (backfill tamamsa constraint eklenebilir)"
+            ))
 
     def _purge(self):
         onay = input("Tüm firma/alias/üyelik kayıtları silinecek. 'evet' yazın: ")

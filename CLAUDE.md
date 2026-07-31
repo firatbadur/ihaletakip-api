@@ -297,7 +297,10 @@ hangi idarelerle çalıştığı sorgulanabilir.
   bitince artımlı moda geçer (`contractors_synced_at < detail_synced_at` → `refresh_stale`
   bir detayı yenileyince kendiliğinden yakalar). İmleç `try`'dan **önce** ilerletilir
   (bozuk tek ihale imleci kilitlemesin). Elle: `python manage.py rebuild_contractors
-  [--dry-run] [--ikn X] [--limit N] [--aggregates-only] [--reset] [--purge]`.
+  [--dry-run] [--ikn X] [--limit N] [--from-pk N] [--restart] [--aggregates-only]
+  [--reset] [--purge]`. Komut **aynı `contractors` checkpoint'ini paylaşır** → arka
+  arkaya çalıştırınca kaldığı yerden devam eder ve her turda "kalan ihale" basar
+  (imleçsiz sürüm hep aynı ilk N ihaleyi işliyordu).
   `--dry-run` kanonikleştiricinin **ayar döngüsüdür** — kural değiştirmeden önce çalıştır.
 
 #### ⚠️ EKAP tutar verisi — bozulma haritası (KRİTİK)
@@ -349,6 +352,12 @@ Anahtarsız satıra sentetik `noid:{i}` verilir (koşulsuz unique constraint'e h
 - **Toplu yazma şart**: `_bulk_upsert_children` satır sayısından bağımsız ~4 sorgu yapar.
   Satır başına `update_or_create` döngüsü 69 kısımlı ihalede **315 sorguya** çıkıyordu;
   şimdi **16**. (13 sözleşmeli ihale: 368 → 39.)
+- **Mevcut satırlar anahtar başına tekilleştirilir**: eski sil-yeniden-yaz döneminden
+  kalan satırların HEPSİ `ekap_*_id=""` taşır, yani bir ihalede N tane aynı-anahtarlı
+  satır olabilir. Bunları doğrudan sözlüğe çevirmek fazlalıkları gizler ve budama
+  listesi onları hiç görmez → her ihalede N-1 yetim satır kalırdı (prod'da 60k+ ihale).
+  `_bulk_upsert_children` bu yüzden queryset'i **satır satır** gezip fazlalıkları
+  `stale`'e ekler.
 - **Dedupe zorunlu**: `ilanList` ile ayrı announcements yanıtı birleştiğinde aynı `id`
   tekrar edebiliyor; Postgres `ON CONFLICT`in aynı satıra iki kez dokunmasını reddeder.
 - `Contract` üzerinde `idare_id`/`il_id`/`ihale_tip` **ingest-kopyasıdır** → firma

@@ -266,16 +266,29 @@ def _dedupe_by_key(rows, key_of):
     return out
 
 
-def _bulk_upsert_children(model, existing, wanted, key_attr, fields, build):
+def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
     """
     Kararlı anahtarla toplu upsert + budama — **satır sayısından bağımsız ~4 sorgu**.
 
     `update_or_create` döngüsü satır başına 2-3 sorgu yapıyordu; 69 kısımlı bir ihale
     300+ sorguya çıkıyordu ki milyonlarca ihalelik backfill için kabul edilemez.
 
-    existing: {key: model örneği} · wanted: {key: alan sözlüğü} · build(key, vals) → örnek
-    Döner: {key: örnek} (yeni + güncel hepsi)
+    child_qs: mevcut çocuk satırların queryset'i · wanted: {key: alan sözlüğü}
+    build(key, vals) → yeni örnek. Döner: {key: örnek} (yeni + güncel hepsi)
+
+    ⚠️ Mevcut satırlar **anahtar başına tekilleştirilir**: eski sil-yeniden-yaz
+    döneminden kalan satırların hepsi `ekap_*_id=""` taşıyor, yani aynı ihalede N tane
+    aynı-anahtarlı satır olabiliyor. Sözlüğe doğrudan çevirmek fazlalıkları sessizce
+    gizler ve budama listesi onları hiç görmezdi → her tenderda N-1 yetim satır kalırdı.
     """
+    existing, stale = {}, []
+    for obj in child_qs:
+        key = getattr(obj, key_attr)
+        if key in existing:
+            stale.append(obj.pk)  # aynı anahtardan fazlalık → buda, birini tut
+        else:
+            existing[key] = obj
+
     to_create, to_update, out = [], [], {}
     for key, vals in wanted.items():
         obj = existing.get(key)
@@ -297,7 +310,7 @@ def _bulk_upsert_children(model, existing, wanted, key_attr, fields, build):
     if to_update:
         model.objects.bulk_update(to_update, fields, batch_size=500)
 
-    stale = [o.pk for key, o in existing.items() if key not in wanted]
+    stale += [o.pk for key, o in existing.items() if key not in wanted]
     if stale:
         model.objects.filter(pk__in=stale).delete()
     return out
@@ -332,7 +345,7 @@ def _upsert_announcements(tender, data, announcements) -> dict:
 
     objs = _bulk_upsert_children(
         Announcement,
-        {a.ekap_ilan_id: a for a in tender.ilanlar.all()},
+        tender.ilanlar.all(),
         wanted,
         "ekap_ilan_id",
         _ANNOUNCEMENT_FIELDS,
@@ -493,7 +506,7 @@ def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
 
     contracts = _bulk_upsert_children(
         Contract,
-        {c.ekap_sozlesme_id: c for c in tender.sozlesmeler.all()},
+        tender.sozlesmeler.all(),
         wanted,
         "ekap_sozlesme_id",
         _CONTRACT_FIELDS,
@@ -537,7 +550,7 @@ def _upsert_sections(contract, kisim_list) -> None:
     }
     _bulk_upsert_children(
         ContractSection,
-        {s.ekap_kisim_id: s for s in contract.kisimlar.all()},
+        contract.kisimlar.all(),
         wanted,
         "ekap_kisim_id",
         _SECTION_FIELDS,

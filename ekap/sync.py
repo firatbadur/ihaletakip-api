@@ -373,12 +373,23 @@ _CONTRACT_FIELDS = [
 ]
 
 
-def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
+def sync_contracts_from_raw(
+    tender, *, detail=None, announcements=None, recompute=True
+) -> dict:
     """
     İhalenin sözleşmelerini + yüklenici bağlantılarını ham detaydan kurar.
 
     `detail=None` ise `tender.detail_raw` kullanılır → **EKAP'a hiç gidilmez**; offline
     backfill/onarım bu sayede mümkündür.
+
+    `recompute=True` (varsayılan) dokunulan firmaların agregalarını hemen yeniden
+    hesaplar — **canlı detay senkronu için şart**: EKAP sözleşme bedelini/tarihini
+    güncellediğinde `Contract` satırı düzelir ama firma sayaçları (`sozlesme_sayisi`,
+    `toplam_sozlesme_bedeli`, `son_sozlesme_tarihi` = firma listesinin sıralama
+    anahtarları) bayat kalırdı. Artımlı görev de yakalayamaz, çünkü bu fonksiyon
+    `contractors_synced_at`'i güncelliyor → "bayat" görünmüyor.
+    Toplu çağıranlar (backfill görevi/komutu) `recompute=False` verip birleşik kümeyi
+    sonda tek seferde hesaplar.
 
     Döner: `{"contracts": n, "contractors": {id, ...}}`
     """
@@ -394,11 +405,21 @@ def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
 
     sozlesme_list = [s for s in (data.get("sozlesmeBilgiList") or []) if s]
     if not sozlesme_list:
+        # EKAP tüm sözleşmeleri kaldırmış olabilir (iptal/yeniden yayım). Satırları
+        # silmeden ÖNCE firmaları topla, yoksa sayaçları bayat kalırdı.
+        onceki = set(
+            tender.sozlesmeler.exclude(yuklenici__isnull=True)
+            .values_list("yuklenici_id", flat=True)
+        )
         tender.sozlesmeler.all().delete()
         Tender.objects.filter(pk=tender.pk).update(
-            contractors_synced_at=timezone.now(), sonuc_ilani_eksik=False
+            contractors_synced_at=timezone.now(),
+            sonuc_ilani_eksik=False,
+            yaklasik_maliyet_num=None,
         )
-        return {"contracts": 0, "contractors": set()}
+        if recompute and onceki:
+            contractors_mod.recompute_aggregates(onceki)
+        return {"contracts": 0, "contractors": onceki}
 
     # 2) Tüm yüklenici adları TEK çağrıda çözülür (13 sözleşme de olsa ~5 sorgu)
     resolved = contractors_mod.resolve_contractors(
@@ -504,6 +525,14 @@ def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
                     (contractor, ilan.istekli_adi, ContractorAlias.Kaynak.ILAN)
                 )
 
+    # ⚠️ Budanacak satırların firmaları da "dokunulan" sayılmalı: EKAP bir sözleşmeyi
+    # kaldırdığında (ya da başka firmaya geçtiğinde) o firmanın sayaçları düşmeli.
+    # Yalnızca yeni listedeki firmaları toplamak, kaybeden firmayı bayat bırakırdı.
+    touched_contractors |= set(
+        tender.sozlesmeler.exclude(yuklenici__isnull=True)
+        .values_list("yuklenici_id", flat=True)
+    )
+
     contracts = _bulk_upsert_children(
         Contract,
         tender.sozlesmeler.all(),
@@ -527,6 +556,8 @@ def sync_contracts_from_raw(tender, *, detail=None, announcements=None) -> dict:
         sonuc_ilani_eksik=sonuc_eksik,
         yaklasik_maliyet_num=tender_ym,
     )
+    if recompute and touched_contractors:
+        contractors_mod.recompute_aggregates(touched_contractors)
     return {"contracts": len(seen_keys), "contractors": touched_contractors}
 
 

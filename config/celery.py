@@ -72,11 +72,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/15"),
     },
     # OKAS kodları — haftalık (Pazartesi 05:00)
-    # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır);
-    # backfill'in */15 slotlarıyla çakışmaması için 5/35 dakikalarında.
+    # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →
+    # `celery` kuyruğuna yönlendirilir (bkz. settings.CELERY_TASK_ROUTES) ve EKAP
+    # worker'ını bloklamaz. Her tur ~4 dk süre bütçesiyle çalışır; 5 dakikada bir
+    # tetiklenerek backfill'i sürekli ilerletir. Redis kilidi üst üste binmeyi önler.
     "ekap-sync-contractors": {
         "task": "ekap.tasks.sync_contractors",
-        "schedule": crontab(minute="5,35"),
+        "schedule": crontab(minute="*/5"),
     },
     "ekap-sync-okas": {
         "task": "ekap.tasks.sync_okas",

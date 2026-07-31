@@ -102,7 +102,8 @@ class Command(BaseCommand):
             # İmleci try'DAN ÖNCE ilerlet: kalıcı bozuk tek ihale imleci kilitlemesin.
             last_pk = max(last_pk, tender.pk)
             try:
-                res = sync_mod.sync_contracts_from_raw(tender)
+                # recompute=False: agregalar döngü sonunda birleşik kümede hesaplanır
+                res = sync_mod.sync_contracts_from_raw(tender, recompute=False)
                 contracts += res["contracts"]
                 touched |= res["contractors"]
                 processed += 1

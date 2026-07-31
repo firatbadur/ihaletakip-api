@@ -269,8 +269,13 @@ EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 
-# EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir
+# EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
+# ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
+# joker'inden ÖNCE gelmelidir.
 CELERY_TASK_ROUTES = {
+    # sync_contractors EKAP'a HİÇ gitmez (Tender.detail_raw arşivinden çalışır) →
+    # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
+    "ekap.tasks.sync_contractors": {"queue": "celery"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

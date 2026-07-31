@@ -292,10 +292,31 @@ hangi idarelerle çalıştığı sorgulanabilir.
     vars. açık → firmanın ortak girişim üyesi olarak aldığı işler de gelir).
   - Alan adları **snake_case Türkçe** (EKAP camelCase değil): EKAP'ta yüklenici nesnesi
     yok, yansıtılacak şekil ve korunacak mobil mapper da yok.
-- **Toplama**: `sync_contractors` beat görevi (5/35 dk) — **EKAP'a gitmez**,
+- **Güncel kalma (sürekli)**: EKAP sözleşmeleri zamanla değiştirir (bedel/tarih girilir,
+  sonuç ilanı sonradan yayımlanır, sözleşme eklenir/kaldırılır). Zincir şudur:
+  `refresh_stale` (3 saatte bir) detayı yeniler → `upsert_tender_detail` → `_sync_children`
+  → **`sync_contracts_from_raw` senkron çağrılır** → sözleşmeler kararlı anahtarla upsert
+  edilir, yüklenici yeniden çözülür, Sonuç İlanı yeniden ayrıştırılır. Yani beat görevini
+  beklemeye gerek yok; detay her yenilendiğinde yüklenici verisi de yenilenir.
+  - ⚠️ **`recompute=True` (varsayılan) şart**: `Contract` satırı düzelse bile firma
+    sayaçları (`sozlesme_sayisi`, `toplam_sozlesme_bedeli`, `son_sozlesme_tarihi` =
+    firma listesinin sıralama anahtarları) ayrı tutulduğu için elle yenilenmeli.
+    Artımlı görev de yakalayamaz — `sync_contracts_from_raw` `contractors_synced_at`'i
+    güncellediği için ihale "bayat" görünmez. Toplu çağıranlar `recompute=False` verip
+    birleşik kümeyi sonda tek seferde hesaplar.
+  - ⚠️ **Budanan satırların firmaları da "dokunulan" sayılır**: EKAP bir sözleşmeyi
+    kaldırırsa/başka firmaya geçirirse kaybeden firmanın sayaçları da düşmeli. Yalnızca
+    yeni listedeki firmaları toplamak onu bayat bırakırdı. Sıfır-sözleşme dalı da aynı
+    şekilde önce firmaları toplar. **Firma kaydı asla silinmez** (geçmiş korunur).
+- **Toplama**: `sync_contractors` beat görevi (5 dk) — **EKAP'a gitmez**,
   `Tender.detail_raw` arşivinden çalışır. Süpürme modu PK imleciyle tüm arşivi tarar,
   bitince artımlı moda geçer (`contractors_synced_at < detail_synced_at` → `refresh_stale`
-  bir detayı yenileyince kendiliğinden yakalar). İmleç `try`'dan **önce** ilerletilir
+  bir detayı yenileyince kendiliğinden yakalar). Sınır **süre bütçesidir**
+  (`max_seconds=240`, global `CELERY_TASK_TIME_LIMIT=300` altında), sabit sayı değil:
+  iş tamamen DB-içi olduğu için hız makineye göre çok değişir (~200 ihale/sn ölçüldü).
+  Görev **`celery` kuyruğuna yönlendirilir** (settings'te `ekap.tasks.*` joker'inden
+  ÖNCE gelen istisna) — EKAP'a hiç gitmediği için tek-concurrency'li `ekap` kuyruğunda
+  yer tutup `sync_recent`/`backfill`'i bloklamamalı. İmleç `try`'dan **önce** ilerletilir
   (bozuk tek ihale imleci kilitlemesin). Elle: `python manage.py rebuild_contractors
   [--dry-run] [--ikn X] [--limit N] [--from-pk N] [--restart] [--aggregates-only]
   [--reset] [--purge]`. Komut **aynı `contractors` checkpoint'ini paylaşır** → arka

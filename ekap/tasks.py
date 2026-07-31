@@ -266,10 +266,18 @@ def _update_checkpoint(name, newest=None, oldest=None):
 
 # ── Yüklenici (firma) çözümlemesi ──────────────────────
 @shared_task(name="ekap.tasks.sync_contractors")
-def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit=50):
+def sync_contractors(
+    max_tenders=50000, max_seconds=240, enqueue_missing_detail=True, missing_limit=50
+):
     """
     Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
     çalışır (yalnızca `enqueue_missing_detail` dalı detay kuyruğa atar).
+
+    ⚠️ Sınır **süre bütçesidir**, sabit ihale sayısı değil: iş tamamen DB-içi olduğu için
+    hız makineye göre çok değişir (ölçüm: ~200 ihale/sn). Sabit küçük bir batch, saatlik
+    kapasitenin yüzde biri kadarını kullanıp backfill'i günlere yayardı.
+    `max_seconds=240`, global `CELERY_TASK_TIME_LIMIT=300`'ün altında kalır.
+    `max_tenders` yalnızca emniyet tavanıdır.
 
     İki mod:
       • Süpürme  (checkpoint bitmemişse) — PK imleciyle tüm arşivi tarar, kaymaz.
@@ -277,6 +285,8 @@ def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit
                                             (`contractors_synced_at < detail_synced_at`)
                                             kendiliğinden yakalar.
     """
+    import time
+
     from django.db.models import F, Q
 
     from . import contractors as contractors_mod
@@ -300,24 +310,32 @@ def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit
 
         processed = errors = contracts = 0
         touched = set()
-        # detail_raw ~40 KB/satır → 500 ihale ≈ 20 MB; iterator şart
-        for tender in qs.iterator(chunk_size=50):
+        deadline = time.monotonic() + max_seconds
+        timed_out = False
+        # detail_raw ~40 KB/satır → iterator şart (tümünü belleğe almaz)
+        for tender in qs.iterator(chunk_size=200):
             # ⚠️ İmleci try'DAN ÖNCE ilerlet: kalıcı bozuk tek ihale imleci sonsuza
             # dek kilitlemesin (backfill `skip`'i aynı sebeple koşulsuz ilerletir).
             if sweeping:
                 last_pk = max(last_pk, tender.pk)
             try:
-                res = sync_mod.sync_contracts_from_raw(tender)
+                # recompute=False: agregalar tur sonunda birleşik kümede tek seferde
+                res = sync_mod.sync_contracts_from_raw(tender, recompute=False)
                 contracts += res["contracts"]
                 touched |= res["contractors"]
                 processed += 1
             except Exception as e:
                 errors += 1
                 logger.warning("yüklenici çözümü atlandı ikn=%s: %s", tender.ikn, e)
-                continue
+            # Süre bütçesi dolduysa temiz çık — imleç kaydedilecek, sonraki tur devam eder
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
 
         if sweeping:
-            if processed == 0 and errors == 0:
+            # Bitti sayabilmek için süre dolmamış OLMALI; aksi halde sadece bu turun
+            # bütçesi tükenmiştir, arşiv bitmiş değildir.
+            if processed == 0 and errors == 0 and not timed_out:
                 cp.done = True
                 logger.info("sync_contractors süpürmesi tamamlandı (pk=%s)", last_pk)
             cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
@@ -339,11 +357,16 @@ def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit
                 sync_detail.delay(ekap_id)
                 enqueued += 1
 
+        kalan = (
+            Tender.objects.filter(detail_raw__isnull=False, pk__gt=last_pk).count()
+            if sweeping else 0
+        )
         run.items = processed
         run.errors = errors
         run.note = (
             f"mod={'süpürme' if sweeping else 'artımlı'} sözleşme={contracts} "
-            f"firma={len(touched)} detay_kuyruk={enqueued}"
+            f"firma={len(touched)} detay_kuyruk={enqueued} "
+            f"{'süre doldu ' if timed_out else ''}kalan={kalan}"
         )[:1000]
         return {
             "tenders": processed,
@@ -351,4 +374,6 @@ def sync_contractors(max_tenders=500, enqueue_missing_detail=True, missing_limit
             "contractors": len(touched),
             "errors": errors,
             "enqueued_detail": enqueued,
+            "remaining": kalan,
+            "timed_out": timed_out,
         }

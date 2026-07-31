@@ -349,18 +349,34 @@ ve EN (`18,128.00`) formatını karıştırıyor. Eski koşulsuz TR kuralı `"18
 görünen** ondalıktır; tek ayırıcıda son grup 3 hane ise binliktir. `*Degeri` float alanları
 için `parse_money_value` (0.0 → None), seçim için `pick_money(...)` kullanılır.
 
-#### İhale durum kodları düzeltmesi
+#### İhale durum kodları (üretim dağılımı — küçük örneğe bakıp budamayın)
 
-`IHALE_DURUM` haritası yanlıştı (`5`'i "Değerlendirmede" sanıyordu, 10/15/20 gerçek kod
-zannediliyordu). Canlı veride yalnızca **1-6** görülüyor; `5` = **Sözleşme İmzalanmış**.
-`DURUM_SONUCLANMIS` eski `{10,15,20}` değeriyle **hiçbir kayıtla eşleşmiyordu** → "İhale
-Sonuçlandı" push'u hiç tetiklenemiyor, `should_refresh_detail`'in ilgili dalı ölü koddu.
-Yeni: `DURUM_SONUCLANMIS = {5, 6}`, `DURUM_SOZLESME_IMZALANDI = {5}`.
-⚠️ Bu düzeltme **`sonuc_ilani_eksik` carve-out'u ile birlikte** gelmelidir: Sonuç İlanları
-imzadan *sonra* yayımlandığı için, sözleşmesi olup ilanı gelmemiş ihale 7 gün yerine
-**2 günde** tazelenir — aksi halde düzeltme, bu özelliğin dayandığı veriyi bastırırdı.
-(Push fırtınası riski yok: `_detect_alarm_events` bir **geçiş** arar, snapshot'ı zaten `5`
-olan alarm olay üretmez.)
+`IHALE_DURUM` **iki kodlama şemasının birleşimidir**; ikisi de canlı veride bir arada
+bulunur. Üretim dağılımı (505.588 detaylı ihale, 2026-07-31):
+
+| durum | adet | açıklama | sonuçlanmış sayılır |
+|---|---|---|---|
+| **15** | **414.032** | **Sonuç İlanı Yayımlanmış** — arşivin %82'si, ASIL sonuçlanma yolu | ✅ |
+| 6 | 68.279 | İptal Edilmiş | ✅ |
+| 2 | 7.971 | Katılıma Açık | — |
+| 5 | 6.661 | Sözleşme İmzalanmış | ✅ |
+| 4 | 5.984 | Değerlendirme Tamamlanmış | — |
+| 3 | 2.661 | Teklif Değerlendirme | — |
+
+`DURUM_SONUCLANMIS = {5, 6, 10, 15, 20}` · `DURUM_SOZLESME_IMZALANDI = {5, 20}`.
+Eski küme `{10,15,20}` **5 ve 6'yı kaçırıyordu** (75k ihale) — onlar eklendi.
+
+⚠️ **Uyarı — bir kez yapılan hata:** 28 satırlık geliştirme veritabanında yalnızca 2/4/5
+göründüğü için 10/15/20 "hiç gözlemlenmedi" denip haritadan silinmiş ve `DURUM_SONUCLANMIS`
+`{5,6}`'ya indirilmişti. Bu, sonuçlanan ihalelerin **%98'ini** (durum 15) kümenin dışında
+bırakıp "İhale Sonuçlandı" bildirimini asıl yolda tamamen susturuyor ve 414k ihaleyi yanlış
+tazeleme dalına düşürüyordu. **Durum kodlarını yerel örneğe bakarak budamayın** — üretim
+dağılımını sorgulayın.
+
+⚠️ `sonuc_ilani_eksik` carve-out'u: Sonuç İlanları imzadan *sonra* yayımlandığı için,
+sözleşmesi olup ilanı gelmemiş ihale 7 gün yerine **2 günde** tazelenir.
+(Küme değişikliğinde push fırtınası riski yok: `_detect_alarm_events` bir **geçiş** arar,
+snapshot'ı zaten sonuçlanmış olan alarm olay üretmez.)
 
 #### Çocuk tablolar artık upsert (PK churn giderildi)
 

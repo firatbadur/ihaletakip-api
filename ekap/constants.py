@@ -66,9 +66,17 @@ IHALE_USUL = {
 }
 
 # İhale durum kodları.
-# ⚠️ Eski harita yanlıştı: 5'i "Değerlendirmede" sanıyor, 10/15/20'yi gerçek kodlar
-# zannediyordu. Canlı EKAP verisinde yalnızca 1-6 görülüyor; `5` = Sözleşme İmzalanmış
-# (detayda `ihaleDurumAciklama: "Contract Signed"`). 10/15/20 hiç gözlemlenmedi.
+# ⚠️ Bu harita İKİ kodlama şemasının birleşimidir; ikisi de canlı veride bir arada
+# bulunur. Üretim dağılımı (505.588 detaylı ihale, 2026-07-31):
+#     15 → 414.032  Sonuç İlanı Yayımlanmış   (arşivin %82'si — ASIL sonuçlanma yolu)
+#      6 →  68.279  İptal Edilmiş
+#      2 →   7.971  Katılıma Açık
+#      5 →   6.661  Sözleşme İmzalanmış
+#      4 →   5.984  Değerlendirme Tamamlanmış
+#      3 →   2.661  Teklif Değerlendirme
+# 10 ve 20 üretimde gözlenmedi ama şemanın parçası oldukları için korunur.
+# ⚠️ Bu tabloyu KÜÇÜK bir örnekleme bakarak budamayın: 28 satırlık geliştirme
+# veritabanında yalnızca 2/4/5 görüldüğü için 10/15/20 bir kez yanlışlıkla silinmişti.
 IHALE_DURUM = {
     1: "Taslak",
     2: "Katılıma Açık",
@@ -76,15 +84,20 @@ IHALE_DURUM = {
     4: "Değerlendirme Tamamlanmış",
     5: "Sözleşme İmzalanmış",
     6: "İptal Edilmiş",
+    10: "İptal Edilmiş",
+    15: "Sonuç İlanı Yayımlanmış",
+    20: "Sözleşme İmzalanmış",
 }
 
 # Sözleşme imzalanmış ihaleler (yüklenici/sonuç verisi kesin vardır)
-DURUM_SOZLESME_IMZALANDI = {5}
+DURUM_SOZLESME_IMZALANDI = {5, 20}
 
-# Sonuçlanmış/kapanmış sayılan durumlar (refresh politikası + "İhale Sonuçlandı" bildirimi).
-# ⚠️ Eski değer {10, 15, 20} hiçbir kayıtla eşleşmiyordu → bildirim hiç tetiklenemiyor,
-# `should_refresh_detail`'in ilgili dalı ölü koddu.
-DURUM_SONUCLANMIS = {5, 6}
+# Sonuçlanmış/kapanmış sayılan durumlar — `should_refresh_detail` (seyrek tazele) ve
+# `tenders.tasks._detect_alarm_events` ("İhale Sonuçlandı" bildirimi, GEÇİŞ arar).
+# ⚠️ **15 burada olmak ZORUNDA**: sonuçlanan ihalelerin %98'i bu koda geçiyor. Kümeden
+# çıkarılırsa bildirim asıl yolda hiç tetiklenmez ve 414k ihale yanlış tazeleme dalına
+# düşer. 5/6 sonradan eklendi (eski küme {10,15,20} bunları kaçırıyordu).
+DURUM_SONUCLANMIS = {5, 6, 10, 15, 20}
 
 ILAN_TIP = {
     1: "İhale İlanı",

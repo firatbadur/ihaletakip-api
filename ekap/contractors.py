@@ -396,8 +396,14 @@ def attach_alias(contractor, raw, kaynak) -> bool:
     if key and key != contractor.kanonik_anahtar:
         clash = Contractor.objects.filter(kanonik_anahtar=key).exclude(pk=contractor.pk).first()
         if clash is not None:
-            logger.warning(
-                "alias bağlanmadı — '%s' zaten #%s firmasına ait (hedef #%s)",
+            # Beklenen ve zararsız bir sonuç, hata DEĞİL: bu yazım zaten başka bir
+            # firmanın kimliği. Bağlasaydık yazımı bir firmadan alıp diğerine verirdik
+            # (yanlış-birleştirme). Sözleşme yine `yukleniciAdi`'ndan çözülen firmaya
+            # bağlı kalır; yalnızca varyant kaydı atlanır.
+            # INFO seviyesi bilinçli: 500 binlik backfill'de WARNING log seli yapıyordu.
+            # Sayısı çalışma özetinde `alias_cakismasi` olarak raporlanır.
+            logger.info(
+                "alias atlandı — '%s' zaten #%s firmasına ait (hedef #%s)",
                 raw, clash.pk, contractor.pk,
             )
             return False

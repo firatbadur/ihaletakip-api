@@ -395,10 +395,10 @@ def sync_contracts_from_raw(
     """
     raw = detail if detail is not None else tender.detail_raw
     if not raw:
-        return {"contracts": 0, "contractors": set()}
+        return {"contracts": 0, "contractors": set(), "alias_cakismasi": 0}
     data = raw.get("item", raw) if isinstance(raw, dict) else {}
     if not isinstance(data, dict):
-        return {"contracts": 0, "contractors": set()}
+        return {"contracts": 0, "contractors": set(), "alias_cakismasi": 0}
 
     # 1) İlanlar önce — sözleşmeler sonuç ilanına bağlanacak
     sonuc_ilanlari = _upsert_announcements(tender, data, announcements)
@@ -419,7 +419,7 @@ def sync_contracts_from_raw(
         )
         if recompute and onceki:
             contractors_mod.recompute_aggregates(onceki)
-        return {"contracts": 0, "contractors": onceki}
+        return {"contracts": 0, "contractors": onceki, "alias_cakismasi": 0}
 
     # 2) Tüm yüklenici adları TEK çağrıda çözülür (13 sözleşme de olsa ~5 sorgu)
     resolved = contractors_mod.resolve_contractors(
@@ -543,8 +543,10 @@ def sync_contracts_from_raw(
     )
     for key, contract in contracts.items():
         _upsert_sections(contract, kisimlar_by_key.get(key) or [])
+    alias_cakismasi = 0
     for contractor, raw_ad, kaynak in alias_jobs:
-        contractors_mod.attach_alias(contractor, raw_ad, kaynak)
+        if not contractors_mod.attach_alias(contractor, raw_ad, kaynak):
+            alias_cakismasi += 1
 
     tender_ym = next(
         (c.tender_yaklasik_maliyet_num
@@ -558,7 +560,11 @@ def sync_contracts_from_raw(
     )
     if recompute and touched_contractors:
         contractors_mod.recompute_aggregates(touched_contractors)
-    return {"contracts": len(seen_keys), "contractors": touched_contractors}
+    return {
+        "contracts": len(seen_keys),
+        "contractors": touched_contractors,
+        "alias_cakismasi": alias_cakismasi,
+    }
 
 
 _SECTION_FIELDS = ["kisim_adi", "en_dusuk_teklif", "en_yuksek_teklif", "yaklasik_maliyet"]

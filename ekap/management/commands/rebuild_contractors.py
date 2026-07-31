@@ -96,7 +96,7 @@ class Command(BaseCommand):
             kalan = base.filter(pk__gt=last_pk).count()
             self.stdout.write(f"imleç pk>{last_pk} · kalan ihale: {kalan}")
 
-        processed = errors = contracts = 0
+        processed = errors = contracts = alias_cakismasi = 0
         touched = set()
         for tender in qs.iterator(chunk_size=50):
             # İmleci try'DAN ÖNCE ilerlet: kalıcı bozuk tek ihale imleci kilitlemesin.
@@ -106,6 +106,7 @@ class Command(BaseCommand):
                 res = sync_mod.sync_contracts_from_raw(tender, recompute=False)
                 contracts += res["contracts"]
                 touched |= res["contractors"]
+                alias_cakismasi += res.get("alias_cakismasi", 0)
                 processed += 1
             except Exception as e:
                 errors += 1
@@ -123,6 +124,13 @@ class Command(BaseCommand):
             f"✅ {processed} ihale · {contracts} sözleşme · {len(touched)} firma "
             f"· {errors} hata"
         ))
+        if alias_cakismasi:
+            # Hata DEĞİL: varyant yazım zaten başka bir firmanın kimliği olduğu için
+            # bağlanmadı (yanlış-birleştirme önlendi). Sözleşme doğru firmada kalır.
+            self.stdout.write(
+                f"   alias çakışması: {alias_cakismasi} (bilgi — yazım başka firmaya ait, "
+                f"birleştirilmedi)"
+            )
         if cp is not None:
             kalan = base.filter(pk__gt=last_pk).count()
             self.stdout.write(

@@ -308,7 +308,7 @@ def sync_contractors(
                 | Q(contractors_synced_at__lt=F("detail_synced_at"))
             ).order_by("detail_synced_at")[:max_tenders]
 
-        processed = errors = contracts = 0
+        processed = errors = contracts = alias_cakismasi = 0
         touched = set()
         deadline = time.monotonic() + max_seconds
         timed_out = False
@@ -323,6 +323,7 @@ def sync_contractors(
                 res = sync_mod.sync_contracts_from_raw(tender, recompute=False)
                 contracts += res["contracts"]
                 touched |= res["contractors"]
+                alias_cakismasi += res.get("alias_cakismasi", 0)
                 processed += 1
             except Exception as e:
                 errors += 1
@@ -365,13 +366,14 @@ def sync_contractors(
         run.errors = errors
         run.note = (
             f"mod={'süpürme' if sweeping else 'artımlı'} sözleşme={contracts} "
-            f"firma={len(touched)} detay_kuyruk={enqueued} "
+            f"firma={len(touched)} alias_cakismasi={alias_cakismasi} detay_kuyruk={enqueued} "
             f"{'süre doldu ' if timed_out else ''}kalan={kalan}"
         )[:1000]
         return {
             "tenders": processed,
             "contracts": contracts,
             "contractors": len(touched),
+            "alias_cakismasi": alias_cakismasi,
             "errors": errors,
             "enqueued_detail": enqueued,
             "remaining": kalan,

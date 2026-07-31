@@ -7,7 +7,7 @@ otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 import logging
 
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import F, Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -792,11 +792,15 @@ _CONTRACT_PAGE = inline_serializer(
     },
 )
 
+# order anahtarı → (model alanı, VARSAYILAN yön).
+# ⚠️ Yön alanın kendisinde ("-" öneki) taşınmaz: sayısal alanlar azalan, ad ise alfabetik
+# (artan) varsayılan ister. Öneki alana gömüp `siralamaTipi=asc` gelince ters çevirmek,
+# `ad` için asc/desc'i takas ediyordu (asc → Z'den A'ya).
 _ORDER_MAP = {
-    "sozlesme_sayisi": "-sozlesme_sayisi",
-    "toplam_bedel": "-toplam_sozlesme_bedeli",
-    "son_sozlesme": "-son_sozlesme_tarihi",
-    "ad": "kanonik_ad",
+    "sozlesme_sayisi": ("sozlesme_sayisi", "desc"),
+    "toplam_bedel": ("toplam_sozlesme_bedeli", "desc"),
+    "son_sozlesme": ("son_sozlesme_tarihi", "desc"),
+    "ad": ("kanonik_ad", "asc"),
 }
 
 
@@ -862,10 +866,19 @@ class ContractorListView(APIView):
         if min_soz and str(min_soz).isdigit():
             qs = qs.filter(sozlesme_sayisi__gte=int(min_soz))
 
-        field = _ORDER_MAP.get(qp.get("order", "sozlesme_sayisi"), "-sozlesme_sayisi")
-        if qp.get("siralamaTipi") == "asc":
-            field = field[1:] if field.startswith("-") else f"-{field}"
-        qs = qs.order_by(field, "kanonik_ad")
+        field, varsayilan_yon = _ORDER_MAP.get(
+            qp.get("order", "sozlesme_sayisi"), _ORDER_MAP["sozlesme_sayisi"]
+        )
+        yon = qp.get("siralamaTipi") or varsayilan_yon
+        # ⚠️ `nulls_last` şart: hiç sözleşmesi olmayan firmada `toplam_sozlesme_bedeli` ve
+        # `son_sozlesme_tarihi` NULL'dur. Postgres varsayılanı DESC'te NULLS FIRST olduğu
+        # için "en yüksek ciro" listesinin başında boş firmalar çıkardı (SQLite'ta tersi →
+        # DB'ye göre değişen davranış). Her iki yönde de NULL'lar sona.
+        order_expr = (
+            F(field).asc(nulls_last=True) if yon == "asc"
+            else F(field).desc(nulls_last=True)
+        )
+        qs = qs.order_by(order_expr, "kanonik_ad")
 
         return _paginate(request, qs, ContractorListSerializer)
 

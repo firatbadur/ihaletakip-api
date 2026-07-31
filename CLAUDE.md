@@ -1007,10 +1007,16 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   penceresini aşınca `web` unhealthy oldu ve nginx düştü.
   **Doğru yol — bağımlılık başlatmayan, entrypoint'i atlayan tek seferlik konteyner:**
   ```bash
-  docker compose run --rm --no-deps --entrypoint python worker manage.py migrate
+  docker compose stop web nginx     # web'in entrypoint migrate'i yarışmasın
+  docker compose run --rm --no-deps --build --entrypoint python worker manage.py migrate
+  docker compose up -d --build      # bitince hepsini geri getir
   ```
-  `--no-deps` web'i ayağa kaldırmaz, `--entrypoint python` migrate/collectstatic
-  sarmalayıcısını atlar. Migration bitince normal `docker compose up -d --build`.
+  - `--no-deps` → web'i ayağa kaldırmaz (`depends_on` zinciri tetiklenmez).
+  - `--entrypoint python` → entrypoint'in migrate/collectstatic sarmalayıcısını atlar.
+  - **`--build` ŞART.** `docker compose run` varsayılan olarak imajı yeniden
+    kurmaz; `git pull` yapılmış olsa bile **bayat imajdaki eski migration dosyası**
+    çalışır. Yaşanmış hata: idempotency düzeltmesi çekilmişti ama `run` eski imajı
+    kullandığı için migration yine `already exists` ile patladı.
 - **⚠️ `atomic=False` + `CREATE INDEX CONCURRENTLY` migration'ları** (`0007_search_indexes`):
   - Dolu tabloda düz `CREATE INDEX` yazmaları ACCESS EXCLUSIVE ile kilitler; ingest
     görevleri sürekli çalıştığı için `AddIndexConcurrently` kullanılır. CONCURRENTLY

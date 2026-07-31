@@ -268,6 +268,14 @@ hangi idarelerle çalıştığı sorgulanabilir.
   firması kesindir, `attach_alias` ile konum üzerinden bağlanır. Gerekçe: gerçek veride
   bunlar **yazım hatası** içeriyor (`TAAHÜT`/`TAAHHÜT`, `TIBBI`/`TIBBİ`, `İTVE` bitişik) →
   bağımsız çözülselerdi mükerrer firma üretirlerdi.
+  - **`"alias atlandı"` logu HATA DEĞİLDİR** (INFO seviyesi; çalışma özetinde
+    `alias_cakismasi` olarak sayılır). Anlamı: varyant yazım **zaten başka bir firmanın
+    kanonik anahtarı**; bağlansaydı o yazımı bir firmadan alıp diğerine verirdik
+    (yanlış-birleştirme). Sözleşme yine `yukleniciAdi`'ndan çözülen firmaya bağlı kalır,
+    yalnızca varyant kaydı atlanır. Tipik sebep yazımların **gerçekten farklı olması**
+    (`ENSAR DOĞAN` vs `ENSAR OSMAN DOĞAN`) — noktalı/açık kısaltma farkı değil, o zaten
+    aynı anahtara düşer (`TİC.LTD.ŞTİ.` ≡ `TİCARET LİMİTED ŞİRKETİ`).
+    Sayı beklenmedik biçimde yüksekse kanonikleştirici `--dry-run` ile incelenmeli.
 - **Ortak girişim**: JV'nin kendisi bir `Contractor` (`kind=ortak_girisim`), üyeler ayrı
   firma, arada `ContractorMembership`. Ayrıştırma **marker kapısı** ister
   (`iş ortaklığı`/`ortak girişim`/`konsorsiyum`, string'in son 40 karakterinde);

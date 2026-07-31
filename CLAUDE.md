@@ -149,6 +149,13 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   ⚠️ **Pencere değişince** (`EKAP_BACKFILL_YEARS` veya filtre mantığı) backfill
   checkpoint'i sıfırla ki yeni pencereyle baştan taransın:
   `SyncCheckpoint.objects.filter(name="backfill").update(cursor_skip=0, done=False, oldest_date=None)`.
+  Backfill `ihaleTarihi` **asc** gittiği için yeni (daha eski) taban önce taranır → asıl
+  boşluk önce dolar. **Detayı zaten çekilmiş ihaleler için detay isteği kuyruğa GİRMEZ**
+  (`if tender.detail_synced_at is None`): backfill boşluk doldurur, tazeliği
+  `refresh_stale` yönetir. Bu guard olmadan 5→10 yıl geçişi, arşivdeki yüz binlerce
+  ihalenin detayını EKAP'tan gereksizce yeniden çeker ve ~1 istek/sn sınırında günler
+  harcardı. Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail` ile
+  yakalanır.
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
   (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
   `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı

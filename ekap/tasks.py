@@ -151,6 +151,7 @@ def backfill(max_pages=10, page_size=50, defer_detail=True):
         floor, floor_iso = _window_floor()
         total = 0
         errors = 0
+        enqueued = 0
         skip = cp.cursor_skip
         oldest = None
         aborted = None
@@ -178,7 +179,16 @@ def backfill(max_pages=10, page_size=50, defer_detail=True):
                 errors += err
                 if tender:
                     total += 1
-                    _enqueue_detail(tender.ekap_id, defer=defer_detail)
+                    # Backfill'in işi **boşluk doldurmaktır**; tazeliği `refresh_stale`
+                    # yönetir. Bu guard olmadan pencere genişletildiğinde (ör. 5→10 yıl,
+                    # imleç sıfırlanır ve arşiv baştan taranır) detayı ZATEN çekilmiş
+                    # yüz binlerce ihale için tekrar detay isteği kuyruğa girer — EKAP
+                    # ~1 istek/sn olduğundan bu, günlerce boşa çekim demektir.
+                    # Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail`
+                    # ile yakalanır.
+                    if tender.detail_synced_at is None:
+                        _enqueue_detail(tender.ekap_id, defer=defer_detail)
+                        enqueued += 1
                     if tender.ihale_tarihi:
                         oldest = tender.ihale_tarihi if oldest is None else min(oldest, tender.ihale_tarihi)
             skip += page_size
@@ -191,6 +201,7 @@ def backfill(max_pages=10, page_size=50, defer_detail=True):
         cp.save()
         run.items = total
         run.errors = errors
+        run.note = f"detay_kuyruk={enqueued}/{total}"
         if aborted:
             run.note = f"EKAP kısmi (sonraki tetikte devam): {aborted}"
         return {

@@ -35,8 +35,25 @@ süpürmesi koşarken migration saatlerce asılı kalabilir. Migration boyunca b
 sonra `migrate ekap` tekrar. Bitince `ANALYZE ekap_tender; ANALYZE ekap_okasitem;`
 """
 import django.contrib.postgres.indexes
-from django.contrib.postgres.operations import AddIndexConcurrently, TrigramExtension
+from django.contrib.postgres.operations import (
+    AddIndexConcurrently,
+    RemoveIndexConcurrently,
+    TrigramExtension,
+)
 from django.db import migrations, models
+
+
+def _index_state(schema_editor, name):
+    """`(var_mi, gecerli_mi)` — indeks katalogda var mı ve `indisvalid` mi."""
+    with schema_editor.connection.cursor() as cur:
+        cur.execute(
+            "SELECT i.indisvalid FROM pg_class c "
+            "JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE c.relname = %s AND c.relkind = 'i'",
+            [name],
+        )
+        row = cur.fetchone()
+    return (row is not None, bool(row[0]) if row else False)
 
 
 class _PostgresOnly:
@@ -65,7 +82,45 @@ class _PostgresOnly:
 
 
 class PgAddIndexConcurrently(_PostgresOnly, AddIndexConcurrently):
-    pass
+    """
+    Yeniden çalıştırılabilir `AddIndexConcurrently`.
+
+    ⚠️ **Bu migration `atomic=False`, yani rollback YOK.** Yarıda kesilirse (deploy
+    yarışı, timeout, OOM, Ctrl-C) bir kısım indeks oluşmuş olur ama migration kaydı
+    yazılmaz → tekrar `migrate` "relation ... already exists" ile patlardı ve elle
+    DROP gerekirdi. Bu yüzden her indeks önce katalogda aranır:
+      • zaten var ve GEÇERLİ  → atlanır (kaldığı yerden devam)
+      • var ama GEÇERSİZ      → yarım kalmış CONCURRENTLY kalıntısıdır, düşürülüp
+                                 yeniden kurulur (geçersiz indeks sorguda kullanılmaz
+                                 ama yazmaları yavaşlatır)
+    Böylece migration idempotent olur ve deploy'u tekrar denemek güvenlidir.
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        if schema_editor.connection.vendor != "postgresql":
+            return
+        name = self.index.name
+        exists, valid = _index_state(schema_editor, name)
+        if exists and valid:
+            print(f"  ↷ {name} zaten var, atlanıyor")
+            return
+        if exists and not valid:
+            print(f"  ⚠ {name} GEÇERSİZ (yarım kalmış) — düşürülüp yeniden kuruluyor")
+            schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"')
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+
+class PgRemoveIndexConcurrently(_PostgresOnly, RemoveIndexConcurrently):
+    """Yeniden çalıştırılabilir `RemoveIndexConcurrently` — indeks yoksa sessizce geçer."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        if schema_editor.connection.vendor != "postgresql":
+            return
+        exists, _ = _index_state(schema_editor, self.name)
+        if not exists:
+            print(f"  ↷ {self.name} zaten yok, atlanıyor")
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
 
 
 class PgTrigramExtension(_PostgresOnly, TrigramExtension):
@@ -116,7 +171,7 @@ class Migration(migrations.Migration):
         # `-ilan_tarihi` indeksi `ilan_tarihi` üzerindeki `db_index=True` btree'sinin
         # birebir kopyasıydı (Postgres btree'yi geriye tarayabilir) → backfill'in her
         # yazmasında iki kat indeks maliyeti ödeniyordu.
-        migrations.RemoveIndex(
+        PgRemoveIndexConcurrently(
             model_name="tender",
             name="ekap_tender_ilan_ta_09293b_idx",
         ),

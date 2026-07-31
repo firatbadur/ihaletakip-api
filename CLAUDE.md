@@ -998,6 +998,19 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   ama bu durumda migrate'i **elle** çalıştır (healthcheck baskısı yok):
   `docker compose exec worker python manage.py migrate` → bitince `docker compose up -d`.
   (Taze deploy'da tablolar boş → backfill anlık, bu sorun yaşanmaz.)
+- **⚠️ `web`'in entrypoint'i HER başlangıçta migrate çalıştırır** (`RUN_MIGRATIONS`
+  varsayılanı `true`) → elle migrate ile **yarışabilir**. Yaşanmış hata:
+  `docker compose up -d --build worker` komutu `depends_on: [web]` yüzünden **web'i de
+  yeni imajla yeniden yarattı**, web entrypoint'te migrate'e başladı, ardından elle
+  başlatılan `exec worker … migrate` aynı indeksi kurmaya çalışıp
+  `relation ... already exists` ile patladı; web'in migrate'i de 180 sn healthcheck
+  penceresini aşınca `web` unhealthy oldu ve nginx düştü.
+  **Doğru yol — bağımlılık başlatmayan, entrypoint'i atlayan tek seferlik konteyner:**
+  ```bash
+  docker compose run --rm --no-deps --entrypoint python worker manage.py migrate
+  ```
+  `--no-deps` web'i ayağa kaldırmaz, `--entrypoint python` migrate/collectstatic
+  sarmalayıcısını atlar. Migration bitince normal `docker compose up -d --build`.
 - **⚠️ `atomic=False` + `CREATE INDEX CONCURRENTLY` migration'ları** (`0007_search_indexes`):
   - Dolu tabloda düz `CREATE INDEX` yazmaları ACCESS EXCLUSIVE ile kilitler; ingest
     görevleri sürekli çalıştığı için `AddIndexConcurrently` kullanılır. CONCURRENTLY

@@ -40,4 +40,12 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "180"]
+# 4 çekirdek / 8 GB. `gthread`: istekler ağırlıklı olarak DB'yi BEKLER (CPU harcamaz);
+# sync worker'da bekleyen bir istek tüm worker'ı bloklar, thread'lerde bloklamaz.
+# 4×2 = 8 eşzamanlı istek, kalıcı bağlantıyla (CONN_MAX_AGE) ~8 PG bağlantısı —
+# celery'ninkilerle birlikte max_connections=100'ün çok altında.
+# `--max-requests` + jitter: worker'ları periyodik geri dönüştürüp bellek sızıntısını
+# sınırlar (jitter, hepsinin aynı anda dönmesini önler).
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", \
+     "--workers", "4", "--threads", "2", "--worker-class", "gthread", \
+     "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "180"]

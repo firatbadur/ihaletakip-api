@@ -341,6 +341,11 @@ ve konan korumalar:
   DEĞİL: compose'un `${VAR}` ikamesi `env_file:`'dan okumaz (o yalnızca konteyner içi
   ortam değişkeni tanımlar), kabuk ortamından ya da `.env`'den okur. Oraya yazılan bir
   `PG_*` sessizce yok sayılırdı. RAM'e göre değer tablosu dosyadaki yorumda.
+  **Üretim donanımı: 8 GB RAM · 4 çekirdek · 100 GB RAID10 SSD (VPS).**
+  Ayarlar buna göredir (`shared_buffers=2GB`, `effective_cache_size=5GB`,
+  paralel sorgu 4 çekirdeğe göre). Donanım değişirse tabloya bakın.
+  ⚠️ Bu ayarlar **db konteynerinin yeniden başlamasını** gerektirir (~30 sn);
+  `shared_buffers` ve `shared_preload_libraries` runtime'da değişmez.
 
 ### Yüklenici (Firma) Kaydı — `ekap.Contractor`
 

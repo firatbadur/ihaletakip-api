@@ -275,6 +275,20 @@ Böylece "bilgi işlem" == "BİLGİ İŞLEM" == "bilgi islem" (EKAP'tan bile esn
 boyutta "küçük veride sorun çıkarmayan" desenler ucu saniyelere çıkarır. Yaşanmış hatalar
 ve konan korumalar:
 
+- **⚠️ OR'un HER dalı indekslenebilir VE aynı tabloda olmalı.** Postgres BitmapOr'u
+  ancak böyle kurar; tek indekssiz ya da başka tablodaki dal, diğer dalların
+  indekslerini de devre dışı bırakır. İki kez ısırdı:
+  - `q` filtresi (`ihale_adi_norm | idare_adi_norm | ikn`) — `ikn__icontains`
+    `UPPER(ikn) LIKE …` ürettiği için indekslenemiyordu, üçü birden seq scan'e
+    düşüyordu → `__contains` + `ikn` trigramı.
+  - `yuklenici` metin filtresi — `arama_norm` `ekap_contractor`'da,
+    `yuklenici_adi_norm` `ekap_contract`'ta. OR iki tabloya yayıldığı için Postgres
+    840k sözleşmeyi 94k firmayla join edip **sonra** filtreliyordu (~1.2 sn, 79 satır
+    için 840k tarama). Çözüm: iki dalı **ayrı ayrı** indeksten çözüp `UNION`'la
+    birleştirmek (`pk__in=A.union(B)`) → 222 ms.
+    ⚠️ Ölçülmüş çıkmaz sokak: aynı OR'u tek `Exists` içine `yuklenici_id IN (alt sorgu)`
+    olarak indirmek **109 sn** sürdü (planlayıcı ihale başına korelasyonlu tarama
+    seçiyor). Bu alanda **EXPLAIN'siz kurgu değiştirmeyin**.
 - **`.distinct()` KULLANMAYIN → `Exists(OuterRef("pk"))`.** Çoklu-satır ilişkiye
   (`okas_kalemleri`, `sozlesmeler`) `.filter(ilişki__…)` ile bağlanmak ihaleyi çoğaltır ve
   eskiden `.distinct()` ile toplanırdı. `DISTINCT` **`LIMIT`'ten önce** çalışır → sayfa

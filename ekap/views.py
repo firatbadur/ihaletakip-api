@@ -306,12 +306,20 @@ def apply_tender_filters(qs, params):
     yuklenici = params.get("yuklenici")
     if yuklenici and str(yuklenici).strip():
         nq = normalize_tr(yuklenici)
-        qs = qs.filter(
-            _contract_exists(
-                Q(yuklenici__arama_norm__contains=nq)
-                | Q(yuklenici_adi_norm__contains=nq)  # henüz çözülmemiş satırlar
-            )
-        )
+        # ⚠️ **OR'un iki dalını tek `Exists` içinde BİRLEŞTİRMEYİN** — ölçülmüş tuzak.
+        # `arama_norm` `ekap_contractor`'da, `yuklenici_adi_norm` `ekap_contract`'ta;
+        # OR farklı tablolara yayılınca Postgres hiçbir indeks kullanamaz, önce 840k
+        # sözleşmeyi 94k firmayla join edip SONRA filtreler (ölçüm: ~1.2 sn, 79 satır
+        # bulmak için 840k satır tarama). Aynı dersin ikinci kez öğrenildiği yer: bkz.
+        # `q` filtresindeki BitmapOr notu.
+        #
+        # Çözüm: iki dalı **ayrı ayrı indeksten** çözüp `UNION` ile birleştir. Her dal
+        # kendi trigram indeksini kullanır (ölçüm: 222 ms, ~5 kat).
+        # ⚠️ `pk__in=A|pk__in=B` (iki ayrı IN'i OR'lamak) DENENDİ ve **çok daha kötüydü**
+        # (109 sn): planlayıcı ihale başına korelasyonlu tarama seçiyor. UNION kalsın.
+        by_ad = Contract.objects.filter(yuklenici_adi_norm__contains=nq).values("tender_id")
+        by_firma = Contract.objects.filter(yuklenici__arama_norm__contains=nq).values("tender_id")
+        qs = qs.filter(pk__in=by_ad.union(by_firma))
 
     # ── Özellikler: OZELLIK_MAP anahtarları (virgülle) → ozellikler JSON etiketi ──
     for app_key in _as_str_list(params.get("ozellik")):

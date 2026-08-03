@@ -278,7 +278,7 @@ def _update_checkpoint(name, newest=None, oldest=None):
 # ── Yüklenici (firma) çözümlemesi ──────────────────────
 @shared_task(name="ekap.tasks.sync_contractors")
 def sync_contractors(
-    max_tenders=50000, max_seconds=90, enqueue_missing_detail=True, missing_limit=50
+    max_tenders=50000, max_seconds=None, enqueue_missing_detail=True, missing_limit=50
 ):
     """
     Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
@@ -334,6 +334,16 @@ def sync_contractors(
                 run.note = f"süpürme atlandı (saat={hour}, pencere="
                 run.note += f"{settings.CONTRACTOR_SWEEP_START}-{settings.CONTRACTOR_SWEEP_END})"
                 return {"skipped": "peak_hours", "hour": hour}
+
+        # Süre bütçesi moda göre: süpürme zaten yalnız gece koştuğu için pencereyi
+        # doldurabilir (kısa bütçe gecenin %85'ini boşa harcıyordu); artımlı mod gündüz
+        # de koştuğundan kısa kalır. Tavan `CELERY_TASK_TIME_LIMIT=300`'ün altındadır.
+        if max_seconds is None:
+            max_seconds = (
+                settings.CONTRACTOR_SWEEP_MAX_SECONDS
+                if sweeping
+                else settings.CONTRACTOR_INCREMENTAL_MAX_SECONDS
+            )
 
         # `.only()`: `sync_contracts_from_raw` yalnızca bu alanları okur (+`ikn` log için).
         # Bilhassa `list_raw` dışarıda kalmalı — `detail_raw` kadar büyük ve hiç

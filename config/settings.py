@@ -290,6 +290,11 @@ SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
 # sorgularını diske düşürür → gündüz çalıştırılmaz. Artımlı mod bu pencereden bağımsızdır.
 CONTRACTOR_SWEEP_START = env.int("CONTRACTOR_SWEEP_START", default=0)
 CONTRACTOR_SWEEP_END = env.int("CONTRACTOR_SWEEP_END", default=7)
+# Tur başına süre bütçesi (sn). Süpürme yalnız gece koştuğu için pencereyi doldurabilir;
+# artımlı mod gündüz de koştuğundan kısa kalır. ⚠️ İkisi de CELERY_TASK_TIME_LIMIT=300'ün
+# ALTINDA olmalı, yoksa görev yarıda kesilir (imleç kaydedilmez, tur boşa gider).
+CONTRACTOR_SWEEP_MAX_SECONDS = env.int("CONTRACTOR_SWEEP_MAX_SECONDS", default=270)
+CONTRACTOR_INCREMENTAL_MAX_SECONDS = env.int("CONTRACTOR_INCREMENTAL_MAX_SECONDS", default=90)
 
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`

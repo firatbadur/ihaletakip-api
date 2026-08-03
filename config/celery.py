@@ -75,12 +75,14 @@ app.conf.beat_schedule = {
     # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →
     # `celery` kuyruğuna yönlendirilir (bkz. settings.CELERY_TASK_ROUTES) ve EKAP
     # worker'ını bloklamaz. Redis kilidi üst üste binmeyi önler.
-    # ⚠️ 10 dk × ~90 sn bütçe (~%15 duty cycle) — eskiden 5 dk × 240 sn (~%80) idi ve
-    # arşivin `detail_raw`'ını sürekli okuduğu için Postgres buffer cache'ini boşaltıp
-    # ihale arama sorgularını diske düşürüyordu. Bkz. `ekap.tasks.sync_contractors`.
+    # ⚠️ Gündüz koruması **saat penceresiyle** yapılır, aralıkla değil: süpürme yalnızca
+    # 00:00-07:00'de çalışır (`CONTRACTOR_SWEEP_START/END`), gündüz görev anında
+    # "atlandı" dönüp çıkar (bedava). Bu yüzden 5 dk aralık güvenlidir ve gece penceresini
+    # doldurur — 10 dk × 90 sn kurgusu gecenin %85'ini boşa harcıyordu.
+    # Artımlı mod (süpürme bitince) her saat çalışır ama kısa bütçelidir (90 sn).
     "ekap-sync-contractors": {
         "task": "ekap.tasks.sync_contractors",
-        "schedule": crontab(minute="*/10"),
+        "schedule": crontab(minute="*/5"),
     },
     # "İhalede geçen idare_id" kümesini sıcak tutar (idare_detsis filtresinin kesişimi).
     # ⚠️ İstek yolunda hesaplanınca ~40 sn sürüyordu; 10 dk'da bir tazelenince cache

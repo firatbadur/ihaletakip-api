@@ -305,6 +305,19 @@ ve konan korumalar:
   parametrelerinden üretilir; `page`/`page_size`/`order`/`siralamaTipi` dışlanır → sayfa
   gezinmesi tek `COUNT` yapar. Deny-list kullanılır (allow-list olsaydı yeni bir filtre
   unutulunca iki farklı arama aynı anahtara düşüp **yanlış** sayı dönerdi).
+- **⚠️ `ORDER BY <tarih> DESC LIMIT N` + seyrek filtre = plan tuzağı.** Planlayıcı
+  sıralama+LIMIT'i görünce tarih indeksini **geriye tarayıp filtrelemeyi** seçiyor;
+  eşleşen satır seyrekse N tane bulana kadar neredeyse tüm tabloyu geziyor. Üç kez
+  ısırdı, üçü de farklı çözüm istedi:
+  - İhale **detay** ucu (`.first()` + `Meta.ordering`) → sıralamayı düşür
+    (`_tender_by_key`); tek satır döndüğü için sıralamanın anlamı yok.
+  - `_tender_idare_id_set` (`.distinct()` + `Meta.ordering`) → `.order_by()`.
+  - `enqueue_missing_detail` / `refresh_stale`
+    (`detail_synced_at IS NULL ORDER BY tarih DESC LIMIT 50`) → sıralama **gerekli**
+    olduğu için **kısmi indeks** (`0009`, `condition=Q(detail_synced_at__isnull=True)`).
+    Bu tek sorgu `pg_stat_statements`'ta **çağrı başına 78 sn / toplam 6.3 saat** DB
+    zamanı yiyordu.
+  Yeni bir `ORDER BY ... LIMIT` + seçici filtre yazarken **EXPLAIN'e bakın**.
 - **`_tender_idare_id_set()` içindeki `.order_by()` ŞART.** `Tender.Meta.ordering`
   (`-ihale_tarihi`) + `.distinct()` birleşince Django ORDER BY kolonunu SELECT'e ekler →
   `DISTINCT (idare_id, ihale_tarihi)` olur, birkaç bin satır yerine tablonun TAMAMI dönüp
@@ -314,9 +327,16 @@ ve konan korumalar:
   Django bunu `(ilan_tarihi AT TIME ZONE …)::date = …` diye derler; kolonun üstündeki
   fonksiyon indeksi öldürür. Bildirim görevleri kullanıcı saatlerinde (10:00/11:00)
   koştuğu için bu taramalar doğrudan aramayla I/O yarışıyordu.
-- **`sync_contractors` duty cycle'ı arama ile aynı DB'yi paylaşır.** Eskiden 5 dk × 240 sn
-  (~%80) idi; `detail_raw` arşivini sürekli okuduğu için Postgres buffer cache'ini
-  boşaltıp aramaları diske düşürüyordu. Şimdi 10 dk × 90 sn (~%15) + `.only()`.
+- **`sync_contractors` SÜPÜRMESİ yalnızca gece çalışır** (`CONTRACTOR_SWEEP_START/END`,
+  vars. 00:00–07:00). Süpürme tüm arşivin `detail_raw`'ını (~40 KB/satır) okur; 3 GB'lık
+  makinede 512 MB `shared_buffers` bunu kaldırmıyor ve arama sorgularının çalışma kümesi
+  sürekli eviction'a uğruyordu (ölçüm: **heap cache isabeti %53**, olması gereken >%99).
+  Duty cycle da 5 dk × 240 sn (~%80) → 10 dk × 90 sn (~%15) yapıldı, `.only()` eklendi.
+  **Artımlı mod pencereden bağımsızdır** — `refresh_stale`'in tazelediği birkaç yüz
+  satıra dokunur, ucuzdur. Süpürme uzar (gece-only ~2 hafta) ama arka plan
+  zenginleştirmesidir, kullanıcıyı bekletmez.
+  ⚠️ Sunucu 8 GB'a çıkarsa `docker-compose.yml`'de `shared_buffers=2GB` yapıp bu
+  pencereyi genişletmek mantıklı olur.
 - **Postgres tuning `docker-compose.yml` → `db` → `command:` içindedir**, `.env.prod`'da
   DEĞİL: compose'un `${VAR}` ikamesi `env_file:`'dan okumaz (o yalnızca konteyner içi
   ortam değişkeni tanımlar), kabuk ortamından ya da `.env`'den okur. Oraya yazılan bir

@@ -317,6 +317,24 @@ def sync_contractors(
         sweeping = not cp.done
         last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
 
+        # ⚠️ Süpürme YALNIZCA gece penceresinde çalışır (artımlı mod her saat serbest).
+        # Süpürme tüm arşivin `detail_raw`'ını (~40 KB/satır) okur; 3 GB'lık makinede
+        # 512 MB `shared_buffers` bunu kaldıramıyor ve arama sorgularının çalışma kümesi
+        # sürekli eviction'a uğruyordu (ölçüm: heap cache isabeti %53 — olması gereken
+        # >%99). Artımlı mod ise `refresh_stale`'in tazelediği birkaç yüz satıra dokunur,
+        # ucuzdur, gündüz de çalışabilir.
+        # Maliyet: süpürme daha uzun sürer (gündüz de koşsa ~5 gün, yalnız gece ~2 hafta)
+        # — ama bu arka plan zenginleştirmesidir, kullanıcıyı bekletmez.
+        if sweeping:
+            hour = timezone.localtime().hour
+            if not (settings.CONTRACTOR_SWEEP_START <= hour < settings.CONTRACTOR_SWEEP_END):
+                logger.info(
+                    "sync_contractors: süpürme gece penceresi dışında (saat=%s), atlanıyor", hour
+                )
+                run.note = f"süpürme atlandı (saat={hour}, pencere="
+                run.note += f"{settings.CONTRACTOR_SWEEP_START}-{settings.CONTRACTOR_SWEEP_END})"
+                return {"skipped": "peak_hours", "hour": hour}
+
         # `.only()`: `sync_contracts_from_raw` yalnızca bu alanları okur (+`ikn` log için).
         # Bilhassa `list_raw` dışarıda kalmalı — `detail_raw` kadar büyük ve hiç
         # kullanılmıyor; arşiv taramasında okunan TOAST hacmini yarıya indirir.

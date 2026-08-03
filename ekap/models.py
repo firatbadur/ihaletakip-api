@@ -219,6 +219,24 @@ class Tender(models.Model):
             models.Index(fields=["idare_id", "-ihale_tarihi"]),
             # `ihale_usul` filtreleniyor ama hiç indekslenmemişti.
             models.Index(fields=["ihale_usul"]),
+            # ── Detayı hiç çekilmemiş ihaleler (KISMİ indeks) ──
+            # ⚠️ `sync_contractors.enqueue_missing_detail` ve `refresh_stale`
+            # `WHERE detail_synced_at IS NULL ORDER BY <tarih> DESC LIMIT N` sorar.
+            # Bu sıralama+LIMIT'i gören planlayıcı tarih indeksini geriye tarayıp
+            # filtrelemeyi seçiyordu; eşleşen satırlar seyrek olduğu için 50 satır
+            # bulmak **çağrı başına 78 sn** sürüyordu (pg_stat_statements'ta 6.3 saat
+            # toplam DB zamanı — arama sorgularının buffer cache'ini boşaltan asıl fail).
+            # Kısmi indeks yalnızca detayı eksik satırları tutar → küçük ve tam eşleşir.
+            models.Index(
+                fields=["-ihale_tarihi"],
+                name="ekap_tender_detayeksik_iht",
+                condition=models.Q(detail_synced_at__isnull=True),
+            ),
+            models.Index(
+                fields=["-ilan_tarihi"],
+                name="ekap_tender_detayeksik_ilt",
+                condition=models.Q(detail_synced_at__isnull=True),
+            ),
         ]
 
     def __str__(self):

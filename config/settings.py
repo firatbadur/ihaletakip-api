@@ -285,6 +285,12 @@ EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 # `totalCount` yalnızca bir ilerleme göstergesidir, sayfa içeriği hep canlı sorgudur.
 SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
 
+# `sync_contractors` SÜPÜRME modunun çalışabileceği saat aralığı (yerel saat, [start, end)).
+# Süpürme tüm `detail_raw` arşivini okur ve küçük bir `shared_buffers`'ı boşaltarak arama
+# sorgularını diske düşürür → gündüz çalıştırılmaz. Artımlı mod bu pencereden bağımsızdır.
+CONTRACTOR_SWEEP_START = env.int("CONTRACTOR_SWEEP_START", default=0)
+CONTRACTOR_SWEEP_END = env.int("CONTRACTOR_SWEEP_END", default=7)
+
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
 # joker'inden ÖNCE gelmelidir.

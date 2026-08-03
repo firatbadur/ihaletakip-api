@@ -22,7 +22,7 @@ from rest_framework.views import APIView
 from core.response import api_response
 
 from .constants import CITIES, IHALE_TURU, OZELLIK_MAP
-from .detsis_tree import annotate_paths, descendant_idare_ids
+from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
 from .models import (
     Announcement,
     Authority,
@@ -114,7 +114,7 @@ _COUNT_IGNORED_PARAMS = frozenset({"page", "page_size", "order", "siralamaTipi",
 _COUNT_TTL = 120
 
 
-def _cached_count(qs, params):
+def _cached_count(qs, params, scope="tender"):
     """
     Toplam sonuç sayısı — filtre imzasına göre kısa süreli cache'li.
 
@@ -123,19 +123,41 @@ def _cached_count(qs, params):
     yalnızca **filtre** parametrelerinden üretilir (sayfalama/sıralama dışlanır) → sayfa
     gezinmesi tek COUNT'a iner. 2 dk'lık bayatlık kabul edilebilir: totalCount bir
     ilerleme göstergesidir, sayfa içeriği her zaman canlı sorgudan gelir.
+
+    `scope` farklı uçların anahtarlarını ayırır (aynı query string'le çağrılan firma
+    listesi ile sözleşme listesi aynı sayıyı paylaşmasın).
+
+    ⚠️ Yok sayılan parametreler **deny-list**tir (allow-list DEĞİL): yeni bir filtre
+    eklenip buraya yazılmayı unutulursa en kötü ihtimalle cache ıskalanır. Allow-list
+    olsaydı iki FARKLI arama aynı anahtara düşüp **yanlış** sayı dönerdi.
     """
     sig = sorted(
         (k, ",".join(sorted(params.getlist(k))) if hasattr(params, "getlist") else str(params[k]))
         for k in params
         if k not in _COUNT_IGNORED_PARAMS
     )
-    key = "tender_count:" + hashlib.sha1(repr(sig).encode()).hexdigest()
+    key = "cnt:" + hashlib.sha1(f"{scope}|{sig!r}".encode()).hexdigest()
     total = cache.get(key)
     if total is None:
         # `.order_by()`: COUNT'ta ORDER BY anlamsız ama planner'ı gereksiz sort'a itebilir.
         total = qs.order_by().count()
         cache.set(key, total, _COUNT_TTL)
     return total
+
+
+def _tender_by_key(key):
+    """
+    İhaleyi `ikn` ya da `ekap_id` ile bulur (detay/ilan/sözleşme uçlarının ortak girişi).
+
+    ⚠️ **`.order_by()` ŞART — kaldırmayın.** `Tender.Meta.ordering = ["-ihale_tarihi"]`
+    olduğu için `.first()` sorguya `ORDER BY ihale_tarihi DESC LIMIT 1` ekler; planlayıcı
+    bunu görünce `ikn`/`ekap_id` unique indekslerini bırakıp **tarih indeksini geriye
+    doğru tarayıp filtrelemeyi** seçebiliyor. Yalnızca 1 satır eşleştiği için bu, 500k
+    satırın taranması demektir (aynı plan tuzağı `q` aramasında da görüldü). Sıralamayı
+    düşürünce unique indeksler kullanılır — zaten en çok 1 satır döner, sıralamanın
+    anlamı da yoktur.
+    """
+    return Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).order_by().first()
 
 
 def _okas_exists(cond):
@@ -154,59 +176,6 @@ def _contract_exists(cond):
     `sozlesmeler__` öneki YOK.
     """
     return Exists(Contract.objects.filter(cond, tender_id=OuterRef("pk")))
-
-
-_IDARE_SET_KEY = "tender_idare_id_set"
-_IDARE_SET_BACKUP_KEY = "tender_idare_id_set:backup"
-_IDARE_SET_LOCK_KEY = "tender_idare_id_set:lock"
-_IDARE_SET_TTL = 900  # 15 dk — sorgu ucuzladı ama 500k satırda hâlâ seq scan
-
-
-def _tender_idare_id_set():
-    """
-    İhalede **gerçekten geçen** benzersiz `idare_id` kümesi (cache'li, 15 dk TTL).
-    İdare ağaç seçimi büyük bakanlıklarda on binlerce alt birime açılabildiğinden
-    (okullar vb.) genişletilen küme bununla kesiştirilir → küçük, hızlı IN listesi.
-    Yeni bir idarenin ilk ihalesi en fazla 15 dk gecikmeyle filtrelenebilir olur.
-
-    ⚠️ **`.order_by()` ŞART — kaldırmayın.** `Tender.Meta.ordering = ["-ihale_tarihi"]`
-    explicit sıralama yokken uygulanır ve Django `distinct()` ile birlikte ORDER BY
-    kolonunu SELECT listesine eklemek zorunda kalır:
-        SELECT DISTINCT idare_id, ihale_tarihi FROM ekap_tender ... ORDER BY ihale_tarihi DESC
-    Yani DISTINCT `idare_id` üzerinde değil **(idare_id, ihale_tarihi) çifti** üzerinde
-    olurdu → birkaç bin satır yerine tablonun TAMAMI (~500k) sıralanıp Python'a taşınır ve
-    orada `set()` ile tekilleştirilirdi. Boş `.order_by()` sıralamayı düşürür → gerçek
-    `DISTINCT idare_id`.
-
-    Stampede koruması: TTL dolduğu an eşzamanlı tüm istekler aynı sorguyu koşmasın diye
-    hesabı tek koşucu yapar; kilidi alamayan istek uzun ömürlü **yedek** kopyayı kullanır.
-    Bayat yedek zararsızdır — bu bir kesişim kümesidir, gecikme yalnızca yepyeni bir
-    idarenin filtrede birkaç dakika geç görünmesi demektir.
-    """
-    ids = cache.get(_IDARE_SET_KEY)
-    if ids is not None:
-        return ids
-
-    # Kilidi alan tek istek hesaplar; diğerleri bayat yedeğe düşer.
-    if not cache.add(_IDARE_SET_LOCK_KEY, "1", 60):
-        backup = cache.get(_IDARE_SET_BACKUP_KEY)
-        if backup is not None:
-            return backup
-        # Yedek de yoksa (ilk ısınma) hesaplamaktan başka çare yok.
-
-    try:
-        ids = set(
-            Tender.objects.exclude(idare_id="")
-            .order_by()  # ⚠️ bkz. docstring — kaldırmayın
-            .values_list("idare_id", flat=True)
-            .distinct()
-        )
-        cache.set(_IDARE_SET_KEY, ids, _IDARE_SET_TTL)
-        # Yedek çok daha uzun yaşar → stampede anında bayat da olsa cevap verilir.
-        cache.set(_IDARE_SET_BACKUP_KEY, ids, _IDARE_SET_TTL * 8)
-    finally:
-        cache.delete(_IDARE_SET_LOCK_KEY)
-    return ids
 
 
 def apply_tender_filters(qs, params):
@@ -296,7 +265,7 @@ def apply_tender_filters(qs, params):
         # çoğunun hiç ihalesi yoktur. IN listesini küçültmek ve sorguyu hızlandırmak
         # için yalnızca **ihalede gerçekten geçen** idare_id'lerle kesiştir.
         if expanded:
-            expanded &= _tender_idare_id_set()
+            expanded &= tender_idare_id_set()
         # Hiç idare_id'e çözülmezse (bozuk ağaç / hiç ihalesi yok) yanlışlıkla TÜM
         # ihaleleri döndürmemek için boş küme uygula.
         qs = qs.filter(idare_id__in=expanded) if expanded else qs.none()
@@ -607,7 +576,7 @@ class TenderDetailView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, key):
-        tender = Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).first()
+        tender = _tender_by_key(key)
 
         # DB'de var ve detayı çekilmiş → saklanan ham detayı (item açılmış) dön
         if tender and tender.detail_synced_at and tender.detail_raw:
@@ -663,7 +632,7 @@ class TenderAnnouncementsView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, key):
-        tender = Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).first()
+        tender = _tender_by_key(key)
         if not tender:
             return api_response(data={"list": []})
         ilanlar = Announcement.objects.filter(tender=tender)
@@ -848,7 +817,7 @@ class AuthoritySearchView(APIView):
             # yalnızca birinin idareId'i altında. İhalesi OLMAYAN yaprak kopyalar kullanıcıyı
             # çıkmaza sokuyordu → yalnızca ihalesi geçen idareler + dal düğümlerini (seçilince
             # alt birimlere genişler) bırak.
-            tender_ids = _tender_idare_id_set()
+            tender_ids = tender_idare_id_set()
             qs = qs.filter(Q(has_items=True) | Q(idare_id__in=tender_ids))
         nodes = list(qs.order_by("ad")[:take])
         # Seçilebilir (idare_id dolu) düğümler önce gelsin; sonra ada göre (kararlı)
@@ -889,7 +858,11 @@ def _paginate(request, qs, serializer_class, default_page_size=20, context=None)
     except (TypeError, ValueError):
         page_size = default_page_size
 
-    total = qs.count()
+    # İhale listesiyle aynı gerekçe: COUNT filtreli büyük tabloda tam tarama demek ve
+    # aynı aramanın her sayfası onu yeniden hesaplıyordu. Anahtara `request.path` de
+    # girer — farklı uçlar (firma listesi / firma sözleşmeleri / ihale sözleşmeleri)
+    # aynı query string'le çağrılabilir, sayıları karışmasın.
+    total = _cached_count(qs, qp, scope=request.path)
     start = (page - 1) * page_size
     data = serializer_class(qs[start:start + page_size], many=True,
                             context=context or {}).data
@@ -1221,7 +1194,7 @@ class TenderContractsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, key):
-        tender = Tender.objects.filter(Q(ekap_id=key) | Q(ikn=key)).first()
+        tender = _tender_by_key(key)
         if tender is None:
             return api_response(data={"list": []})
         qs = (tender.sozlesmeler.select_related("tender", "yuklenici")

@@ -340,6 +340,34 @@ class Contractor(models.Model):
             models.Index(fields=["-toplam_sozlesme_bedeli"]),
             models.Index(fields=["kind", "-sozlesme_sayisi"]),
             models.Index(fields=["-son_sozlesme_tarihi"]),
+            # ── Firma araması: `arama_norm__contains` → LIKE '%…%' ──
+            # `db_index=True` btree'si baştan jokerli LIKE'ta işe yaramaz, trigram şart.
+            GinIndex(
+                fields=["arama_norm"],
+                opclasses=["gin_trgm_ops"],
+                name="ekap_contractor_arama_trgm",
+            ),
+            # ── Firma listesinin ORDER BY'ı ──
+            # ⚠️ `ContractorListView` `F(alan).desc(nulls_last=True), "kanonik_ad"` ile
+            # sıralar. Yukarıdaki düz `-alan` indeksleri Postgres'te DESC **NULLS FIRST**
+            # demektir → pathkey eşleşmez, planlayıcı onları sıralama için KULLANAMAZ ve
+            # her istekte tüm tabloyu sort eder. İkincil anahtar `kanonik_ad` da tek
+            # kolonluk indeksle karşılanamaz. Aşağıdakiler sorgunun tam karşılığıdır.
+            models.Index(
+                models.F("sozlesme_sayisi").desc(nulls_last=True),
+                "kanonik_ad",
+                name="ekap_ctr_soz_ad_idx",
+            ),
+            models.Index(
+                models.F("toplam_sozlesme_bedeli").desc(nulls_last=True),
+                "kanonik_ad",
+                name="ekap_ctr_bedel_ad_idx",
+            ),
+            models.Index(
+                models.F("son_sozlesme_tarihi").desc(nulls_last=True),
+                "kanonik_ad",
+                name="ekap_ctr_tarih_ad_idx",
+            ),
         ]
 
     def __str__(self):
@@ -455,6 +483,13 @@ class Contract(models.Model):
         indexes = [
             models.Index(fields=["yuklenici", "-sozlesme_tarihi"]),
             models.Index(fields=["-sozlesme_tarihi"]),
+            # İhale listesindeki `yuklenici` metin filtresi (Exists alt sorgusu) bu
+            # kolonda `%…%` LIKE yapıyor; `db_index=True` btree'si yetmez → trigram.
+            GinIndex(
+                fields=["yuklenici_adi_norm"],
+                opclasses=["gin_trgm_ops"],
+                name="ekap_contract_yukadi_trgm",
+            ),
         ]
 
     def __str__(self):

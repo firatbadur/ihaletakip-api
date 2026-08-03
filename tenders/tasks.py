@@ -279,9 +279,8 @@ def check_favorite_authority_matches():
     İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori idare
     alarmı Pro'ya özeldir.**
     """
-    from ekap.detsis_tree import descendant_idare_ids
+    from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
     from ekap.models import Tender
-    from ekap.views import _tender_idare_id_set
 
     from .models import FavoriteAuthority, Notification
     from .services import notify, templates
@@ -309,7 +308,7 @@ def check_favorite_authority_matches():
             # detsis_no → tüm alt birimlerin idare_id'leri (ihalede gerçekten geçenlerle kesiş).
             expanded = descendant_idare_ids([fav.detsis_no])
             if expanded:
-                expanded &= _tender_idare_id_set()
+                expanded &= tender_idare_id_set()
             if not expanded:
                 continue
             # YALNIZCA ilan_tarihi BUGÜN olan açık + teklifi geçmemiş ihaleler.

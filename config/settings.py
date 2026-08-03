@@ -287,6 +287,7 @@ CELERY_TASK_ROUTES = {
     # sync_contractors EKAP'a HİÇ gitmez (Tender.detail_raw arşivinden çalışır) →
     # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
     "ekap.tasks.sync_contractors": {"queue": "celery"},
+    "ekap.tasks.refresh_idare_id_set": {"queue": "celery"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

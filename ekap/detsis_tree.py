@@ -10,10 +10,77 @@ import hashlib
 
 from django.core.cache import cache
 
-from .models import Authority
+from .models import Authority, Tender
 
 # Ağaç derinliği güvenlik tavanı (sonsuz döngü / bozuk veri koruması)
 _MAX_DEPTH = 20
+
+# ── İhalede geçen idare_id kümesi ──────────────────────────────────────────────
+_IDARE_SET_KEY = "tender_idare_id_set"
+_IDARE_SET_BACKUP_KEY = "tender_idare_id_set:backup"
+_IDARE_SET_LOCK_KEY = "tender_idare_id_set:lock"
+_IDARE_SET_TTL = 1800  # 30 dk — beat görevi 10 dk'da bir tazelediği için pratikte dolmaz
+_IDARE_SET_BACKUP_TTL = 86400  # 24 sa — beat durursa bile istek yolu bayat kümeyle döner
+
+
+def _compute_tender_idare_id_set():
+    """
+    `DISTINCT idare_id` — **pahalı** (500k satır, ölçüm: ~40 sn soğuk).
+
+    ⚠️ **`.order_by()` ŞART — kaldırmayın.** `Tender.Meta.ordering = ["-ihale_tarihi"]`
+    explicit sıralama yokken uygulanır ve Django `distinct()` ile birlikte ORDER BY
+    kolonunu SELECT listesine eklemek zorunda kalır:
+        SELECT DISTINCT idare_id, ihale_tarihi FROM ekap_tender ... ORDER BY ihale_tarihi DESC
+    Yani DISTINCT `idare_id` üzerinde değil **(idare_id, ihale_tarihi) çifti** üzerinde
+    olurdu → birkaç bin satır yerine tablonun TAMAMI sıralanıp Python'a taşınır ve orada
+    `set()` ile tekilleştirilirdi.
+    """
+    return set(
+        Tender.objects.exclude(idare_id="")
+        .order_by()  # ⚠️ bkz. docstring — kaldırmayın
+        .values_list("idare_id", flat=True)
+        .distinct()
+    )
+
+
+def refresh_tender_idare_id_set():
+    """Kümeyi yeniden hesaplayıp cache'e yazar — `ekap.tasks.refresh_idare_id_set` çağırır."""
+    ids = _compute_tender_idare_id_set()
+    cache.set(_IDARE_SET_KEY, ids, _IDARE_SET_TTL)
+    cache.set(_IDARE_SET_BACKUP_KEY, ids, _IDARE_SET_BACKUP_TTL)
+    return ids
+
+
+def tender_idare_id_set():
+    """
+    İhalede **gerçekten geçen** benzersiz `idare_id` kümesi (cache'li).
+    İdare ağaç seçimi büyük bakanlıklarda on binlerce alt birime açılabildiğinden
+    (okullar vb.) genişletilen küme bununla kesiştirilir → küçük, hızlı IN listesi.
+
+    ⚠️ **Hesabı normalde beat görevi yapar** (`refresh_idare_id_set`, 10 dk). Sorgu
+    500k satırda ~40 sn sürüyor; TTL dolduğunda ilk kullanıcının bunu ödemesi kabul
+    edilemezdi (ölçüldü: `?idare_detsis=` ucu soğukta 40 sn). Beat 10 dk'da bir
+    tazelediği için 30 dk'lık TTL pratikte hiç dolmaz.
+
+    İstek yolundaki hesap yalnızca **son çare**dir (Redis boş / beat hiç çalışmamış):
+    kilidi alan tek istek hesaplar, diğerleri 24 saatlik **yedek** kopyayı döner. Bayat
+    yedek zararsızdır — bu bir kesişim kümesidir, gecikme yalnızca yepyeni bir idarenin
+    filtrede geç görünmesi demektir.
+    """
+    ids = cache.get(_IDARE_SET_KEY)
+    if ids is not None:
+        return ids
+
+    if not cache.add(_IDARE_SET_LOCK_KEY, "1", 120):
+        backup = cache.get(_IDARE_SET_BACKUP_KEY)
+        if backup is not None:
+            return backup
+        # Yedek de yoksa (ilk ısınma) hesaplamaktan başka çare yok.
+
+    try:
+        return refresh_tender_idare_id_set()
+    finally:
+        cache.delete(_IDARE_SET_LOCK_KEY)
 
 # Ağaç `sync_authorities` ile **haftalık** güncellenir → uzun TTL güvenli.
 _DESC_TTL = 3600

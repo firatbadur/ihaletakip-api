@@ -82,6 +82,14 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.sync_contractors",
         "schedule": crontab(minute="*/10"),
     },
+    # "İhalede geçen idare_id" kümesini sıcak tutar (idare_detsis filtresinin kesişimi).
+    # ⚠️ İstek yolunda hesaplanınca ~40 sn sürüyordu; 10 dk'da bir tazelenince cache
+    # (TTL 30 dk) hiç boşalmaz ve kullanıcı bu maliyeti hiç ödemez. EKAP'a gitmez →
+    # `celery` kuyruğu (bkz. settings.CELERY_TASK_ROUTES).
+    "ekap-refresh-idare-id-set": {
+        "task": "ekap.tasks.refresh_idare_id_set",
+        "schedule": crontab(minute="*/10"),
+    },
     "ekap-sync-okas": {
         "task": "ekap.tasks.sync_okas",
         "schedule": crontab(hour=5, minute=0, day_of_week=1),

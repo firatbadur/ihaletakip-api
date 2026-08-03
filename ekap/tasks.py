@@ -402,3 +402,23 @@ def sync_contractors(
             "remaining": kalan,
             "timed_out": timed_out,
         }
+
+
+@shared_task(name="ekap.tasks.refresh_idare_id_set")
+def refresh_idare_id_set():
+    """
+    "İhalede geçen idare_id" kümesini tazeler (`idare_detsis` filtresinin kesişim kümesi).
+
+    ⚠️ **Neden ayrı bir görev:** hesap `DISTINCT idare_id` üzerinde ~500k satır tarar ve
+    üretimde **~40 sn** ölçüldü. Eskiden bunu cache TTL'i dolduğunda gelen ilk kullanıcı
+    isteği ödüyordu → `/ekap/tenders/?idare_detsis=...` ucu 30 dk'da bir 40 sn sürüyordu.
+    Beat 10 dk'da bir tazelediği için cache (TTL 30 dk) pratikte hiç boşalmaz; istek
+    yolundaki hesap yalnızca son çare olarak durur (bkz. `detsis_tree.tender_idare_id_set`).
+
+    EKAP'a gitmez, tamamen DB-içi → `celery` kuyruğunda çalışır (bkz. CELERY_TASK_ROUTES).
+    """
+    from .detsis_tree import refresh_tender_idare_id_set
+
+    ids = refresh_tender_idare_id_set()
+    logger.info("refresh_idare_id_set: %s idare_id cache'lendi", len(ids))
+    return {"idare_ids": len(ids)}

@@ -7,6 +7,7 @@ otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 import hashlib
 import logging
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
 from drf_spectacular.types import OpenApiTypes
@@ -111,7 +112,11 @@ _LIST_FIELDS = (
 
 # Sayfalama/sıralama COUNT sonucunu değiştirmez → cache anahtarından dışlanır.
 _COUNT_IGNORED_PARAMS = frozenset({"page", "page_size", "order", "siralamaTipi", "format"})
-_COUNT_TTL = 120
+# COUNT soğukken pahalıdır (500k satır + GIN indeksleri; ölçüm: 3 GB'lık makinede
+# buffer cache boşken 15 sn'ye kadar). `totalCount` bir ilerleme göstergesidir ve arşiv
+# yavaş değişir → uzun TTL güvenli, soğuk yola düşme sıklığını doğrudan azaltır.
+# Ayarla oynanabilsin diye env'den okunur (deploy gerektirmez).
+_COUNT_TTL = getattr(settings, "SEARCH_COUNT_CACHE_TTL", 600)
 
 
 def _cached_count(qs, params, scope="tender"):
@@ -121,8 +126,8 @@ def _cached_count(qs, params, scope="tender"):
     `COUNT(*)` filtreli 500k satırda tam tarama demek ve **her sayfa isteğinde** yeniden
     hesaplanıyordu; oysa aynı aramanın 2., 3., 4. sayfası aynı sayıyı ister. Anahtar
     yalnızca **filtre** parametrelerinden üretilir (sayfalama/sıralama dışlanır) → sayfa
-    gezinmesi tek COUNT'a iner. 2 dk'lık bayatlık kabul edilebilir: totalCount bir
-    ilerleme göstergesidir, sayfa içeriği her zaman canlı sorgudan gelir.
+    gezinmesi tek COUNT'a iner. Bayatlık kabul edilebilir: totalCount bir ilerleme
+    göstergesidir, sayfa içeriği her zaman canlı sorgudan gelir (bkz. `_COUNT_TTL`).
 
     `scope` farklı uçların anahtarlarını ayırır (aynı query string'le çağrılan firma
     listesi ile sözleşme listesi aynı sayıyı paylaşmasın).

@@ -280,6 +280,11 @@ EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 
+# Arama uçlarının `totalCount` cache süresi (sn). COUNT soğuk buffer cache'te pahalıdır
+# (500k satır + GIN indeksleri); bu TTL soğuk yola düşme sıklığını doğrudan belirler.
+# `totalCount` yalnızca bir ilerleme göstergesidir, sayfa içeriği hep canlı sorgudur.
+SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
+
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
 # joker'inden ÖNCE gelmelidir.

@@ -5,7 +5,11 @@ DİKKAT: generate_profile_map_task ve assistant_chat_task sonuçları mevcut
 `GET /ai/tasks/{task_id}/` (AnalyzeStatusView) üzerinden sorgulanır. O view
 SUCCESS'te yalnızca `analysis` ve `usage` anahtarlarını iletir; hata durumu
 `{"success": False, "error": "..."}` olmalıdır. Bu sözleşmeyi bozma.
+
+Ayrıca o view sonucu **yalnızca görevi başlatan kullanıcıya** verir → dönüş
+payload'u `user_id` taşımalıdır (bkz. `_stamp_owner`).
 """
+import functools
 import json
 import logging
 import re
@@ -14,6 +18,26 @@ from celery import shared_task
 from django.utils import timezone
 
 logger = logging.getLogger("ihaletakip")
+
+
+def _stamp_owner(fn):
+    """
+    Görevin dönüş sözlüğüne `user_id` damgalar (ilk parametre `user_id` olmalı).
+
+    ⚠️ Dekoratör kullanılıyor çünkü bu görevlerin **çok sayıda dönüş noktası** var
+    (`assistant_chat_task`'ta 5 tane); tek tek eklemek birini atlamaya açık ve atlanan
+    dal `AnalyzeStatusView`'da ya sızıntı ya da 404 üretir. Damgalama tek yerde.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(user_id, *args, **kwargs):
+        result = fn(user_id, *args, **kwargs)
+        if isinstance(result, dict):
+            result.setdefault("user_id", user_id)
+        return result
+
+    return wrapper
+
 
 # Türkiye İKN biçimi: 2026/1234567
 IKN_RE = re.compile(r"\b\d{4}/\d{4,}\b")
@@ -107,15 +131,27 @@ def _selected_tender_context(tender, today) -> str:
 
 
 @shared_task(name="assistant.tasks.generate_profile_map_task")
+@_stamp_owner
 def generate_profile_map_task(user_id):
     """Firma profilinden AI profil haritası üretir ve kaydeder."""
     from ai.services.claude import AnalysisError
     from assistant.models import CompanyProfile
-    from assistant.services.profile_map import generate_profile_map
+    from assistant.services.profile_map import generate_profile_map, profile_input_digest
 
     profile = CompanyProfile.objects.filter(user_id=user_id).first()
     if not profile:
         return {"success": False, "error": "Firma profili bulunamadı."}
+
+    # ── Maliyet kapısı ────────────────────────────────────────────────────────
+    # `PUT /assistant/profile/` her çağrıldığında ücretli bir Sonnet isteği gidiyordu;
+    # kullanıcı hiçbir alanı değiştirmemiş olsa bile. Prompt girdisi aynıysa LLM'e HİÇ
+    # gitme, mevcut haritayı döndür. Atlama **görevde** yapılır (view'da değil) ki uç
+    # her zaman `202 {task_id}` dönmeye devam etsin — mobil sözleşmesi bozulmaz, istemci
+    # bir kez yoklar ve `completed` alır.
+    digest = profile_input_digest(profile)
+    if profile.profile_map and profile.profile_map_kaynak_hash == digest:
+        logger.info("generate_profile_map_task: profil degismedi, LLM atlandi (user=%s)", user_id)
+        return {"success": True, "analysis": profile.profile_map, "usage": None, "cached": True}
 
     try:
         profile_map, usage = generate_profile_map(profile)
@@ -124,12 +160,16 @@ def generate_profile_map_task(user_id):
 
     profile.profile_map = profile_map
     profile.profile_map_generated_at = timezone.now()
-    profile.save(update_fields=["profile_map", "profile_map_generated_at", "updated_at"])
+    profile.profile_map_kaynak_hash = digest
+    profile.save(update_fields=[
+        "profile_map", "profile_map_generated_at", "profile_map_kaynak_hash", "updated_at",
+    ])
 
     return {"success": True, "analysis": profile_map, "usage": usage}
 
 
 @shared_task(name="assistant.tasks.assistant_chat_task")
+@_stamp_owner
 def assistant_chat_task(user_id, message_id):
     """Kullanıcı mesajına asistan yanıtı üretir ve kaydeder."""
     from ai.services.claude import AnalysisError

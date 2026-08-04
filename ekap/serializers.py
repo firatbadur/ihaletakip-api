@@ -183,9 +183,14 @@ class TenderContractSerializer(ContractSerializer):
             "kind": y.kind,
             "kind_aciklama": y.get_kind_display(),
             "sozlesme_sayisi": y.sozlesme_sayisi,
+            # ⚠️ Burada `.select_related("uye")` ÇAĞIRMAYIN. View
+            # `prefetch_related("yuklenici__uyelikler__uye")` ile üyeleri zaten getiriyor;
+            # queryset'i değiştiren her çağrı (select_related dahil) prefetch cache'ini
+            # ıskalar ve sözleşme başına taze sorgu atar (ölçüm: 18 satır → 21 sorgu).
+            # Düz `.all()` cache'i kullanır; `m.uye` de prefetch zincirinden gelir.
             "uyeler": [
                 {"id": m.uye.pk, "ad": m.uye.kanonik_ad, "pilot": m.pilot}
-                for m in y.uyelikler.select_related("uye").all()
+                for m in y.uyelikler.all()
             ],
         }
         return data

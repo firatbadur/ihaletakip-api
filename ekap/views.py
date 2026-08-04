@@ -110,6 +110,14 @@ _LIST_FIELDS = (
     "ilan_tarihi",  # sıralama
 )
 
+# `Tender`'ın ağır JSONB sütunları (~40 KB/satır). `select_related("tender")` yapan
+# sözleşme uçlarında bunlar HİÇ kullanılmıyor ama `SELECT *` her satırda TOAST'tan açıp
+# `json.loads` ediyordu (`page_size=20` → istek başına ~800 KB boşuna I/O).
+# ⚠️ Burada `.only()` DEĞİL `.defer()` kullanılır: `ContractSerializer` ~20 `Contract`
+# alanı + 9 `Tender` alanı okuyor; allow-list tutulsaydı serializer'a eklenen her alan
+# sessiz N+1 doğururdu (`_LIST_FIELDS`'in yaşadığı risk). Deny-list kendini korur.
+_TENDER_BLOB_FIELDS = ("tender__detail_raw", "tender__list_raw")
+
 # Sayfalama/sıralama COUNT sonucunu değiştirmez → cache anahtarından dışlanır.
 _COUNT_IGNORED_PARAMS = frozenset({"page", "page_size", "order", "siralamaTipi", "format"})
 # COUNT soğukken pahalıdır (500k satır + GIN indeksleri; ölçüm: 3 GB'lık makinede
@@ -150,9 +158,13 @@ def _cached_count(qs, params, scope="tender"):
     return total
 
 
-def _tender_by_key(key):
+def _tender_by_key(key, *, defer_raw=False):
     """
     İhaleyi `ikn` ya da `ekap_id` ile bulur (detay/ilan/sözleşme uçlarının ortak girişi).
+
+    `defer_raw=True` → `detail_raw`/`list_raw` (~40 KB×2) çekilmez. İlan ve sözleşme
+    uçları ihaleyi yalnızca **FK filtresi** olarak kullanıyor; ham JSONB'yi okumak
+    boşuna TOAST I/O'su. Detay ucu tersine onlara muhtaç → varsayılan `False`.
 
     ⚠️ **`.order_by()` ŞART — kaldırmayın.** `Tender.Meta.ordering = ["-ihale_tarihi"]`
     olduğu için `.first()` sorguya `ORDER BY ihale_tarihi DESC LIMIT 1` ekler; planlayıcı
@@ -162,7 +174,10 @@ def _tender_by_key(key):
     düşürünce unique indeksler kullanılır — zaten en çok 1 satır döner, sıralamanın
     anlamı da yoktur.
     """
-    return Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).order_by().first()
+    qs = Tender.objects.filter(Q(ikn=key) | Q(ekap_id=key)).order_by()
+    if defer_raw:
+        qs = qs.defer("detail_raw", "list_raw")
+    return qs.first()
 
 
 def _okas_exists(cond):
@@ -645,7 +660,7 @@ class TenderAnnouncementsView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, key):
-        tender = _tender_by_key(key)
+        tender = _tender_by_key(key, defer_raw=True)  # yalnızca FK filtresi olarak lazım
         if not tender:
             return api_response(data={"list": []})
         ilanlar = Announcement.objects.filter(tender=tender)
@@ -1155,7 +1170,8 @@ class ContractorContractsView(APIView):
             )
         qp = request.query_params
         qs = (Contract.objects.filter(yuklenici_id=pk)
-              .select_related("tender").prefetch_related("kisimlar"))
+              .select_related("tender").defer(*_TENDER_BLOB_FIELDS)
+              .prefetch_related("kisimlar"))
 
         il_ids = _as_int_list(qp.get("il_id"))
         if il_ids:
@@ -1207,10 +1223,11 @@ class TenderContractsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, key):
-        tender = _tender_by_key(key)
+        tender = _tender_by_key(key, defer_raw=True)  # yalnızca FK filtresi olarak lazım
         if tender is None:
             return api_response(data={"list": []})
         qs = (tender.sozlesmeler.select_related("tender", "yuklenici")
+              .defer(*_TENDER_BLOB_FIELDS)
               .prefetch_related("kisimlar", "yuklenici__uyelikler__uye")
               .order_by("-sozlesme_bedeli_num"))
         return api_response(data={"list": TenderContractSerializer(qs, many=True).data})

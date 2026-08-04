@@ -32,6 +32,13 @@ class CompanyProfile(TimeStampedModel):
     # Claude üretimi profil haritası (keywords, okas_prefixes, ...) — API'de read-only
     profile_map = models.JSONField(null=True, blank=True)
     profile_map_generated_at = models.DateTimeField(null=True, blank=True)
+    # Haritayı üreten prompt girdisinin özeti. `PUT /assistant/profile/` her çağrıldığında
+    # ücretli bir Claude (Sonnet) isteği tetikleniyordu — profilde hiçbir şey değişmemiş
+    # olsa bile. Girdi özeti aynıysa görev LLM'e HİÇ gitmez, mevcut haritayı döner.
+    # ⚠️ Bunun yerine "Pro'ya kilitle" YAPILMADI: kural tabanlı eşleştirme
+    # (`services/matching.py`) `profile_map.keywords`/`okas_prefixes` okuyor ve ücretsiz
+    # katmandaki eşleştirme/teaser da buna dayanıyor → harita Free için de gerekli.
+    profile_map_kaynak_hash = models.CharField(max_length=64, blank=True)
 
     is_active = models.BooleanField(default=True)  # günlük eşleştirme açık/kapalı
 

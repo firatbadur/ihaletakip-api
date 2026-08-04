@@ -10,10 +10,15 @@ logger = logging.getLogger("ihaletakip")
 
 @shared_task(name="ai.tasks.run_analysis_task", bind=True)
 def run_analysis_task(self, analysis_type, file_base64=None, file_name=None,
-                      tender_meta=None, similar_tenders=None, ikn=None):
+                      tender_meta=None, similar_tenders=None, ikn=None, user_id=None):
     """
     Ağır analiz işini arka planda çalıştırır (opsiyonel asenkron akış).
     Sonuç Celery result backend'de saklanır; istemci task_id ile sorgular.
+
+    ⚠️ `user_id` dönüş payload'una **konulmalıdır**: `AnalyzeStatusView` sonucu yalnızca
+    görevi başlatan kullanıcıya verir. Yoksa task_id'yi bilen herhangi bir oturumlu
+    kullanıcı başkasının analizini okuyabilir. Aynı sözleşme `assistant.tasks`'ın iki
+    görevi için de geçerli (üçü de bu tek uçtan sorgulanır).
     """
     from ai.services.claude import AnalysisError, run_analysis
     from ai.models import AnalysisCache
@@ -27,7 +32,7 @@ def run_analysis_task(self, analysis_type, file_base64=None, file_name=None,
             similar_tenders=similar_tenders,
         )
     except AnalysisError as e:
-        return {"success": False, "error": e.message}
+        return {"success": False, "error": e.message, "user_id": user_id}
 
     if ikn:
         AnalysisCache.objects.update_or_create(
@@ -36,7 +41,7 @@ def run_analysis_task(self, analysis_type, file_base64=None, file_name=None,
             defaults={"analysis": result["analysis"], "usage": result.get("usage")},
         )
 
-    return {"success": True, **result}
+    return {"success": True, "user_id": user_id, **result}
 
 
 @shared_task(name="ai.tasks.cleanup_expired_analyses")

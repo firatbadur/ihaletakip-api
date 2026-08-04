@@ -301,10 +301,11 @@ ve konan korumalar:
   ekleyin, yoksa deferred alan başına ek sorgu atılır (sessiz N+1).
   ⚠️ `.only()`'i `apply_tender_filters` İÇİNE koymayın — o fonksiyon bildirim
   görevlerinde de kullanılıyor ve orada başka alanlar okunuyor.
-- **`totalCount` cache'li** (`views._cached_count`, 120 sn). Anahtar yalnızca **filtre**
-  parametrelerinden üretilir; `page`/`page_size`/`order`/`siralamaTipi` dışlanır → sayfa
-  gezinmesi tek `COUNT` yapar. Deny-list kullanılır (allow-list olsaydı yeni bir filtre
-  unutulunca iki farklı arama aynı anahtara düşüp **yanlış** sayı dönerdi).
+- **`totalCount` cache'li** (`views._cached_count`; TTL `SEARCH_COUNT_CACHE_TTL`, vars.
+  **600 sn**). Anahtar yalnızca **filtre** parametrelerinden üretilir;
+  `page`/`page_size`/`order`/`siralamaTipi` dışlanır → sayfa gezinmesi tek `COUNT` yapar.
+  Deny-list kullanılır (allow-list olsaydı yeni bir filtre unutulunca iki farklı arama
+  aynı anahtara düşüp **yanlış** sayı dönerdi).
 - **⚠️ `ORDER BY <tarih> DESC LIMIT N` + seyrek filtre = plan tuzağı.** Planlayıcı
   sıralama+LIMIT'i görünce tarih indeksini **geriye tarayıp filtrelemeyi** seçiyor;
   eşleşen satır seyrekse N tane bulana kadar neredeyse tüm tabloyu geziyor. Üç kez

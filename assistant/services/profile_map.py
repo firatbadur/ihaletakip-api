@@ -1,4 +1,5 @@
 """Firma profil haritası üretimi — Claude'dan yapılandırılmış JSON çıkarır."""
+import hashlib
 import json
 import logging
 
@@ -53,6 +54,17 @@ def _profile_text(profile) -> str:
             else:
                 lines.append(f"  * {w}")  # eski düz metin format
     return "\n".join(lines)
+
+
+def profile_input_digest(profile) -> str:
+    """
+    Haritayı üreten prompt girdisinin sha256 özeti.
+
+    Girdi olarak **`_profile_text` çıktısı** kullanılır, ham model alanları değil: prompt'a
+    gerçekten giren metin budur. Alan eklenip prompt'a yansımıyorsa özet de değişmemeli,
+    yansıyorsa değişmeli — ikisi otomatik olarak senkron kalır.
+    """
+    return hashlib.sha256(_profile_text(profile).encode("utf-8")).hexdigest()
 
 
 def generate_profile_map(profile) -> tuple[dict, dict]:

@@ -158,6 +158,7 @@ class AnalyzeView(APIView):
             tender_meta=data.get("tender_meta"),
             similar_tenders=data.get("similar_tenders"),
             ikn=ikn,
+            user_id=request.user.id,  # AnalyzeStatusView sahipliği bununla doğrular
         )
         return api_response(
             data={"task_id": task.id, "status": "pending"},
@@ -213,6 +214,23 @@ class AnalyzeStatusView(APIView):
 
         if state == "SUCCESS":
             payload = result.result or {}
+            # ── Sahiplik ──────────────────────────────────────────────────────
+            # Görev sonucu YALNIZCA onu başlatan kullanıcıya verilir. Aksi hâlde
+            # task_id'yi ele geçiren herhangi bir oturumlu kullanıcı başkasının
+            # doküman analizini / asistan yanıtını okuyabilir.
+            # `user_id` yoksa görev bu değişiklikten ÖNCE kuyruğa girmiştir (deploy
+            # anındaki birkaç dakikalık pencere) → eski davranış korunur, uyarı loglanır.
+            owner_id = payload.get("user_id")
+            if owner_id is None:
+                logger.warning(
+                    "AnalyzeStatusView: task %s sonucunda user_id yok (deploy öncesi görev?)",
+                    task_id,
+                )
+            elif owner_id != request.user.id:
+                # 404: görevin varlığını da doğrulamayalım.
+                return api_response(
+                    data=None, message="Görev bulunamadı.", success=False, status=404
+                )
             if not payload.get("success", False):
                 return api_response(
                     data={"status": "failed"},

@@ -18,6 +18,7 @@ from django.utils import timezone
 from .client import EkapV2Client
 from .models import SyncCheckpoint, SyncRun, Tender
 from . import sync as sync_mod
+from .series import series_skeleton
 
 logger = logging.getLogger("ihaletakip")
 
@@ -542,6 +543,212 @@ def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500)
             "timed_out": timed_out,
             "done": cp.done,
         }
+
+
+@shared_task(name="ekap.tasks.detect_recurring_series")
+def detect_recurring_series(min_uye=3, max_seconds=None):
+    """
+    Tekrar eden ihale serilerini tespit eder — **EKAP'a gitmez, `detail_raw` OKUMAZ**.
+
+    Seri anahtarı ingest'te hesaplanıyor (`sync.apply_pro_fields` → `series.series_key`),
+    bu görev yalnızca o indeksli `varchar(40)` üzerinde GROUP BY yapar. Metin
+    karşılaştırması, trigram, self-join YOK — bu bilinçli bir tasarım kararıydı
+    (bkz. `ekap/series.py` modül docstring'i).
+
+    ⚠️ `.values()` kullanır → `detail_raw` TOAST'ına hiç dokunulmaz, dolayısıyla
+    `sync_contractors`/`backfill_tender_fields` ile pencere çakışması sorunu yoktur.
+
+    Periyot tespiti: üye ilan tarihleri arasındaki aralıkların **medyanı** (ortalama değil
+    — tek bir sıra dışı aralık ortalamayı kaydırır). Güven, sapmanın medyana oranına göre.
+    """
+    import statistics
+    import time
+
+    from django.db.models import Avg, Count, Max, Min, Sum
+
+    from .models import Contract, RecurringTenderSeries
+
+    with _run("detect_recurring_series") as run:
+        if run is None:
+            return
+
+        if max_seconds is None:
+            max_seconds = settings.PRO_BACKFILL_MAX_SECONDS
+        deadline = time.monotonic() + max_seconds
+        basla = timezone.now()
+
+        gruplar = (
+            Tender.objects.exclude(seri_anahtar="")
+            .filter(ilan_tarihi__isnull=False)
+            .order_by()  # ⚠️ Meta.ordering GROUP BY'a sızmasın
+            .values("seri_anahtar", "idare_id")
+            .annotate(n=Count("id"), ilk=Min("ilan_tarihi"), son=Max("ilan_tarihi"))
+            .filter(n__gte=min_uye)
+            .order_by("seri_anahtar")
+        )
+
+        yazilacak, islenen, timed_out = [], 0, False
+        for g in gruplar.iterator(chunk_size=500):
+            uyeler = list(
+                Tender.objects.filter(
+                    seri_anahtar=g["seri_anahtar"], idare_id=g["idare_id"],
+                    ilan_tarihi__isnull=False,
+                )
+                .order_by("ilan_tarihi")
+                .values("ilan_tarihi", "ihale_adi", "ekap_id", "il_id",
+                        "ihale_tip", "okas_ana_kod", "okas_ana_adi",
+                        "idare_adi", "en_ust_idare_kod")
+            )
+            if len(uyeler) < min_uye:
+                continue
+
+            tarihler = [u["ilan_tarihi"] for u in uyeler]
+            araliklar = [
+                (tarihler[i + 1] - tarihler[i]).days for i in range(len(tarihler) - 1)
+            ]
+            araliklar = [a for a in araliklar if a > 0]
+            if not araliklar:
+                continue
+            medyan = int(statistics.median(araliklar))
+            sapma = int(statistics.pstdev(araliklar)) if len(araliklar) > 1 else 0
+            son = uyeler[-1]
+
+            yazilacak.append(RecurringTenderSeries(
+                seri_anahtar=g["seri_anahtar"],
+                idare_id=g["idare_id"],
+                idare_adi=son["idare_adi"] or "",
+                en_ust_idare_kod=son["en_ust_idare_kod"] or "",
+                il_id=son["il_id"],
+                okas_ana_kod=son["okas_ana_kod"] or "",
+                okas_ana_adi=son["okas_ana_adi"] or "",
+                ihale_tip=son["ihale_tip"],
+                iskelet=series_skeleton(son["ihale_adi"])[:300],
+                ornek_ihale_adi=son["ihale_adi"] or "",
+                ihale_sayisi=len(uyeler),
+                ilk_ilan=tarihler[0],
+                son_ilan=tarihler[-1],
+                son_ekap_id=son["ekap_id"] or "",
+                periyot_gun=medyan,
+                sapma_gun=sapma,
+                periyot_tip=_periyot_tipi(medyan),
+                guven=_seri_guven(len(uyeler), medyan, sapma),
+                **_beklenen(tarihler[-1], medyan),
+            ))
+            islenen += 1
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+
+        # Upsert + buda: tur içinde dokunulmayan eski seriler silinir (ör. iskelet
+        # değiştiği için artık oluşmayan gruplar).
+        if yazilacak:
+            RecurringTenderSeries.objects.bulk_create(
+                yazilacak,
+                update_conflicts=True,
+                unique_fields=["seri_anahtar", "idare_id"],
+                update_fields=[
+                    "idare_adi", "en_ust_idare_kod", "il_id", "okas_ana_kod",
+                    "okas_ana_adi", "ihale_tip", "iskelet", "ornek_ihale_adi",
+                    "ihale_sayisi", "ilk_ilan", "son_ilan", "son_ekap_id",
+                    "periyot_gun", "sapma_gun", "periyot_tip", "guven",
+                    "beklenen_ilan_tarihi", "beklenen_ay", "aktif",
+                ],
+                batch_size=1000,
+            )
+            _seri_para_agregalari(yazilacak)
+
+        budanan = 0
+        if not timed_out:
+            budanan, _ = RecurringTenderSeries.objects.filter(
+                guncelleme__lt=basla
+            ).delete()
+
+        run.items = islenen
+        run.note = f"{'süre doldu ' if timed_out else ''}seri={islenen} budanan={budanan}"[:1000]
+        return {"series": islenen, "pruned": budanan, "timed_out": timed_out}
+
+
+def _periyot_tipi(medyan_gun):
+    """Aralık medyanından periyot etiketi. Sınırlar takvim kaymalarına toleranslı."""
+    if 330 <= medyan_gun <= 400:
+        return "yillik"
+    if 150 <= medyan_gun <= 220:
+        return "6_aylik"
+    if 75 <= medyan_gun <= 110:
+        return "3_aylik"
+    if 25 <= medyan_gun <= 40:
+        return "aylik"
+    return "duzensiz"
+
+
+def _seri_guven(uye_sayisi, medyan, sapma):
+    """
+    Tahminin ne kadar güvenilir olduğu.
+
+    ⚠️ Yalnızca üye sayısına bakmak yetmez: 5 üyeli ama aralıkları 30/400/60/380 gün olan
+    bir "seri" tahmin üretmemeli. Bu yüzden **düzenlilik** (sapma/medyan) de şart.
+    """
+    if not medyan:
+        return "dusuk"
+    dagilim = sapma / medyan
+    if uye_sayisi >= 4 and dagilim <= 0.15:
+        return "yuksek"
+    if uye_sayisi >= 3 and dagilim <= 0.30:
+        return "orta"
+    return "dusuk"
+
+
+def _beklenen(son_ilan, medyan_gun):
+    """Sıradaki ilan tahmini + serinin hâlâ canlı olup olmadığı."""
+    beklenen = (son_ilan + timedelta(days=medyan_gun)).date()
+    # 2 periyot geçtiyse seri muhtemelen sona ermiş (ihtiyaç kalktı / usul değişti).
+    aktif = (timezone.now() - son_ilan).days < 2 * medyan_gun
+    return {
+        "beklenen_ilan_tarihi": beklenen,
+        "beklenen_ay": beklenen.strftime("%Y-%m"),
+        "aktif": aktif,
+    }
+
+
+def _seri_para_agregalari(seriler):
+    """
+    Serilerin bedel/indirim ortalamalarını sözleşmelerden doldurur.
+
+    Ayrı adım: ana döngüde her seri için sorgu atmak N+1 olurdu. Burada seri başına tek
+    toplu sorgu yapılır ve yalnızca para alanları güncellenir.
+    """
+    from django.db.models import Avg, Count, Sum
+
+    from .models import Contract, RecurringTenderSeries
+
+    guncel = []
+    for s in seriler:
+        agg = (
+            Contract.objects.filter(
+                tender__seri_anahtar=s.seri_anahtar, tender__idare_id=s.idare_id
+            )
+            .order_by()
+            .aggregate(
+                ort=Avg("sozlesme_bedeli_num"),
+                ort_ind=Avg("indirim_orani"),
+                n_ind=Count("indirim_orani"),
+            )
+        )
+        if agg["ort"] is None and agg["n_ind"] == 0:
+            continue
+        satir = RecurringTenderSeries.objects.filter(
+            seri_anahtar=s.seri_anahtar, idare_id=s.idare_id
+        ).first()
+        if satir is None:
+            continue
+        satir.ortalama_bedel = agg["ort"]
+        satir.ortalama_indirim = agg["ort_ind"]
+        satir.indirim_ornek = agg["n_ind"]
+        guncel.append(satir)
+    if guncel:
+        RecurringTenderSeries.objects.bulk_update(
+            guncel, ["ortalama_bedel", "ortalama_indirim", "indirim_ornek"], batch_size=500
+        )
 
 
 @shared_task(name="ekap.tasks.refresh_idare_id_set")

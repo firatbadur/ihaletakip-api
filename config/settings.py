@@ -312,6 +312,7 @@ CELERY_TASK_ROUTES = {
     "ekap.tasks.refresh_idare_id_set": {"queue": "celery"},
     # backfill_tender_fields de EKAP'a gitmez (detail_raw arşivinden türetir).
     "ekap.tasks.backfill_tender_fields": {"queue": "celery"},
+    "ekap.tasks.detect_recurring_series": {"queue": "celery"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

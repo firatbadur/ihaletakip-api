@@ -619,6 +619,82 @@ class ContractSection(models.Model):
 
 
 # ── Senkron durumu / log ───────────────────────────────
+class RecurringTenderSeries(models.Model):
+    """
+    Tekrar eden ihale serisi — aynı idarenin yıldan yıla açtığı aynı iş.
+
+    Kamu alımlarının büyük kısmı yıllık tekrarlar ("2024 YILI TEKSTİL … ALIMI" →
+    "2025 YILI TEKSTİL … ALIM İŞİ"). Arşiv bunu görebiliyor, yani kullanıcı **ilan
+    çıkmadan önce** haberdar olabilir ve hazırlanabilir. Rakiplerin sunamadığı bir şey.
+
+    Seri anahtarı ingest'te üretilir (`ekap/series.py`, `sync.apply_pro_fields`); bu tablo
+    yalnızca o anahtar üzerinde **gruplama sonucunu** saklar — metin karşılaştırması yok.
+    """
+
+    class Periyot(models.TextChoices):
+        YILLIK = "yillik", "Yıllık"
+        ALTI_AYLIK = "6_aylik", "6 Aylık"
+        UC_AYLIK = "3_aylik", "3 Aylık"
+        AYLIK = "aylik", "Aylık"
+        DUZENSIZ = "duzensiz", "Düzensiz"
+
+    seri_anahtar = models.CharField(max_length=40, db_index=True)
+    idare_id = models.CharField(max_length=255, db_index=True)
+    idare_adi = models.CharField(max_length=500, blank=True)
+    en_ust_idare_kod = models.CharField(max_length=16, blank=True, db_index=True)
+    il_id = models.IntegerField(null=True, blank=True, db_index=True)
+    okas_ana_kod = models.CharField(max_length=16, blank=True, db_index=True)
+    okas_ana_adi = models.CharField(max_length=500, blank=True)
+    ihale_tip = models.IntegerField(null=True, blank=True)
+    # Hata ayıklama/şeffaflık: serinin hangi iskelet üzerinden kurulduğu
+    iskelet = models.CharField(max_length=300, blank=True)
+    ornek_ihale_adi = models.TextField(blank=True)   # en son üyenin adı
+
+    ihale_sayisi = models.IntegerField(default=0)
+    ilk_ilan = models.DateTimeField(null=True, blank=True)
+    son_ilan = models.DateTimeField(null=True, blank=True)
+    son_ekap_id = models.CharField(max_length=255, blank=True)
+
+    periyot_gun = models.IntegerField(null=True, blank=True)   # aralıkların medyanı
+    sapma_gun = models.IntegerField(null=True, blank=True)     # standart sapma
+    periyot_tip = models.CharField(max_length=12, choices=Periyot.choices, blank=True)
+    guven = models.CharField(max_length=10, blank=True)        # yuksek|orta|dusuk
+
+    beklenen_ilan_tarihi = models.DateField(null=True, blank=True)
+    beklenen_ay = models.CharField(max_length=7, blank=True)   # "2026-11"
+    # Seri hâlâ canlı mı: son ilandan bu yana 2 periyottan fazla geçtiyse False.
+    aktif = models.BooleanField(default=True)
+
+    ortalama_bedel = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    son_bedel = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    ortalama_indirim = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    indirim_ornek = models.IntegerField(default=0)
+
+    guncelleme = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Tekrar Eden İhale Serisi"
+        verbose_name_plural = "Tekrar Eden İhale Serileri"
+        ordering = ["-ihale_sayisi"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["seri_anahtar", "idare_id"], name="uniq_recurring_series"
+            )
+        ]
+        indexes = [
+            # "Önümüzdeki 90 günde beklenen" sorgusu — yalnızca aktif seriler.
+            models.Index(
+                fields=["beklenen_ilan_tarihi"],
+                condition=models.Q(aktif=True),
+                name="ekap_seri_beklenen_idx",
+            ),
+            models.Index(fields=["idare_id", "-son_ilan"], name="ekap_seri_idare_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.idare_adi[:40]} · {self.iskelet[:40]} ({self.ihale_sayisi})"
+
+
 class SyncCheckpoint(models.Model):
     """Backfill/recent imleçleri — nereye kadar çekildiğini tutar."""
 

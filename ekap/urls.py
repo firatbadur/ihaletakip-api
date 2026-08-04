@@ -11,11 +11,13 @@ from .views import (
     ContractorListView,
     DocumentUrlView,
     OkasSearchView,
+    RecurringSeriesListView,
     TenderAnnouncementsView,
     TenderBenchmarkView,
     TenderContractsView,
     TenderDetailView,
     TenderListView,
+    TenderRecurringView,
 )
 
 urlpatterns = [
@@ -24,6 +26,8 @@ urlpatterns = [
     path("tenders/<str:key>/announcements/", TenderAnnouncementsView.as_view(), name="ekap-tender-announcements"),
     # İKN `/` içerdiği için bu alt rotalarda **ekap_id** kullanılır (bkz. TenderDetailView).
     path("tenders/<str:key>/contracts/", TenderContractsView.as_view(), name="ekap-tender-contracts"),
+    path("recurring/", RecurringSeriesListView.as_view(), name="ekap-recurring"),
+    path("tenders/<str:key>/recurring/", TenderRecurringView.as_view(), name="ekap-tender-recurring"),
     path("tenders/<str:key>/benchmark/", TenderBenchmarkView.as_view(), name="ekap-tender-benchmark"),
     path("tenders/<str:ekap_id>/document-url/", DocumentUrlView.as_view(), name="ekap-document-url"),
     # Yüklenici (firma) uçları

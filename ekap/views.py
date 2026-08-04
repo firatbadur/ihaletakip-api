@@ -6,11 +6,13 @@ otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 """
 import hashlib
 import logging
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -21,7 +23,12 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
-from accounts.premium import MSG_IDARE_PROFIL, MSG_PRO_FILTRE, require_premium
+from accounts.premium import (
+    MSG_IDARE_PROFIL,
+    MSG_PRO_FILTRE,
+    MSG_TEKRAR,
+    require_premium,
+)
 from core.response import api_response
 
 from . import authority_profile, benchmark as benchmark_mod
@@ -29,6 +36,7 @@ from . import authority_profile, benchmark as benchmark_mod
 from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
 from .models import (
+    RecurringTenderSeries,
     Announcement,
     Authority,
     City,
@@ -1359,6 +1367,187 @@ class ContractorDetailView(APIView):
                 for r in rows(base.exclude(idare_id=""), "idare_id")[:10]
             ],
         }
+
+
+def _seri_dict(s):
+    """`RecurringTenderSeries` → API sözlüğü."""
+    return {
+        "id": s.pk,
+        "idare_id": s.idare_id,
+        "idare_adi": s.idare_adi,
+        "en_ust_idare_kod": s.en_ust_idare_kod or None,
+        "il_id": s.il_id,
+        "okas_ana_kod": s.okas_ana_kod or None,
+        "okas_ana_adi": s.okas_ana_adi or None,
+        "ihale_tip": s.ihale_tip,
+        "ornek_ihale_adi": s.ornek_ihale_adi,
+        "ihale_sayisi": s.ihale_sayisi,
+        "ilk_ilan": s.ilk_ilan.isoformat() if s.ilk_ilan else None,
+        "son_ilan": s.son_ilan.isoformat() if s.son_ilan else None,
+        "son_ekap_id": s.son_ekap_id or None,
+        "periyot_tip": s.periyot_tip,
+        "periyot_gun": s.periyot_gun,
+        "sapma_gun": s.sapma_gun,
+        "guven": s.guven,
+        "beklenen_ilan_tarihi": (
+            s.beklenen_ilan_tarihi.isoformat() if s.beklenen_ilan_tarihi else None
+        ),
+        "beklenen_ay": s.beklenen_ay or None,
+        "aktif": s.aktif,
+        "ortalama_bedel": _dec(s.ortalama_bedel),
+        "ortalama_indirim": _dec(s.ortalama_indirim),
+        # ⚠️ Ortalama indirim ASLA örneklem sayısı olmadan gösterilmemeli.
+        "indirim_ornek_sayisi": s.indirim_ornek,
+    }
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[
+        OpenApiParameter("idare_id", str, description="İdare id listesi (virgülle)."),
+        OpenApiParameter("idare_detsis", str, description="DETSIS düğümü (alt birimler dahil)."),
+        OpenApiParameter("en_ust_idare_kod", str, description="Bakanlık/üst kurum kodu."),
+        OpenApiParameter("okas_ana_kod", str, description="Birincil OKAS kodu (virgülle)."),
+        OpenApiParameter("il_id", str, description="İl id listesi (virgülle)."),
+        OpenApiParameter("ihale_tip", str, description="İhale türü listesi (virgülle)."),
+        OpenApiParameter("periyot_tip", str,
+                         enum=["yillik", "6_aylik", "3_aylik", "aylik", "duzensiz"]),
+        OpenApiParameter("guven", str, enum=["yuksek", "orta", "dusuk"],
+                         description="Tahmin güveni (üye sayısı + aralık düzenliliği)."),
+        OpenApiParameter("aktif", bool, default=True,
+                         description="Yalnızca canlı seriler (son ilandan bu yana 2 periyottan az geçmiş)."),
+        OpenApiParameter("beklenen_gun", int,
+                         description="Önümüzdeki N gün içinde beklenen seriler."),
+        OpenApiParameter("order", str,
+                         enum=["beklenen", "ihale_sayisi", "son_ilan"], default="beklenen"),
+        OpenApiParameter("page", int, default=1),
+        OpenApiParameter("page_size", int, default=20, description="En fazla 100."),
+    ],
+    operation_id="ekap_recurring_list",
+    summary="Tekrar eden ihaleler (Pro)",
+    description=(
+        "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen "
+        "tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\n"
+        "Seriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + "
+        "aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi "
+        "önlemek için kasıtlı olarak muhafazakâr).\n\n"
+        "⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; "
+        "`dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n"
+        "⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class RecurringSeriesListView(APIView):
+    """GET /ekap/recurring/ — tekrar eden ihale serileri."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    _ORDER = {
+        "beklenen": "beklenen_ilan_tarihi",
+        "ihale_sayisi": "-ihale_sayisi",
+        "son_ilan": "-son_ilan",
+    }
+
+    def get(self, request):
+        require_premium(request.user, MSG_TEKRAR)
+        qp = request.query_params
+        qs = RecurringTenderSeries.objects.all()
+
+        idare_ids = _as_str_list(qp.get("idare_id"))
+        if idare_ids:
+            qs = qs.filter(idare_id__in=idare_ids)
+        detsis = (qp.get("idare_detsis") or "").strip()
+        if detsis:
+            genis = descendant_idare_ids([detsis]) & tender_idare_id_set()
+            qs = qs.filter(idare_id__in=sorted(genis)) if genis else qs.none()
+        bakanlik = _as_str_list(qp.get("en_ust_idare_kod"))
+        if bakanlik:
+            qs = qs.filter(en_ust_idare_kod__in=bakanlik)
+        okas = _as_str_list(qp.get("okas_ana_kod"))
+        if okas:
+            qs = qs.filter(okas_ana_kod__in=okas)
+        il_ids = _as_int_list(qp.get("il_id"))
+        if il_ids:
+            qs = qs.filter(il_id__in=il_ids)
+        tipler = _as_int_list(qp.get("ihale_tip"))
+        if tipler:
+            qs = qs.filter(ihale_tip__in=tipler)
+        periyot = _as_str_list(qp.get("periyot_tip"))
+        if periyot:
+            qs = qs.filter(periyot_tip__in=periyot)
+        guven = _as_str_list(qp.get("guven"))
+        if guven:
+            qs = qs.filter(guven__in=guven)
+
+        aktif = _as_bool(qp.get("aktif"))
+        if aktif is not False:  # varsayılan: yalnızca canlı seriler
+            qs = qs.filter(aktif=True)
+
+        gun = qp.get("beklenen_gun")
+        if gun and str(gun).isdigit():
+            bugun = timezone.localdate()
+            qs = qs.filter(
+                beklenen_ilan_tarihi__gte=bugun,
+                beklenen_ilan_tarihi__lte=bugun + timedelta(days=int(gun)),
+            )
+
+        alan = self._ORDER.get(qp.get("order", "beklenen"), "beklenen_ilan_tarihi")
+        qs = qs.order_by(F(alan.lstrip("-")).desc(nulls_last=True)
+                         if alan.startswith("-")
+                         else F(alan).asc(nulls_last=True), "-ihale_sayisi")
+
+        return _paginate(request, qs, _SeriSerializer)
+
+
+class _SeriSerializer(serializers.Serializer):
+    """`_paginate` serializer bekliyor; dönüşüm `_seri_dict`te."""
+
+    def to_representation(self, s):
+        return _seri_dict(s)
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[_TENDER_KEY_PARAM],
+    operation_id="ekap_tender_recurring",
+    summary="Bu ihale tekrar eden bir serinin parçası mı? (Pro)",
+    description=(
+        "İhale bir seriye aitse seriyi ve **geçmiş örneklerini** döner; değilse `null`.\n\n"
+        "Kullanıcı böylece \"bu iş her yıl açılıyor, geçen sene kaça verilmişti\" "
+        "sorusuna tek istekte cevap alır."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class TenderRecurringView(APIView):
+    """GET /ekap/tenders/<key>/recurring/ — ihalenin serisi + geçmiş örnekleri."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, key):
+        require_premium(request.user, MSG_TEKRAR)
+        tender = _tender_by_key(key, defer_raw=True)
+        if tender is None:
+            return api_response(
+                data=None, message="İhale bulunamadı.", success=False, status=404
+            )
+        if not tender.seri_anahtar:
+            return api_response(data={"seri": None, "gecmis": []})
+
+        seri = RecurringTenderSeries.objects.filter(
+            seri_anahtar=tender.seri_anahtar, idare_id=tender.idare_id
+        ).first()
+        gecmis = (
+            Tender.objects.filter(
+                seri_anahtar=tender.seri_anahtar, idare_id=tender.idare_id
+            )
+            .exclude(pk=tender.pk)
+            .only(*_LIST_FIELDS)
+            .order_by("-ilan_tarihi")[:20]
+        )
+        return api_response(data={
+            "seri": _seri_dict(seri) if seri else None,
+            "gecmis": EkapTenderListSerializer(gecmis, many=True).data,
+        })
 
 
 @extend_schema(

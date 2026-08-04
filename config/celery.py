@@ -99,6 +99,13 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_favorite_contractor_matches",
         "schedule": crontab(hour=12, minute=0),
     },
+    # Tekrar eden ihale serilerini tespit eder (Pazar 02:30, haftalık).
+    # EKAP'a gitmez ve detail_raw OKUMAZ (.values() ile indeksli seri_anahtar üzerinde
+    # GROUP BY) → gece penceresi/süpürme çakışması sorunu yok. `celery` kuyruğu.
+    "ekap-detect-recurring-series": {
+        "task": "ekap.tasks.detect_recurring_series",
+        "schedule": crontab(hour=2, minute=30, day_of_week=0),
+    },
     # Ücretsiz üyeye HAFTADA BİR "bu hafta neyi kaçırdın" özeti (Pazartesi 10:00).
     # Günlük alarm görevleri Free kullanıcıyı sayılmadan eliyor → kullanıcı Pro'nun ne işe
     # yaradığını hiç hissetmiyordu. Yalnızca SAYI üretir (liste değil), sıfır eşleşmede

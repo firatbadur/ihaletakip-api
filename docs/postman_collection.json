@@ -1423,6 +1423,112 @@
           }
         },
         {
+          "name": "Tekrar eden ihaleler (Pro)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/recurring/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "recurring",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "aktif",
+                  "value": "True",
+                  "description": "Yalnızca canlı seriler (son ilandan bu yana 2 periyottan az geçmiş).",
+                  "disabled": true
+                },
+                {
+                  "key": "beklenen_gun",
+                  "value": "1",
+                  "description": "Önümüzdeki N gün içinde beklenen seriler.",
+                  "disabled": true
+                },
+                {
+                  "key": "en_ust_idare_kod",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "Bakanlık/üst kurum kodu.",
+                  "disabled": true
+                },
+                {
+                  "key": "guven",
+                  "value": "dusuk",
+                  "description": "Tahmin güveni (üye sayısı + aralık düzenliliği). Geçerli değerler: `dusuk`, `orta`, `yuksek`.",
+                  "disabled": true
+                },
+                {
+                  "key": "idare_detsis",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "DETSIS düğümü (alt birimler dahil).",
+                  "disabled": true
+                },
+                {
+                  "key": "idare_id",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "İdare id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "ihale_tip",
+                  "value": "ornek",
+                  "description": "İhale türü listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "il_id",
+                  "value": "ornek",
+                  "description": "İl id listesi (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "okas_ana_kod",
+                  "value": "ornek",
+                  "description": "Birincil OKAS kodu (virgülle).",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "beklenen",
+                  "description": "Geçerli değerler: `beklenen`, `ihale_sayisi`, `son_ilan`.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "En fazla 100.",
+                  "disabled": true
+                },
+                {
+                  "key": "periyot_tip",
+                  "value": "3_aylik",
+                  "description": "Geçerli değerler: `3_aylik`, `6_aylik`, `aylik`, `duzensiz`, `yillik`.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\nSeriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi önlemek için kasıtlı olarak muhafazakâr).\n\n⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Benzer işler ve kazanan fiyat analizi (Pro)",
           "request": {
             "method": "GET",
@@ -1475,6 +1581,41 @@
               ]
             },
             "description": "İhaleye **benzer, sonuçlanmış** işlerin kazanan bedel ve indirim oranı dağılımını, beklenen rekabeti ve karşılaştırma listesini döner.\n\n**Free kullanıcı**: `200` döner ama sayılar maskelenir ve `kilitli: true` gelir (örneklem sayıları görünür, değerler görünmez) → istemci teaser gösterip Paywall'a yönlendirebilir. **Pro**: tüm değerler açık.\n\n⚠️ **Örneklem dürüstlüğü**: `indirim_orani` yalnızca Sonuç İlanı yayımlanmış sözleşmelerde bilinir. Her dağılım `ornek.indirim_ornek_sayisi` ve `ornek.guven` ile birlikte gelir; `ornek.yeterli_veri=false` ise dağılım gösterilmemelidir.\n\n⚠️ **Tek para medyanı yıllar arası karşılaştırılamaz** (TL enflasyonu) — `sozlesme_bedeli.yillara_gore` her zaman döner, onu kullanın.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Bu ihale tekrar eden bir serinin parçası mı? (Pro)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/recurring/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "recurring",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** **EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\nView, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash içermeyen `ekap_id` kullanın."
+                }
+              ]
+            },
+            "description": "İhale bir seriye aitse seriyi ve **geçmiş örneklerini** döner; değilse `null`.\n\nKullanıcı böylece \"bu iş her yıl açılıyor, geçen sene kaça verilmişti\" sorusuna tek istekte cevap alır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
       ],

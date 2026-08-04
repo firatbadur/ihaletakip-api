@@ -1422,6 +1422,118 @@ paths:
                 items:
                   $ref: '#/components/schemas/OkasCode'
           description: ''
+  /api/v1/ekap/recurring/:
+    get:
+      operationId: ekap_recurring_list
+      description: 'Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın
+        beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.
+
+
+        Seriler ingest''te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı
+        idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi
+        önlemek için kasıtlı olarak muhafazakâr).
+
+
+        ⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar;
+        `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.
+
+
+        ⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.'
+      summary: Tekrar eden ihaleler (Pro)
+      parameters:
+      - in: query
+        name: aktif
+        schema:
+          type: boolean
+          default: true
+        description: Yalnızca canlı seriler (son ilandan bu yana 2 periyottan az geçmiş).
+      - in: query
+        name: beklenen_gun
+        schema:
+          type: integer
+        description: Önümüzdeki N gün içinde beklenen seriler.
+      - in: query
+        name: en_ust_idare_kod
+        schema:
+          type: string
+        description: Bakanlık/üst kurum kodu.
+      - in: query
+        name: guven
+        schema:
+          type: string
+          enum:
+          - dusuk
+          - orta
+          - yuksek
+        description: Tahmin güveni (üye sayısı + aralık düzenliliği).
+      - in: query
+        name: idare_detsis
+        schema:
+          type: string
+        description: DETSIS düğümü (alt birimler dahil).
+      - in: query
+        name: idare_id
+        schema:
+          type: string
+        description: İdare id listesi (virgülle).
+      - in: query
+        name: ihale_tip
+        schema:
+          type: string
+        description: İhale türü listesi (virgülle).
+      - in: query
+        name: il_id
+        schema:
+          type: string
+        description: İl id listesi (virgülle).
+      - in: query
+        name: okas_ana_kod
+        schema:
+          type: string
+        description: Birincil OKAS kodu (virgülle).
+      - in: query
+        name: order
+        schema:
+          type: string
+          enum:
+          - beklenen
+          - ihale_sayisi
+          - son_ilan
+          default: beklenen
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 20
+        description: En fazla 100.
+      - in: query
+        name: periyot_tip
+        schema:
+          type: string
+          enum:
+          - 3_aylik
+          - 6_aylik
+          - aylik
+          - duzensiz
+          - yillik
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/tenders/:
     get:
       operationId: api_v1_ekap_tenders_list
@@ -2025,6 +2137,46 @@ paths:
             summary: EKAP iç kimliği
       tags:
       - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/ekap/tenders/{key}/recurring/:
+    get:
+      operationId: ekap_tender_recurring
+      description: 'İhale bir seriye aitse seriyi ve **geçmiş örneklerini** döner;
+        değilse `null`.
+
+
+        Kullanıcı böylece "bu iş her yıl açılıyor, geçen sene kaça verilmişti" sorusuna
+        tek istekte cevap alır.'
+      summary: Bu ihale tekrar eden bir serinin parçası mı? (Pro)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: '**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.
+
+
+          View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez
+          ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar).
+          Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash
+          içermeyen `ekap_id` kullanın.'
+        required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:

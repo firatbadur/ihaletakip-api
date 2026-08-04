@@ -44,6 +44,10 @@ MSG_IDARE_PROFIL = (
     "İdare profili (harcama, kimler kazanıyor, indirim ve iptal oranları) Pro aboneliğe "
     "özeldir. İdareyi favorileyip ihalelerini görebilirsiniz; profil için Pro'ya geçin."
 )
+MSG_TEKRAR = (
+    "Tekrar eden ihale takibi (bir işin her yıl ne zaman açıldığı ve sıradakinin "
+    "beklenen tarihi) Pro aboneliğe özeldir."
+)
 MSG_PRO_FILTRE = (
     "Gelişmiş filtreler (tutar, rekabet, indirim oranı, şikâyet ve kategori) Pro "
     "aboneliğe özeldir. Temel arama ücretsizdir; bu filtreler için Pro'ya geçin."

@@ -445,6 +445,31 @@ ve konan korumalar:
   `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
   anahtar üretilmez ve ihale hiçbir seriye girmez.
 
+#### Tekrar eden ihaleler — `GET /ekap/recurring/`, `.../tenders/<key>/recurring/`
+
+Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebildiği için kullanıcı
+**ilan çıkmadan önce** haberdar olup hazırlanabilir — rakiplerin sunamadığı bir şey.
+
+- **Anahtar ingest'te üretilir** (`series.series_key` → `apply_pro_fields`); tespit görevi
+  yalnızca indeksli `varchar(40)` üzerinde GROUP BY yapar. Metin karşılaştırması yok.
+  ⚠️ Trigram self-join **bilinçli olarak reddedildi** (bkz. `ekap/series.py`).
+- **`detect_recurring_series`** — haftalık (Pazar 02:30), `celery` kuyruğu.
+  ⚠️ `.values()` kullanır → `detail_raw` TOAST'ına **hiç dokunmaz**, dolayısıyla
+  `sync_contractors`/`backfill_tender_fields` ile pencere çakışması sorunu YOK.
+- **Periyot = aralıkların MEDYANI**, ortalaması değil: tek bir sıra dışı aralık ortalamayı
+  kaydırırdı. `_periyot_tipi` takvim kaymalarına toleranslı sınırlar kullanır
+  (330-400 gün → yıllık).
+- ⚠️ **`guven` yalnızca üye sayısına bakmaz, DÜZENLİLİĞE de bakar** (`sapma/medyan`):
+  5 üyeli ama aralıkları 30/400/60/380 gün olan bir "seri" tahmin üretmemeli.
+  `yuksek` = ≥4 üye ve sapma/medyan ≤ 0.15.
+- **`aktif`**: son ilandan bu yana 2 periyottan fazla geçtiyse seri sona ermiştir
+  (ihtiyaç kalkmış / usul değişmiş) → liste varsayılan olarak yalnızca aktifleri döner.
+- Upsert + buda: turda dokunulmayan eski seriler silinir (iskelet değişip artık oluşmayan
+  gruplar). ⚠️ Budama yalnızca **süre dolmadıysa** yapılır; yarım turda budamak hayatta
+  olan serileri silerdi.
+- Para agregaları **ayrı adımda** (`_seri_para_agregalari`) — ana döngüde seri başına
+  sorgu atmak N+1 olurdu.
+
 #### İdare (alıcı) profili — `GET /ekap/authorities/profile/`
 
 "Bu kurum ne alıyor, kime, kaça?" Ürün bugüne kadar yalnızca *ihaleyi* gösteriyordu;
@@ -881,6 +906,7 @@ kodu görünce abonelik paketlerini sunar.
   - **Takip edilen firma ALARMI** → firmayı takip etmek serbest (sınırsız) ama "yeni iş
     aldı" bildirimi **Pro'ya özeldir**: `check_favorite_contractor_matches` premium
     olmayanı atlar. Uçta 403 verilmez (favori idareyle tutarlı).
+  - **Tekrar eden ihale takibi** (`/ekap/recurring/`, `/ekap/tenders/<key>/recurring/`) → 403.
   - **Asistan sohbeti** (`ChatSendView`) → 403 (profil oluşturma **serbest**; yalnızca
     mesaj gönderme kilitli).
   - **AI doküman analizi** (`AnalyzeView`) → 403, en başta (cache dahil hiç işlenmez).
@@ -1025,6 +1051,8 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
 - `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
+- `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (Pazar 02:30; EKAP'a
+  gitmez, `detail_raw` OKUMAZ → süpürme penceresiyle çakışmaz)
 - `backfill_tender_fields` — Pro sinyal kolonlarını `detail_raw` arşivinden doldurur
   (5 dk'da bir; EKAP'a gitmez, gece penceresi, **yüklenici süpürmesi bitene kadar
   kendini geri çeker** — bkz. "Pro sinyal kolonları")

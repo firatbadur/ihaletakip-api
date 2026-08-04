@@ -18,36 +18,13 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
+from ekap.utils import local_day_range
+
 logger = logging.getLogger("ihaletakip")
 
 # Abonelik-başına gün-kilidi TTL'i (Redis). Anahtarda tarih olduğundan günün bitmesini
 # aşması yeter; ~1.5 gün.
 _ROW_DEDUP_TTL = 36 * 3600
-
-
-def _visibility_floor(prev, now):
-    """
-    Bildirim penceresinin tabanı — `Tender.ilan_gorunur_at` ekseninde.
-
-    `prev` aboneliğin son bildirim anıdır (watermark): iki çalışma arasında **görünür olan**
-    her ihale yakalanır, öncekiler tekrar edilmez. `prev` yoksa (yeni abonelik) ya da çok
-    eskiyse (abonelik uzun süre eşleşmemiş) pencere `NOTIF_LOOKBACK_HOURS` ile sınırlanır →
-    aylar sonra tek seferde devasa birikim gönderilmez.
-
-    ⚠️ Neden `ilan_tarihi` değil: o alan yalnızca detay senkronunda dolar ve detay çoğu zaman
-    ertesi gece gelir. "Bugün ilan edilenler" penceresi bu yüzden ihaleleri kalıcı olarak
-    kaçırıyordu (bkz. `Tender.ilan_gorunur_at` ve CLAUDE.md).
-    """
-    lookback = int(getattr(settings, "NOTIF_LOOKBACK_HOURS", 36))
-    floor = now - timedelta(hours=lookback)
-    if prev is None or prev < floor:
-        return floor
-    return prev
-
-
-def _publish_age_floor(now):
-    """İlanı bundan eski olan ihale, görünürlük damgası yeni olsa bile bildirilmez."""
-    return now - timedelta(days=int(getattr(settings, "NOTIF_MAX_PUBLISH_AGE_DAYS", 15)))
 
 
 def _local_date(dt):
@@ -204,14 +181,13 @@ def _alarm_enabled(alarm) -> bool:
 @shared_task(name="tenders.tasks.check_saved_filter_matches")
 def check_saved_filter_matches():
     """
-    Alarmı açık kayıtlı filtreler için, filtreye uyan ve **son bildirimden bu yana görünür
-    olan** açık ihaleleri bulur (`Tender.ilan_gorunur_at` ekseni — bkz. `_visibility_floor`).
-    **Her filtre için AYRI** uygulama-içi satır + push atılır (kullanıcı başına birleşik özet
-    DEĞİL): 10 filtreden 8'i eşleşirse 8 ayrı bildirim gider. Başlık = filtre adı, gövde =
-    "{filtre} filtrenize uygun N adet ihale bulundu."; tıklanınca tek ihale DEĞİL, `filter_id`
-    ile o filtrenin sonuç listesi açılır. Filtre başına atomik gün-kilidi (aynı gün çoğalma
-    yok), cross-day tekrarı **watermark** (`last_notified_at`) önler. **Filtre alarmı Pro'ya
-    özeldir.**
+    Alarmı açık kayıtlı filtreler için, filtreye uyan ve **yalnızca ilan_tarihi BUGÜN olan**
+    açık ihaleleri bulur (eski/dün yayınlananlar DEĞİL). **Her filtre için AYRI** uygulama-içi
+    satır + push atılır (kullanıcı başına birleşik özet DEĞİL): 10 filtreden 8'i eşleşirse 8 ayrı
+    bildirim gider. Başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu.";
+    tıklanınca tek ihale DEĞİL, `filter_id` ile o filtrenin sonuç listesi açılır. Filtre başına
+    atomik gün-kilidi (aynı gün çoğalma yok; "bugün" filtresi cross-day dedup'ı zaten sağlar).
+    **Filtre alarmı Pro'ya özeldir.**
     """
     from ekap.models import Tender
     from ekap.views import apply_tender_filters
@@ -227,7 +203,8 @@ def check_saved_filter_matches():
     notified = 0
     pushed = 0
 
-    yayin_tabani = _publish_age_floor(now)
+    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
+    gun_bas, gun_bit = local_day_range(today)
 
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
@@ -251,18 +228,15 @@ def check_saved_filter_matches():
                 base = base.filter(ihale_durum__in=OPEN_STATUSES)
             # Teklifi geçmemiş (biddable).
             base = base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-            # Pencere = son bildirimden bu yana GÖRÜNÜR olanlar (+ ilanı çok eski olmayanlar).
-            # ⚠️ `ilan_tarihi` BUGÜN filtresi DEĞİL: detay ertesi gece geldiği için o pencere
-            # ihaleleri kalıcı olarak kaçırıyordu (bkz. `_visibility_floor`).
-            base = base.filter(
-                ilan_gorunur_at__gte=_visibility_floor(sf.last_notified_at, now),
-                ilan_tarihi__gte=yayin_tabani,
-            )
+            # YALNIZCA ilan_tarihi BUGÜN olan ihaleler bildirilir (kullanıcı isteği): dün/eski/
+            # backfill yayınlananlar bildirilmez. ilan_tarihi detay senkronundan dolar; bugün
+            # yayınlanan bir ihale ancak detayı gelip ilan_tarihi=bugün olduğunda eşleşir.
+            base = base.filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
 
-            new_list = list(base.order_by("-ilan_gorunur_at")[:20])
-            # Watermark'ı sorgudan SONRA ilerlet: sorgu patlarsa pencere kaymasın.
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
+
+            new_list = list(base.order_by("-ilan_tarihi")[:20])
             if not new_list:
                 continue
 
@@ -297,13 +271,12 @@ def check_saved_filter_matches():
 @shared_task(name="tenders.tasks.check_favorite_authority_matches")
 def check_favorite_authority_matches():
     """
-    Favori idareler (alarm açık) için, o idarenin **son bildirimden bu yana görünür olan** açık
-    ihalelerini bulur (`Tender.ilan_gorunur_at` ekseni — bkz. `_visibility_floor`). **Her favori
-    idare için AYRI** uygulama-içi satır + push atılır (kullanıcı başına birleşik özet DEĞİL).
-    Başlık = idare adı; tıklanınca tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale
-    listesi (`GET /ekap/tenders/?idare_detsis=`) açılır. Seçilen `detsis_no`
-    `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir. İdare başına atomik
-    gün-kilidi; cross-day tekrarı **watermark** (`last_notified_at`) önler. **Favori idare
+    Favori idareler (alarm açık) için, o idarenin **yalnızca ilan_tarihi BUGÜN olan** açık
+    ihalelerini bulur (eski/dün yayınlananlar DEĞİL). **Her favori idare için AYRI** uygulama-içi
+    satır + push atılır (kullanıcı başına birleşik özet DEĞİL). Başlık = idare adı; tıklanınca
+    tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`)
+    açılır. Seçilen `detsis_no` `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir.
+    İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori idare
     alarmı Pro'ya özeldir.**
     """
     from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
@@ -320,7 +293,8 @@ def check_favorite_authority_matches():
     notified = 0
     pushed = 0
 
-    yayin_tabani = _publish_age_floor(now)
+    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
+    gun_bas, gun_bit = local_day_range(today)
 
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
         # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
@@ -337,22 +311,18 @@ def check_favorite_authority_matches():
                 expanded &= tender_idare_id_set()
             if not expanded:
                 continue
-            # Son bildirimden bu yana GÖRÜNÜR olan açık + teklifi geçmemiş ihaleler
-            # (ilanı çok eski olanlar hariç — backfill arşivi push'lamasın).
+            # YALNIZCA ilan_tarihi BUGÜN olan açık + teklifi geçmemiş ihaleler.
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(
-                    ilan_gorunur_at__gte=_visibility_floor(fav.last_notified_at, now),
-                    ilan_tarihi__gte=yayin_tabani,
-                )
-                .order_by("-ilan_gorunur_at")
+                .filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
+                .order_by("-ilan_tarihi")
             )
 
-            new_list = list(base[:20])
-            # Watermark'ı sorgudan SONRA ilerlet: sorgu patlarsa pencere kaymasın.
             fav.last_notified_at = now
             fav.save(update_fields=["last_notified_at"])
+
+            new_list = list(base[:20])
             if not new_list:
                 continue
 
@@ -395,16 +365,14 @@ def recommend_by_saved_okas():
     Kayıtlı ihalelere göre günlük OKAS önerisi — **Free/Pro fark etmeksizin HERKESE**.
 
     Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar; o kodlarla
-    **son 24 saatte görünür olan** (`ilan_gorunur_at`) açık + teklifi geçmemiş ihaleleri bulur.
+    **son 24 saatte yayınlanan** (ilan_tarihi) açık + teklifi geçmemiş ihaleleri bulur.
     Kullanıcının zaten kaydettiği ihaleler hariç tutulur. Eşleşme varsa kullanıcı başına
     tek özet bildirim + push atılır; push/bildirim OKAS kodlarını `okas_kodlar` (CSV) ile
     taşır → mobil bildirime basınca tek ihale DEĞİL, `GET /ekap/tenders/?okas_kod=<CSV>`
     ile o kategorilerdeki arama sonuçlarını açar.
 
     Not: Bu bildirim **premium değildir** (herkese) — İhale Asistanı önerisinden (Pro,
-    profil tabanlı) ayrıdır. Pencere `NOTIF_OKAS_PUBLISH_DAYS` (vars. 1 gün) ile ayarlanır;
-    görev günde bir koştuğu için 1 gün örtüşmesiz bir kayar penceredir (kullanıcı başına
-    watermark tutulmaz — bildirim tek özettir).
+    profil tabanlı) ayrıdır. Pencere `NOTIF_OKAS_PUBLISH_DAYS` (vars. 1 gün) ile ayarlanır.
     """
     from django.contrib.auth import get_user_model
 
@@ -458,15 +426,15 @@ def recommend_by_saved_okas():
             if not okas_codes:
                 continue
 
-            # Aynı OKAS kodlarıyla son 24 saatte GÖRÜNÜR olan açık + teklifi geçmemiş ihaleler
-            # (kullanıcının zaten kaydettikleri hariç; ilanı çok eski olanlar hariç).
+            # Aynı OKAS kodlarıyla son 24 saatte yayınlanan açık + teklifi geçmemiş ihaleler
+            # (kullanıcının zaten kaydettikleri hariç).
             matches = (
                 Tender.objects.filter(
                     okas_kalemleri__kodu__in=okas_codes,
                     ihale_durum__in=OPEN_STATUSES,
                 )
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_gorunur_at__gte=window_start, ilan_tarihi__gte=_publish_age_floor(now))
+                .filter(ilan_tarihi__gte=window_start)
                 .exclude(ikn__in=saved_ikns)
                 .distinct()
             )

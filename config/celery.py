@@ -52,37 +52,24 @@ app.conf.beat_schedule = {
         "kwargs": {"days": 30},
     },
     # ── EKAP veri toplama ──────────────────────────────
-    # Güncel ihaleler — GÜNDÜZ 4 kez: 06:30 / 10:30 / 13:30 / 16:30.
-    # ⚠️ Saatler backfill penceresinin (19:00–06:00) DIŞINDA seçildi: `ekap` kuyruğu tek
-    # concurrency'lidir; backfill koşarken tetiklenen sync_recent kuyrukta bekler. Üretimde
-    # tam bu yaşandı — sync_recent her gün biraz daha kaydı (23:00 → 00:36 → 05:29 → 11:47)
-    # ve bir gün hiç koşmadı; yeni ilanlar geç girdiği için bildirim eşleşmeleri sıfırlandı.
-    # 06:30'daki tur ayrıca bildirimlere veri yetiştirir: 07/08/09/10/11'deki asistan/OKAS/
-    # alarm/filtre/idare görevlerinden ÖNCE günün ilanlarını DB'ye alır.
-    # ⚠️ `crontab(minute=..., hour=...)` kartezyen çarpımdır: dakikayı liste yapmayın
-    # (`minute="30,0"` + `hour="6,10"` → 4 değil 4×2 = 8 çalışma).
+    # Güncel ihaleler — her gece 02:00
     "ekap-sync-recent": {
         "task": "ekap.tasks.sync_recent",
-        "schedule": crontab(minute=30, hour="6,10,13,16"),
+        "schedule": crontab(hour=2, minute=0),
     },
     # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
     "ekap-refresh-stale": {
         "task": "ekap.tasks.refresh_stale",
         "schedule": crontab(minute=30, hour="*/3"),
     },
-    # Geçmiş doldurma (backfill) — AKŞAM 19:00'dan sabah 06:00'ya, 15 dk'da bir.
-    # ⚠️ Pencere ZORUNLU, keyfi değil: `ekap` kuyruğu tek concurrency'lidir ve backfill uzun
-    # sürer. Tüm gün koştuğunda `sync_recent` ve detay görevleri arkasında sıraya giriyor,
-    # güncel ilanlar saatlerce (giderek: günlerce) gecikiyordu → "bugün ilan edilen ihale = 0"
-    # → filtre/idare/OKAS/asistan bildirimlerinin hepsi birden susuyordu. Gündüz kuyruk
-    # güncel veriye ayrılır; arşiv doldurma akşam/gece 11 saatte ilerler.
-    # 5 yıl tabanına ulaşınca görev DB kontrolüyle anında döner → boşta maliyeti yok. EKAP
-    # yavaş/yanıtsızsa sayfa hatasını zarifçe yutar (kısmi ilerlemeyi kaydeder, sonraki
-    # tetikte devam eder). Kilit (1 sa) üst üste binmeyi, throttle (~1 istek/sn) + tek
-    # concurrency EKAP'ı korur.
+    # Geçmiş doldurma (backfill) — TÜM GÜN, 15 dk'da bir. 5 yıl tabanına ulaşınca
+    # görev DB kontrolüyle anında döner → boşta maliyeti yok. EKAP gün içinde
+    # yavaş/yanıtsız olabildiğinden görev sayfa hatasını zarifçe yutar (kısmi
+    # ilerlemeyi kaydeder, sonraki tetikte kaldığı yerden devam eder). Kilit (1 sa)
+    # üst üste binmeyi, throttle (~1 istek/sn) + tek concurrency EKAP'ı korur.
     "ekap-backfill": {
         "task": "ekap.tasks.backfill",
-        "schedule": crontab(minute="*/15", hour="19-23,0-5"),
+        "schedule": crontab(minute="*/15"),
     },
     # OKAS kodları — haftalık (Pazartesi 05:00)
     # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →

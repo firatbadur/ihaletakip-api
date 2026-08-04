@@ -133,19 +133,10 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   tarihten kayıtla doluyordu). Artık sınır **ihale tarihine** göre EKAP'ta uygulanır;
   istemci `oldest` kontrolü yedek olarak `ihale_tarihi` (dolu alan) kullanır. Pencere
   daraltmak/genişletmek için tek düğme: `.env` → `EKAP_BACKFILL_YEARS`.
-- **⚠️ Kuyruk paylaşımı = zamanlamanın tamamı.** `ekap` kuyruğu **tek concurrency**'lidir;
-  aynı anda yalnızca bir EKAP görevi koşar. Bu yüzden görevlerin saatleri keyfi değil,
-  **birbirini bloklamayacak** şekilde seçilmiştir. Üretimde yaşanan arıza (2026-08-04):
-  `backfill` tüm gün 15 dk'da bir koşarken `sync_recent` her gün biraz daha geriye kaydı
-  (23:00 → 00:36 → 05:29 → 11:47 → hiç), güncel ilanlar DB'ye günler sonra girmeye başladı
-  ve **tüm bildirimler sustu**. Yeni bir EKAP beat görevi eklerken pencereleri koruyun.
-- **Toplama (Celery Beat)**: `sync_recent` (**gündüz 4 kez: 06:30/10:30/13:30/16:30**; en yeni
-  ilanlar, `ilanTarihi` desc, 20 sayfa — 06:30'daki tur bildirim görevlerinden [07–11] önce
-  günün ilanlarını DB'ye alır; `crontab(minute=…, hour=…)` **kartezyen çarpımdır**, dakikayı
-  liste yapmayın), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
-  yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**akşam 19:00 – sabah
-  06:00**, 15 dk'da bir; gündüz kuyruğu güncel veriye bırakır; pencere tabanından **ileriye**
-  `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
+- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00; en yeni ilanlar, `ilanTarihi` desc,
+  20 sayfa), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
+  yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da
+  bir; pencere tabanından **ileriye** `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
   yıllar olduğu için önce onları doldurur, en yeni kayıtlar listenin sonuna eklendiğinden
   imleç kaymaz; `skip >= total_count` [pencere içi toplam] ya da boş sayfada `done=True`.
   EKAP gün içinde yavaş/yanıtsız olabildiğinden görev sayfa hatasını **zarifçe yutar**:
@@ -164,8 +155,7 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   `refresh_stale` yönetir. Bu guard olmadan 5→10 yıl geçişi, arşivdeki yüz binlerce
   ihalenin detayını EKAP'tan gereksizce yeniden çeker ve ~1 istek/sn sınırında günler
   harcardı. Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail` ile
-  yakalanır. **Aynı guard `sync_recent`'te de vardır** (gün içinde 4 kez koştuğu için:
-  koşulsuz enqueue her turda ~1000 gereksiz istek = ~17 dk kuyruk işgali demekti).
+  yakalanır.
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
   (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
   `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı
@@ -231,9 +221,8 @@ ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorile
   kullanıcıya bildirim gider — `check_favorite_authority_matches` beat görevi (her gün
   **11:00**), kayıtlı-filtre eşleşmesiyle **aynı desen**. Fark: filtre yerine idare;
   seçilen `detsis_no` `descendant_idare_ids` ile tüm alt birimlerin `idare_id`'lerine
-  genişletilir (ihale/tarama uçlarıyla ortak), açık + **son bildirimden bu yana görünür olan**
-  ihaleler bulunur (`ilan_gorunur_at`; bkz. "Bildirim penceresi").
-  Uygulama-içi satır `type=TENDER` + **`authority_detsis`
+  genişletilir (ihale/tarama uçlarıyla ortak), açık + **`ilan_tarihi` BUGÜN olan** ihaleler
+  bulunur. Uygulama-içi satır `type=TENDER` + **`authority_detsis`
   dolu** yazılır → mobil bildirime basınca **tek ihale DEĞİL**, o idarenin ihale listesini
   (`idare_detsis=<detsis_no>`) açar (`tender_ikn` yalnızca dedup için yazılır, mobil
   `authority_detsis`'i önceler). Kullanıcı başına tek özet push. **Alarm Pro'ya özeldir**:
@@ -557,11 +546,9 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   push bildirimi. `CompanyProfile.is_active=False` ise kullanıcı atlanır.
   - **Eşleştirme kapsamı** (`match_tenders_for_profile`): temel filtre **durum 2/3 (katılıma
     açık) + teklifi geçmemiş** (`ihale_tarihi >= now` ya da boş). İki opsiyonel pencere:
-    (a) `gorunur_since=<datetime>` **KATI** → yalnızca o andan sonra sisteme **yeni görünen**
-    ihaleler (`ilan_gorunur_at`, NULL hariç); **günlük öneri bildirimi (beat) bunu
-    `NOTIF_LOOKBACK_HOURS` [36 sa] ile çağırır**. ⚠️ Eskiden burada `published_on` (ilan_tarihi
-    = bugün) vardı ve ihaleleri kalıcı kaçırıyordu — bkz. "Bildirim penceresi".
-    (b) `since` **gevşek** → son X gün, `ilan_tarihi` boş olanlar dahil
+    (a) `published_on=<tarih>` **KATI** → yalnızca `ilan_tarihi` tarihi tam o güne eşit (NULL
+    hariç); **günlük öneri bildirimi (beat) bunu BUGÜN'le çağırır** → yalnızca bugün yayınlanan
+    ihaleler önerilir. (b) `since` **gevşek** → son X gün, `ilan_tarihi` boş olanlar dahil
     (`--days N`, N>1 backfill). Sohbet/canlı eşleştirme ikisini de vermez (geniş kapsam).
     Kullanıcının zaten **kaydettiği** ihaleler (`SavedTender`) önerilerden **exclude** edilir
     (İKN ile açıkça sorulursa yine gelir).
@@ -829,34 +816,7 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   08:00 OKAS önerisi (`recommend_by_saved_okas`), 09:00 alarm hatırlatıcıları
   (`check_tender_alarms`), 10:00 filtre eşleşmeleri (`check_saved_filter_matches`), 11:00
   favori idare eşleşmeleri (`check_favorite_authority_matches`). Alarm/filtre/idare kategorileri
-  **abonelik-başına ayrı push** atar (o kategorinin görev turunda arka arkaya). Bu pencereye
-  veri yetiştiren `ekap-sync-recent` **06:30**'da koşar (bkz. EKAP "Kuyruk paylaşımı").
-
-#### ⚠️ Bildirim penceresi = `Tender.ilan_gorunur_at` (ilan_tarihi DEĞİL)
-
-Filtre / favori idare / OKAS / asistan önerisi, hangi ihalelerin "yeni" olduğunu
-**`ilan_gorunur_at`** ile bulur: bu alan `ilan_tarihi` NULL'dan **ilk kez dolduğunda**
-(yani ihalenin detayı ilk çekildiğinde) damgalanır ve bir daha değişmez.
-
-**Neden `ilan_tarihi` ile olmuyor** (üretimde yaşandı, 2026-08-04): `ilan_tarihi` EKAP liste
-yanıtında boş gelir, yalnızca **detay** senkronunda dolar. Detay ise çoğu zaman ertesi gece
-gelir. Eski "yalnızca `ilan_tarihi` = BUGÜN" penceresi bu yüzden ihaleleri **kalıcı olarak**
-kaçırıyordu: görev koştuğu gün alan hâlâ NULL, alan dolduğunda ihale artık "dün". Ölçüm:
-3 Ağustos'ta ilan edilen 354 ihalenin `ilan_tarihi`'si 4 Ağustos 01:27–02:02'de doldu →
-o gün de ertesi gün de sıfır eşleşme; **tüm bildirim türleri birden sustu**.
-
-- **Pencere tabanı** = `tenders.tasks._visibility_floor(prev, now)`: aboneliğin
-  `last_notified_at` watermark'ı; yoksa/çok eskiyse `NOTIF_LOOKBACK_HOURS` (vars. **36 sa**)
-  ile sınırlanır → aylar sonra tek seferde devasa birikim gitmez. Watermark sorgudan **sonra**
-  ilerletilir (sorgu patlarsa pencere kaymasın).
-- **Güvenlik ağı** `NOTIF_MAX_PUBLISH_AGE_DAYS` (vars. **15 gün**): backfill arşivden bir
-  ihaleyi bugün ilk kez "görünür" yapabilir; ilanı bundan eskiyse bildirilmez.
-- **Damga asla yenilenmez** (`sync.upsert_tender_detail`): `refresh_stale` 3 saatte bir detay
-  tazeliyor; damga yenilenseydi arşivdeki her ihale "yeni" görünüp push fırtınası çıkarırdı.
-- Arşivdeki eski satırlarda alan **NULL**'dır (migration yalnızca son 15 günü damgaladı) →
-  NULL satırlar pencereye hiç girmez. Bu bilinçlidir: 500k geçmiş ihale bildirilmesin.
-- Asistan tarafında karşılığı `match_tenders_for_profile(gorunur_since=…)`; tekrar önerme
-  `TenderRecommendation` `(user, tender)` unique kısıtıyla önlenir.
+  **abonelik-başına ayrı push** atar (o kategorinin görev turunda arka arkaya).
 - **Çoğalma önleme = abonelik-başına ATOMİK gün-kilidi** (`cache.add`, race-safe): her filtre/
   idare/alarm için `{"filter"|"authority"|"alarm"|"okasrec"}:{uid}:{item_id}:{date}` anahtarı
   öğe işlenmeden **atomik** rezerve edilir. Görev yinelenmiş/interval beat ile aynı gün çok kez
@@ -887,9 +847,10 @@ o gün de ertesi gün de sıfır eşleşme; **tüm bildirim türleri birden sust
      push (o ihalenin olayları `templates.alarm_tender` ile tek bildirimde birleşir; başlık =
      ihale adı). `type=ALARM` + `tenderId`/`tenderIkn` → tıklanınca ihale detayı. Gün-kilidi
      `alarm:{uid}:{ekap_id}:{date}`. Snapshot alanları `TenderAlarm`'da.
-  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **son bildirimden bu
-     yana GÖRÜNÜR olan** açık ihaleler (`ilan_gorunur_at >= last_notified_at`, bkz. "Bildirim
-     penceresi"). Cross-day tekrarı **watermark** (`last_notified_at`) önler. Filtre semantiği
+  3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — filtreye uyan ve **yalnızca `ilan_tarihi`
+     BUGÜN olan** açık ihaleler (dün/eski/backfill DEĞİL; "bugün" filtresi cross-day dedup'ı da
+     sağlar → watermark KALDIRILDI). `ilan_tarihi` detay senkronundan dolduğundan bugün yayınlanan
+     bir ihale ancak detayı gelip `ilan_tarihi=bugün` olunca eşleşir. Filtre semantiği
      `ekap.views.apply_tender_filters` ile view'la **ortak**.
      **Her filtre için AYRI** bildirim/push (10 filtreden 8'i eşleşirse 8 ayrı). **Mesaj**:
      başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu."
@@ -897,8 +858,8 @@ o gün de ertesi gün de sıfır eşleşme; **tüm bildirim türleri birden sust
      `filter_id=SavedFilter.id`; `tender_id`/`tender_ikn` **doldurulmaz**. Mobil `filter_id`
      ile filtreyi (`GET /saved-filters/{id}/`) yükleyip arama sonuçlarını açar (push data →
      `filterId`). Gün-kilidi `filter:{uid}:{sf.id}:{date}`. **Pro'ya özel** (premium olmayan atlanır).
-  4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **son bildirimden bu
-     yana GÖRÜNÜR olan** açık ihaleleri (watermark = `last_notified_at`).
+  4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yalnızca `ilan_tarihi`
+     BUGÜN olan** açık ihaleleri (dün/eski DEĞİL; "bugün" filtresi cross-day dedup'ı sağlar).
      `detsis_no` `descendant_idare_ids` ile alt birim
      `idare_id`'lerine genişletilir (ihale/tarama uçlarıyla ortak). **Her favori idare için
      AYRI** bildirim/push (başlık = idare adı). **Derin bağlantı = idare listesi**: `type=TENDER`
@@ -908,7 +869,7 @@ o gün de ertesi gün de sıfır eşleşme; **tüm bildirim türleri birden sust
   5. **OKAS önerisi** (`recommend_by_saved_okas`, 08:00) — **Free/Pro fark etmez, HERKESE**.
      Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar (benzersiz,
      azami 20 kod; `OkasItem.kodu`), o kodlarla **son `NOTIF_OKAS_PUBLISH_DAYS`=1 günde
-     görünür olan** (`ilan_gorunur_at`) açık + teklifi geçmemiş ihaleleri bulur (kullanıcının zaten
+     yayınlanan** (`ilan_tarihi`) açık + teklifi geçmemiş ihaleleri bulur (kullanıcının zaten
      kaydettikleri hariç). Eşleşme varsa tek özet bildirim + push. **Mesaj**: "Size Özel
      İhaleler" / "İlgilendiğiniz kategorilerde N yeni ihale yayınlandı." **Derin bağlantı =
      OKAS araması** (tek ihale DEĞİL): bildirim `type=TENDER` + `okas_kodlar` (CSV);

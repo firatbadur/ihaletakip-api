@@ -295,16 +295,12 @@ def assistant_chat_task(user_id, message_id):
 @shared_task(name="assistant.tasks.match_recommendations")
 def match_recommendations(since_days=1):
     """
-    Günlük eşleştirme: her aktif profil için **son turdan bu yana görünür olan** açık ihaleleri
-    skorlar; öneri + bildirim + digest sohbet mesajı üretir.
-
-    Pencere `Tender.ilan_gorunur_at` eksenindedir (`NOTIF_LOOKBACK_HOURS`, vars. 36 sa): eski
-    "ilan_tarihi = BUGÜN" katı filtresi, detay ertesi gece geldiği için ihaleleri kalıcı olarak
-    kaçırıyordu. Tekrar önerme riski yok — `(user, tender)` unique kısıtı zaten dedup eder.
+    Günlük eşleştirme: her aktif profil için **yalnızca ilan_tarihi BUGÜN olan** açık ihaleleri
+    skorlar; öneri + bildirim + digest sohbet mesajı üretir (dün/eski yayınlananlar DEĞİL).
 
     since_days: elle tetiklerken geniş pencere için artırılabilir (bkz.
-    `manage.py run_assistant_match --days N`); >1 verilirse görünürlük penceresi yerine son N
-    günün gevşek `ilan_tarihi` penceresi kullanılır (backfill/test için).
+    `manage.py run_assistant_match --days N`). `since_days>1` verilirse "bugün" katı filtresi
+    yerine son N günün gevşek penceresi (`since`) kullanılır (backfill/test için).
     """
     from datetime import timedelta
 
@@ -318,15 +314,11 @@ def match_recommendations(since_days=1):
     from tenders.models import Notification
     from tenders.services import notify
 
-    from django.conf import settings
-
     today = timezone.localdate()
-    now = timezone.now()
-    # Varsayılan (beat, since_days=1): son turdan bu yana GÖRÜNÜR olanlar.
+    # Varsayılan (beat, since_days=1): yalnızca BUGÜN yayınlananlar (katı).
     # Elle geniş pencere (since_days>1): eski gevşek `since` (backfill/test).
-    lookback = int(getattr(settings, "NOTIF_LOOKBACK_HOURS", 36))
-    gorunur_since = now - timedelta(hours=lookback) if since_days <= 1 else None
-    since = None if since_days <= 1 else (now - timedelta(days=since_days))
+    published_on = today if since_days <= 1 else None
+    since = None if since_days <= 1 else (timezone.now() - timedelta(days=since_days))
 
     profiles = (
         CompanyProfile.objects.filter(is_active=True)
@@ -342,9 +334,7 @@ def match_recommendations(since_days=1):
             skipped_free += 1
             continue
         try:
-            matches = match_tenders_for_profile(
-                profile, since=since, gorunur_since=gorunur_since
-            )
+            matches = match_tenders_for_profile(profile, since=since, published_on=published_on)
         except Exception:
             logger.exception("match_recommendations: profil %s eşleştirme hatası", profile.id)
             continue

@@ -558,6 +558,36 @@
               ],
               "query": [
                 {
+                  "key": "duzeltme_ilani_var",
+                  "value": "True",
+                  "description": "Düzeltme ilanı bulunanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "e_eksiltme_yapilacak",
+                  "value": "True",
+                  "description": "Elektronik eksiltme yapılacak ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "e_ihale",
+                  "value": "True",
+                  "description": "Elektronik ihale. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "en_ust_idare_kod",
+                  "value": "15",
+                  "description": "Bakanlık/üst kurum kodu (virgülle çoklu). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "fiyat_disi_unsur_var",
+                  "value": "True",
+                  "description": "Fiyat dışı unsur içeren ihaleler — en düşük fiyat tek başına kazandırmaz. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
                   "key": "idare_adi",
                   "value": "belediyesi",
                   "description": "Kurum (idare) adında geçen metin (kısmi eşleşme).",
@@ -573,6 +603,12 @@
                   "key": "idare_id",
                   "value": "Ankara Büyükşehir Belediyesi",
                   "description": "İdare (kurum) id listesi (virgülle) — doğrudan `Tender.idare_id` ile eşleşir (yaprak seçim).",
+                  "disabled": true
+                },
+                {
+                  "key": "idareye_sikayet_var",
+                  "value": "True",
+                  "description": "İdareye şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
                   "disabled": true
                 },
                 {
@@ -648,9 +684,63 @@
                   "disabled": true
                 },
                 {
+                  "key": "ilansiz_mi",
+                  "value": "True",
+                  "description": "İlansız ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "indirim_orani_max",
+                  "value": "ornek",
+                  "description": "İndirim oranı üst sınırı (oran). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "indirim_orani_min",
+                  "value": "ornek",
+                  "description": "İndirim oranı alt sınırı (**oran**, yüzde değil: `0.20` = %20). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "iptal",
+                  "value": "True",
+                  "description": "İptal edilmiş ihaleler (durum 6/10). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "istekli_sayisi_max",
+                  "value": "1",
+                  "description": "İstekli sayısı üst sınırı. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "istekli_sayisi_min",
+                  "value": "1",
+                  "description": "Katılan istekli sayısı alt sınırı. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner. İstekli sayısı değerlendirme bitince oluşur → açık ihaleler kapsam dışı kalır.",
+                  "disabled": true
+                },
+                {
+                  "key": "itirazen_sikayet_var",
+                  "value": "True",
+                  "description": "İtirazen şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "kismi_ihale",
+                  "value": "True",
+                  "description": "Kısımlı ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
                   "key": "okas_adi",
                   "value": "yazılım",
                   "description": "OKAS branş adı listesi (virgülle, kısmi eşleşme).",
+                  "disabled": true
+                },
+                {
+                  "key": "okas_ana_kod",
+                  "value": "ornek",
+                  "description": "Birincil OKAS kodu (virgülle çoklu). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner. Alt kalemleri de kapsayan arama için `okas_kod` kullanın.",
                   "disabled": true
                 },
                 {
@@ -690,9 +780,63 @@
                   "disabled": true
                 },
                 {
+                  "key": "seri_anahtar",
+                  "value": "ornek",
+                  "description": "Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan yıla tekrarladığı işler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "sikayet_dilekce_var",
+                  "value": "True",
+                  "description": "Şikâyet dilekçesi olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
                   "key": "siralamaTipi",
                   "value": "desc",
                   "description": "Sıralama yönü. Geçerli değerler: `asc`, `desc`.",
+                  "disabled": true
+                },
+                {
+                  "key": "sonuclanmis",
+                  "value": "True",
+                  "description": "`true` → sözleşmesi olan ihaleler, `false` → olmayanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "sozlesme_bedeli_max",
+                  "value": "ornek",
+                  "description": "Toplam sözleşme bedeli üst sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "sozlesme_bedeli_min",
+                  "value": "ornek",
+                  "description": "İhalenin toplam sözleşme bedeli alt sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "teklif_sayisi_max",
+                  "value": "1",
+                  "description": "En çok bu kadar teklif. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "teklif_sayisi_min",
+                  "value": "1",
+                  "description": "Rekabet: en az bu kadar teklif verilmiş ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "yaklasik_maliyet_max",
+                  "value": "ornek",
+                  "description": "Yaklaşık maliyet üst sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
+                  "disabled": true
+                },
+                {
+                  "key": "yaklasik_maliyet_min",
+                  "value": "ornek",
+                  "description": "Yaklaşık maliyet alt sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner. Yalnızca Sonuç İlanı olan ihalelerde bilinir → değeri bilinmeyenler kapsam dışı kalır (yanıt `uyari` taşır).",
                   "disabled": true
                 },
                 {

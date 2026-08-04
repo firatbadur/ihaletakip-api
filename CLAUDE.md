@@ -404,6 +404,40 @@ ve konan korumalar:
   `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
   anahtar üretilmez ve ihale hiçbir seriye girmez.
 
+#### Pro arama filtreleri (`_PRO_PARAMS`)
+
+Gelişmiş filtreler Pro'ya kilitlidir; **temel arama herkese açık kalır** (uç hâlâ
+`AllowAny`). `TenderListView` istekte `_PRO_PARAMS`'tan biri varsa `require_premium`
+çağırır → `403` + `errors.code=premium_required` (mobilin zaten işlediği sözleşme).
+
+- ⚠️ **Parametreyi sessizce yok saymak YANLIŞ olurdu**: kullanıcının istediğinden *daha
+  fazla* sonuç dönerdi — limit kılığına girmiş bir doğruluk hatası. Açık 403 doğrusu.
+- Filtreler: tutar aralıkları (`yaklasik_maliyet_*`, `sozlesme_bedeli_*`), rekabet
+  (`teklif_sayisi_*`, `istekli_sayisi_*`), `indirim_orani_*`, `sonuclanmis`, `iptal`,
+  `e_ihale`, sinyal bayrakları (`fiyat_disi_unsur_var`, `itirazen_sikayet_var`, …),
+  `okas_ana_kod`, `en_ust_idare_kod`, `seri_anahtar`.
+- ⚠️ **`_PRO_PARAMS` ile `_PRO_SCHEMA_PARAMS` aynı adları taşımalı.** Biri güncellenip
+  diğeri unutulursa uç ya belgelenmemiş bir filtre kabul eder ya da belgelenen bir filtre
+  403 vermez. (Testi kolay: iki kümenin farkı boş olmalı.)
+- ⚠️ **`_PRO_PARAMS`'ı `_COUNT_IGNORED_PARAMS` ile karıştırmayın.** İkincisi cache
+  anahtarından **dışlananlar**dır; Pro filtreleri sonucu değiştirdiği için anahtara
+  **girmelidir**.
+- **Üç değerli bayraklarda `False` istenince `exclude(True)` DEĞİL `filter(False)`**
+  kullanılır: `exclude` NULL'ları (detayı gelmemiş ihaleler) da toplar ve "itirazsız
+  ihaleler" listesi bilinmeyenlerle şişerdi. `_as_bool` bu yüzden üç değerli döner —
+  `None` ("parametre yok") ile `False` ("hayır olanlar") ayrı davranır.
+- **`e_ihale` mevcut JSONB etiketini kullanır** (`ozellikler__contains=["E_IHALE"]`),
+  `Tender.e_ihale` boolean'ını DEĞİL: o kolon indekssiz ve tutarsız doluyor
+  (`sync.py` yalnızca payload'da varsa yazıyor), `ozellikler` ise GIN indeksli.
+- **Dürüstlük uyarısı**: kapsamı kısmi kolonlarda (`yaklasik_maliyet_num`,
+  `teklif_sayisi`, `istekli_sayisi`) aralık filtresi, değeri **bilinmeyen** ihaleleri de
+  sessizce eler (NULL hiçbir aralığa girmez). Bu filtreler kullanılınca yanıt
+  `data.uyari` taşır → istemci "sonuç yok" ile "veri yok"u ayırt edebilsin.
+- ⚠️ **İndeksler henüz YOK.** Doldurma bitmeden kurulursa ~1M satırlık UPDATE onları
+  şişirir. `AddIndexConcurrently` doldurma tamamlanınca eklenecek; o zamana kadar dar
+  aralıklı sorgular için **`EXPLAIN (ANALYZE, BUFFERS)` şart** (`ORDER BY tarih DESC
+  LIMIT N` + seçici filtre bu kod tabanını üç kez ısırmış plan tuzağıdır).
+
 #### Doldurma: `backfill_tender_fields`
 
 `sync_contractors`'ın ikizi — zaman bütçeli, PK imleçli, gece pencereli arşiv taraması.
@@ -729,6 +763,9 @@ kodu görünce abonelik paketlerini sunar.
     mesaj gönderme kilitli).
   - **AI doküman analizi** (`AnalyzeView`) → 403, en başta (cache dahil hiç işlenmez).
     Doküman **indirme** (`ekap document-url`) serbesttir; TTS de kısıtlanmaz.
+  - **Gelişmiş arama filtreleri** (`TenderListView`, `_PRO_PARAMS`) → 403. Temel arama
+    (`q`, il, tür, tarih, OKAS, idare…) **herkese açık kalır**; yalnızca tutar/rekabet/
+    indirim/şikâyet/kategori filtreleri kilitli (bkz. "Pro arama filtreleri").
   - **İhale Asistanı bildirimleri** → `match_recommendations` Free üyeyi **atlar**
     (öneri/digest/push üretilmez; `.select_related("user")` + `is_premium` kontrolü).
   - **Destek talebi oluşturma** (`SupportTicketView.perform_create`) → 403; talep

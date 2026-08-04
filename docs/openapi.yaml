@@ -1397,6 +1397,41 @@ paths:
       summary: İhale ara / listele
       parameters:
       - in: query
+        name: duzeltme_ilani_var
+        schema:
+          type: boolean
+        description: Düzeltme ilanı bulunanlar. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: e_eksiltme_yapilacak
+        schema:
+          type: boolean
+        description: Elektronik eksiltme yapılacak ihaleler. 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: e_ihale
+        schema:
+          type: boolean
+        description: Elektronik ihale. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim
+          istek `403 premium_required` döner.
+      - in: query
+        name: en_ust_idare_kod
+        schema:
+          type: string
+        description: Bakanlık/üst kurum kodu (virgülle çoklu). 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner.
+        examples:
+          SağlıkBakanlığı:
+            value: '15'
+            summary: Sağlık Bakanlığı
+      - in: query
+        name: fiyat_disi_unsur_var
+        schema:
+          type: boolean
+        description: Fiyat dışı unsur içeren ihaleler — en düşük fiyat tek başına
+          kazandırmaz. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403
+          premium_required` döner.
+      - in: query
         name: idare_adi
         schema:
           type: string
@@ -1421,6 +1456,12 @@ paths:
           type: string
         description: İdare (kurum) id listesi (virgülle) — doğrudan `Tender.idare_id`
           ile eşleşir (yaprak seçim).
+      - in: query
+        name: idareye_sikayet_var
+        schema:
+          type: boolean
+        description: İdareye şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
       - in: query
         name: ihale_adi
         schema:
@@ -1530,6 +1571,56 @@ paths:
           Tarih:
             value: 01.01.2026
       - in: query
+        name: ilansiz_mi
+        schema:
+          type: boolean
+        description: İlansız ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim
+          istek `403 premium_required` döner.
+      - in: query
+        name: indirim_orani_max
+        schema:
+          type: string
+        description: İndirim oranı üst sınırı (oran). 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: indirim_orani_min
+        schema:
+          type: string
+        description: 'İndirim oranı alt sınırı (**oran**, yüzde değil: `0.20` = %20).
+          🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required`
+          döner.'
+      - in: query
+        name: iptal
+        schema:
+          type: boolean
+        description: İptal edilmiş ihaleler (durum 6/10). 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: istekli_sayisi_max
+        schema:
+          type: integer
+        description: İstekli sayısı üst sınırı. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: istekli_sayisi_min
+        schema:
+          type: integer
+        description: Katılan istekli sayısı alt sınırı. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner. İstekli sayısı değerlendirme
+          bitince oluşur → açık ihaleler kapsam dışı kalır.
+      - in: query
+        name: itirazen_sikayet_var
+        schema:
+          type: boolean
+        description: İtirazen şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: kismi_ihale
+        schema:
+          type: boolean
+        description: Kısımlı ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim
+          istek `403 premium_required` döner.
+      - in: query
         name: okas_adi
         schema:
           type: string
@@ -1538,6 +1629,13 @@ paths:
           OKASAdı:
             value: yazılım
             summary: OKAS adı
+      - in: query
+        name: okas_ana_kod
+        schema:
+          type: string
+        description: Birincil OKAS kodu (virgülle çoklu). 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner. Alt kalemleri
+          de kapsayan arama için `okas_kod` kullanın.
       - in: query
         name: okas_kod
         schema:
@@ -1588,6 +1686,19 @@ paths:
             value: siber güvenlik
             summary: Anahtar kelime
       - in: query
+        name: seri_anahtar
+        schema:
+          type: string
+        description: Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan yıla
+          tekrarladığı işler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek
+          `403 premium_required` döner.
+      - in: query
+        name: sikayet_dilekce_var
+        schema:
+          type: boolean
+        description: Şikâyet dilekçesi olanlar. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
         name: siralamaTipi
         schema:
           type: string
@@ -1596,6 +1707,50 @@ paths:
           - desc
           default: desc
         description: Sıralama yönü.
+      - in: query
+        name: sonuclanmis
+        schema:
+          type: boolean
+        description: '`true` → sözleşmesi olan ihaleler, `false` → olmayanlar. 🔒 **Pro**
+          — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.'
+      - in: query
+        name: sozlesme_bedeli_max
+        schema:
+          type: string
+        description: Toplam sözleşme bedeli üst sınırı (TL). 🔒 **Pro** — bu parametre
+          kullanılırsa Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: sozlesme_bedeli_min
+        schema:
+          type: string
+        description: İhalenin toplam sözleşme bedeli alt sınırı (TL). 🔒 **Pro** —
+          bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: teklif_sayisi_max
+        schema:
+          type: integer
+        description: En çok bu kadar teklif. 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: teklif_sayisi_min
+        schema:
+          type: integer
+        description: 'Rekabet: en az bu kadar teklif verilmiş ihaleler. 🔒 **Pro**
+          — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.'
+      - in: query
+        name: yaklasik_maliyet_max
+        schema:
+          type: string
+        description: Yaklaşık maliyet üst sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner.
+      - in: query
+        name: yaklasik_maliyet_min
+        schema:
+          type: string
+        description: Yaklaşık maliyet alt sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa
+          Free/anonim istek `403 premium_required` döner. Yalnızca Sonuç İlanı olan
+          ihalelerde bilinir → değeri bilinmeyenler kapsam dışı kalır (yanıt `uyari`
+          taşır).
       - in: query
         name: yasa_kapsami
         schema:

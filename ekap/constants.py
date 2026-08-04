@@ -99,6 +99,10 @@ DURUM_SOZLESME_IMZALANDI = {5, 20}
 # düşer. 5/6 sonradan eklendi (eski küme {10,15,20} bunları kaçırıyordu).
 DURUM_SONUCLANMIS = {5, 6, 10, 15, 20}
 
+# İptal edilmiş ihaleler. ⚠️ İKİ kod da iptaldir (bkz. IHALE_DURUM) — yalnızca 6'yı
+# almak üretimde iptallerin bir kısmını kaçırır.
+DURUM_IPTAL = {6, 10}
+
 ILAN_TIP = {
     1: "İhale İlanı",
     2: "Düzeltme İlanı",

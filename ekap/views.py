@@ -6,6 +6,7 @@ otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 """
 import hashlib
 import logging
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.cache import cache
@@ -20,9 +21,10 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
+from accounts.premium import MSG_PRO_FILTRE, require_premium
 from core.response import api_response
 
-from .constants import CITIES, IHALE_TURU, OZELLIK_MAP
+from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
 from .models import (
     Announcement,
@@ -87,6 +89,38 @@ def _as_str_list(value):
     return _str_list(str(value))
 
 
+_TRUE = {"1", "true", "evet", "yes", "on"}
+_FALSE = {"0", "false", "hayir", "hayır", "no", "off"}
+
+
+def _as_bool(value):
+    """
+    Üç değerli çözümleme: `True` / `False` / `None` (parametre verilmemiş ya da anlamsız).
+
+    ⚠️ `None` ile `False` **ayrı** tutulmalı: `sonuclanmis=false` "sözleşmesi olmayanlar"
+    demek, parametrenin hiç gelmemesi ise "filtreleme" demek. `bool(value)` kullanılsaydı
+    ikisi aynı davranırdı.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    v = str(value).strip().lower()
+    if v in _TRUE:
+        return True
+    if v in _FALSE:
+        return False
+    return None
+
+
+def _as_decimal(value):
+    """Sayısal aralık parametresi → `Decimal`, çözümlenemezse `None` (filtre uygulanmaz)."""
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return None
+
+
 # `EkapTenderListSerializer`'ın okuduğu alanlar + sıralama alanları. `.only()` bununla
 # daraltılır: `Tender.detail_raw`/`list_raw` (~40 KB/satır JSONB) liste yanıtında HİÇ
 # kullanılmıyor ama `SELECT *` her satırda onları TOAST'tan açıp `json.loads` ediyordu.
@@ -117,6 +151,46 @@ _LIST_FIELDS = (
 # alanı + 9 `Tender` alanı okuyor; allow-list tutulsaydı serializer'a eklenen her alan
 # sessiz N+1 doğururdu (`_LIST_FIELDS`'in yaşadığı risk). Deny-list kendini korur.
 _TENDER_BLOB_FIELDS = ("tender__detail_raw", "tender__list_raw")
+
+# ── Pro'ya kilitli arama parametreleri ────────────────────────────────────────
+# Bunlardan biri istekte varsa `TenderListView` 403 `premium_required` döner. Temel
+# arama (q, il, tür, tarih, OKAS, idare…) herkese açık kalır.
+# ⚠️ Bu küme `_COUNT_IGNORED_PARAMS` ile KARIŞTIRILMAMALI: oradaki liste cache
+# anahtarından DIŞLANANLARDIR; buraya yazılanlar sonucu değiştiren gerçek filtrelerdir
+# ve cache anahtarına GİRMELİDİR.
+_PRO_PARAMS = frozenset({
+    "yaklasik_maliyet_min", "yaklasik_maliyet_max",
+    "sozlesme_bedeli_min", "sozlesme_bedeli_max",
+    "istekli_sayisi_min", "istekli_sayisi_max",
+    "teklif_sayisi_min", "teklif_sayisi_max",
+    "indirim_orani_min", "indirim_orani_max",
+    "sonuclanmis", "iptal", "e_ihale",
+    "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
+    "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
+    "kismi_ihale", "ilansiz_mi",
+    "okas_ana_kod", "en_ust_idare_kod", "seri_anahtar",
+})
+
+# Kapsamı kısmi olan kolonlarda aralık filtresi kullanılınca istemciye dönen uyarı.
+# NULL hiçbir aralık koşuluna girmez → değeri bilinmeyen ihaleler sessizce elenir.
+_UYARI_YM = (
+    "Yaklaşık maliyet yalnızca Sonuç İlanı yayımlanmış ihalelerde bilinir; "
+    "bu filtre maliyeti bilinmeyen ihaleleri kapsam dışı bırakır."
+)
+_UYARI_TEKLIF = (
+    "Teklif sayısı yalnızca Sonuç İlanı ayrıştırılabilen ihalelerde bilinir; "
+    "bu filtre teklif sayısı bilinmeyen ihaleleri kapsam dışı bırakır."
+)
+_UYARI_ISTEKLI = (
+    "İstekli sayısı ihale değerlendirmesi bittikten sonra oluşur; "
+    "bu filtre henüz sonuçlanmamış ihaleleri kapsam dışı bırakır."
+)
+_KISMI_KAPSAM_UYARI = {
+    "yaklasik_maliyet_min": _UYARI_YM, "yaklasik_maliyet_max": _UYARI_YM,
+    "indirim_orani_min": _UYARI_YM, "indirim_orani_max": _UYARI_YM,
+    "teklif_sayisi_min": _UYARI_TEKLIF, "teklif_sayisi_max": _UYARI_TEKLIF,
+    "istekli_sayisi_min": _UYARI_ISTEKLI, "istekli_sayisi_max": _UYARI_ISTEKLI,
+}
 
 # Sayfalama/sıralama COUNT sonucunu değiştirmez → cache anahtarından dışlanır.
 _COUNT_IGNORED_PARAMS = frozenset({"page", "page_size", "order", "siralamaTipi", "format"})
@@ -360,12 +434,143 @@ def apply_tender_filters(qs, params):
             if d:
                 qs = qs.filter(**{f"{field}__lte": d})
 
+    # ── Pro filtreler ─────────────────────────────────────────────────────────
+    # Uçta `_PRO_PARAMS` kapısı bunları Pro'ya kilitler (bkz. TenderListView). Burada
+    # koşulsuz uygulanır çünkü `apply_tender_filters` bildirim görevlerinde de kullanılıyor
+    # ve orada premium kontrolü zaten görev içinde yapılıyor (tenders/tasks.py).
+    #
+    # ⚠️ Hepsi **AND** ile bağlanır → yeni OR dalı YOK, dolayısıyla "OR'un her dalı
+    # indekslenebilir ve aynı tabloda olmalı" kuralı kendiliğinden sağlanır. Buraya bir OR
+    # eklerseniz her iki dal da indeksli `Tender` kolonu olmalı; değilse `yuklenici`
+    # filtresindeki UNION desenini kullanın.
+
+    # Sayısal aralıklar — hepsi tek değerli `Tender` kolonu (Exists gerekmez).
+    # `sozlesme_bedeli`/`sonuclanmis` `Contract` semi-join'i yerine denormalize
+    # `Tender.sozlesme_sayisi`/`toplam_sozlesme_bedeli` kullanır: korelasyonlu alt sorgu
+    # yerine düz indekslenebilir yordam (bkz. models.py'deki gerekçe).
+    for param, field in (
+        ("yaklasik_maliyet", "yaklasik_maliyet_num"),
+        ("sozlesme_bedeli", "toplam_sozlesme_bedeli"),
+        ("istekli_sayisi", "istekli_sayisi"),
+    ):
+        mn = _as_decimal(params.get(f"{param}_min"))
+        if mn is not None:
+            qs = qs.filter(**{f"{field}__gte": mn})
+        mx = _as_decimal(params.get(f"{param}_max"))
+        if mx is not None:
+            qs = qs.filter(**{f"{field}__lte": mx})
+
+    # Rekabet/indirim aralıkları `Contract`'ta → semi-join (satır çoğaltmaz).
+    for param, field in (
+        ("teklif_sayisi", "teklif_sayisi"),
+        ("indirim_orani", "indirim_orani"),
+    ):
+        mn = _as_decimal(params.get(f"{param}_min"))
+        if mn is not None:
+            qs = qs.filter(_contract_exists(Q(**{f"{field}__gte": mn})))
+        mx = _as_decimal(params.get(f"{param}_max"))
+        if mx is not None:
+            qs = qs.filter(_contract_exists(Q(**{f"{field}__lte": mx})))
+
+    # Sonuçlanma / iptal
+    sonuclanmis = _as_bool(params.get("sonuclanmis"))
+    if sonuclanmis is True:
+        qs = qs.filter(sozlesme_sayisi__gt=0)
+    elif sonuclanmis is False:
+        qs = qs.filter(sozlesme_sayisi=0)
+    iptal = _as_bool(params.get("iptal"))
+    if iptal is True:
+        qs = qs.filter(ihale_durum__in=sorted(DURUM_IPTAL))
+    elif iptal is False:
+        qs = qs.exclude(ihale_durum__in=sorted(DURUM_IPTAL))
+
+    # e-ihale: ⚠️ `Tender.e_ihale` boolean'ı DEĞİL, mevcut JSONB etiketi kullanılır.
+    # O kolon indekssiz ve tutarsız doluyor (`sync.py` yalnızca payload'da varsa yazıyor);
+    # `ozellikler` ise GIN indeksli ve liste senkronundan itibaren dolu.
+    e_ihale = _as_bool(params.get("e_ihale"))
+    if e_ihale is True:
+        qs = qs.filter(ozellikler__contains=[OZELLIK_MAP["eIhale"]])
+    elif e_ihale is False:
+        qs = qs.exclude(ozellikler__contains=[OZELLIK_MAP["eIhale"]])
+
+    # Üç değerli sinyal bayrakları. ⚠️ `False` istendiğinde `exclude(True)` DEĞİL
+    # `filter(False)` kullanılır: `exclude` NULL'ları (detayı gelmemiş ihaleler) da
+    # toplardı ve "itirazsız ihaleler" listesi bilinmeyenlerle şişerdi.
+    for param in (
+        "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
+        "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
+        "kismi_ihale", "ilansiz_mi",
+    ):
+        val = _as_bool(params.get(param))
+        if val is not None:
+            qs = qs.filter(**{param: val})
+
+    # Kategori / bakanlık (Adım 1 kolonları)
+    okas_ana = _as_str_list(params.get("okas_ana_kod"))
+    if okas_ana:
+        qs = qs.filter(okas_ana_kod__in=okas_ana)
+    bakanlik = _as_str_list(params.get("en_ust_idare_kod"))
+    if bakanlik:
+        qs = qs.filter(en_ust_idare_kod__in=bakanlik)
+    seri = params.get("seri_anahtar")
+    if seri and str(seri).strip():
+        qs = qs.filter(seri_anahtar=str(seri).strip())
+
     return qs
 
 
 # Tarih parametreleri `DD.MM.YYYY [HH:mm]` veya ISO-8601 kabul eder (bkz. utils.parse_ekap_datetime).
 # Çözümlenemeyen tarih **sessizce yok sayılır** — filtre uygulanmaz.
 _DATE_HINT = "`GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır."
+
+# Pro filtrelerin OpenAPI/Postman tanımı. ⚠️ `_PRO_PARAMS` ile aynı adları taşımalı —
+# biri güncellenip diğeri unutulursa uç ya belgelenmemiş bir filtre kabul eder ya da
+# belgelenen bir filtre 403 vermez.
+_PRO_ETIKET = "🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner."
+_PRO_SCHEMA_PARAMS = [
+    OpenApiParameter("yaklasik_maliyet_min", str,
+                     description=f"Yaklaşık maliyet alt sınırı (TL). {_PRO_ETIKET} "
+                                 "Yalnızca Sonuç İlanı olan ihalelerde bilinir → değeri "
+                                 "bilinmeyenler kapsam dışı kalır (yanıt `uyari` taşır)."),
+    OpenApiParameter("yaklasik_maliyet_max", str, description=f"Yaklaşık maliyet üst sınırı (TL). {_PRO_ETIKET}"),
+    OpenApiParameter("sozlesme_bedeli_min", str,
+                     description=f"İhalenin toplam sözleşme bedeli alt sınırı (TL). {_PRO_ETIKET}"),
+    OpenApiParameter("sozlesme_bedeli_max", str, description=f"Toplam sözleşme bedeli üst sınırı (TL). {_PRO_ETIKET}"),
+    OpenApiParameter("teklif_sayisi_min", int,
+                     description=f"Rekabet: en az bu kadar teklif verilmiş ihaleler. {_PRO_ETIKET}"),
+    OpenApiParameter("teklif_sayisi_max", int, description=f"En çok bu kadar teklif. {_PRO_ETIKET}"),
+    OpenApiParameter("istekli_sayisi_min", int,
+                     description=f"Katılan istekli sayısı alt sınırı. {_PRO_ETIKET} "
+                                 "İstekli sayısı değerlendirme bitince oluşur → açık "
+                                 "ihaleler kapsam dışı kalır."),
+    OpenApiParameter("istekli_sayisi_max", int, description=f"İstekli sayısı üst sınırı. {_PRO_ETIKET}"),
+    OpenApiParameter("indirim_orani_min", str,
+                     description=f"İndirim oranı alt sınırı (**oran**, yüzde değil: `0.20` = %20). {_PRO_ETIKET}"),
+    OpenApiParameter("indirim_orani_max", str, description=f"İndirim oranı üst sınırı (oran). {_PRO_ETIKET}"),
+    OpenApiParameter("sonuclanmis", bool,
+                     description=f"`true` → sözleşmesi olan ihaleler, `false` → olmayanlar. {_PRO_ETIKET}"),
+    OpenApiParameter("iptal", bool, description=f"İptal edilmiş ihaleler (durum 6/10). {_PRO_ETIKET}"),
+    OpenApiParameter("e_ihale", bool, description=f"Elektronik ihale. {_PRO_ETIKET}"),
+    OpenApiParameter("fiyat_disi_unsur_var", bool,
+                     description="Fiyat dışı unsur içeren ihaleler — en düşük fiyat tek "
+                                 f"başına kazandırmaz. {_PRO_ETIKET}"),
+    OpenApiParameter("itirazen_sikayet_var", bool, description=f"İtirazen şikâyet başvurusu olanlar. {_PRO_ETIKET}"),
+    OpenApiParameter("idareye_sikayet_var", bool, description=f"İdareye şikâyet başvurusu olanlar. {_PRO_ETIKET}"),
+    OpenApiParameter("sikayet_dilekce_var", bool, description=f"Şikâyet dilekçesi olanlar. {_PRO_ETIKET}"),
+    OpenApiParameter("e_eksiltme_yapilacak", bool, description=f"Elektronik eksiltme yapılacak ihaleler. {_PRO_ETIKET}"),
+    OpenApiParameter("duzeltme_ilani_var", bool, description=f"Düzeltme ilanı bulunanlar. {_PRO_ETIKET}"),
+    OpenApiParameter("kismi_ihale", bool, description=f"Kısımlı ihaleler. {_PRO_ETIKET}"),
+    OpenApiParameter("ilansiz_mi", bool, description=f"İlansız ihaleler. {_PRO_ETIKET}"),
+    OpenApiParameter("okas_ana_kod", str,
+                     description=f"Birincil OKAS kodu (virgülle çoklu). {_PRO_ETIKET} "
+                                 "Alt kalemleri de kapsayan arama için `okas_kod` kullanın."),
+    OpenApiParameter("en_ust_idare_kod", str,
+                     description=f"Bakanlık/üst kurum kodu (virgülle çoklu). {_PRO_ETIKET}",
+                     examples=[OpenApiExample("Sağlık Bakanlığı", value="15")]),
+    OpenApiParameter("seri_anahtar", str,
+                     description="Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan "
+                                 f"yıla tekrarladığı işler. {_PRO_ETIKET}"),
+]
 
 _TENDER_KEY_PARAM = OpenApiParameter(
     name="key",
@@ -498,6 +703,8 @@ _TENDER_KEY_PARAM = OpenApiParameter(
             "ilan_tarihi_max", str, description=f"İlan (yayın) tarihi üst sınırı. {_DATE_HINT}",
             examples=[OpenApiExample("Tarih", value="31.12.2026")],
         ),
+        # ── Pro filtreler (403 premium_required) ──────────────────────────────
+        *_PRO_SCHEMA_PARAMS,
         OpenApiParameter(
             "order", str, enum=["ihale_tarihi", "ilan_tarihi"], default="ihale_tarihi",
             description="Sıralama alanı.",
@@ -521,6 +728,17 @@ class TenderListView(APIView):
 
     def get(self, request):
         qp = request.query_params
+
+        # ── Pro kapısı ────────────────────────────────────────────────────────
+        # Uç `AllowAny` KALIR: temel arama herkese açık. Yalnızca gelişmiş parametreler
+        # Pro'ya kilitlidir. Anonim kullanıcıda `is_premium` False → 403.
+        # ⚠️ Parametreyi sessizce yok saymak YANLIŞ olurdu: kullanıcının istediğinden
+        # DAHA FAZLA sonuç dönerdi — limit kılığına girmiş bir doğruluk hatası. 403 +
+        # `errors.code=premium_required` ise mobilin zaten işlediği sözleşme.
+        kullanilan_pro = _PRO_PARAMS & set(qp)
+        if kullanilan_pro:
+            require_premium(request.user, MSG_PRO_FILTRE)
+
         qs = apply_tender_filters(Tender.objects.all(), qp)
 
         # Sıralama (model alan adları)
@@ -542,7 +760,17 @@ class TenderListView(APIView):
         # ⚠️ `.only()` filtrelerden SONRA — `apply_tender_filters` başka alanlara bakabilir.
         items = qs.only(*_LIST_FIELDS)[start:start + page_size]
         data = EkapTenderListSerializer(items, many=True).data
-        return api_response(data={"list": data, "totalCount": total, "page": page})
+        payload = {"list": data, "totalCount": total, "page": page}
+
+        # Dürüstlük uyarısı: kapsamı kısmi olan kolonlarda aralık filtresi, değeri
+        # BİLİNMEYEN ihaleleri de sessizce eler (NULL hiçbir aralığa girmez). Kullanıcı
+        # "sonuç yok" ile "veri yok"u ayırt edebilmeli.
+        uyarilar = [
+            _KISMI_KAPSAM_UYARI[p] for p in _KISMI_KAPSAM_UYARI if p in qp
+        ]
+        if uyarilar:
+            payload["uyari"] = " ".join(dict.fromkeys(uyarilar))
+        return api_response(data=payload)
 
 
 @extend_schema(

@@ -1025,6 +1025,15 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.
 - **Başlatma**: `docker compose up -d --build`. `web` healthcheck'i (`/health/`)
   geçmeden nginx başlamaz. Entrypoint yalnızca `web`'de migrate + collectstatic yapar.
+- **⚠️ Her deploy'dan sonra `docker compose restart nginx` ŞART** (yaşanmış arıza: tüm
+  site **502**). `docker/nginx/default.conf` statik upstream kullanır
+  (`upstream django_app { server web:8000; }`) ve nginx `web` adını **yalnızca
+  başlangıçta** çözüp IP'yi kalıcı önbelleğe alır. `up -d --build` web konteynerini
+  yeniden yaratınca yeni IP verilir; nginx'in kendi imajı/konfigi değişmediği için
+  compose onu yeniden başlatmaz (`ps`'te `Up 4 hours` görünür) ve **ölü IP'ye**
+  proxy'lemeye devam eder. Belirti: `docker compose ps` web'i `healthy` gösterir ama
+  `curl /health/` **502** döner — yani "web sağlıklı ama site kapalı".
+  `install.sh` bunu artık otomatik yapar; elle `up -d` çalıştırırsan sen ekle.
 - **⚡ Güncelleme betiği `install.sh`** (repo kökü): tek komutla `git pull --ff-only` +
   `docker compose up -d --build` + servis durumu + `/health/` doğrulaması yapar → her
   seferinde elle uğraşmaya gerek yok. `./install.sh` (normal), `./install.sh --logs`

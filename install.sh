@@ -52,6 +52,15 @@ fi
 say "Konteynerler yeniden derlenip başlatılıyor (docker compose up -d --build)"
 docker compose up -d --build
 
+# ⚠️ nginx MUTLAKA yeniden başlatılmalı — yaşanmış arıza (502).
+# `docker/nginx/default.conf` upstream'i statiktir (`upstream django_app { server web:8000; }`).
+# nginx `web` adını YALNIZCA başlangıçta çözüp IP'yi kalıcı önbelleğe alır. `up -d --build`
+# web konteynerini yeniden yaratınca yeni bir IP verilir; nginx'in kendi imajı/konfigi
+# değişmediği için compose onu yeniden başlatmaz ve nginx ÖLÜ IP'ye proxy'lemeye devam
+# eder → tüm site 502. Restart ucuzdur (~1 sn) ve bu sınıf arızayı kökten kapatır.
+say "nginx yeniden başlatılıyor (upstream IP önbelleği tazelensin)"
+docker compose restart nginx
+
 say "Servis durumu"
 docker compose ps
 

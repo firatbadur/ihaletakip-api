@@ -84,6 +84,45 @@ class FavoriteAuthority(models.Model):
         return self.ad or self.detsis_no
 
 
+class FavoriteContractor(models.Model):
+    """
+    Takip edilen yüklenici firma (`ekap.Contractor`) — "rakibim yeni iş aldı mı?"
+
+    `FavoriteAuthority`'nin birebir ikizi. Fark: doğal anahtar bir kod değil, doğrudan
+    `Contractor` FK'si (firma kaydı bizim ürettiğimiz normalize kimliktir, dış anahtarı
+    yoktur — bkz. `ekap/contractors.py`).
+
+    Favorileme **her üyeye açıktır**; alarm bildirimi **Pro'ya özeldir**
+    (`check_favorite_contractor_matches` premium olmayanı atlar). Aynı asimetri favori
+    idarede de var — kaydetmek serbest, bildirim Pro.
+    """
+
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="favorite_contractors"
+    )
+    contractor = models.ForeignKey(
+        "ekap.Contractor", on_delete=models.CASCADE, related_name="takip_edenler"
+    )
+    # Alarm açıksa firma YENİ bir sözleşme imzaladığında (bizim ilk kez gördüğümüzde)
+    # bildirim gider. Kapalıysa yalnızca hızlı erişim listesidir.
+    alarm = models.BooleanField(default=True)
+    last_notified_at = models.DateTimeField(null=True, blank=True)
+    added_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Takip Edilen Firma"
+        verbose_name_plural = "Takip Edilen Firmalar"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "contractor"], name="uniq_user_favorite_contractor"
+            )
+        ]
+        ordering = ["-added_at"]
+
+    def __str__(self):
+        return f"{self.user} → {self.contractor_id}"
+
+
 class SavedFilter(TimeStampedModel):
     """Kaydedilmiş arama filtresi (opsiyonel alarm ile)."""
 
@@ -241,6 +280,11 @@ class Notification(models.Model):
     # OKAS kodları (virgülle ayrılmış CSV). Tıklanınca tek ihale DEĞİL, o OKAS kodlarıyla
     # arama açılır → mobil `GET /ekap/tenders/?okas_kod=<okas_kodlar>` sorgular.
     okas_kodlar = models.CharField(max_length=500, null=True, blank=True)
+    # type=TENDER (takip edilen firma yeni iş aldı) bildirimlerde: tıklanınca firma
+    # detayı açılır → mobil `GET /ekap/contractors/<contractor_id>/` sorgular.
+    # Derin bağlantı önceliği: conversation_id > filter_id > authority_detsis >
+    # contractor_id > okas_kodlar > tender_ikn/tender_id.
+    contractor_id = models.BigIntegerField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

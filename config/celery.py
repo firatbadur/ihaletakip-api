@@ -93,6 +93,20 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.backfill_tender_fields",
         "schedule": crontab(minute="*/5"),
     },
+    # Takip edilen firmalar yeni iş aldığında (12:00 — kademeli bildirim dizisinin devamı:
+    # 07 öneri, 08 OKAS, 09 alarm, 10 filtre, 11 idare, 12 firma). Pro'ya özeldir.
+    "tenders-check-favorite-contractors": {
+        "task": "tenders.tasks.check_favorite_contractor_matches",
+        "schedule": crontab(hour=12, minute=0),
+    },
+    # Ücretsiz üyeye HAFTADA BİR "bu hafta neyi kaçırdın" özeti (Pazartesi 10:00).
+    # Günlük alarm görevleri Free kullanıcıyı sayılmadan eliyor → kullanıcı Pro'nun ne işe
+    # yaradığını hiç hissetmiyordu. Yalnızca SAYI üretir (liste değil), sıfır eşleşmede
+    # bildirim göndermez. Pro kullanıcılar zaten günlük bildirim aldığı için atlanır.
+    "tenders-weekly-free-teaser": {
+        "task": "tenders.tasks.weekly_free_teaser",
+        "schedule": crontab(hour=10, minute=0, day_of_week=1),
+    },
     # "İhalede geçen idare_id" kümesini sıcak tutar (idare_detsis filtresinin kesişimi).
     # ⚠️ İstek yolunda hesaplanınca ~40 sn sürüyordu; 10 dk'da bir tazelenince cache
     # (TTL 30 dk) hiç boşalmaz ve kullanıcı bu maliyeti hiç ödemez. EKAP'a gitmez →

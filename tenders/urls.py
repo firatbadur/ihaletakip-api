@@ -3,6 +3,8 @@ from django.urls import path
 
 from .views import (
     FavoriteAuthorityDetailView,
+    FavoriteContractorDetailView,
+    FavoriteContractorListCreateView,
     FavoriteAuthorityListCreateView,
     FavoriteDetailView,
     FavoriteListCreateView,
@@ -28,6 +30,8 @@ urlpatterns = [
     path("favorite-authorities/", FavoriteAuthorityListCreateView.as_view(), name="favorite-authorities"),
     path("favorite-authorities/<str:detsis_no>/", FavoriteAuthorityDetailView.as_view(), name="favorite-authority-detail"),
     # Kayıtlı filtreler
+    path("favorite-contractors/", FavoriteContractorListCreateView.as_view(), name="favorite-contractor-list"),
+    path("favorite-contractors/<int:contractor_id>/", FavoriteContractorDetailView.as_view(), name="favorite-contractor-detail"),
     path("saved-filters/", SavedFilterListCreateView.as_view(), name="saved-filters"),
     path("saved-filters/<int:pk>/", SavedFilterDetailView.as_view(), name="saved-filter-detail"),
     # Kayıtlı ihale klasörleri (varsayılan "Genel" klasörü bu uçlarda dönmez;

@@ -464,6 +464,9 @@ _CONTRACT_FIELDS = [
     "dokuman_indiren_sayisi", "indirim_orani", "ekap_ilan_id",
     "fesih_string", "tasfiye_transfer_string",
     "idare_id", "il_id", "ihale_tip",
+    # ⚠️ `ilk_gorulme` BİLEREK YOK: yalnızca yaratma yolunda yazılır. Buraya eklenirse
+    # her detay tazelemesinde güncellenir ve rakip alarmının dayandığı "yeni keşfedilen
+    # sözleşme" sinyali anlamını yitirir.
 ]
 
 
@@ -637,7 +640,13 @@ def sync_contracts_from_raw(
         wanted,
         "ekap_sozlesme_id",
         _CONTRACT_FIELDS,
-        lambda key, vals: Contract(tender=tender, ekap_sozlesme_id=key, **vals),
+        # ⚠️ `ilk_gorulme` YALNIZCA burada (yaratma yolunda) yazılır: `build` sadece yeni
+        # satırlar için çağrılır. `_CONTRACT_FIELDS`'a EKLENMEMELİ — orada olsaydı her
+        # `refresh_stale` turunda güncellenir ve "yeni keşfedilen sözleşme" sinyali
+        # anlamını yitirirdi (her sözleşme her gün "yeni" görünürdü).
+        lambda key, vals: Contract(
+            tender=tender, ekap_sozlesme_id=key, ilk_gorulme=now, **vals
+        ),
     )
     for key, contract in contracts.items():
         _upsert_sections(contract, kisimlar_by_key.get(key) or [])

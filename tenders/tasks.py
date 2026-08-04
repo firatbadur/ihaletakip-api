@@ -26,6 +26,11 @@ logger = logging.getLogger("ihaletakip")
 # aşması yeter; ~1.5 gün.
 _ROW_DEDUP_TTL = 36 * 3600
 
+# Rakip alarmı: `ilk_gorulme` bugün OLSA BİLE sözleşme bundan eskiyse bildirim gitmez.
+# Gerekçe: arşiv süpürmesi daha önce bağlanmamış eski sözleşmeleri bugün "ilk kez"
+# görüyor; 2021 tarihli bir sözleşme rakip takibi haberi değildir.
+_RAKIP_TAZELIK_GUN = 90
+
 
 def _local_date(dt):
     """Aware/naive datetime → yerel tarih (None güvenli)."""
@@ -468,6 +473,223 @@ def recommend_by_saved_okas():
         "recommend_by_saved_okas: %s kullanıcıya bildirim, %s push", notified_users, pushed,
     )
     return {"users": notified_users, "pushed": pushed}
+
+
+@shared_task(name="tenders.tasks.check_favorite_contractor_matches")
+def check_favorite_contractor_matches():
+    """
+    Takip edilen firmalar (alarm açık) yeni bir iş aldığında bildirim gönderir.
+
+    Favori idare görevinin ikizi: **her firma için AYRI** uygulama-içi satır + push,
+    başlık = firma adı, tıklanınca `contractor_id` ile firma detayı açılır.
+    Firma başına atomik gün-kilidi. **Pro'ya özeldir** (takip etmek serbest, bildirim Pro).
+
+    ## "Yeni iş" nasıl tanımlanır
+
+    `Contract.ilk_gorulme` = satırı **ilk kez gördüğümüz** an (bkz. `ekap/models.py`).
+    `sozlesme_tarihi` bu iş için KULLANILAMAZ: Sonuç İlanı imzadan aylar sonra
+    yayımlanabildiği için eski tarihli bir sözleşme bugün keşfedilebiliyor.
+
+    ⚠️ **Arşiv gürültüsü koruması**: `sync_contractors` süpürmesi arşivi tararken daha önce
+    hiç bağlanmamış ESKİ sözleşmeleri de ilk kez görür ve onlara bugünün `ilk_gorulme`'sini
+    yazar. O satırlar teknik olarak "yeni keşfedildi" ama kullanıcı için haber değil —
+    2021'de imzalanmış bir sözleşme rakip takibi bildirimi olmamalı. Bu yüzden ikinci koşul:
+    `sozlesme_tarihi` son `_RAKIP_TAZELIK_GUN` gün içinde olmalı.
+    """
+    from ekap.models import Contract
+
+    from .models import FavoriteContractor, Notification
+    from .services import notify, templates
+
+    now = timezone.now()
+    today = timezone.localdate()
+    gun_bas, gun_bit = local_day_range(today)
+    tazelik_taban = now - timedelta(days=_RAKIP_TAZELIK_GUN)
+
+    processed = notified = pushed = 0
+
+    for fav in (
+        FavoriteContractor.objects.filter(alarm=True)
+        .select_related("user", "contractor")
+        .iterator()
+    ):
+        if not fav.user.is_premium:
+            continue  # takip serbest, bildirim Pro'ya özel
+        if not cache.add(
+            f"contractor:{fav.user_id}:{fav.contractor_id}:{today.isoformat()}",
+            1, _ROW_DEDUP_TTL,
+        ):
+            continue
+        processed += 1
+        try:
+            yeni = list(
+                Contract.objects.filter(
+                    yuklenici_id=fav.contractor_id,
+                    ilk_gorulme__gte=gun_bas,
+                    ilk_gorulme__lt=gun_bit,
+                    sozlesme_tarihi__gte=tazelik_taban,  # arşiv gürültüsünü ele
+                )
+                .select_related("tender")
+                .defer("tender__detail_raw", "tender__list_raw")
+                .order_by("-sozlesme_tarihi")[:20]
+            )
+            fav.last_notified_at = now
+            fav.save(update_fields=["last_notified_at"])
+            if not yeni:
+                continue
+
+            title, body = templates.contractor_match(
+                firma_adi=fav.contractor.kanonik_ad,
+                count=len(yeni),
+                ihale_adi=yeni[0].tender.ihale_adi if len(yeni) == 1 else None,
+            )
+            notify.record_notification(
+                fav.user,
+                type=Notification.Type.TENDER,
+                title=title,
+                body=body,
+                contractor_id=fav.contractor_id,  # tıklanınca firma detayı
+            )
+            notified += 1
+            if notify.push_to_user(
+                fav.user, title=title, body=body,
+                data={"type": Notification.Type.TENDER, "contractorId": fav.contractor_id},
+                idem_key=None,  # gün-kilidi tekilliği garanti ediyor
+            ):
+                pushed += 1
+        except Exception:
+            logger.exception("check_favorite_contractor_matches: %s işlenemedi", fav.pk)
+            continue
+
+    logger.info(
+        "check_favorite_contractor_matches: %s firma, %s bildirim, %s push",
+        processed, notified, pushed,
+    )
+    return {"contractors": processed, "notified": notified, "pushed": pushed}
+
+
+@shared_task(name="tenders.tasks.weekly_free_teaser")
+def weekly_free_teaser(days: int = 7):
+    """
+    Ücretsiz üyeye **haftada bir** "bu hafta neyi kaçırdın" özeti.
+
+    ## Neden gerekli
+
+    Günlük alarm görevleri Free kullanıcıyı **sayılmadan** eliyor (`if not user.is_premium:
+    continue`). Sonuç: kullanıcı alarm anahtarını açıyor, hiçbir şey olmuyor, Pro'nun ne
+    işe yaradığını **hiç hissetmiyor**. Kaçırılan bildirim = kaçırılan satış.
+
+    ## Neden ayrı görev, günlük görevlere Free eklemek yerine
+
+    Free tabanı günlük dört ağır sorguya sokmak maliyeti tabana orantılı büyütürdü. Bu
+    görev **haftada bir** çalışır ve yalnızca **sayı** üretir (`.count()`); ihale gövdesi,
+    serializer, liste hiç yok.
+
+    ## Sınırlar
+
+    - **Sıfır eşleşme → bildirim YOK.** Boş teaser ("0 ihale kaçırdınız") güven kaybettirir.
+    - Kullanıcı başına **tek** özet (abonelik-başına ayrı push deseninin istisnası —
+      burada amaç bilgilendirme değil, dönüşüm).
+    - Atomik **hafta kilidi** (`teaser:{uid}:{yil}-{hafta}`) → yinelenmiş beat çoğaltmaz.
+    - Mevcut pacing kapılarından geçer (sessiz saat, günlük cap, push tercihi).
+    - `Notification.type=INFO` + derin bağlantı alanı YOK → mobil bunu Paywall'a yönlendirir.
+    """
+    from django.contrib.auth import get_user_model
+
+    from ekap.models import Tender
+    from ekap.views import apply_tender_filters
+
+    from .models import FavoriteAuthority, Notification, SavedFilter
+    from .services import notify, templates
+
+    OPEN_STATUSES = [2, 3]
+    now = timezone.now()
+    bugun = timezone.localdate()
+    yil, hafta, _ = bugun.isocalendar()
+    baslangic = now - timedelta(days=days)
+
+    User = get_user_model()
+    # Yalnızca alarmlı aboneliği OLAN Free kullanıcılar: hiç filtre/idare kaydetmemiş
+    # birine "kaçırdıklarınız" demek anlamsız olurdu.
+    aday_ids = set(
+        SavedFilter.objects.filter(alarm__isnull=False).values_list("user_id", flat=True)
+    ) | set(
+        FavoriteAuthority.objects.filter(alarm=True).values_list("user_id", flat=True)
+    )
+    if not aday_ids:
+        return {"users": 0, "pushed": 0}
+
+    bildirilen = pushed = 0
+    for user in User.objects.filter(pk__in=aday_ids, is_active=True).iterator():
+        if user.is_premium:
+            continue  # Pro zaten günlük bildirim alıyor
+        if not cache.add(f"teaser:{user.pk}:{yil}-{hafta}", 1, 8 * 24 * 3600):
+            continue
+
+        try:
+            toplam_ihale = 0
+            filtre_sayisi = idare_sayisi = 0
+
+            # ── Kayıtlı filtreler ──
+            for sf in SavedFilter.objects.filter(user=user, alarm__isnull=False):
+                if not _alarm_enabled(sf.alarm):
+                    continue
+                base = apply_tender_filters(Tender.objects.all(), sf.filters or {})
+                if not (sf.filters or {}).get("ihale_durum"):
+                    base = base.filter(ihale_durum__in=OPEN_STATUSES)
+                adet = (
+                    base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
+                    .filter(ilan_tarihi__gte=baslangic)
+                    .count()
+                )
+                if adet:
+                    toplam_ihale += adet
+                    filtre_sayisi += 1
+
+            # ── Favori idareler ──
+            favoriler = list(FavoriteAuthority.objects.filter(user=user, alarm=True))
+            if favoriler:
+                from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
+
+                gecerli = tender_idare_id_set()
+                for fav in favoriler:
+                    expanded = descendant_idare_ids([fav.detsis_no]) & gecerli
+                    if not expanded:
+                        continue
+                    adet = (
+                        Tender.objects.filter(
+                            idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES
+                        )
+                        .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
+                        .filter(ilan_tarihi__gte=baslangic)
+                        .count()
+                    )
+                    if adet:
+                        toplam_ihale += adet
+                        idare_sayisi += 1
+
+            if not toplam_ihale:
+                continue  # boş teaser gönderilmez
+
+            title, body = templates.free_teaser(
+                ihale=toplam_ihale, filtre=filtre_sayisi, idare=idare_sayisi
+            )
+            notify.record_notification(
+                user, type=Notification.Type.INFO, title=title, body=body
+            )
+            bildirilen += 1
+            if notify.push_to_user(
+                user, title=title, body=body,
+                data={"type": Notification.Type.INFO, "teaser": "1"},
+                idem_key=None,  # hafta kilidi tekilliği zaten garanti ediyor
+            ):
+                pushed += 1
+        except Exception:
+            logger.exception("weekly_free_teaser: kullanıcı %s işlenemedi", user.pk)
+            continue
+
+    logger.info("weekly_free_teaser: %s bildirim, %s push", bildirilen, pushed)
+    return {"users": bildirilen, "pushed": pushed}
 
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")

@@ -556,6 +556,21 @@ class Contract(models.Model):
     indirim_orani = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
     ekap_ilan_id = models.CharField(max_length=64, blank=True)  # izlenebilirlik
 
+    # Bu satırı İLK KEZ ne zaman gördüğümüz (EKAP'ın imza tarihi DEĞİL).
+    # ⚠️ `Contract` `TimeStampedModel`'den türemiyor, yani `created_at` YOK; rakip alarmı
+    # ("takip ettiğim firma yeni iş aldı") "yeni keşfedilen sözleşme"yi başka türlü
+    # bilemez. `sozlesme_tarihi` bu iş için KULLANILAMAZ: Sonuç İlanı imzadan aylar sonra
+    # yayımlanabildiği için eski tarihli bir sözleşme bugün keşfedilebiliyor.
+    # Eski satırlarda NULL kalır = "eski" sayılır (geriye dönük doldurma anlamsız olurdu:
+    # onları ne zaman gördüğümüz kayıtlı değil).
+    # ⚠️ `db_index` YOK ve gerekmiyor: rakip alarmı bu kolonu tek başına değil,
+    # `yuklenici_id__in=<takip edilen birkaç firma>` ile birlikte sorguluyor. O yordam
+    # çok seçici ve mevcut `(yuklenici, -sozlesme_tarihi)` indeksi tarafından karşılanıyor;
+    # `ilk_gorulme` sadece heap filtresi olarak kalıyor. 881k satırlık tabloda gereksiz
+    # bir indeks kurmak hem yazma maliyeti hem de migration'da ACCESS EXCLUSIVE kilidi
+    # demekti. İhtiyaç EXPLAIN'le kanıtlanırsa CONCURRENTLY eklenir.
+    ilk_gorulme = models.DateTimeField(null=True, blank=True)
+
     # İngest-kopyası denormalizasyonlar — firma sorgularından Tender JOIN'ini çıkarır.
     # Milyonlarca sözleşme satırında bu JOIN, indeks taraması ile nested loop farkıdır.
     idare_id = models.CharField(max_length=255, blank=True, db_index=True)

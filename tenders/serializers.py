@@ -6,6 +6,7 @@ from .models import (
     MAX_TENDER_GROUPS,
     Favorite,
     FavoriteAuthority,
+    FavoriteContractor,
     Notification,
     SavedFilter,
     SavedTender,
@@ -36,6 +37,33 @@ class FavoriteAuthoritySerializer(serializers.ModelSerializer):
         # mobil yalnızca `detsis_no` (+ ist/opsiyonel `alarm`) gönderir. `alarm`
         # varsayılan `True` → favorileyince yeni ihale bildirimi açık gelir.
         read_only_fields = ["id", "idare_id", "ad", "has_items", "added_at"]
+
+
+class FavoriteContractorSerializer(serializers.ModelSerializer):
+    """
+    Takip edilen firma. Mobil yalnızca `contractor` (id) + opsiyonel `alarm` gönderir;
+    ad/istatistik alanları sunucuda `ekap.Contractor`'dan zenginleştirilir (favori idarede
+    olduğu gibi — istemci veriyi tekrar taşımasın).
+    """
+
+    ad = serializers.CharField(source="contractor.kanonik_ad", read_only=True)
+    kind = serializers.CharField(source="contractor.kind", read_only=True)
+    sozlesme_sayisi = serializers.IntegerField(
+        source="contractor.sozlesme_sayisi", read_only=True
+    )
+    son_sozlesme_tarihi = serializers.DateTimeField(
+        source="contractor.son_sozlesme_tarihi", read_only=True
+    )
+
+    class Meta:
+        model = FavoriteContractor
+        fields = [
+            "id", "contractor", "alarm", "ad", "kind",
+            "sozlesme_sayisi", "son_sozlesme_tarihi", "added_at",
+        ]
+        read_only_fields = [
+            "id", "ad", "kind", "sozlesme_sayisi", "son_sozlesme_tarihi", "added_at",
+        ]
 
 
 class SavedFilterSerializer(serializers.ModelSerializer):
@@ -166,9 +194,12 @@ class NotificationSerializer(serializers.ModelSerializer):
             "tender_title",
             "tender_ikn",
             "institution",
+            # Derin bağlantı alanları — mobil önceliği: conversation_id > filter_id >
+            # authority_detsis > contractor_id > okas_kodlar > tender_ikn/tender_id
             "conversation_id",
             "filter_id",
             "authority_detsis",
+            "contractor_id",
             "okas_kodlar",
             "read",
             "created_at",

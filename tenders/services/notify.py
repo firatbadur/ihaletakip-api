@@ -45,6 +45,7 @@ def record_notification(
     conversation_id: int | None = None,
     filter_id: int | None = None,
     authority_detsis: str | None = None,
+    contractor_id: int | None = None,
     okas_kodlar: str | None = None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
@@ -62,6 +63,7 @@ def record_notification(
         conversation_id=conversation_id,
         filter_id=filter_id,
         authority_detsis=authority_detsis,
+        contractor_id=contractor_id,
         okas_kodlar=(okas_kodlar[:500] if okas_kodlar else None),
     )
 

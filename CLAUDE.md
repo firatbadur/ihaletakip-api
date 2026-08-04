@@ -206,6 +206,47 @@ kök=`0`), `idareId` (**ihale filtre anahtarı** = `Tender.idare_id`; dal düğ�
 - **Mobil**: filtre ekranında "İdare Seç" **butonu** → ayrı sayfa (`AuthoritySelectScreen`,
   lazy ağaç + arama + checkbox) → seçim `detsis_no` olarak geri döner → `idare_detsis` gönderilir.
 
+#### Takip Edilen Firmalar (`tenders.FavoriteContractor`) — rakip takibi
+
+`FavoriteAuthority`'nin birebir ikizi; doğal anahtar `(user, contractor)` (firma kaydı
+bizim ürettiğimiz normalize kimlik, dış anahtarı yok). Uçlar:
+`GET/POST /favorite-contractors/`, `GET/DELETE /favorite-contractors/<contractor_id>/`.
+Mobil yalnızca `contractor` (id) gönderir; ad/istatistik sunucuda zenginleştirilir.
+
+- **Takip etmek her üyeye açık ve sınırsız; bildirim Pro'ya özel** (favori idaredeki
+  asimetrinin aynısı). `check_favorite_contractor_matches` (beat **12:00**) premium
+  olmayanı atlar.
+- **Derin bağlantı**: `Notification.contractor_id` → mobil firma detayını açar
+  (`GET /ekap/contractors/<id>/`). Öncelik sırası güncellendi: `conversation_id` >
+  `filter_id` > `authority_detsis` > **`contractor_id`** > `okas_kodlar` > `tender_ikn`.
+- **"Yeni iş" = `Contract.ilk_gorulme`**, `sozlesme_tarihi` DEĞİL: Sonuç İlanı imzadan
+  aylar sonra yayımlanabildiği için eski tarihli bir sözleşme bugün keşfedilebiliyor.
+  ⚠️ `ilk_gorulme` **yalnızca yaratma yolunda** yazılır (`_bulk_upsert_children`'ın
+  `build` lambda'sı) ve `_CONTRACT_FIELDS`'ta **YOKTUR** — orada olsaydı her
+  `refresh_stale` turunda güncellenir, her sözleşme her gün "yeni" görünürdü.
+  Eski satırlarda NULL kalır = "eski" (geriye dönük doldurma anlamsız: onları ne zaman
+  gördüğümüz kayıtlı değil).
+- ⚠️ **Arşiv gürültüsü koruması**: `sync_contractors` süpürmesi daha önce hiç bağlanmamış
+  ESKİ sözleşmeleri de bugün "ilk kez" görür. 2021 tarihli bir sözleşme rakip takibi
+  haberi değildir → ikinci koşul `sozlesme_tarihi >= now - _RAKIP_TAZELIK_GUN` (90 gün).
+
+#### Free teaser (`weekly_free_teaser`, Pazartesi 10:00)
+
+Günlük alarm görevleri Free kullanıcıyı **sayılmadan** eliyordu → kullanıcı alarm
+anahtarını açıyor, hiçbir şey olmuyor, Pro'nun ne işe yaradığını hiç hissetmiyordu.
+
+- **Ayrı haftalık görev**, günlük görevlere Free eklemek yerine: Free tabanını günlük dört
+  ağır sorguya sokmak maliyeti tabana orantılı büyütürdü. Bu görev yalnızca **sayı**
+  üretir (`.count()`); ihale gövdesi/serializer/liste yok.
+- **Sıfır eşleşme → bildirim YOK.** Boş teaser ("0 ihale kaçırdınız") güven kaybettirir.
+- Kullanıcı başına **tek** özet (abonelik-başına ayrı push deseninin bilinçli istisnası —
+  amaç bilgilendirme değil dönüşüm), atomik **hafta kilidi** `teaser:{uid}:{yıl}-{hafta}`.
+- Yalnızca alarmlı filtre/idare kaydı OLAN Free kullanıcılara gider; hiç abonelik
+  kurmamış birine "kaçırdıklarınız" demek anlamsız olurdu.
+- `type=INFO`, derin bağlantı alanı YOK → mobil Paywall'a yönlendirir.
+- ⚠️ Sayılar **gerçek** olmalı; abartılmış teaser kullanıcı Pro olup karşılığını
+  göremeyince güveni kalıcı bozar.
+
 #### Favori İdareler (`tenders.FavoriteAuthority`)
 
 Kullanıcı bir idareyi (DETSIS düğümü) favorileyebilir; favoriye basınca mobil o idarenin
@@ -837,6 +878,9 @@ kodu görünce abonelik paketlerini sunar.
     premium olmayan kullanıcıyı atlar. Favorileme uçta 403 vermez (Free de favorileyebilir);
     yalnızca push/bildirim Pro iken üretilir. (Böylece "favori idare = bedava filtre alarmı"
     açığı kapanır; filtre alarmıyla tutarlı.)
+  - **Takip edilen firma ALARMI** → firmayı takip etmek serbest (sınırsız) ama "yeni iş
+    aldı" bildirimi **Pro'ya özeldir**: `check_favorite_contractor_matches` premium
+    olmayanı atlar. Uçta 403 verilmez (favori idareyle tutarlı).
   - **Asistan sohbeti** (`ChatSendView`) → 403 (profil oluşturma **serbest**; yalnızca
     mesaj gönderme kilitli).
   - **AI doküman analizi** (`AnalyzeView`) → 403, en başta (cache dahil hiç işlenmez).
@@ -979,6 +1023,8 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
+- `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
+- `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
 - `backfill_tender_fields` — Pro sinyal kolonlarını `detail_raw` arşivinden doldurur
   (5 dk'da bir; EKAP'a gitmez, gece penceresi, **yüklenici süpürmesi bitene kadar
   kendini geri çeker** — bkz. "Pro sinyal kolonları")

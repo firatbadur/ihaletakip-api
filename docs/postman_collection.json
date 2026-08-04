@@ -3059,6 +3059,140 @@
       ]
     },
     {
+      "name": "favorite-contractors",
+      "item": [
+        {
+          "name": "Takip edilen firmaları listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-contractors/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-contractors",
+                ""
+              ]
+            },
+            "description": "Kullanıcının takip ettiği yüklenici firmalar (en yeni önce).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Firmayı takibe al",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-contractors/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-contractors",
+                ""
+              ]
+            },
+            "description": "Gövde: `{\"contractor\": <id>, \"alarm\": true}`. Aynı firma tekrar gönderilirse **upsert** edilir (hata yok).\n\nTakip etmek **her üyeye açıktır ve sınırsızdır**; `alarm` açıkken firma yeni bir iş aldığında gelen **bildirim Pro'ya özeldir** (favori idaredeki asimetrinin aynısı — kaydetmek serbest, bildirim Pro).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractor\": 1234,\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Firma takipte mi?",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-contractors/:contractor_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-contractors",
+                ":contractor_id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "contractor_id",
+                  "value": "1",
+                  "description": "**Zorunlu.** `ekap.Contractor` kimliği."
+                }
+              ]
+            },
+            "description": "_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Firmayı takipten çıkar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/favorite-contractors/:contractor_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "favorite-contractors",
+                ":contractor_id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "contractor_id",
+                  "value": "1",
+                  "description": "**Zorunlu.** `ekap.Contractor` kimliği."
+                }
+              ]
+            },
+            "description": "Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
       "name": "subscription",
       "item": [
         {

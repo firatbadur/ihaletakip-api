@@ -103,6 +103,42 @@ def okas_recommendation(*, count: int) -> tuple[str, str]:
     )
 
 
+# ── Takip edilen firma: yeni sözleşme ──────────────────
+
+def contractor_match(*, firma_adi: str, count: int, ihale_adi: str | None = None) -> tuple[str, str]:
+    """Takip edilen firma yeni iş aldığında; başlık = firma adı."""
+    title = clip(firma_adi or "Takip Edilen Firma")
+    if count == 1 and ihale_adi:
+        body = f"Yeni iş aldı: {clip(ihale_adi, 80)}"
+    else:
+        body = f"{count} yeni sözleşme imzaladı"
+    return title, body
+
+
+# ── Free teaser: kaçırılan eşleşmelerin haftalık özeti ─
+
+def free_teaser(*, ihale: int, filtre: int, idare: int) -> tuple[str, str]:
+    """
+    Ücretsiz üyeye haftada bir: "bu hafta neyi kaçırdın".
+
+    ⚠️ Sayılar **gerçek** olmalı — abartılmış ya da uydurulmuş bir teaser, kullanıcı Pro
+    olup karşılığını göremeyince güveni kalıcı olarak bozar. Sıfır eşleşmede bu şablon
+    hiç çağrılmaz (bkz. `weekly_free_teaser`).
+
+    Gövde yalnızca **dolu olan** kaynakları sayar; "0 idare" gibi boş bir parça yazılmaz.
+    """
+    parcalar = []
+    if filtre:
+        parcalar.append(f"{filtre} kayıtlı filtrenize")
+    if idare:
+        parcalar.append(f"{idare} favori idarenize")
+    kaynak = " ve ".join(parcalar) if parcalar else "ilgi alanlarınıza"
+    return (
+        "Bu hafta kaçırdıklarınız",
+        f"{kaynak} uygun {ihale} yeni ihale yayımlandı. Pro ile hepsini görün.",
+    )
+
+
 # ── Favori idare: yeni ihale yayını ────────────────────
 
 def authority_match(*, authority_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:

@@ -135,13 +135,21 @@ yönlendirin. Böylece "tek ihale mi, liste mi" doğru seçilir:
    `GET /ekap/tenders/?<filters>` olarak uygula (ya da doğrudan kayıtlı filtre ekranını aç).
 3. **`authority_detsis`** dolu → **İdare ihale listesi**
    `GET /ekap/tenders/?idare_detsis=<authority_detsis>`
-4. **`okas_kodlar`** dolu → **OKAS arama sonuçları**
+4. **`contractor_id`** dolu → **Firma detayı** *(YENİ — takip edilen firma yeni iş aldı)*
+   `GET /ekap/contractors/<contractor_id>/`
+5. **`okas_kodlar`** dolu → **OKAS arama sonuçları**
    `GET /ekap/tenders/?okas_kod=<okas_kodlar>`  (CSV olduğu gibi gönderilir)
-5. Yukarıdakiler boş, **`tender_id`** (veya `tender_ikn`) dolu → **Tek ihale detayı**
+6. Yukarıdakiler boş, **`tender_id`** (veya `tender_ikn`) dolu → **Tek ihale detayı**
    `GET /ekap/tenders/<tender_id>/` (`tender_id` = `ekap_id`)
 
 > Push tarafında karşılıkları: `conversationId` → `filterId` → `authorityDetsis` →
-> `okasKodlar` → `tenderId`/`tenderIkn` (aynı sıra).
+> `contractorId` → `okasKodlar` → `tenderId`/`tenderIkn` (aynı sıra).
+
+### `type=INFO` + hiçbir derin bağlantı alanı yok → **Paywall**
+
+Ücretsiz üyeye haftada bir giden "bu hafta kaçırdıklarınız" teaser'ı bu şekildedir
+(`weekly_free_teaser`, push data'sında `teaser: "1"`). Kullanıcı Pro değilken kaçırdığı
+eşleşmelerin **sayısını** görür; bildirime basınca abonelik ekranı açılmalıdır.
 
 ---
 

@@ -2145,6 +2145,113 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/favorite-contractors/:
+    get:
+      operationId: api_v1_favorite_contractors_list
+      description: Kullanıcının takip ettiği yüklenici firmalar (en yeni önce).
+      summary: Takip edilen firmaları listele
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FavoriteContractor'
+          description: ''
+    post:
+      operationId: api_v1_favorite_contractors_create
+      description: 'Gövde: `{"contractor": <id>, "alarm": true}`. Aynı firma tekrar
+        gönderilirse **upsert** edilir (hata yok).
+
+
+        Takip etmek **her üyeye açıktır ve sınırsızdır**; `alarm` açıkken firma yeni
+        bir iş aldığında gelen **bildirim Pro''ya özeldir** (favori idaredeki asimetrinin
+        aynısı — kaydetmek serbest, bildirim Pro).'
+      summary: Firmayı takibe al
+      tags:
+      - favorites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FavoriteContractor'
+            examples:
+              TakibeAl:
+                value:
+                  contractor: 1234
+                  alarm: true
+                summary: Takibe al
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FavoriteContractor'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FavoriteContractor'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteContractor'
+              examples:
+                TakibeAl:
+                  value:
+                    contractor: 1234
+                    alarm: true
+                  summary: Takibe al
+          description: ''
+  /api/v1/favorite-contractors/{contractor_id}/:
+    get:
+      operationId: api_v1_favorite_contractors_retrieve
+      summary: Firma takipte mi?
+      parameters:
+      - in: path
+        name: contractor_id
+        schema:
+          type: integer
+        description: '`ekap.Contractor` kimliği.'
+        required: true
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IsFavoriteContractor'
+          description: ''
+    delete:
+      operationId: api_v1_favorite_contractors_destroy
+      description: Kayıt yoksa da `204` döner (idempotent).
+      summary: Firmayı takipten çıkar
+      parameters:
+      - in: path
+        name: contractor_id
+        schema:
+          type: integer
+        description: '`ekap.Contractor` kimliği.'
+        required: true
+      tags:
+      - favorites
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/favorites/:
     get:
       operationId: api_v1_favorites_list
@@ -3503,6 +3610,48 @@ components:
       - has_items
       - id
       - idare_id
+    FavoriteContractor:
+      type: object
+      description: 'Takip edilen firma. Mobil yalnızca `contractor` (id) + opsiyonel
+        `alarm` gönderir;
+
+        ad/istatistik alanları sunucuda `ekap.Contractor`''dan zenginleştirilir (favori
+        idarede
+
+        olduğu gibi — istemci veriyi tekrar taşımasın).'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contractor:
+          type: integer
+        alarm:
+          type: boolean
+        ad:
+          type: string
+          readOnly: true
+        kind:
+          type: string
+          readOnly: true
+        sozlesme_sayisi:
+          type: integer
+          readOnly: true
+        son_sozlesme_tarihi:
+          type: string
+          format: date-time
+          readOnly: true
+        added_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - ad
+      - added_at
+      - contractor
+      - id
+      - kind
+      - son_sozlesme_tarihi
+      - sozlesme_sayisi
     GoogleLogin:
       type: object
       properties:
@@ -3529,6 +3678,13 @@ components:
       required:
       - is_favorite
     IsFavoriteAuthority:
+      type: object
+      properties:
+        is_favorite:
+          type: boolean
+      required:
+      - is_favorite
+    IsFavoriteContractor:
       type: object
       properties:
         is_favorite:
@@ -3624,6 +3780,10 @@ components:
           type: string
           readOnly: true
           nullable: true
+        contractor_id:
+          type: integer
+          readOnly: true
+          nullable: true
         okas_kodlar:
           type: string
           readOnly: true
@@ -3638,6 +3798,7 @@ components:
       required:
       - authority_detsis
       - body
+      - contractor_id
       - conversation_id
       - created_at
       - filter_id

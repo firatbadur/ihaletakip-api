@@ -19,6 +19,7 @@ from .models import (
     MAX_TENDER_GROUPS,
     Favorite,
     FavoriteAuthority,
+    FavoriteContractor,
     Notification,
     SavedFilter,
     SavedTender,
@@ -27,6 +28,7 @@ from .models import (
 )
 from .serializers import (
     FavoriteAuthoritySerializer,
+    FavoriteContractorSerializer,
     FavoriteSerializer,
     NotificationSerializer,
     SavedFilterSerializer,
@@ -208,6 +210,82 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
             detsis_no=detsis_no,
             defaults=defaults,
         )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["favorites"],
+        summary="Takip edilen firmaları listele",
+        description="Kullanıcının takip ettiği yüklenici firmalar (en yeni önce).",
+    ),
+    post=extend_schema(
+        tags=["favorites"],
+        summary="Firmayı takibe al",
+        description=(
+            "Gövde: `{\"contractor\": <id>, \"alarm\": true}`. Aynı firma tekrar "
+            "gönderilirse **upsert** edilir (hata yok).\n\n"
+            "Takip etmek **her üyeye açıktır ve sınırsızdır**; `alarm` açıkken firma yeni "
+            "bir iş aldığında gelen **bildirim Pro'ya özeldir** (favori idaredeki asimetrinin "
+            "aynısı — kaydetmek serbest, bildirim Pro)."
+        ),
+        examples=[OpenApiExample("Takibe al", value={"contractor": 1234, "alarm": True})],
+    ),
+)
+class FavoriteContractorListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
+    serializer_class = FavoriteContractorSerializer
+    queryset_model = FavoriteContractor
+
+    def get_queryset(self):
+        # `select_related`: serializer firma adı/istatistiklerini okuyor → satır başına
+        # ek sorgu olmasın.
+        return super().get_queryset().select_related("contractor")
+
+    def perform_create(self, serializer):
+        # Sınır yok (Free dahil). Aynı firma tekrar eklenirse alarm tercihi güncellenir.
+        FavoriteContractor.objects.update_or_create(
+            user=self.request.user,
+            contractor=serializer.validated_data["contractor"],
+            defaults={"alarm": serializer.validated_data.get("alarm", True)},
+        )
+
+
+@extend_schema(
+    tags=["favorites"],
+    parameters=[
+        OpenApiParameter(
+            name="contractor_id", location=OpenApiParameter.PATH, type=int, required=True,
+            description="`ekap.Contractor` kimliği.",
+        )
+    ],
+)
+class FavoriteContractorDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="Firmayı takipten çıkar",
+        description="Kayıt yoksa da `204` döner (idempotent).",
+        responses={204: None},
+    )
+    def delete(self, request, contractor_id):
+        FavoriteContractor.objects.filter(
+            user=request.user, contractor_id=contractor_id
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Firma takipte mi?",
+        responses={
+            200: inline_serializer(
+                name="IsFavoriteContractor",
+                fields={"is_favorite": serializers.BooleanField()},
+            )
+        },
+    )
+    def get(self, request, contractor_id):
+        exists = FavoriteContractor.objects.filter(
+            user=request.user, contractor_id=contractor_id
+        ).exists()
+        return Response({"is_favorite": exists})
 
 
 @extend_schema(tags=["favorites"], parameters=[_DETSIS_NO_PARAM])

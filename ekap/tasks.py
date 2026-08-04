@@ -432,6 +432,118 @@ def sync_contractors(
         }
 
 
+@shared_task(name="ekap.tasks.backfill_tender_fields")
+def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500):
+    """
+    Pro sinyal kolonlarını `Tender.detail_raw` arşivinden doldurur — **EKAP'a gitmez**.
+
+    `sync.apply_pro_fields` ile aynı çıkarımı kullanır (tek kaynak): `okas_ana_kod`,
+    `en_ust_idare_*`, `istekli_sayisi`, şikâyet/fiyat-dışı-unsur bayrakları, `seri_anahtar`.
+    Yeni ve `refresh_stale` ile tazelenen kayıtlar zaten senkron anında dolar; bu görev
+    yalnızca **arşivin geri kalanını** yakalar.
+
+    ⚠️ **Yüklenici süpürmesine ÖNCELİK verir.** `sync_contractors` süpürme modundayken bu
+    görev kendini geri çeker. Gerekçe (ölçülmüş): ikisi de arşivin `detail_raw`'ını
+    (~40 KB/satır) okur; aynı gecede koşarlarsa TOAST trafiği ikiye katlanır ve **ikisi de**
+    yarı hızda ilerler. Yüklenici süpürmesi hâlihazırda ilerlemiş durumda ve bitmesi
+    `indirim_orani` + `sozlesme_sayisi` + `toplam_sozlesme_bedeli` alanlarını dolduruyor —
+    yani yarım kalmış iki tarama yerine önce onu bitirmek daha değerli. Süpürme bitince
+    (`SyncCheckpoint(name="contractors").done`) bu görev kendiliğinden devralır.
+
+    ⚠️ Süpürme YALNIZCA gece penceresinde çalışır (`PRO_BACKFILL_START/END`) — arşiv
+    taraması Postgres buffer cache'ini boşaltıp ihale aramasını diske düşürüyor.
+
+    Sınır **süre bütçesidir** (`CELERY_TASK_TIME_LIMIT=300` altında), sabit sayı değil.
+    İmleç `SyncCheckpoint(name="tender_fields")`; bozuk tek satır imleci kilitlemesin diye
+    `try`'dan ÖNCE ilerletilir.
+    """
+    import time
+
+    with _run("backfill_tender_fields") as run:
+        if run is None:
+            return
+
+        cp, _ = SyncCheckpoint.objects.get_or_create(name="tender_fields")
+        if cp.done:
+            return {"skipped": "tamamlandi"}
+
+        # ── Öncelik: yüklenici süpürmesi bitmeden başlama ─────────────────────
+        yuklenici_cp = SyncCheckpoint.objects.filter(name="contractors").first()
+        if yuklenici_cp is not None and not yuklenici_cp.done:
+            logger.info("backfill_tender_fields: yüklenici süpürmesi sürüyor, sıra bekleniyor")
+            run.note = "yüklenici süpürmesine öncelik verildi"
+            return {"skipped": "contractor_sweep_active"}
+
+        hour = timezone.localtime().hour
+        if not (settings.PRO_BACKFILL_START <= hour < settings.PRO_BACKFILL_END):
+            run.note = (
+                f"gece penceresi dışında (saat={hour}, pencere="
+                f"{settings.PRO_BACKFILL_START}-{settings.PRO_BACKFILL_END})"
+            )
+            return {"skipped": "peak_hours", "hour": hour}
+
+        if max_seconds is None:
+            max_seconds = settings.PRO_BACKFILL_MAX_SECONDS
+
+        last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
+
+        # `.only()`: `apply_pro_fields` bunları okur. ⚠️ `idare_id` ve `ihale_adi` ŞART —
+        # `seri_anahtar` ikisini kullanıyor; eksik kalsalar alan başına ek sorgu atılırdı
+        # (sessiz N+1). `list_raw` bilerek dışarıda: `detail_raw` kadar büyük, hiç
+        # kullanılmıyor → taranan TOAST hacmini yarıya indirir.
+        qs = (
+            Tender.objects.filter(detail_raw__isnull=False, pk__gt=last_pk)
+            .only("pk", "detail_raw", "idare_id", "ihale_adi")
+            .order_by("pk")[:max_tenders]
+        )
+
+        processed = errors = 0
+        batch = []
+        deadline = time.monotonic() + max_seconds
+        timed_out = False
+
+        # detail_raw ~40 KB/satır → iterator şart (tümünü belleğe almaz)
+        for tender in qs.iterator(chunk_size=200):
+            last_pk = max(last_pk, tender.pk)  # ⚠️ try'DAN ÖNCE
+            try:
+                sync_mod.apply_pro_fields(tender, (tender.detail_raw or {}).get("item", {}))
+                batch.append(tender)
+                processed += 1
+            except Exception as e:
+                errors += 1
+                logger.warning("sinyal çıkarımı atlandı pk=%s: %s", tender.pk, e)
+
+            if len(batch) >= batch_size:
+                Tender.objects.bulk_update(batch, sync_mod.PRO_TENDER_FIELDS)
+                batch = []
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+
+        if batch:
+            Tender.objects.bulk_update(batch, sync_mod.PRO_TENDER_FIELDS)
+
+        # "Bitti" diyebilmek için süre dolmamış OLMALI; aksi halde yalnızca bu turun
+        # bütçesi tükenmiştir, arşiv bitmiş değildir.
+        if processed == 0 and errors == 0 and not timed_out:
+            cp.done = True
+            logger.info("backfill_tender_fields tamamlandı (pk=%s)", last_pk)
+        cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
+        cp.save()
+
+        kalan = Tender.objects.filter(detail_raw__isnull=False, pk__gt=last_pk).count()
+        run.items = processed
+        run.errors = errors
+        run.note = f"{'süre doldu ' if timed_out else ''}kalan={kalan}"[:1000]
+        return {
+            "tenders": processed,
+            "errors": errors,
+            "remaining": kalan,
+            "timed_out": timed_out,
+            "done": cp.done,
+        }
+
+
 @shared_task(name="ekap.tasks.refresh_idare_id_set")
 def refresh_idare_id_set():
     """

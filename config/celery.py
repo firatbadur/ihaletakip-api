@@ -84,6 +84,15 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.sync_contractors",
         "schedule": crontab(minute="*/5"),
     },
+    # Pro sinyal kolonlarını (OKAS ana kodu, bakanlık, istekli sayısı, şikâyet bayrakları,
+    # seri anahtarı) `detail_raw` arşivinden doldurur. EKAP'a gitmez → `celery` kuyruğu.
+    # ⚠️ Yüklenici süpürmesi bitene kadar her tetikte "atlandı" dönüp bedava çıkar
+    # (ikisi de detail_raw okuyor; aynı gecede koşarlarsa ikisi de yarı hızda ilerler).
+    # Süpürme bitince kendiliğinden devralır. 5 dk aralık gece penceresini doldurur.
+    "ekap-backfill-tender-fields": {
+        "task": "ekap.tasks.backfill_tender_fields",
+        "schedule": crontab(minute="*/5"),
+    },
     # "İhalede geçen idare_id" kümesini sıcak tutar (idare_detsis filtresinin kesişimi).
     # ⚠️ İstek yolunda hesaplanınca ~40 sn sürüyordu; 10 dk'da bir tazelenince cache
     # (TTL 30 dk) hiç boşalmaz ve kullanıcı bu maliyeti hiç ödemez. EKAP'a gitmez →

@@ -150,6 +150,93 @@ def _publish_date_from_ilanlar(data, announcements):
     return ihale_ilani or (min(dates) if dates else None)
 
 
+# `apply_pro_fields`'in yazdığı alanlar. Backfill görevi `bulk_update`'e bu listeyi verir.
+# ⚠️ Buraya alan eklerken `apply_pro_fields`'e de ekleyin (ve tersi) — eksik kalan alan
+# backfill'de sessizce hiç yazılmaz.
+PRO_TENDER_FIELDS = [
+    "okas_ana_kod", "okas_ana_adi", "okas_bucket", "okas_kalem_sayisi",
+    "en_ust_idare_kod", "en_ust_idare_adi",
+    "istekli_sayisi",
+    "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
+    "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
+    "kismi_ihale", "ilansiz_mi",
+    "seri_anahtar",
+]
+
+
+def _ucdeger(kaynak: dict, anahtar: str):
+    """
+    Üç değerli bayrak: anahtar yoksa `None` ("bilinmiyor"), varsa `bool`.
+
+    ⚠️ `kaynak.get(anahtar, False)` KULLANMAYIN — bilinmeyeni "hayır"a çevirir ve
+    "itirazı olmayan ihaleler" filtresi, detayı ayrıştırılmamış ihaleleri de toplar.
+    """
+    if anahtar not in kaynak:
+        return None
+    return bool(kaynak[anahtar])
+
+
+def apply_pro_fields(tender: Tender, data: dict) -> None:
+    """
+    `detail_raw["item"]` → Pro sinyal kolonları. EKAP'a istek ATMAZ.
+
+    **Tek kaynak**: hem canlı detay senkronu (`upsert_tender_detail`) hem geriye dönük
+    doldurma görevi (`ekap.tasks.backfill_tender_fields`) bunu çağırır. İki ayrı çıkarım
+    yazılsaydı arşiv ile yeni kayıtlar sessizce farklı semantiğe kayardı.
+
+    `tender` üzerinde alanları set eder, kaydetmez (çağıran `save`/`bulk_update` yapar).
+    """
+    from .series import series_key
+
+    bilgi = data.get("ihaleBilgi") or {}
+    idare = data.get("idare") or {}
+
+    # ── Birincil OKAS ─────────────────────────────────────────────────────────
+    # Kaynak `ihtiyacKalemiOkasList[0]`; `ihaleBilgi.okas` aynı listenin birleştirilmiş
+    # string'i olduğu için yalnızca liste boşsa yedek olarak ayrıştırılır.
+    okas_list = data.get("ihtiyacKalemiOkasList") or []
+    if okas_list:
+        ilk = okas_list[0] or {}
+        tender.okas_ana_kod = str(ilk.get("kodu") or "")[:16]
+        tender.okas_ana_adi = str(ilk.get("adi") or "")[:500]
+    else:
+        ham = str(bilgi.get("okas") or "").strip()
+        if ham:
+            # "45350000 - Mekanik tesisatlar, 45000000 - İnşaat işleri" → ilk çift
+            ilk_parca = ham.split(",")[0]
+            kod, _, ad = ilk_parca.partition(" - ")
+            tender.okas_ana_kod = kod.strip()[:16]
+            tender.okas_ana_adi = ad.strip()[:500]
+    tender.okas_bucket = tender.okas_ana_kod[:4]
+    tender.okas_kalem_sayisi = len(okas_list)
+
+    # ── Bakanlık (üst kurum) ──────────────────────────────────────────────────
+    tender.en_ust_idare_kod = str(idare.get("enUstIdareKod") or "")[:16]
+    tender.en_ust_idare_adi = str(idare.get("enUstIdareAdi") or "")[:500]
+
+    # ── Katılım ───────────────────────────────────────────────────────────────
+    # `or None`: boş liste "sıfır istekli" değil "değerlendirme henüz bitmedi" demek.
+    tender.istekli_sayisi = len(data.get("tebligatAlanIstekliList") or []) or None
+
+    # ── islemlerKuralSeti bayrakları ──────────────────────────────────────────
+    kural = data.get("islemlerKuralSeti") or {}
+    tender.itirazen_sikayet_var = _ucdeger(kural, "itirazenESikayetMi")
+    tender.idareye_sikayet_var = _ucdeger(kural, "idareyeSikayetMi")
+    tender.sikayet_dilekce_var = _ucdeger(kural, "sikayetDilekceVarMi")
+    tender.fiyat_disi_unsur_var = _ucdeger(kural, "fiyatDisiUnsurVarMi")
+    tender.e_eksiltme_yapilacak = _ucdeger(kural, "eEksiltmeYapilacakMi")
+    tender.duzeltme_ilani_var = _ucdeger(kural, "ilanDuzeltmeIlani")
+
+    tender.kismi_ihale = _ucdeger(data, "kismiIhale")
+    tender.ilansiz_mi = _ucdeger(data, "ihaleIlansizMi")
+
+    # ── Seri anahtarı (Adım 7) ────────────────────────────────────────────────
+    # Burada üretilir ki arşivin `detail_raw`'ı bir kez okunsun.
+    tender.seri_anahtar = series_key(
+        tender.idare_id, tender.okas_ana_kod, tender.ihale_adi
+    )
+
+
 def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     """Detay response'unu Tender + çocuk tablolara yazar."""
     data = detail.get("item", detail) if isinstance(detail, dict) else {}
@@ -208,10 +295,9 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.ilce_adi = ilce.get("ilceAdi") or tender.ilce_adi
     # ⚠️ `ust_idare` BİLEREK olduğu gibi bırakıldı (mobil okuyor olabilir). Ama bu alan
     # bakanlık DEĞİLDİR: `ustIdare` doluysa (ör. "BAKAN YARDIMCILIKLARI") kazanır ve
-    # gerçek bakanlık adı düşer. Bakanlık kırılımı için `en_ust_idare_*` kullanın.
+    # gerçek bakanlık adı düşer. Bakanlık kırılımı için `en_ust_idare_*` kullanın —
+    # onları `apply_pro_fields` yazar (tek kaynak, backfill ile ortak).
     tender.ust_idare = idare.get("ustIdare") or idare.get("enUstIdareAdi") or tender.ust_idare
-    tender.en_ust_idare_kod = str(idare.get("enUstIdareKod") or "")[:16] or tender.en_ust_idare_kod
-    tender.en_ust_idare_adi = idare.get("enUstIdareAdi") or tender.en_ust_idare_adi
     tender.idare_telefon = str(idare.get("telefon") or "") or tender.idare_telefon
     tender.idare_fax = str(idare.get("fax") or "") or tender.idare_fax
 
@@ -229,6 +315,9 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.detail_synced_at = timezone.now()
     tender.sync_status = Tender.SyncStatus.OK
     tender.sync_error = ""
+    # Pro sinyal kolonları — `idare_id`/`ihale_adi` set edildikten SONRA (seri anahtarı
+    # ikisini de kullanıyor), `save()`'den önce.
+    apply_pro_fields(tender, data)
     tender.save()
 
     # ── Çocuk tablolar (tam yenile) ────────────────────

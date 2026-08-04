@@ -348,6 +348,83 @@ ve konan korumalar:
   ⚠️ Bu ayarlar **db konteynerinin yeniden başlamasını** gerektirir (~30 sn);
   `shared_buffers` ve `shared_preload_libraries` runtime'da değişmez.
 
+### Pro sinyal kolonları — `detail_raw`'dan türetilenler
+
+`Tender.detail_raw` içinde kolona alınmamış çok veri vardı; fiyat analizi / idare profili
+/ pazar panosu bunlara dayanıyor. **EKAP'a hiç istek atılmaz** — hepsi arşivden türetilir.
+
+- **Tek çıkarım kaynağı = `sync.apply_pro_fields(tender, data)`**. Hem canlı detay senkronu
+  (`upsert_tender_detail`, `save()`'den hemen önce) hem geriye dönük doldurma görevi bunu
+  çağırır. İki ayrı çıkarım yazılsaydı arşiv ile yeni kayıtlar sessizce farklı semantiğe
+  kayardı. Yazdığı alanların listesi `sync.PRO_TENDER_FIELDS` — **alan eklerken ikisini de
+  güncelleyin**, yoksa backfill o alanı hiç yazmaz.
+- **Kolonlar**: `okas_ana_kod`/`okas_ana_adi`/`okas_bucket`/`okas_kalem_sayisi`,
+  `en_ust_idare_kod`/`en_ust_idare_adi`, `istekli_sayisi`, `itirazen_sikayet_var`,
+  `idareye_sikayet_var`, `sikayet_dilekce_var`, `fiyat_disi_unsur_var`,
+  `e_eksiltme_yapilacak`, `duzeltme_ilani_var`, `kismi_ihale`, `ilansiz_mi`, `seri_anahtar`.
+- ⚠️ **`ihaleBilgi.okas` yeni bilgi DEĞİL** — `ihtiyacKalemiOkasList`'in
+  `", ".join(koduAdi)` hâli. `okas_ana_kod` **`ihtiyacKalemiOkasList[0].kodu`**'dan
+  türetilir; string yalnızca liste boşsa yedek olarak ayrıştırılır. Değeri *denormalizasyon*:
+  çok satırlı `OkasItem` yerine tek değerli, gruplanabilir kolon.
+  **OKAS kod uzunluğu sabit değil** (canlı veride 8 ve 9 hane bir arada) → `max_length=16`.
+- ⚠️ **`istekli_sayisi` boş liste = "bilinmiyor", sıfır DEĞİL.** `tebligatAlanIstekliList`
+  **değerlendirme sonrası** dolar; açık ihalede daima `[]` gelir (doğrulandı: 2026
+  ihalelerinde 0, sonuçlananlarda 3 ve 13). Bu yüzden `len(...) or None` yazılır — `0`
+  yazılsaydı "hiç istekli çıkmadı" gibi okunurdu.
+- ⚠️ **Bayraklar ÜÇ DEĞERLİ** (`BooleanField(null=True)`): `NULL` = "detay ayrıştırılmadı".
+  Çıkarımda `k.get(key, False)` **KULLANMAYIN** (`sync._ucdeger` bunu doğru yapar) —
+  bilinmeyeni "hayır"a çevirir ve "itirazsız ihaleler" filtresi detayı gelmemişleri de toplar.
+- ⚠️ **`duzeltme_ilani_var` şüpheli**: örneklenen 4 ihalenin dördünde de `True`. Anlamı
+  "düzeltme ilanı yayımlandı" olmayabilir. **Ürün özelliği yapmadan önce prod'da dağılımını
+  ölçün**; şimdilik yalnızca saklanıyor.
+- **`idare.enUstIdareKod/Adi` = bakanlık rollup.** Bu alanlar eskiden **her senkronda
+  atılıyordu**: `ust_idare` alanı `ustIdare or enUstIdareAdi` yazıyor ve `ustIdare` genelde
+  dolu ama değersiz (canlı örnek: `ustIdare="BAKAN YARDIMCILIKLARI"` kazanıyor,
+  `enUstIdareAdi="TARIM VE ORMAN BAKANLIĞI"` düşüyordu). `en_ust_idare_kod`, DETSIS alt
+  ağacını `descendant_idare_ids()` ile on binlerce `idare_id`'ye açmak yerine **tek indeksli
+  eşitliğe** indirger. `ust_idare` bilerek değiştirilmedi (mobil okuyor olabilir).
+- **Sözleşme özeti** (`Tender.sozlesme_sayisi`, `toplam_sozlesme_bedeli`):
+  `sync_contracts_from_raw` zaten aynı satırı `update()` ediyor ve değerler elinde →
+  `sync_contractors` süpürmesi bunları **bedavaya** doldurur. Amaç: "sonuçlanmış mı /
+  bedel şu aralıkta mı" filtreleri korelasyonlu `Exists(Contract…)` yerine düz,
+  indekslenebilir `Tender` kolonu kullansın (OR-indekslenebilirlik kuralı için şart).
+  Sıfır-sözleşme dalı da sıfırlar; `toplam_sozlesme_bedeli` hiç bedel yoksa `NULL` kalır
+  (0 "bedel sıfır" demek olurdu).
+- **Seri anahtarı** (`seri_anahtar`, `ekap/series.py`): aynı idarenin yıldan yıla
+  tekrarladığı işi tanır ("2024 YILI TEKSTİL … ALIMI" ≡ "2025 YILI TEKSTİL … ALIM İŞİ").
+  Ad iskeleti = yıl/rakam/stopword atılıp token'lar sıralanır, sonra
+  `sha1(idare_id|okas_ana_kod|iskelet)`.
+  ⚠️ **Trigram self-join bilinçli olarak REDDEDİLDİ**: idare bazlı `similarity()` self-join
+  O(k²) ve büyük alıcılarda k on binler; bir milyon probe saatlerce CPU **ve** arama çalışma
+  kümesinin boşalması demek (yüklenici süpürmesindeki %53 cache isabeti arızasının aynısı).
+  ⚠️ **`apply_pro_fields` İÇİNDE üretilir** — arşivin `detail_raw`'ı bir kez okunsun diye.
+  Sonradan eklemek tek bir `varchar(40)` için 40 GB TOAST üzerinde **ikinci bir haftalar
+  süren gece taraması** demekti.
+  ⚠️ Yanlış birleştirme kaçırılandan kötüdür (`contractors.py` ile aynı değer): aynı
+  `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
+  anahtar üretilmez ve ihale hiçbir seriye girmez.
+
+#### Doldurma: `backfill_tender_fields`
+
+`sync_contractors`'ın ikizi — zaman bütçeli, PK imleçli, gece pencereli arşiv taraması.
+Görev + elle komut (`python manage.py backfill_tender_fields [--dry-run] [--limit N]
+[--from-pk N] [--restart]`) **aynı `tender_fields` checkpoint'ini paylaşır**.
+
+- ⚠️ **Yüklenici süpürmesine ÖNCELİK verir**: `SyncCheckpoint(name="contractors").done`
+  olmadan çalışmaz, her tetikte bedavaya "atlandı" döner. Gerekçe: ikisi de arşivin
+  `detail_raw`'ını (~40 KB/satır) okur; aynı gecede koşarlarsa TOAST trafiği ikiye katlanır
+  ve **ikisi de** yarı hızda ilerler. Yüklenici süpürmesinin bitmesi `indirim_orani` +
+  `sozlesme_sayisi` + `toplam_sozlesme_bedeli` alanlarını doldurduğu için önce o bitirilir.
+  Süpürme bitince bu görev kendiliğinden devralır.
+- `celery` kuyruğuna yönlendirilir (EKAP'a gitmiyor) — `settings.py`'de `ekap.tasks.*`
+  joker'inden **ÖNCE** gelmeli.
+- `.only("pk", "detail_raw", "idare_id", "ihale_adi")` — son ikisi **şart**, `seri_anahtar`
+  onları kullanıyor; eksik kalsalar alan başına ek sorgu atılırdı (sessiz N+1).
+  `list_raw` bilerek dışarıda → taranan TOAST hacmi yarıya iner.
+- İmleç `try`'dan **önce** ilerletilir (bozuk tek satır imleci kilitlemesin).
+- Ayarlar: `PRO_BACKFILL_START/END` (vars. 0–7), `PRO_BACKFILL_MAX_SECONDS` (270,
+  `CELERY_TASK_TIME_LIMIT=300` altında).
+
 ### Yüklenici (Firma) Kaydı — `ekap.Contractor`
 
 Sözleşme imzalayan yükleniciler normalize firma kayıtlarına dönüştürülür; her `Contract`
@@ -787,6 +864,9 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
+- `backfill_tender_fields` — Pro sinyal kolonlarını `detail_raw` arşivinden doldurur
+  (5 dk'da bir; EKAP'a gitmez, gece penceresi, **yüklenici süpürmesi bitene kadar
+  kendini geri çeker** — bkz. "Pro sinyal kolonları")
 - `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (**10 dk'da bir, 90 sn
   bütçe**; EKAP'a gitmez, `detail_raw` arşivinden çalışır — bkz. "Yüklenici (Firma)
   Kaydı"). ⚠️ Duty cycle bilinçli olarak düşük: eskiden 5 dk × 240 sn (~%80) idi ve

@@ -295,6 +295,13 @@ CONTRACTOR_SWEEP_END = env.int("CONTRACTOR_SWEEP_END", default=7)
 CONTRACTOR_SWEEP_MAX_SECONDS = env.int("CONTRACTOR_SWEEP_MAX_SECONDS", default=270)
 CONTRACTOR_INCREMENTAL_MAX_SECONDS = env.int("CONTRACTOR_INCREMENTAL_MAX_SECONDS", default=90)
 
+# `backfill_tender_fields` (Pro sinyal kolonları) — aynı gerekçe, aynı pencere deseni.
+# ⚠️ Bu görev `sync_contractors` SÜPÜRMESİ bitene kadar kendini geri çeker: ikisi de
+# arşivin `detail_raw`'ını okuyor, aynı gecede koşarlarsa ikisi de yarı hızda ilerler.
+PRO_BACKFILL_START = env.int("PRO_BACKFILL_START", default=0)
+PRO_BACKFILL_END = env.int("PRO_BACKFILL_END", default=7)
+PRO_BACKFILL_MAX_SECONDS = env.int("PRO_BACKFILL_MAX_SECONDS", default=270)
+
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
 # joker'inden ÖNCE gelmelidir.
@@ -303,6 +310,8 @@ CELERY_TASK_ROUTES = {
     # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
     "ekap.tasks.sync_contractors": {"queue": "celery"},
     "ekap.tasks.refresh_idare_id_set": {"queue": "celery"},
+    # backfill_tender_fields de EKAP'a gitmez (detail_raw arşivinden türetir).
+    "ekap.tasks.backfill_tender_fields": {"queue": "celery"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

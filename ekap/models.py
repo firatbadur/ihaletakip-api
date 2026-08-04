@@ -190,6 +190,47 @@ class Tender(models.Model):
     en_ust_idare_kod = models.CharField(max_length=16, blank=True)  # indeks: bkz. yukarı
     en_ust_idare_adi = models.CharField(max_length=500, blank=True)
 
+    # ── Sinyal kolonları (detail_raw'dan türetilir — bkz. sync.apply_pro_fields) ──
+    # EKAP'a hiç istek atılmaz; hepsi arşivdeki ham JSONB'den okunur.
+
+    # Birincil OKAS = `ihtiyacKalemiOkasList[0].kodu`. ⚠️ `ihaleBilgi.okas` DEĞİL — o alan
+    # aynı listenin `", ".join(koduAdi)` hâli, yeni bilgi taşımaz. Değeri denormalizasyon:
+    # çok satırlı `OkasItem` yerine tek değerli, gruplanabilir kolon.
+    # ⚠️ Kod uzunluğu SABİT DEĞİL (canlı veride 8 ve 9 hane bir arada) → max_length geniş.
+    okas_ana_kod = models.CharField(max_length=16, blank=True)
+    okas_ana_adi = models.CharField(max_length=500, blank=True)
+    okas_bucket = models.CharField(max_length=4, blank=True)  # okas_ana_kod[:4], pazar grain'i
+    # Dürüstlük: 2+ ise "birincil OKAS" bir yaklaşıklıktır, ihale birden çok kalem içeriyor.
+    okas_kalem_sayisi = models.IntegerField(default=0)
+
+    # Katılan istekli sayısı (`tebligatAlanIstekliList` uzunluğu).
+    # ⚠️ Liste DEĞERLENDİRME SONRASI dolar: açık ihalede daima boş gelir. Boş liste
+    # "sıfır istekli" DEĞİL "henüz bilinmiyor" demektir → 0 değil NULL yazılır.
+    # `teklif_sayisi`den farkı: o yalnızca Sonuç İlanı ayrıştırılabilmişse dolu.
+    istekli_sayisi = models.IntegerField(null=True, blank=True)
+
+    # `islemlerKuralSeti` bayrakları — ÜÇ DEĞERLİ. NULL = "detay ayrıştırılmadı".
+    # ⚠️ Çıkarımda `k.get(key, False)` KULLANMAYIN: bilinmeyeni "hayır"a çevirir ve
+    # filtre `itiraz yok` derken aslında `bilgi yok` olanları da toplar.
+    itirazen_sikayet_var = models.BooleanField(null=True, blank=True)
+    idareye_sikayet_var = models.BooleanField(null=True, blank=True)
+    sikayet_dilekce_var = models.BooleanField(null=True, blank=True)
+    # Teklif stratejisi için kritik: en düşük fiyat tek başına kazandırmıyor demek.
+    fiyat_disi_unsur_var = models.BooleanField(null=True, blank=True)
+    e_eksiltme_yapilacak = models.BooleanField(null=True, blank=True)
+    # ⚠️ Örneklenen 4 ihalenin DÖRDÜNDE de True çıktı → anlamı "düzeltme ilanı yayımlandı"
+    # olmayabilir (belki "yayımlanabilir"). Ürün özelliği yapmadan önce prod'da dağılımını
+    # ölçün; şimdilik yalnızca saklanıyor.
+    duzeltme_ilani_var = models.BooleanField(null=True, blank=True)
+
+    kismi_ihale = models.BooleanField(null=True, blank=True)
+    ilansiz_mi = models.BooleanField(null=True, blank=True)
+
+    # Tekrar eden ihale serisi anahtarı (bkz. ekap/series.py). Burada üretilir çünkü
+    # arşivin `detail_raw`'ı BİR KEZ okunmalı; sonradan eklemek tek bir varchar için
+    # 40 GB TOAST üzerinde ikinci bir haftalar süren gece taraması demektir.
+    seri_anahtar = models.CharField(max_length=40, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

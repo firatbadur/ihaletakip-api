@@ -404,6 +404,42 @@ ve konan korumalar:
   `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
   anahtar üretilmez ve ihale hiçbir seriye girmez.
 
+#### İdare (alıcı) profili — `GET /ekap/authorities/profile/`
+
+"Bu kurum ne alıyor, kime, kaça?" Ürün bugüne kadar yalnızca *ihaleyi* gösteriyordu;
+alıcının davranışı teklif verecek firma için en az ihale kadar önemli. Mantık
+`ekap/authority_profile.py`'de.
+
+- **Kapsam üç yoldan biriyle** (`kapsam_coz`, öncelik sırası bilinçli):
+  `en_ust_idare_kod` (**en ucuz** — tek indeksli eşitlik) > `idare_id` (yaprak) >
+  `idare_detsis` (alt ağaç; `descendant_idare_ids ∩ tender_idare_id_set`, arama ucuyla
+  ortak mantık).
+- **`Kapsam` sınıfı `tender_q` ve `contract_q`'yu AYRI tutar.** `Contract` kendi
+  `idare_id` ingest-kopyasını taşıdığı için o kapsamlarda `ekap_tender` JOIN'i yapılmaz
+  (840k+ satırda kritik); `en_ust_idare_kod` ise henüz `Contract`'a kopyalanmadığından
+  `tender__` üzerinden gider. Tek Q'dan türetmeye çalışmak (`kosul.children[0]`)
+  kırılgan olurdu.
+- **Canlı hesap, materialize değil** — `ContractorDetailView._dagilim` ile aynı gerekçe:
+  tek idarenin sözleşmeleri yüzler mertebesinde. ⚠️ Ölçek istisnası: DETSIS alt ağacı on
+  binlerce `idare_id`'ye açılabilir ve o `IN` listesi planlayıcıyı bozar →
+  `PROFILE_MAX_IDARE` (2000) aşılırsa **ayrıntılı kırılım hesaplanmaz**, özet + yıllık
+  seri döner ve `kapsam.cok_genis` + `mesaj` ile bildirilir.
+- **Yoğunlaşma (HHI)** = Σ(pay²); 1'e yakın = tek firma hâkimiyeti. Firma sayısı
+  `HHI_MAX_FIRMA`'yı (5000) aşarsa `yaklasik: True` döner — kesilmiş bir küme üzerinden
+  hesaplanan HHI tam değildir.
+- ⚠️ **`itiraz_orani`'nın paydası TÜM ihaleler DEĞİL**, bayrağı **bilinen** ihalelerdir
+  (`Count("itirazen_sikayet_var")`): detayı gelmemiş kayıtlarda bayrak NULL ve onları
+  "itirazsız" saymak oranı sistematik olarak düşük gösterirdi. Yanıt
+  `itiraz_ornek_sayisi` ile birlikte döner.
+- **Ortalamalar her zaman örneklem sayısıyla** (`ortalama_indirim` +
+  `indirim_ornek_sayisi`, `ortalama_istekli_sayisi` + `istekli_ornek_sayisi`) — kapsam
+  kısmi olduğu için tek başına gösterilirse yanıltır.
+- **`.order_by()` her agregasyonda ŞART** (Meta.ordering GROUP BY'a sızmasın).
+- **JSONB `contains` (e-ihale payı) yalnızca PostgreSQL'de** — SQLite'a düşen yerel
+  geliştirmede o sayım atlanır (`_jsonb_var`), uç 500 vermez.
+- ⚠️ **TODO (doldurma sonrası):** `en_ust_idare_kod` ve `okas_ana_kod` `Contract`'a
+  ingest-kopyası olarak taşınmalı → bakanlık kapsamı ve OKAS kırılımı da JOIN'siz olur.
+
 #### Fiyat istihbaratı — `GET /ekap/tenders/<key>/benchmark/`
 
 "Kaça verilir?" — açık bir ihaleye benzer, **sonuçlanmış** işlerin kazanan bedel/indirim

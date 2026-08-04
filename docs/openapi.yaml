@@ -1013,6 +1013,68 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefresh'
           description: ''
+  /api/v1/ekap/authorities/profile/:
+    get:
+      operationId: ekap_authority_profile
+      description: 'Bir idarenin satın alma davranışı: yıllık harcama, işleri kimler
+        alıyor (**yoğunlaşma/HHI**), ortalama indirim, iptal ve itiraz oranı, usul/tür
+        dağılımı, il ve OKAS kırılımı, **ihale takvimi** (hangi ayda ihale açıyor).
+
+
+        Kapsam üçünden biriyle verilir; öncelik `en_ust_idare_kod` > `idare_id` >
+        `idare_detsis`.
+
+
+        ⚠️ Kapsam çok geniş olursa (`kapsam.cok_genis`) ayrıntılı kırılımlar hesaplanmaz
+        — on binlerce idarelik bir `IN` listesi planlayıcıyı bozar. Bakanlık geneli
+        için `en_ust_idare_kod` kullanın.
+
+
+        ⚠️ **Ortalamalar örneklem sayısıyla birlikte okunmalı**: `ortalama_indirim`
+        yalnızca Sonuç İlanı yayımlanmış sözleşmelerden, `ortalama_istekli_sayisi`
+        yalnızca değerlendirmesi bitmiş ihalelerden hesaplanır. `itiraz_orani`''nın
+        paydası da tüm ihaleler değil, bayrağı **bilinen** ihalelerdir.'
+      summary: İdare (alıcı) profili (Pro)
+      parameters:
+      - in: query
+        name: detay
+        schema:
+          type: boolean
+          default: true
+        description: '`false` → yalnızca özet + yıllık seri (kırılımlar atlanır).'
+      - in: query
+        name: en_ust_idare_kod
+        schema:
+          type: string
+        description: Bakanlık/üst kurum kodu — **en ucuz yol** (tek indeksli eşitlik,
+          alt ağaç genişletmesi yapılmaz).
+        examples:
+          SağlıkBakanlığı:
+            value: '15'
+            summary: Sağlık Bakanlığı
+      - in: query
+        name: idare_detsis
+        schema:
+          type: string
+        description: DETSIS düğümü; alt birimlerin tamamı kapsanır.
+      - in: query
+        name: idare_id
+        schema:
+          type: string
+        description: İdare id listesi (virgülle) — yaprak seçim.
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/authorities/search/:
     get:
       operationId: api_v1_ekap_authorities_search_list

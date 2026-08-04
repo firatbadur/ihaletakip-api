@@ -1332,6 +1332,59 @@
           }
         },
         {
+          "name": "İdare (alıcı) profili (Pro)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/authorities/profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "authorities",
+                "profile",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "detay",
+                  "value": "True",
+                  "description": "`false` → yalnızca özet + yıllık seri (kırılımlar atlanır).",
+                  "disabled": true
+                },
+                {
+                  "key": "en_ust_idare_kod",
+                  "value": "15",
+                  "description": "Bakanlık/üst kurum kodu — **en ucuz yol** (tek indeksli eşitlik, alt ağaç genişletmesi yapılmaz).",
+                  "disabled": true
+                },
+                {
+                  "key": "idare_detsis",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "DETSIS düğümü; alt birimlerin tamamı kapsanır.",
+                  "disabled": true
+                },
+                {
+                  "key": "idare_id",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "İdare id listesi (virgülle) — yaprak seçim.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Bir idarenin satın alma davranışı: yıllık harcama, işleri kimler alıyor (**yoğunlaşma/HHI**), ortalama indirim, iptal ve itiraz oranı, usul/tür dağılımı, il ve OKAS kırılımı, **ihale takvimi** (hangi ayda ihale açıyor).\n\nKapsam üçünden biriyle verilir; öncelik `en_ust_idare_kod` > `idare_id` > `idare_detsis`.\n\n⚠️ Kapsam çok geniş olursa (`kapsam.cok_genis`) ayrıntılı kırılımlar hesaplanmaz — on binlerce idarelik bir `IN` listesi planlayıcıyı bozar. Bakanlık geneli için `en_ust_idare_kod` kullanın.\n\n⚠️ **Ortalamalar örneklem sayısıyla birlikte okunmalı**: `ortalama_indirim` yalnızca Sonuç İlanı yayımlanmış sözleşmelerden, `ortalama_istekli_sayisi` yalnızca değerlendirmesi bitmiş ihalelerden hesaplanır. `itiraz_orani`'nın paydası da tüm ihaleler değil, bayrağı **bilinen** ihalelerdir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "İdare ağacı (gözat)",
           "request": {
             "method": "GET",

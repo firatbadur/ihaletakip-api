@@ -21,10 +21,10 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
-from accounts.premium import MSG_PRO_FILTRE, require_premium
+from accounts.premium import MSG_IDARE_PROFIL, MSG_PRO_FILTRE, require_premium
 from core.response import api_response
 
-from . import benchmark as benchmark_mod
+from . import authority_profile, benchmark as benchmark_mod
 
 from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
@@ -1359,6 +1359,51 @@ class ContractorDetailView(APIView):
                 for r in rows(base.exclude(idare_id=""), "idare_id")[:10]
             ],
         }
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[
+        OpenApiParameter("idare_id", str, description="İdare id listesi (virgülle) — yaprak seçim."),
+        OpenApiParameter("idare_detsis", str,
+                         description="DETSIS düğümü; alt birimlerin tamamı kapsanır."),
+        OpenApiParameter("en_ust_idare_kod", str,
+                         description="Bakanlık/üst kurum kodu — **en ucuz yol** (tek indeksli "
+                                     "eşitlik, alt ağaç genişletmesi yapılmaz).",
+                         examples=[OpenApiExample("Sağlık Bakanlığı", value="15")]),
+        OpenApiParameter("detay", bool, default=True,
+                         description="`false` → yalnızca özet + yıllık seri (kırılımlar atlanır)."),
+    ],
+    operation_id="ekap_authority_profile",
+    summary="İdare (alıcı) profili (Pro)",
+    description=(
+        "Bir idarenin satın alma davranışı: yıllık harcama, işleri kimler alıyor "
+        "(**yoğunlaşma/HHI**), ortalama indirim, iptal ve itiraz oranı, usul/tür dağılımı, "
+        "il ve OKAS kırılımı, **ihale takvimi** (hangi ayda ihale açıyor).\n\n"
+        "Kapsam üçünden biriyle verilir; öncelik `en_ust_idare_kod` > `idare_id` > "
+        "`idare_detsis`.\n\n"
+        "⚠️ Kapsam çok geniş olursa (`kapsam.cok_genis`) ayrıntılı kırılımlar hesaplanmaz — "
+        "on binlerce idarelik bir `IN` listesi planlayıcıyı bozar. Bakanlık geneli için "
+        "`en_ust_idare_kod` kullanın.\n\n"
+        "⚠️ **Ortalamalar örneklem sayısıyla birlikte okunmalı**: `ortalama_indirim` yalnızca "
+        "Sonuç İlanı yayımlanmış sözleşmelerden, `ortalama_istekli_sayisi` yalnızca "
+        "değerlendirmesi bitmiş ihalelerden hesaplanır. `itiraz_orani`'nın paydası da tüm "
+        "ihaleler değil, bayrağı **bilinen** ihalelerdir."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class AuthorityProfileView(APIView):
+    """GET /ekap/authorities/profile/ — idarenin satın alma profili."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        require_premium(request.user, MSG_IDARE_PROFIL)
+        detay = request.query_params.get("detay", "true").strip().lower() not in ("0", "false")
+        veri, hata = authority_profile.profil(request.query_params, detay=detay)
+        if hata:
+            return api_response(data=None, message=hata, success=False, status=400)
+        return api_response(data=veri)
 
 
 @extend_schema(

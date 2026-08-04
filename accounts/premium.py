@@ -40,6 +40,10 @@ MSG_SUPPORT = (
     "Destek talebi oluşturma Pro aboneliğe özeldir. Pro'ya geçerek destek ekibimize "
     "ulaşabilirsiniz."
 )
+MSG_IDARE_PROFIL = (
+    "İdare profili (harcama, kimler kazanıyor, indirim ve iptal oranları) Pro aboneliğe "
+    "özeldir. İdareyi favorileyip ihalelerini görebilirsiniz; profil için Pro'ya geçin."
+)
 MSG_PRO_FILTRE = (
     "Gelişmiş filtreler (tutar, rekabet, indirim oranı, şikâyet ve kategori) Pro "
     "aboneliğe özeldir. Temel arama ücretsizdir; bu filtreler için Pro'ya geçin."

@@ -258,13 +258,20 @@ NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=50)
 # Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz. 0 → KAPALI.
 # Abonelik push'ları aynı görev turunda arka arkaya gittiğinden 0'dır (30 dk olsa 2.+ push düşerdi).
 NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=0)
-# (ARTIK KULLANILMIYOR) Kayıtlı filtre/idare bildirimi eskiden bu pencereyi kullanırdı;
-# artık yalnızca `ilan_tarihi` BUGÜN olan ihaleler bildirilir (bkz. tenders/tasks.py).
+# (ARTIK KULLANILMIYOR) Kayıtlı filtre/idare bildirimi eskiden bu pencereyi kullanırdı.
 # Geriye dönük uyumluluk için ayar durur.
 NOTIF_FILTER_PUBLISH_DAYS = env.int("NOTIF_FILTER_PUBLISH_DAYS", default=2)
-# OKAS önerisi (recommend_by_saved_okas): kayıtlı ihalelerin OKAS kodlarıyla yalnızca
-# son bu kadar günde YAYINLANAN ihaleler önerilir (vars. 1 gün = "bugün yayınlanan").
+# OKAS önerisi (recommend_by_saved_okas): kayıtlı ihalelerin OKAS kodlarıyla yalnızca son bu
+# kadar günde **görünür olan** ihaleler önerilir. Görev günde bir koştuğu için 1 gün = örtüşmesiz.
 NOTIF_OKAS_PUBLISH_DAYS = env.int("NOTIF_OKAS_PUBLISH_DAYS", default=1)
+# ── Bildirim penceresi (kritik — bkz. Tender.ilan_gorunur_at) ──
+# Aboneliğin (filtre/idare) watermark'ı yoksa ya da çok eskiyse pencere en fazla bu kadar
+# geriye açılır. `ilan_tarihi` detay senkronunda dolduğu ve detay ertesi gece gelebildiği
+# için taban bir günden uzun olmalı; aksi halde gecikmeli gelen ilanlar kaçar.
+NOTIF_LOOKBACK_HOURS = env.int("NOTIF_LOOKBACK_HOURS", default=36)
+# Güvenlik ağı: backfill arşivden bir ihaleyi bugün ilk kez "görünür" yapabilir. İlanı bundan
+# eski olan ihale, görünürlük damgası yeni olsa bile bildirilmez (2019 ihalesi push'lanmasın).
+NOTIF_MAX_PUBLISH_AGE_DAYS = env.int("NOTIF_MAX_PUBLISH_AGE_DAYS", default=15)
 
 # ── EKAP veri toplama ──────────────────────────────────
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")

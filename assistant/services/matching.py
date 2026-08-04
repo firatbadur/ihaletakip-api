@@ -12,8 +12,6 @@ import logging
 from django.db.models import Q
 from django.utils import timezone
 
-from ekap.utils import local_day_range
-
 logger = logging.getLogger("ihaletakip")
 
 # Katılıma açık ihaleler (bkz. ekap/views.py durum dokümantasyonu: 2/3 Katılıma Açık)
@@ -22,7 +20,7 @@ OPEN_STATUSES = [2, 3]
 TENDER_TYPE_LABELS = {1: "Mal Alımı", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
 
 
-def match_tenders_for_profile(profile, since=None, published_on=None, limit: int = 10, min_score: float = 3.0) -> list:
+def match_tenders_for_profile(profile, since=None, gorunur_since=None, limit: int = 10, min_score: float = 3.0) -> list:
     """
     Profil haritasına göre AÇIK (katılıma açık) ve teklifi geçmemiş ihaleleri skorlar.
     Dönen: [(tender, score, reasons), ...] — skora göre azalan, en fazla `limit` adet.
@@ -32,9 +30,12 @@ def match_tenders_for_profile(profile, since=None, published_on=None, limit: int
     veya boş) kullanılır (sohbet/canlı eşleştirme bu geniş kapsamı kullanır).
     - `since` verilirse ek olarak son X günde ilan edilenlere daraltır (ilan_tarihi DOLU ya da
       boş olanlar dahil; gevşek pencere).
-    - `published_on` (bir tarih) verilirse **KATI**: yalnızca `ilan_tarihi` tarihi tam o güne
-      eşit olan ihaleler (NULL ilan_tarihi HARİÇ). Günlük öneri bildirimi (beat) bunu bugünle
-      çağırır → yalnızca bugün yayınlanan ihaleler önerilir. Tekrar önerme dedup ile önlenir.
+    - `gorunur_since` (bir datetime) verilirse **KATI**: yalnızca o andan sonra sisteme *yeni
+      olarak görünen* ihaleler (`Tender.ilan_gorunur_at`, NULL HARİÇ). Günlük öneri bildirimi
+      (beat) bunu kullanır. ⚠️ Eskiden burada `published_on` (ilan_tarihi = bugün) vardı;
+      `ilan_tarihi` yalnızca detay senkronunda dolduğu ve detay çoğu kez ertesi gece geldiği
+      için o pencere ihaleleri kalıcı olarak kaçırıyordu. Tekrar önerme `(user, tender)` unique
+      kısıtıyla önlenir.
     """
     from ekap.models import Tender
 
@@ -53,12 +54,10 @@ def match_tenders_for_profile(profile, since=None, published_on=None, limit: int
     qs = Tender.objects.filter(ihale_durum__in=OPEN_STATUSES).filter(
         Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True)
     )
-    # published_on (KATI): yalnızca ilan_tarihi o güne eşit (NULL hariç). Günlük öneri
-    # bildirimi bugünle çağırır → yalnızca bugün yayınlananlar önerilir.
-    if published_on is not None:
-        # ⚠️ `__date=` DEĞİL aralık — bkz. ekap.utils.local_day_range (indeks kullanımı).
-        _bas, _bit = local_day_range(published_on)
-        qs = qs.filter(ilan_tarihi__gte=_bas, ilan_tarihi__lt=_bit)
+    # gorunur_since (KATI): o andan sonra sisteme yeni görünen ihaleler (NULL hariç).
+    # Günlük öneri bildirimi bunu kullanır.
+    if gorunur_since is not None:
+        qs = qs.filter(ilan_gorunur_at__gte=gorunur_since)
     # since (gevşek): ilan_tarihi doluysa son X güne daralt, boşları da kapsar.
     elif since is not None:
         qs = qs.filter(Q(ilan_tarihi__gte=since) | Q(ilan_tarihi__isnull=True))

@@ -213,6 +213,12 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     # İlan (yayın) tarihi — detayın ilanList'inden (liste yanıtında boş gelir)
     pub = _publish_date_from_ilanlar(data, announcements)
     if pub:
+        # `ilan_tarihi` NULL'dan ilk kez doluyorsa "görünür oldu" damgasını at: bildirim
+        # görevleri pencereyi bu eksene göre kurar (bkz. Tender.ilan_gorunur_at). Zaten dolu
+        # bir ihalede damga ASLA yenilenmez — yoksa `refresh_stale` her tazelemede arşivdeki
+        # ihaleyi "yeni" gösterip push fırtınası çıkarırdı.
+        if tender.ilan_tarihi is None and tender.ilan_gorunur_at is None:
+            tender.ilan_gorunur_at = timezone.now()
         tender.ilan_tarihi = pub
     # Doküman sayısı / ilan var mı — detaydan da tazele
     if data.get("dokumanSayisi") is not None:

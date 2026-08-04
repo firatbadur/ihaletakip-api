@@ -112,6 +112,15 @@ class Tender(models.Model):
     ihale_tarih_saat = models.CharField(max_length=255, blank=True)
     ihale_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
     ilan_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
+    # İhalenin bildirim/öneri akışına **yeni olarak göründüğü an**: `ilan_tarihi` NULL'dan
+    # ilk kez dolduğunda (yani detayı ilk çekildiğinde) damgalanır, bir daha değişmez.
+    # ⚠️ Bildirim görevleri pencereyi `ilan_tarihi` yerine BU eksene göre kurar: `ilan_tarihi`
+    # yalnızca detay senkronunda dolduğu ve detay çoğu zaman ertesi gece geldiği için
+    # "bugün ilan edilenler" penceresi ihaleleri KALICI olarak kaçırıyordu (görev koştuğunda
+    # alan henüz NULL; alan dolduğunda ihale artık "dün"). Bkz. CLAUDE.md.
+    # ⚠️ İndeksi `db_index=True` DEĞİL `Meta.indexes` üzerinden verilir: dolu tabloda
+    # ACCESS EXCLUSIVE kilit almamak için migration onu CONCURRENTLY kurar.
+    ilan_gorunur_at = models.DateTimeField(null=True, blank=True)
 
     # Sınıflandırma
     ihale_tip = models.IntegerField(null=True, blank=True, db_index=True)  # 1-4
@@ -173,6 +182,9 @@ class Tender(models.Model):
         ordering = ["-ihale_tarihi"]
         indexes = [
             models.Index(fields=["ihale_tip", "ihale_durum"]),
+            # Bildirim görevlerinin penceresi (`ilan_gorunur_at >= watermark`) — bkz. alan
+            # açıklaması ve `tenders.tasks._visibility_floor`.
+            models.Index(fields=["ilan_gorunur_at"], name="ekap_tender_ilan_gor_idx"),
             # NOT: `Index(fields=["-ilan_tarihi"])` KALDIRILDI — `ilan_tarihi` zaten
             # `db_index=True` (yukarıda) ve Postgres btree'yi geriye doğru tarayabildiği
             # için birebir kopyaydı. Backfill sürekli INSERT/UPDATE attığından iki kat

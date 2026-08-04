@@ -119,7 +119,12 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
                 errors += err
                 if tender:
                     total += 1
-                    _enqueue_detail(tender.ekap_id, defer=defer_detail)
+                    # ⚠️ Detayı zaten çekilmiş ihale için istek kuyruğa GİRMEZ (backfill ile
+                    # aynı guard). Görev gün içinde 4 kez koştuğundan koşulsuz enqueue her
+                    # turda ~1000 gereksiz EKAP isteği demekti (~1 istek/sn → 17 dk kuyruk
+                    # işgali). Tazeliği `refresh_stale` yönetir.
+                    if tender.detail_synced_at is None:
+                        _enqueue_detail(tender.ekap_id, defer=defer_detail)
                     if tender.ilan_tarihi and tender.ilan_tarihi < floor:
                         reached_floor = True
             if reached_floor or (page + 1) * page_size >= (total_count or 0):

@@ -404,6 +404,48 @@ ve konan korumalar:
   `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
   anahtar üretilmez ve ihale hiçbir seriye girmez.
 
+#### Fiyat istihbaratı — `GET /ekap/tenders/<key>/benchmark/`
+
+"Kaça verilir?" — açık bir ihaleye benzer, **sonuçlanmış** işlerin kazanan bedel/indirim
+dağılımı, beklenen rekabet ve karşılaştırma listesi. Mantık `ekap/benchmark.py`'de
+(HTTP'den bağımsız, test edilebilir), yüzdelikler `ekap/aggregates.py`'de.
+
+- **Benzerlik = genişleyen merdiven**, tek tanım değil: `idare` → `il` → `ulke` → `grup`
+  → `idare_tur`. Örneklem yeterli olana kadar genişler ve **kullanılan kademe yanıtta
+  `kapsam.seviye` ile döner** (kullanıcı "bu idarede" mi "Türkiye genelinde" mi baktığını
+  bilmeli). Tek sabit tanım ya n=2 verir ya hastane tekstilini köy yoluyla karşılaştırır.
+  ⚠️ Kademe **`idare_tur`** (OKAS'sız) şart: üretimde ölçüldü, **ihalelerin ~%19'unda
+  OKAS kalemi yok** → o ihalelerde diğer kademeler hiç eşleşmez.
+- **Para için `PERCENTILE_DISC`, oran için `PERCENTILE_CONT`.** `PERCENTILE_CONT` yalnızca
+  `double precision` alır; `NUMERIC(20,2)` bir bedel sessizce float'a çevrilir, iki değer
+  arasında enterpolasyon yapılır ve **hiç var olmamış** bir tutar döner. `DISC` gerçek bir
+  satırın değerini verir — "tipik sözleşme bedeli" için de dürüst cevap budur.
+- **Dizi formu** (`ARRAY[0.25,0.5,0.75]`) tek sort yapar; üç ayrı çağrı farklı direct
+  argument taşıdığı için **üç bağımsız sort** üretirdi.
+- ⚠️ **Şablona `%(filter)s` YAZILMAZ.** Django o yer tutucuyu yalnızca `filter=`
+  verildiğinde `extra_context`'e koyar; koşulsuz durursa filtresiz her çağrı
+  `KeyError: 'filter'` ile patlar. Doğru mekanizma `filter_template` (varsayılanı bu
+  agregalarda olduğu gibi çalışır — `… WITHIN GROUP (…) FILTER (WHERE …)` geçerli SQL).
+- ⚠️ **`%(percentile)s` ham SQL'e gömülür** (ordered-set agregalarında direct argument
+  parametre olamaz) → yüzdelik listesi **yalnızca modül sabitlerinden** gelir, asla
+  `query_params`'tan.
+- **Yüzdelikler yalnızca PostgreSQL'de** eklenir; SQLite'a düşen yerel geliştirmede
+  sayım/ortalama yine döner (`aggregates.percentile_destekleniyor`).
+- **Dürüstlük** (ürün açısından kritik): her dağılım `ornek.indirim_ornek_sayisi` +
+  `ornek.guven` ile birlikte gelir; `yeterli_veri=false` ise dağılım gösterilmez.
+  **Yıllar arası tek para medyanı verilmez** (TL enflasyonu) → `yillara_gore` her zaman
+  döner, varsayılan pencere **5 yıl** (3 değil: 2024-2025 backfill sürerken seyrek).
+- **Free = maskeleme, 403 DEĞİL**: uç `200` + `kilitli: true` döner, örneklem sayıları
+  görünür ama değerler `null`. "47 benzer iş bulundu · medyan indirim %••,•" teaser'ı
+  dönüşümü artırır. ⚠️ Mobil bunu 403'ten **ayrı** ele almalı: 403 doğrudan Paywall'a
+  atlar, `kilitli` maskeli gösterip dokunuşta Paywall açar.
+- ⚠️ `benzer_ihaleler` listesi `.select_related` + **`.defer(tender__detail_raw/list_raw)`**
+  kullanır — sözleşme uçlarında yaşanan TOAST hatasının aynısı burada da olurdu.
+- ⚠️ **TODO (doldurma sonrası):** OKAS'lı kademeler şimdilik `tender__okas_ana_kod`
+  üzerinden JOIN yapıyor. `Tender.okas_ana_kod` dolunca `Contract`'a ingest-kopyası
+  olarak taşınmalı (mevcut `idare_id`/`il_id`/`ihale_tip` gibi) → tüm kademeler tek tablo
+  olur. **Şimdi taşınamaz**: kaynak kolon henüz boş, kopyalanacak veri yok.
+
 #### Pro arama filtreleri (`_PRO_PARAMS`)
 
 Gelişmiş filtreler Pro'ya kilitlidir; **temel arama herkese açık kalır** (uç hâlâ

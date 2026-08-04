@@ -1368,6 +1368,61 @@
               "type": "noauth"
             }
           }
+        },
+        {
+          "name": "Benzer işler ve kazanan fiyat analizi (Pro)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/benchmark/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "benchmark",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "kapsam",
+                  "value": "auto",
+                  "description": "Benzerlik kademesi. `auto` → yeterli örnek bulunana kadar genişler; kullanılan kademe yanıtta `kapsam.seviye` ile döner. Geçerli değerler: `auto`, `grup`, `idare`, `idare_tur`, `il`, `ulke`.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Benzer iş listesi boyutu (en çok 50).",
+                  "disabled": true
+                },
+                {
+                  "key": "yil_geri",
+                  "value": "5",
+                  "description": "Kaç yıl geriye bakılsın (1-10). ⚠️ Varsayılan **5**: 2024-2025 arşivi hâlâ doldurulduğu için dar pencere veri deliğine düşebilir.",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "1234567",
+                  "description": "**Zorunlu.** **EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.\n\nView, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar). Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash içermeyen `ekap_id` kullanın."
+                }
+              ]
+            },
+            "description": "İhaleye **benzer, sonuçlanmış** işlerin kazanan bedel ve indirim oranı dağılımını, beklenen rekabeti ve karşılaştırma listesini döner.\n\n**Free kullanıcı**: `200` döner ama sayılar maskelenir ve `kilitli: true` gelir (örneklem sayıları görünür, değerler görünmez) → istemci teaser gösterip Paywall'a yönlendirebilir. **Pro**: tüm değerler açık.\n\n⚠️ **Örneklem dürüstlüğü**: `indirim_orani` yalnızca Sonuç İlanı yayımlanmış sözleşmelerde bilinir. Her dağılım `ornek.indirim_ornek_sayisi` ve `ornek.guven` ile birlikte gelir; `ornek.yeterli_veri=false` ise dağılım gösterilmemelidir.\n\n⚠️ **Tek para medyanı yıllar arası karşılaştırılamaz** (TL enflasyonu) — `sozlesme_bedeli.yillara_gore` her zaman döner, onu kullanın.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
         }
       ],
       "description": "İhale arama, detay, ilanlar, **yüklenici (firma) kaydı**, OKAS/idare/il referans verileri.\n\nVeriler kendi veritabanımızdan servis edilir; EKAP'a yalnızca detay ve belge bağlantısı için canlı gidilir.\n\n**Yüklenici uçları** (`contractors/`) sözleşme imzalamış firmaların geçmişini verir. EKAP vergi numarası yayımlamadığı için firma kimliği normalize edilmiş ünvandır; birleştirilen yazımlar firma detayındaki `aliaslar` alanında görünür. ⚠️ Yalnızca **kazanılan** işler bilinir — EKAP kaybedilen teklifleri yayımlamaz, bu yüzden kazanma oranı gibi bir metrik hesaplanamaz."

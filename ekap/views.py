@@ -24,6 +24,8 @@ from rest_framework.views import APIView
 from accounts.premium import MSG_PRO_FILTRE, require_premium
 from core.response import api_response
 
+from . import benchmark as benchmark_mod
+
 from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
 from .models import (
@@ -1357,6 +1359,85 @@ class ContractorDetailView(APIView):
                 for r in rows(base.exclude(idare_id=""), "idare_id")[:10]
             ],
         }
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[
+        _TENDER_KEY_PARAM,
+        OpenApiParameter(
+            "yil_geri", int, default=5,
+            description="Kaç yıl geriye bakılsın (1-10). ⚠️ Varsayılan **5**: 2024-2025 "
+                        "arşivi hâlâ doldurulduğu için dar pencere veri deliğine düşebilir.",
+        ),
+        OpenApiParameter(
+            "kapsam", str,
+            enum=["auto", "idare", "il", "ulke", "grup", "idare_tur"], default="auto",
+            description="Benzerlik kademesi. `auto` → yeterli örnek bulunana kadar genişler; "
+                        "kullanılan kademe yanıtta `kapsam.seviye` ile döner.",
+        ),
+        OpenApiParameter("limit", int, default=20, description="Benzer iş listesi boyutu (en çok 50)."),
+    ],
+    operation_id="ekap_tender_benchmark",
+    summary="Benzer işler ve kazanan fiyat analizi (Pro)",
+    description=(
+        "İhaleye **benzer, sonuçlanmış** işlerin kazanan bedel ve indirim oranı "
+        "dağılımını, beklenen rekabeti ve karşılaştırma listesini döner.\n\n"
+        "**Free kullanıcı**: `200` döner ama sayılar maskelenir ve `kilitli: true` gelir "
+        "(örneklem sayıları görünür, değerler görünmez) → istemci teaser gösterip "
+        "Paywall'a yönlendirebilir. **Pro**: tüm değerler açık.\n\n"
+        "⚠️ **Örneklem dürüstlüğü**: `indirim_orani` yalnızca Sonuç İlanı yayımlanmış "
+        "sözleşmelerde bilinir. Her dağılım `ornek.indirim_ornek_sayisi` ve `ornek.guven` "
+        "ile birlikte gelir; `ornek.yeterli_veri=false` ise dağılım gösterilmemelidir.\n\n"
+        "⚠️ **Tek para medyanı yıllar arası karşılaştırılamaz** (TL enflasyonu) — "
+        "`sozlesme_bedeli.yillara_gore` her zaman döner, onu kullanın."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class TenderBenchmarkView(APIView):
+    """GET /ekap/tenders/<key>/benchmark/ — benzer işler + kazanan fiyat dağılımı."""
+
+    # Uç girişsiz DEĞİL: maskeleme kullanıcıya göre yapılıyor.
+    permission_classes = [permissions.IsAuthenticated]
+
+    # Free'ye kapalı sayısal alanlar (maskeleme istemcide biçim korunarak yapılır).
+    # ⚠️ `benzer_ihaleler` de listede: satırlar bedel/indirim taşıyor, kilitli değerin
+    # listeden sızmaması gerek.
+    _KILITLI = ("indirim_orani", "ortalama_indirim_orani", "sozlesme_bedeli",
+                "yillara_gore", "rekabet", "benzer_ihaleler")
+
+    def get(self, request, key):
+        tender = _tender_by_key(key)
+        if tender is None:
+            return api_response(
+                data=None, message="İhale bulunamadı.", success=False, status=404
+            )
+
+        try:
+            limit = min(50, max(1, int(request.query_params.get("limit", 20))))
+        except (TypeError, ValueError):
+            limit = 20
+
+        veri, hata = benchmark_mod.benchmark(
+            tender,
+            yil_geri=request.query_params.get("yil_geri") or benchmark_mod.VARSAYILAN_YIL,
+            kapsam=request.query_params.get("kapsam", "auto"),
+            limit=limit,
+        )
+        if hata:
+            return api_response(data=None, message=hata, success=False, status=422)
+
+        # ── Free maskeleme ────────────────────────────────────────────────────
+        # 403 DEĞİL: değerin *varlığını* göstermek dönüşümü artırır ("47 benzer iş
+        # bulundu · kazanan indirim medyanı %••,•"). İstemci `kilitli` bayrağını 403'ten
+        # ayrı ele almalı — 403 doğrudan Paywall'a atlar, `kilitli` maskeli gösterir.
+        if not getattr(request.user, "is_premium", False):
+            for alan in self._KILITLI:
+                veri[alan] = None
+            veri["kilitli"] = True
+        else:
+            veri["kilitli"] = False
+        return api_response(data=veri)
 
 
 @extend_schema(

@@ -1861,6 +1861,83 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/v1/ekap/tenders/{key}/benchmark/:
+    get:
+      operationId: ekap_tender_benchmark
+      description: 'İhaleye **benzer, sonuçlanmış** işlerin kazanan bedel ve indirim
+        oranı dağılımını, beklenen rekabeti ve karşılaştırma listesini döner.
+
+
+        **Free kullanıcı**: `200` döner ama sayılar maskelenir ve `kilitli: true`
+        gelir (örneklem sayıları görünür, değerler görünmez) → istemci teaser gösterip
+        Paywall''a yönlendirebilir. **Pro**: tüm değerler açık.
+
+
+        ⚠️ **Örneklem dürüstlüğü**: `indirim_orani` yalnızca Sonuç İlanı yayımlanmış
+        sözleşmelerde bilinir. Her dağılım `ornek.indirim_ornek_sayisi` ve `ornek.guven`
+        ile birlikte gelir; `ornek.yeterli_veri=false` ise dağılım gösterilmemelidir.
+
+
+        ⚠️ **Tek para medyanı yıllar arası karşılaştırılamaz** (TL enflasyonu) — `sozlesme_bedeli.yillara_gore`
+        her zaman döner, onu kullanın.'
+      summary: Benzer işler ve kazanan fiyat analizi (Pro)
+      parameters:
+      - in: query
+        name: kapsam
+        schema:
+          type: string
+          enum:
+          - auto
+          - grup
+          - idare
+          - idare_tur
+          - il
+          - ulke
+          default: auto
+        description: Benzerlik kademesi. `auto` → yeterli örnek bulunana kadar genişler;
+          kullanılan kademe yanıtta `kapsam.seviye` ile döner.
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: '**EKAP iç kimliği (`ekap_id`) kullanın** — ör. `1234567`.
+
+
+          View, İKN ile de arama yapar; ancak bu rota `/` içeren bir değeri eşleştiremez
+          ve `%2F` ile kodlamak da işe yaramaz (sunucu yolu çözerken geri `/` yapar).
+          Dolayısıyla `2025/1234567` biçimindeki bir İKN burada **404 döner**; slash
+          içermeyen `ekap_id` kullanın.'
+        required: true
+        examples:
+          EKAPIçKimliği:
+            value: '1234567'
+            summary: EKAP iç kimliği
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          default: 20
+        description: Benzer iş listesi boyutu (en çok 50).
+      - in: query
+        name: yil_geri
+        schema:
+          type: integer
+          default: 5
+        description: 'Kaç yıl geriye bakılsın (1-10). ⚠️ Varsayılan **5**: 2024-2025
+          arşivi hâlâ doldurulduğu için dar pencere veri deliğine düşebilir.'
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/tenders/{key}/contracts/:
     get:
       operationId: ekap_tender_contracts

@@ -717,6 +717,35 @@ ve EN (`18,128.00`) formatını karıştırıyor. Eski koşulsuz TR kuralı `"18
 görünen** ondalıktır; tek ayırıcıda son grup 3 hane ise binliktir. `*Degeri` float alanları
 için `parse_money_value` (0.0 → None), seçim için `pick_money(...)` kullanılır.
 
+##### ⚠️ Kısımlı ihalede "kısım maliyeti" ihale toplamı olabilir (indirim oranını şişirir)
+
+Sonuç İlanı **güvenilir kaynak** ama her zaman *kısım* maliyetini ayrı yayımlamıyor;
+bazen yalnızca ihalenin toplam maliyeti var. Ayrıştırıcı onu `kisim_yaklasik_maliyet`
+olarak döndürünce tek kısım alan firmanın indirim oranı yapay olarak 1'e yaklaşıyor:
+10 kısımlı ihalede toplam YM 10M, bir kısım 1M → `(10−1)/10 = 0,9`.
+
+**Üretimde ölçüldü** (220.248 sözleşme, 2026-08) — 2×2 kırılım kesin:
+
+| çok sözleşmeli | kısım YM == ihale YM | n | ortalama indirim | >%70 |
+|---|---|---|---|---|
+| hayır | hayır | 7.197 | 0,12 | %1,1 |
+| hayır | **evet** | 8.431 | 0,14 | **%2,7** ← **meşru** (tek kısım = ihalenin kendisi) |
+| evet | hayır | 185.117 | 0,19 | %3,2 |
+| **evet** | **evet** | **19.509** | **0,88** | **%86,6** ← **bozuk** |
+
+→ `sync._kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli)`: **çok sözleşmeli
+VE eşit** ise kısım maliyeti "bilinmiyor" sayılır → `yaklasik_maliyet_num` + `indirim_orani`
+`NULL`, `yaklasik_maliyet_kaynak` boş. İhalenin toplamı (`tender_yaklasik_maliyet_num`)
+DOĞRUdur, korunur. ⚠️ **Tek sözleşmeli ihalede eşitlik meşrudur, dokunulmaz.**
+
+Geçmiş satırlar: `python manage.py fix_indirim_orani [--dry-run]` (saf DB işi, `detail_raw`
+okumaz). Süpürme zamanla aynı işi yapar ama imleci geçtiği satırlara dönmez → tek seferlik
+onarım gerekli.
+
+⚠️ **Ders**: `indirim_orani` fiyat analizinin manşet sayısı ve kullanıcı buna bakıp teklif
+fiyatı belirliyor. Yanlış bir sayı göstermektense **"veri yok" demek doğrudur** — aynı ilke
+`ornek_sayisi` olmadan ortalama göstermeme kuralının kaynağı.
+
 #### İhale durum kodları (üretim dağılımı — küçük örneğe bakıp budamayın)
 
 `IHALE_DURUM` **iki kodlama şemasının birleşimidir**; ikisi de canlı veride bir arada

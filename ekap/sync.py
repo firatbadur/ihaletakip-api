@@ -531,6 +531,9 @@ def sync_contracts_from_raw(
     touched_contractors, seen_keys = set(), []
     sonuc_eksik = False
     wanted, kisimlar_by_key, alias_jobs = {}, {}, []
+    # İhalede birden çok sözleşme varsa (kısımlı ihale), Sonuç İlanı'ndan gelen "kısım
+    # maliyeti" aslında ihale toplamı olabilir → bkz. `_kisim_maliyeti_belirsiz`.
+    cok_sozlesmeli = len(sozlesme_list) > 1
 
     for idx, s in enumerate(sozlesme_list):
         # Anahtar asla boş kalmamalı — koşulsuz unique constraint (R2) buna dayanır
@@ -598,9 +601,29 @@ def sync_contracts_from_raw(
             ):
                 if parsed.get(src) is not None:
                     defaults[dst] = parsed[src]
-            defaults["indirim_orani"] = _indirim_orani(
-                ym, defaults["sozlesme_bedeli_num"]
-            )
+            # ⚠️ Kısımlı ihalede ayrıştırıcı, kısmın maliyeti yerine ihalenin TAMAMININ
+            # maliyetini yakalayabiliyor (Sonuç İlanı bazen yalnızca toplam maliyeti
+            # yayımlıyor). O zaman `ym` aslında ihale toplamıdır ve tek kısım alan firma
+            # için indirim oranı yapay olarak 1'e yaklaşır.
+            #
+            # Üretimde ölçüldü (220k sözleşme, 2026-08):
+            #   çok sözleşmeli + kısım YM == ihale YM → 19.509 satır, ortalama indirim
+            #   **0,88**, %86,6'sı >%70. Aynı eşitlik TEK sözleşmeli ihalede meşrudur
+            #   (kısım zaten ihalenin kendisi) ve orada aşırı oran yalnızca %2,7.
+            #
+            # Bu yüzden kısım maliyeti "bilinmiyor" sayılır: `yaklasik_maliyet_num` ve
+            # `indirim_orani` NULL bırakılır, `kaynak` boşaltılır. İhalenin toplam
+            # maliyeti (`tender_yaklasik_maliyet_num`) DOĞRUdur, o korunur.
+            # Yanlış bir sayı göstermektense "veri yok" demek doğrudur — kullanıcı bu
+            # orana bakıp teklif fiyatı belirliyor.
+            if _kisim_maliyeti_belirsiz(ym, parsed.get("yaklasik_maliyet"), cok_sozlesmeli):
+                defaults["yaklasik_maliyet_num"] = None
+                defaults["yaklasik_maliyet_kaynak"] = ""
+                defaults["indirim_orani"] = None
+            else:
+                defaults["indirim_orani"] = _indirim_orani(
+                    ym, defaults["sozlesme_bedeli_num"]
+                )
             if contractor is not None:
                 _enrich_contractor(contractor, parsed, ilan)
         elif defaults["sozlesme_tarihi"] is not None:
@@ -710,6 +733,23 @@ def _upsert_sections(contract, kisim_list) -> None:
         _SECTION_FIELDS,
         lambda key, vals: ContractSection(contract=contract, ekap_kisim_id=key, **vals),
     )
+
+
+def _kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli: bool) -> bool:
+    """
+    Ayrıştırılan "kısım maliyeti" aslında ihalenin tamamının maliyeti mi?
+
+    Çok sözleşmeli (kısımlı) bir ihalede kısım maliyeti ile ihale toplamı **birebir
+    eşitse**, Sonuç İlanı büyük olasılıkla yalnızca toplam maliyeti yayımlamıştır; o
+    değeri tek bir kısma atfetmek indirim oranını 1'e yaklaştırır. Tek sözleşmeli
+    ihalede aynı eşitlik meşrudur (kısım = ihalenin kendisi) → orada `False` döner.
+
+    Ayrı fonksiyon: koşul hem canlı senkronda hem `fix_indirim_orani` onarım komutunda
+    kullanılıyor, iki yerde ayrı yazılırsa sessizce ayrışırlardı.
+    """
+    if kisim_ym is None or ihale_ym is None:
+        return False
+    return cok_sozlesmeli and kisim_ym == ihale_ym
 
 
 def _indirim_orani(yaklasik_maliyet, sozlesme_bedeli):

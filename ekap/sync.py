@@ -206,7 +206,12 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     if il.get("id"):
         tender.il_id = _as_int(il["id"])
     tender.ilce_adi = ilce.get("ilceAdi") or tender.ilce_adi
+    # ⚠️ `ust_idare` BİLEREK olduğu gibi bırakıldı (mobil okuyor olabilir). Ama bu alan
+    # bakanlık DEĞİLDİR: `ustIdare` doluysa (ör. "BAKAN YARDIMCILIKLARI") kazanır ve
+    # gerçek bakanlık adı düşer. Bakanlık kırılımı için `en_ust_idare_*` kullanın.
     tender.ust_idare = idare.get("ustIdare") or idare.get("enUstIdareAdi") or tender.ust_idare
+    tender.en_ust_idare_kod = str(idare.get("enUstIdareKod") or "")[:16] or tender.en_ust_idare_kod
+    tender.en_ust_idare_adi = idare.get("enUstIdareAdi") or tender.en_ust_idare_adi
     tender.idare_telefon = str(idare.get("telefon") or "") or tender.idare_telefon
     tender.idare_fax = str(idare.get("fax") or "") or tender.idare_fax
 
@@ -416,6 +421,10 @@ def sync_contracts_from_raw(
             contractors_synced_at=timezone.now(),
             sonuc_ilani_eksik=False,
             yaklasik_maliyet_num=None,
+            # Sözleşmeler kaldırıldı → özet de sıfırlanmalı, yoksa "sonuçlanmış"
+            # filtresi bu ihaleyi hâlâ eşleştirirdi.
+            sozlesme_sayisi=0,
+            toplam_sozlesme_bedeli=None,
         )
         if recompute and onceki:
             contractors_mod.recompute_aggregates(onceki)
@@ -553,10 +562,20 @@ def sync_contracts_from_raw(
          for c in tender.sozlesmeler.all() if c.tender_yaklasik_maliyet_num is not None),
         None,
     )
+    # Sözleşme özeti — `contracts` upsert'ten döndüğü için değerler zaten elde;
+    # ek sorgu ya da ek `detail_raw` okuması YOK (bkz. Tender.sozlesme_sayisi yorumu).
+    bedeller = [
+        c.sozlesme_bedeli_num for c in contracts.values()
+        if c.sozlesme_bedeli_num is not None
+    ]
     Tender.objects.filter(pk=tender.pk).update(
         contractors_synced_at=now,
         sonuc_ilani_eksik=sonuc_eksik,
         yaklasik_maliyet_num=tender_ym,
+        sozlesme_sayisi=len(seen_keys),
+        # None (bedeli bilinmeyen sözleşmeler) ile 0 (bedeli gerçekten sıfır) farklı →
+        # hiç bedel yoksa toplam da NULL kalır, 0 yazılmaz.
+        toplam_sozlesme_bedeli=sum(bedeller) if bedeller else None,
     )
     if recompute and touched_contractors:
         contractors_mod.recompute_aggregates(touched_contractors)

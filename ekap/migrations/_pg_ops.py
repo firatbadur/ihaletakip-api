@@ -29,6 +29,7 @@ from django.contrib.postgres.operations import (
     RemoveIndexConcurrently,
     TrigramExtension,
 )
+from django.db import migrations
 
 
 def index_state(schema_editor, name):
@@ -96,3 +97,23 @@ class PgRemoveIndexConcurrently(_PostgresOnly, RemoveIndexConcurrently):
 
 class PgTrigramExtension(_PostgresOnly, TrigramExtension):
     """`pg_trgm` — `CreateExtension` zaten `IF NOT EXISTS` mantığıyla idempotent."""
+
+
+class PgRunSQL(_PostgresOnly, migrations.RunSQL):
+    """Yalnızca PostgreSQL'de çalışan ham SQL (SQLite'ta sessizce atlanır)."""
+
+
+def lock_timeout(saniye="5s"):
+    """
+    `SET LOCAL lock_timeout` — dolu tabloda `ALTER TABLE` için **zorunlu koruma**.
+
+    Nullable kolon eklemek PG11+'da metadata-only'dir (tablo yeniden yazılmaz) ama yine
+    de kısa bir ACCESS EXCLUSIVE kilidi ister. O kilit, uzun süren bir transaction'ın
+    (ör. gece koşan `sync_contractors` süpürmesi) arkasında **kuyruğa girerse**, kendisi
+    de sonraki tüm okuyucuları arkasına dizer → migration beklerken site durur.
+    `lock_timeout` ile migration kilidi alamazsa hızlıca hata verir; deploy tekrar
+    denenir, kimse bloklanmaz.
+
+    `SET LOCAL` transaction kapsamlıdır → migration `atomic = True` OLMALIDIR.
+    """
+    return PgRunSQL(f"SET LOCAL lock_timeout = '{saniye}'", migrations.RunSQL.noop)

@@ -164,6 +164,32 @@ class Tender(models.Model):
     # Sözleşmesi olup henüz Sonuç İlanı yayımlanmamış → detayı daha sık tazele
     sonuc_ilani_eksik = models.BooleanField(default=False, db_index=True)
 
+    # ── Sözleşme özeti (denormalize) ──────────────────────────────────────────
+    # `sync_contracts_from_raw` zaten bu satırı güncelliyor ve değerler elinde →
+    # doldurmak BEDAVA (ek `detail_raw` okuması yok, `sync_contractors` süpürmesi
+    # arşivi zaten geziyor).
+    # Amaç: "sonuçlanmış mı / sözleşme bedeli şu aralıkta mı" filtreleri korelasyonlu
+    # `Exists(Contract...)` alt sorgusu yerine **düz, indekslenebilir Tender kolonu**
+    # olsun. `Contract`'a bağlı bir OR dalı, aynı tabloda olmadığı için diğer dalların
+    # indekslerini de devre dışı bırakıyordu (bkz. CLAUDE.md → "OR'un HER dalı").
+    # ⚠️ `db_index=True` BİLEREK YOK. Django onu `AddField` içinde düz `CREATE INDEX`
+    # olarak üretir → 1M satırlık canlı tabloda ACCESS EXCLUSIVE kilidi. Bu kolonlar
+    # ayrıca süpürme boyunca ~1M kez UPDATE edilecek; önce kurulan indeks şişerdi.
+    # Sıra: kolon (bu migration) → doldurma → `AddIndexConcurrently` (Adım 2, filtreler
+    # geldiğinde). Bkz. 0007_search_indexes ve migrations/_pg_ops.py.
+    sozlesme_sayisi = models.IntegerField(default=0)
+    toplam_sozlesme_bedeli = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True
+    )
+
+    # ── Bakanlık/üst kurum (idare.enUstIdare*) ────────────────────────────────
+    # ⚠️ `ust_idare` bu bilgiyi TAŞIMIYOR: `ustIdare` doluysa (ör. "BAKAN
+    # YARDIMCILIKLARI") kazanıyor ve gerçek bakanlık adı atılıyordu (bkz. sync.py).
+    # `en_ust_idare_kod`, DETSIS alt ağacını `descendant_idare_ids()` ile on binlerce
+    # `idare_id`'ye açmak yerine **tek indeksli eşitliğe** indirger.
+    en_ust_idare_kod = models.CharField(max_length=16, blank=True)  # indeks: bkz. yukarı
+    en_ust_idare_adi = models.CharField(max_length=500, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

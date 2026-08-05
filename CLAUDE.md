@@ -589,7 +589,12 @@ Görev + elle komut (`python manage.py backfill_tender_fields [--dry-run] [--lim
 [--from-pk N] [--restart]`) **aynı `tender_fields` checkpoint'ini paylaşır**.
 
 - ⚠️ **Yüklenici süpürmesine ÖNCELİK verir**: `SyncCheckpoint(name="contractors").done`
-  olmadan çalışmaz, her tetikte bedavaya "atlandı" döner. Gerekçe: ikisi de arşivin
+  olmadan çalışmaz, her tetikte bedavaya "atlandı" döner.
+- ⚠️ **Atlama kontrolleri `_run`'DAN ÖNCE yapılır** → iş yapılmayan turda `SyncRun` satırı
+  **yazılmaz**. Görev 5 dk'da bir tetiklendiği için aksi hâlde günde ~288 boş kayıt
+  birikiyordu; admin'de hepsi `ok / 0 / 0` görünüp sebebi göstermediğinden gerçek
+  çalışmalar kayboluyor ve "görev hiç çalışmamış" izlenimi doğuyordu. Atlama sebepleri
+  log'a ve dönüş değerine yazılır. Gerekçe: ikisi de arşivin
   `detail_raw`'ını (~40 KB/satır) okur; aynı gecede koşarlarsa TOAST trafiği ikiye katlanır
   ve **ikisi de** yarı hızda ilerler. Yüklenici süpürmesinin bitmesi `indirim_orani` +
   `sozlesme_sayisi` + `toplam_sozlesme_bedeli` alanlarını doldurduğu için önce o bitirilir.

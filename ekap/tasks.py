@@ -460,28 +460,42 @@ def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500)
     """
     import time
 
+    # ── Ön kontroller: `_run`'DAN ÖNCE ────────────────────────────────────────
+    # ⚠️ Bilinçli olarak `_run` dışında: görev 5 dk'da bir tetikleniyor ve iş yapamadığı
+    # her turda bir `SyncRun` satırı yaratmak günde ~288 boş kayıt demekti. Admin'de
+    # hepsi `ok / 0 / 0` görünüp sebebi göstermiyordu → gerçek çalışmalar bu gürültünün
+    # içinde kayboluyor ve "hiç çalışmamış" izlenimi doğuyordu.
+    # Artık **yalnızca gerçekten iş yapılan turlar** SyncRun'a yazılır; atlama sebepleri
+    # log'a düşer (aşağıdaki `logger.info`) ve dönüş değerinde görünür.
+    cp = SyncCheckpoint.objects.filter(name="tender_fields").first()
+    if cp is not None and cp.done:
+        return {"skipped": "tamamlandi"}
+
+    # Öncelik: yüklenici süpürmesi bitmeden başlama (ikisi de detail_raw okuyor).
+    yuklenici_cp = SyncCheckpoint.objects.filter(name="contractors").first()
+    if yuklenici_cp is not None and not yuklenici_cp.done:
+        kalan = (yuklenici_cp.extra or {}).get("last_tender_pk")
+        logger.info(
+            "backfill_tender_fields: yüklenici süpürmesi sürüyor (imleç=%s), sıra bekleniyor",
+            kalan,
+        )
+        return {"skipped": "contractor_sweep_active", "yuklenici_imlec": kalan}
+
+    hour = timezone.localtime().hour
+    if not (settings.PRO_BACKFILL_START <= hour < settings.PRO_BACKFILL_END):
+        logger.info(
+            "backfill_tender_fields: gece penceresi dışında (saat=%s, pencere=%s-%s)",
+            hour, settings.PRO_BACKFILL_START, settings.PRO_BACKFILL_END,
+        )
+        return {"skipped": "peak_hours", "hour": hour}
+
     with _run("backfill_tender_fields") as run:
         if run is None:
             return
-
+        # Kilit alındıktan sonra checkpoint'i (varsa yaratarak) tazele.
         cp, _ = SyncCheckpoint.objects.get_or_create(name="tender_fields")
         if cp.done:
             return {"skipped": "tamamlandi"}
-
-        # ── Öncelik: yüklenici süpürmesi bitmeden başlama ─────────────────────
-        yuklenici_cp = SyncCheckpoint.objects.filter(name="contractors").first()
-        if yuklenici_cp is not None and not yuklenici_cp.done:
-            logger.info("backfill_tender_fields: yüklenici süpürmesi sürüyor, sıra bekleniyor")
-            run.note = "yüklenici süpürmesine öncelik verildi"
-            return {"skipped": "contractor_sweep_active"}
-
-        hour = timezone.localtime().hour
-        if not (settings.PRO_BACKFILL_START <= hour < settings.PRO_BACKFILL_END):
-            run.note = (
-                f"gece penceresi dışında (saat={hour}, pencere="
-                f"{settings.PRO_BACKFILL_START}-{settings.PRO_BACKFILL_END})"
-            )
-            return {"skipped": "peak_hours", "hour": hour}
 
         if max_seconds is None:
             max_seconds = settings.PRO_BACKFILL_MAX_SECONDS

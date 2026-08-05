@@ -287,6 +287,13 @@ SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
 # `sync_contractors` SÜPÜRME modunun çalışabileceği saat aralığı (yerel saat, [start, end)).
 # Süpürme tüm `detail_raw` arşivini okur ve küçük bir `shared_buffers`'ı boşaltarak arama
 # sorgularını diske düşürür → gündüz çalıştırılmaz. Artımlı mod bu pencereden bağımsızdır.
+# ⚠️ **Süpürmeyi hızlandırmanın tek gerçek kaldıracı BU PENCEREDİR**, tur bütçesi değil:
+# üretimde tur başına ortalama 180 sn ölçüldü (bütçe 270 sn), yani bütçe hiç sınırlayıcı
+# değil. 7 saatlik pencere günde ~2,5 saat iş demek; `END=24` yapmak bunu ~20 saate
+# çıkarıp süpürmeyi ~9× hızlandırır.
+# Bedeli: `ekap_tender` 7,5 GB ve `shared_buffers` 2 GB → süpürme cache'i boşaltıyor
+# (ölçüm: heap isabeti %79). Pencere açılırsa bu gündüz de olur, arama ucu yavaşlar.
+# Geçici hızlandırma için `.env.prod`'da açıp iş bitince geri almak doğru kullanımdır.
 CONTRACTOR_SWEEP_START = env.int("CONTRACTOR_SWEEP_START", default=0)
 CONTRACTOR_SWEEP_END = env.int("CONTRACTOR_SWEEP_END", default=7)
 # Tur başına süre bütçesi (sn). Süpürme yalnız gece koştuğu için pencereyi doldurabilir;

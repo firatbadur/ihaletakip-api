@@ -682,7 +682,13 @@ hangi idarelerle çalıştığı sorgulanabilir.
   (`contractors_synced_at < detail_synced_at` → `refresh_stale` bir detayı yenileyince
   kendiliğinden yakalar). Sınır **süre bütçesidir**
   (`max_seconds=90`, global `CELERY_TASK_TIME_LIMIT=300` altında), sabit sayı değil:
-  iş tamamen DB-içi olduğu için hız makineye göre çok değişir (~200 ihale/sn ölçüldü).
+  iş tamamen DB-içi olduğu için hız makineye göre çok değişir.
+  ⚠️ **Gerçek üretim verimi: ~2,8 ihale/sn** (2026-08, 681k detaylı ihale, 3 günlük
+  `SyncRun` ortalaması). Burada eskiden yazan "~200 ihale/sn" **yanlıştı** — muhtemelen
+  küçük/sıcak bir veri kümesinde ölçülmüştü ve planlamayı 70× iyimser gösteriyordu.
+  Darboğaz I/O değil **CPU**: satır başına Sonuç İlanı HTML ayrıştırma + firma çözümleme
+  + sözleşme upsert'i var. Tur başına ortalama 180 sn (bütçe 270 sn) → **bütçe değil,
+  gece penceresi sınırlayıcı**. ETA hesabı için: `SyncRun`'dan `sum(items)/sum(süre)`.
   ⚠️ **Duty cycle bilinçli düşük tutulur (~%15).** Eskiden 5 dk × 240 sn (~%80) idi;
   `detail_raw` (~40 KB/satır) arşiv boyunca okunduğu için Postgres buffer cache'i sürekli
   boşalıyor ve ihale arama sorguları diskten okumak zorunda kalıyordu. Süpürme artık

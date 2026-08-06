@@ -25,7 +25,16 @@ logger = logging.getLogger("ihaletakip")
 
 @contextmanager
 def _run(task_name, lock_ttl=3600):
-    """SyncRun kaydı + Redis kilidi (aynı görev tekrar tetiklenirse atla)."""
+    """
+    SyncRun kaydı + Redis kilidi (aynı görev tekrar tetiklenirse atla).
+
+    ⚠️ **`lock_ttl` görevin azami süresine göre seçilmeli.** Görev
+    `CELERY_TASK_TIME_LIMIT` ile öldürülürse `finally` çalışmaz ve kilit TTL dolana
+    kadar kalır — o süre boyunca görev **tamamen durur**. Sık koşan görevlerde (5 dk'da
+    bir) varsayılan 1 saat çok uzundur: tek bir ölüm 12 turu birden yutar. Üretimde
+    yaşandı (`backfill_tender_fields`, bkz. oradaki not).
+    Kural: `lock_ttl ≈ 2 × azami tur süresi`, üst sınır olarak varsayılan kalsın.
+    """
     lock_key = f"ekap:lock:{task_name}"
     got = cache.add(lock_key, "1", timeout=lock_ttl)
     if not got:
@@ -310,7 +319,7 @@ def sync_contractors(
 
     from . import contractors as contractors_mod
 
-    with _run("sync_contractors") as run:
+    with _run("sync_contractors", lock_ttl=600) as run:
         if run is None:
             return
 
@@ -489,7 +498,7 @@ def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500)
         )
         return {"skipped": "peak_hours", "hour": hour}
 
-    with _run("backfill_tender_fields") as run:
+    with _run("backfill_tender_fields", lock_ttl=600) as run:
         if run is None:
             return
         # Kilit alındıktan sonra checkpoint'i (varsa yaratarak) tazele.
@@ -546,13 +555,28 @@ def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500)
         cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
         cp.save()
 
-        kalan = Tender.objects.filter(detail_raw__isnull=False, pk__gt=last_pk).count()
+        # ⚠️ `kalan` sayımı SICAK YOLDAN ÇIKARILDI. `detail_raw IS NOT NULL` indeksli
+        # değil ve imleçten sonraki yüz binlerce satırı tarıyor; cache zaten süpürme
+        # yüzünden hırpalanmışken bu tek sorgu on saniyeler sürebiliyor. 210 sn'lik
+        # bütçenin üstüne binince tur `CELERY_TASK_TIME_LIMIT=300`'ü aşıp ÖLDÜRÜLÜYOR →
+        # `finally` çalışmıyor → Redis kilidi serbest kalmıyor → görev TTL boyunca
+        # tamamen duruyor. (Üretimde yaşandı: 19:50 turu `running`'de asılı kaldı,
+        # sonraki ~1 saat hiç tur çalışmadı.)
+        # Artık yalnızca iş bittiğinde (süre dolmadıysa) sayılıyor; süpürme sırasında
+        # imleç raporlanıyor — ilerleme oradan da izlenebilir.
+        kalan = None
+        if not timed_out:
+            kalan = Tender.objects.filter(detail_raw__isnull=False, pk__gt=last_pk).count()
         run.items = processed
         run.errors = errors
-        run.note = f"{'süre doldu ' if timed_out else ''}kalan={kalan}"[:1000]
+        run.note = (
+            f"{'süre doldu ' if timed_out else ''}imleç={last_pk}"
+            + (f" kalan={kalan}" if kalan is not None else "")
+        )[:1000]
         return {
             "tenders": processed,
             "errors": errors,
+            "cursor": last_pk,
             "remaining": kalan,
             "timed_out": timed_out,
             "done": cp.done,

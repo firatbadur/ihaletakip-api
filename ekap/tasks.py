@@ -142,14 +142,33 @@ def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
 
 # ── Backfill (sürekli, yavaş) ──────────────────────────
 @shared_task(name="ekap.tasks.backfill")
-def backfill(max_pages=10, page_size=50, defer_detail=True):
+def backfill(max_pages=None, page_size=50, defer_detail=True):
     """Pencere tabanından (son N yıl) ileriye doğru imleçle geçmişi doldurur.
 
     Arama ``ihaleTarihSaatBaslangic`` ile EKAP tarafında son ``EKAP_BACKFILL_YEARS``
     yıla sınırlanır; ``ihaleTarihi`` **asc** sıralanır (en eski → yeni). Böylece
     DB'deki asıl boşluk (eski yıllar) önce dolar ve imleç, en yeni kayıtlar listenin
     sonuna eklendiği için kaymaz. ``skip >= total_count`` (pencere içi toplam) ya da
-    boş sayfada biter."""
+    boş sayfada biter.
+
+    ⚠️ **Hızın kısıtı `max_pages`'tir, EKAP throttle'ı DEĞİL** (üretimde ölçüldü,
+    2026-08): tur başına tam 500 kayıt işleniyordu (10 sayfa × 50) ve `ekap` kuyruğu
+    **boştu** (`LLEN ekap = 0`), yani 1 istek/sn bütçesinin büyük kısmı kullanılmıyordu.
+    Görev 10 sayfayı ~10 saniyede çekip 15 dakika boş bekliyordu → 43.500 kayıt/gün,
+    691k kalan için ~16 gün.
+
+    Liste taraması aslında **ucuzdur**: 691k kaydı gezmek sayfa başına 50 kayıtla yalnızca
+    ~13.8k istek, 1 istek/sn ile ~4 saat. Asıl maliyet **detay** istekleridir; ama detayı
+    zaten çekilmiş ihaleler için istek atılmıyor (aşağıdaki guard), yani gerçek yük yalnızca
+    eksik yıllardır. Bu yüzden `max_pages`'i büyütmek throttle'a dokunmadan işi kısaltır:
+    liste taraması hızlanır, detaylar kuyrukta birikip 1 istek/sn ile akar (kuyruğun geçici
+    büyümesi normaldir, sorun değildir).
+
+    `EKAP_BACKFILL_MAX_PAGES` ile ayarlanır (env). ⚠️ Çok büyük değer turun süresini
+    `CELERY_TASK_TIME_LIMIT=300` üstüne çıkarabilir: tur başına maliyet ≈ `max_pages`
+    saniye (liste istekleri) + upsert süresi. 40 civarı güvenli üst sınırdır."""
+    if max_pages is None:
+        max_pages = settings.EKAP_BACKFILL_MAX_PAGES
     with _run("backfill") as run:
         if run is None:
             return

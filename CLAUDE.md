@@ -136,7 +136,13 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
 - **Toplama (Celery Beat)**: `sync_recent` (gece 02:00; en yeni ilanlar, `ilanTarihi` desc,
   20 sayfa), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
   yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da
-  bir; pencere tabanından **ileriye** `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
+  bir, tur başına `EKAP_BACKFILL_MAX_PAGES` sayfa — **hızın asıl düğmesi budur, throttle
+  değil**; ölçüm 2026-08: tur başına tam 500 kayıt işlenirken `ekap` kuyruğu BOŞTU
+  (`LLEN ekap=0`), yani 1 istek/sn bütçesinin çoğu kullanılmıyordu → 43.500 kayıt/gün.
+  Liste taraması ucuz (50 kayıt/istek); pahalı olan detay istekleri, onlar da yalnızca
+  detayı eksik ihaleler için atılıyor. ⚠️ Tavan: tur maliyeti ≈ `max_pages` sn + upsert,
+  `CELERY_TASK_TIME_LIMIT=300` yüzünden ~40 güvenli sınır;
+  pencere tabanından **ileriye** `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
   yıllar olduğu için önce onları doldurur, en yeni kayıtlar listenin sonuna eklendiğinden
   imleç kaymaz; `skip >= total_count` [pencere içi toplam] ya da boş sayfada `done=True`.
   EKAP gün içinde yavaş/yanıtsız olabildiğinden görev sayfa hatasını **zarifçe yutar**:

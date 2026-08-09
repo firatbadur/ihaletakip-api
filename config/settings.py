@@ -276,6 +276,14 @@ EKAP_TIMEOUT = env.int("EKAP_TIMEOUT", default=30)
 EKAP_MAX_RETRIES = env.int("EKAP_MAX_RETRIES", default=4)
 EKAP_RECENT_DAYS = env.int("EKAP_RECENT_DAYS", default=3)
 EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
+# `backfill` turu başına çekilecek liste sayfası. ⚠️ **Geçmiş toplama hızının asıl
+# düğmesi budur, throttle değil** — ölçüm (2026-08): tur başına tam 500 kayıt
+# (10 sayfa × 50) işleniyor ve `ekap` kuyruğu BOŞ, yani 1 istek/sn bütçesi
+# kullanılmıyordu. Liste taraması ucuz (50 kayıt/istek); pahalı olan detay istekleri
+# ama onlar zaten yalnızca detayı eksik ihaleler için atılıyor.
+# ⚠️ Üst sınır: tur maliyeti ≈ `max_pages` saniye + upsert süresi; `CELERY_TASK_TIME_LIMIT`
+# 300 sn olduğu için 40 civarı güvenli tavandır.
+EKAP_BACKFILL_MAX_PAGES = env.int("EKAP_BACKFILL_MAX_PAGES", default=10)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 

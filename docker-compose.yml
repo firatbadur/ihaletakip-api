@@ -170,8 +170,19 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
-    # EKAP kuyruğu — rate limit için TEK concurrency ile serileştirilir
-    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=1"]
+    # EKAP kuyruğu.
+    # ⚠️ **Concurrency 1 DEĞİL 3 — ama EKAP'a giden yük DEĞİŞMEZ.** Hız sınırı artık
+    # `ekap/throttle.py`'de **atomik** olarak uygulanıyor (Redis SETNX ile pencere
+    # rezervasyonu, worker'lar arası koordineli) → kaç worker olursa olsun EKAP saniyede
+    # yalnızca `EKAP_MIN_INTERVAL_MS`'te bir istek görür.
+    #
+    # Neden 1 yetmiyordu (ölçüm 2026-08): EKAP yanıt süresi ~1,8 sn. Tek worker'da bu
+    # süre throttle'ın 1 sn'siyle SERİ toplanıyor → istek başına ~2,8 sn → 0,36 istek/sn,
+    # yani 1 istek/sn bütçesinin yalnızca %36'sı kullanılıyordu. Birden çok worker ile
+    # EKAP beklemeleri ÖRTÜŞÜR ve bütçe tam kullanılır (~2,8× verim).
+    # 3 sayısı: boru hattını dolu tutmak için ceil(yanıt_süresi / aralık) + 1 ≈ 3.
+    # Daha fazlası kazanç getirmez (throttle tavanı) — yalnızca boşta bağlantı tutar.
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=3"]
     depends_on:
       - web
       - redis

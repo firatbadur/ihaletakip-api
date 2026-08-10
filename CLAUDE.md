@@ -121,8 +121,17 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
 - **İmzalama**: Her EKAP v2 isteği AES-192-CBC imza header'ı ister
   (`X-Custom-Request-Guid/R8id/Siv/Ts`). `signing.py`, mobil `calls.js`'in birebir
   karşılığı; anahtar `EKAP_SIGNING_KEY` (env).
-- **Rate limit**: `throttle.py` (~1 istek/sn) + EKAP görevleri ayrı `ekap` Celery
-  kuyruğunda **tek concurrency** ile serileştirilir (`ekap-worker` servisi).
+- **Rate limit**: `throttle.py` — **atomik** slot rezervasyonu (Redis `SETNX`, worker'lar
+  arası koordineli): zaman `EKAP_MIN_INTERVAL_MS` pencerelerine bölünür, her pencereyi
+  yalnızca bir çağrı alır. ⚠️ Eski sürüm `get`→`set` yapıyordu; atomik değildi ve
+  concurrency > 1'de birden çok worker aynı anda geçebilirdi.
+  ⚠️ **Rezervasyon hep GELECEKTEKİ pencereye yapılır** (`slot+1`) ve o pencerenin başına
+  kadar beklenir; aksi hâlde pencere sonunda ve sonraki pencere başında alınan iki slot
+  neredeyse aynı ana denk gelebiliyor (ölçüldü: 0,09 sn).
+  `ekap-worker` **concurrency=3**'tür (1 değil): EKAP yanıt süresi ~1,8 sn olduğu için
+  tek worker'da throttle'ın 1 sn'siyle seri toplanıp 0,36 istek/sn'ye düşüyordu — bütçenin
+  %36'sı. Çoklu worker beklemeleri örtüştürür; **EKAP'a giden yük değişmez**, throttle
+  tavanı korur (~2,8× verim).
 - **Pencere = EKAP tarafı tarih filtresi (kritik)**: Toplama son `EKAP_BACKFILL_YEARS`
   (vars. 5) yılla sınırlıdır ve bu sınır **EKAP aramasında** `ihaleTarihSaatBaslangic`
   ile uygulanır (`sync_recent` + `backfill`, ortak yardımcı `_window_floor()`). EKAP bu

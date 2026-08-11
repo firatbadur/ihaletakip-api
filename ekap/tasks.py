@@ -231,12 +231,25 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
     liste taraması hızlanır, detaylar kuyrukta birikip 1 istek/sn ile akar (kuyruğun geçici
     büyümesi normaldir, sorun değildir).
 
-    `EKAP_BACKFILL_MAX_PAGES` ile ayarlanır (env). ⚠️ Çok büyük değer turun süresini
-    `CELERY_TASK_TIME_LIMIT=300` üstüne çıkarabilir: tur başına maliyet ≈ `max_pages`
-    saniye (liste istekleri) + upsert süresi. 40 civarı güvenli üst sınırdır."""
+    `EKAP_BACKFILL_MAX_PAGES` ile ayarlanır (env).
+
+    ⚠️ **Süre bütçesi `max_pages`'ten bağımsız bir güvenlik ağıdır** ve şart:
+    tur maliyeti ≈ `max_pages` saniye (throttle) + upsert + EKAP gecikmesi, yani
+    `max_pages=40` ile `CELERY_TASK_TIME_LIMIT=300`'ün tam dibinde koşuluyor.
+    Ölçüm 2026-08-11: başarılı turlar 3-5 dk sürüyordu ama bir kısmı sınırı aşıp
+    **öldürülüyordu** (`SyncRun.status='running'`, `finished_at` boş) — görev
+    öldüğünde `finally` çalışmadığı için Redis kilidi 1 saatlik TTL'i dolana kadar
+    kalıyor ve backfill 15 dakikada bir yerine **saatte bir** koşuyordu (turlar arası
+    ölçülen boşluklar: 56, 69, 75 dk). Bütçe dolunca sayfa döngüsünden temiz çıkılır,
+    imleç kaydedilir, sonraki tetik kaldığı yerden devam eder.
+    ⚠️ `lock_ttl` de 600'e indirildi: yine de öldürülen bir tur, kilidi 1 saat değil
+    10 dakika tutsun."""
+    import time
+
     if max_pages is None:
         max_pages = settings.EKAP_BACKFILL_MAX_PAGES
-    with _run("backfill") as run:
+    deadline = time.monotonic() + settings.EKAP_BACKFILL_MAX_SECONDS
+    with _run("backfill", lock_ttl=600) as run:
         if run is None:
             return
         cp, _ = SyncCheckpoint.objects.get_or_create(name="backfill")
@@ -292,6 +305,11 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
             skip += page_size
             if (oldest and oldest < floor) or skip >= (total_count or 0):
                 cp.done = True
+                break
+            # Süre bütçesi doldu → temiz çık. İmleç aşağıda kaydedilir; öldürülmek
+            # yerine kendi isteğiyle bitmek kilidin de düzgün bırakılmasını sağlar.
+            if time.monotonic() >= deadline:
+                aborted = f"süre bütçesi doldu ({settings.EKAP_BACKFILL_MAX_SECONDS} sn)"
                 break
         cp.cursor_skip = skip
         if oldest:

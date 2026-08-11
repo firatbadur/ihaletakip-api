@@ -284,6 +284,12 @@ EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
 # ⚠️ Üst sınır: tur maliyeti ≈ `max_pages` saniye + upsert süresi; `CELERY_TASK_TIME_LIMIT`
 # 300 sn olduğu için 40 civarı güvenli tavandır.
 EKAP_BACKFILL_MAX_PAGES = env.int("EKAP_BACKFILL_MAX_PAGES", default=10)
+# `backfill` turu için süre bütçesi (sn) — `max_pages`'ten BAĞIMSIZ güvenlik ağı.
+# ⚠️ `CELERY_TASK_TIME_LIMIT=300`'ün altında kalmalı. Ölçüm 2026-08-11: `max_pages=40`
+# ile turlar 3-5 dk sürüyor, yani sınırın dibinde; aşan turlar öldürülüyor, `finally`
+# çalışmadığı için Redis kilidi TTL'i dolana kadar kalıyor ve görev 15 dk yerine
+# saatte bir koşuyordu. Bütçe dolunca döngüden temiz çıkılır ve imleç kaydedilir.
+EKAP_BACKFILL_MAX_SECONDS = env.int("EKAP_BACKFILL_MAX_SECONDS", default=240)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 # `sync_contractors.enqueue_missing_detail` turu başına kuyruğa atılacak eksik detay.

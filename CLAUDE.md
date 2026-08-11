@@ -169,8 +169,16 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   değil**; ölçüm 2026-08: tur başına tam 500 kayıt işlenirken `ekap` kuyruğu BOŞTU
   (`LLEN ekap=0`), yani 1 istek/sn bütçesinin çoğu kullanılmıyordu → 43.500 kayıt/gün.
   Liste taraması ucuz (50 kayıt/istek); pahalı olan detay istekleri, onlar da yalnızca
-  detayı eksik ihaleler için atılıyor. ⚠️ Tavan: tur maliyeti ≈ `max_pages` sn + upsert,
-  `CELERY_TASK_TIME_LIMIT=300` yüzünden ~40 güvenli sınır;
+  detayı eksik ihaleler için atılıyor.
+  ⚠️ Tur maliyeti ≈ `max_pages` sn + upsert + EKAP gecikmesi; `max_pages=40` ile turlar
+  3-5 dk, yani `CELERY_TASK_TIME_LIMIT=300`'ün **dibinde**. Bu yüzden `max_pages`'ten
+  bağımsız bir **süre bütçesi** var (`EKAP_BACKFILL_MAX_SECONDS`, vars. 240) +
+  `lock_ttl=600`. Gerekçe (ölçüm 2026-08-11): sınırı aşan turlar öldürülüyor
+  (`SyncRun.status='running'` + `finished_at` boş), **öldürülen görev `finally`
+  çalıştırmadığı için Redis kilidini bırakmaz** ve kilit 1 saatlik TTL'i dolana kadar
+  kalır → görev 15 dk yerine saatte bir koşuyordu (ölçülen boşluklar 56/69/75 dk).
+  Aynı arıza `backfill_tender_fields`'te de yaşandı: **süre bütçesi olmayan uzun görev
+  yazmayın**;
   pencere tabanından **ileriye** `ihaleTarihi` **asc** — DB'deki asıl boşluk eski
   yıllar olduğu için önce onları doldurur, en yeni kayıtlar listenin sonuna eklendiğinden
   imleç kaymaz; `skip >= total_count` [pencere içi toplam] ya da boş sayfada `done=True`.

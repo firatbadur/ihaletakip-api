@@ -339,6 +339,19 @@ CELERY_TASK_ROUTES = {
     # backfill_tender_fields de EKAP'a gitmez (detail_raw arşivinden türetir).
     "ekap.tasks.backfill_tender_fields": {"queue": "celery"},
     "ekap.tasks.detect_recurring_series": {"queue": "celery"},
+    # ⚠️ **Zamana duyarlı EKAP görevleri AYRI kuyrukta** (`ekap_oncelik`).
+    # Ölçüm 2026-08-11: `sync_recent` beat'te 02:00'de doğru tetikleniyordu
+    # (`PeriodicTask.last_run_at` = 23:00 UTC ✓) ama `SyncRun.started_at` 9-20 saat
+    # sonraydı — görev tek FIFO `ekap` kuyruğunda on binlerce `sync_detail` arşiv
+    # görevinin arkasına düşüyor ve 1 istek/sn tavanında kuyruk saatlerce erimiyordu.
+    # Belirti: "gece 02:00'de çekmesi gereken veri gün ortasında geliyor / hiç gelmiyor".
+    # Ayrı kuyruk + ayrı worker bunu keser. **EKAP'a giden yük DEĞİŞMEZ**: throttle
+    # Redis'te global slot rezervasyonu yapar, kaç worker olursa olsun tavan aynıdır.
+    # ⚠️ Bu satırlar `ekap.tasks.*` joker'inden ÖNCE gelmeli.
+    "ekap.tasks.sync_recent": {"queue": "ekap_oncelik"},
+    "ekap.tasks.refresh_stale": {"queue": "ekap_oncelik"},
+    "ekap.tasks.sync_okas": {"queue": "ekap_oncelik"},
+    "ekap.tasks.sync_authorities": {"queue": "ekap_oncelik"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

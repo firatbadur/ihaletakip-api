@@ -144,8 +144,18 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   tarihten kayıtla doluyordu). Artık sınır **ihale tarihine** göre EKAP'ta uygulanır;
   istemci `oldest` kontrolü yedek olarak `ihale_tarihi` (dolu alan) kullanır. Pencere
   daraltmak/genişletmek için tek düğme: `.env` → `EKAP_BACKFILL_YEARS`.
-- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00; en yeni ilanlar, `ilanTarihi` desc,
-  20 sayfa), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
+- **⚠️ `sync_recent` penceresi = `ilanTarihSaatBaslangic` (EKAP tarafı)**, istemci kontrolü
+  DEĞİL. `ilanTarihi` liste yanıtında **%100 boş** olduğu için istemcide "son N gün"
+  kontrolü imkânsızdır (backfill'deki tuzağın birebir aynısı). Eski kod hem boş alana göre
+  sıralıyor (`orderBy="ilanTarihi"`) hem tarih filtresi olarak 10 yıllık `_window_floor()`
+  geçiyordu → her gece **arşivden keyfi 1000 satır** çekiliyor, günün yeni ihaleleri DB'ye
+  hiç girmiyordu (belirti: `SyncRun.items` daima tam 1000 = 20×50, yani erken çıkış hiç
+  olmuyor; `max(ilan_tarihi)` günlerce geride kalıyor). Canlı doğrulama 2026-08-11:
+  filtresiz `totalCount=1.964.677`, `ilanTarihSaatBaslangic=<3 gün önce>` → **537**.
+  Sıralama `ihaleTarihi` **asc** (dolu alan) — sayfalama kararlılığı için şart.
+- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00, `ekap_oncelik` kuyruğu; son
+  `EKAP_RECENT_DAYS`=3 günde **yayınlanan** ihaleler, `ilanTarihSaatBaslangic` ile
+  EKAP tarafında filtreli), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
   yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da
   bir, tur başına `EKAP_BACKFILL_MAX_PAGES` sayfa — **hızın asıl düğmesi budur, throttle
   değil**; ölçüm 2026-08: tur başına tam 500 kayıt işlenirken `ekap` kuyruğu BOŞTU
@@ -173,6 +183,17 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   ihalenin detayını EKAP'tan gereksizce yeniden çeker ve ~1 istek/sn sınırında günler
   harcardı. Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail` ile
   yakalanır.
+- **⚠️ Zamana duyarlı EKAP görevleri AYRI kuyrukta: `ekap_oncelik`** (`sync_recent`,
+  `refresh_stale`, `sync_okas`, `sync_authorities`) + ayrı servis `ekap-priority-worker`
+  (concurrency 2). Ölçüm 2026-08-11: `sync_recent` beat'te doğru tetikleniyordu
+  (`PeriodicTask.last_run_at` = 23:00 UTC = 02:00 TR ✓) ama `SyncRun.started_at`
+  **9-20 saat sonraydı** — tek FIFO `ekap` kuyruğunda on binlerce `sync_detail` arşiv
+  görevinin arkasına düşüyordu ve 1 istek/sn tavanında kuyruk saatlerce erimiyordu.
+  Sonuç: günün yeni ihaleleri DB'ye girmiyor, "bugün yayınlananlar"a bakan filtre/idare
+  bildirimleri boşa çalışıyordu. **EKAP'a giden yük değişmez** — throttle Redis'te global.
+  ⚠️ **Teşhis refleksi**: bir beat görevi "çalışmıyor" görünüyorsa `PeriodicTask.last_run_at`
+  (beat kuyruğa attı mı) ile `SyncRun.started_at` (worker çalıştırdı mı) **ayrı ayrı**
+  bakılır; ikisi arasındaki fark kuyruk beklemesidir.
 - **⚠️ Detay borcunu eritme hızının düğmesi = `EKAP_MISSING_DETAIL_LIMIT`** (vars. 600),
   `max_pages`'in ikizi. Ölçüm 2026-08-11: 167.965 ihalenin detayı eksikken `LLEN ekap = 0`
   (kuyruk BOŞ, 5 worker boşta) ve hız 2.273 detay/saat — throttle tavanının (3.600) %63'ü.

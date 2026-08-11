@@ -192,6 +192,33 @@ services:
       - web
       - redis
 
+  # Zamana duyarlı EKAP görevleri (sync_recent, refresh_stale, sync_okas,
+  # sync_authorities) — bkz. settings.CELERY_TASK_ROUTES.
+  #
+  # ⚠️ **Neden ayrı worker:** ölçüm 2026-08-11'de `sync_recent` beat'te 02:00'de doğru
+  # tetikleniyordu ama worker onu **9-20 saat sonra** çalıştırıyordu; tek FIFO `ekap`
+  # kuyruğunda on binlerce `sync_detail` arşiv görevinin arkasına düşüyordu. Sonuç:
+  # günün yeni ihaleleri DB'ye hiç girmiyor, "bugün yayınlananlar"a bakan filtre/idare
+  # bildirimleri boşa çalışıyordu.
+  #
+  # ⚠️ **EKAP'a giden yük DEĞİŞMEZ.** Hız sınırı `ekap/throttle.py`'de Redis SETNX ile
+  # global uygulanır (pencere rezervasyonu) — kaç worker olursa olsun EKAP saniyede
+  # yalnızca `EKAP_MIN_INTERVAL_MS`'te bir istek görür. Bu worker yalnızca zamana
+  # duyarlı görevlerin **sıraya girmesini** engeller, tavanı yükseltmez.
+  #
+  # Concurrency 2 yeter: bu kuyruğa günde birkaç görev düşer, ikisi aynı anda koşmasın
+  # diye değil, biri uzun sürerken (sync_authorities ~87k düğüm) diğeri beklemesin diye.
+  ekap-priority-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      RUN_MIGRATIONS: "false"
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap_oncelik", "--concurrency=2"]
+    depends_on:
+      - web
+      - redis
+
   beat:
     build: .
     restart: unless-stopped

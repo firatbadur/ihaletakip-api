@@ -109,41 +109,65 @@ def sync_detail(self, ekap_id):
 
 # ── Güncel (nightly) ───────────────────────────────────
 @shared_task(name="ekap.tasks.sync_recent")
-def sync_recent(days=None, max_pages=20, page_size=50, defer_detail=True):
-    """Son N günün ihalelerini çekip liste satırlarını upsert eder, detay kuyruğa atar."""
+def sync_recent(days=None, max_pages=40, page_size=50, defer_detail=True):
+    """Son N günde **YAYINLANAN** ihaleleri çekip upsert eder, detay kuyruğa atar.
+
+    ⚠️ **Pencere EKAP tarafında `ilanTarihSaatBaslangic` ile uygulanır** — istemci
+    tarafı kontrol imkânsızdır çünkü liste yanıtında `ilanTarihi` **%100 boştur**
+    (backfill'de belgelenen tuzağın aynısı; `ilan_tarihi` ancak detay senkronunda
+    `ilanList`'ten dolar).
+
+    Eski sürüm ikisini birden yanlış yapıyordu ve **sessizce yanlış veri çekiyordu**:
+      • `orderBy="ilanTarihi"` → EKAP'ın döndürmediği bir alana göre sıralama
+      • tarih filtresi olarak `ihaleTarihSaatBaslangic=_window_floor()` (10 YILLIK
+        taban) → "son N gün" hiçbir zaman EKAP'a gitmiyordu
+      • durma koşulu `tender.ilan_tarihi < floor` → hep `None`, asla tetiklenmez
+    Sonuç: her gece 10 yıllık arşivden keyfi 1000 satır (`SyncRun.items` daima tam
+    1000 = 20×50, yani erken çıkış hiç olmuyordu) ve **günün yeni ihaleleri DB'ye
+    hiç girmiyordu** — "bugün yayınlananlar"a bakan filtre/idare bildirimleri de
+    bu yüzden boşa çalışıyordu.
+
+    Canlı doğrulama (2026-08-11): filtresiz `totalCount=1.964.677`,
+    `ilanTarihSaatBaslangic=<3 gün önce>` → **537**. EKAP filtreyi uyguluyor.
+
+    Sıralama `ihaleTarihi` (DOLU alan) — sayfalama kararlılığı için şart; boş bir
+    alana göre sıralamada sayfa sınırları kayar ve satır kaçırılabilir.
+    """
     days = days or settings.EKAP_RECENT_DAYS
     with _run("sync_recent") as run:
         if run is None:
             return
         client = EkapV2Client()
-        floor = timezone.now() - timedelta(days=days)
-        _, window_iso = _window_floor()
+        # ⚠️ EKAP yalnızca ISO kabul eder (DD.MM.YYYY → HTTP 400) — bkz. _window_floor.
+        ilan_iso = (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
         total = 0
         errors = 0
+        total_count = 0
         for page in range(max_pages):
             body = client.build_search_body(
-                orderBy="ilanTarihi", siralamaTipi="desc",
-                ihaleTarihSaatBaslangic=window_iso,
+                orderBy="ihaleTarihi", siralamaTipi="asc",
+                ilanTarihSaatBaslangic=ilan_iso,
                 paginationSkip=page * page_size, paginationTake=page_size,
             )
             items, total_count = sync_mod.extract_list(client.search(body))
             if not items:
                 break
-            reached_floor = False
             for item in items:
                 tender, err = _upsert_item_safe(item)
                 errors += err
                 if tender:
                     total += 1
                     _enqueue_detail(tender.ekap_id, defer=defer_detail)
-                    if tender.ilan_tarihi and tender.ilan_tarihi < floor:
-                        reached_floor = True
-            if reached_floor or (page + 1) * page_size >= (total_count or 0):
+            if (page + 1) * page_size >= (total_count or 0):
                 break
         run.items = total
         run.errors = errors
+        # Pencereyi taşıyorsak sessizce kırpıyoruz demektir → görünür olsun.
+        run.note = f"ilan>={ilan_iso} toplam={total_count}"
+        if total_count and total < total_count:
+            run.note += f" ⚠️ EKSİK (max_pages={max_pages} yetmedi)"
         _update_checkpoint("recent", newest=timezone.now())
-        return {"upserted": total, "errors": errors}
+        return {"upserted": total, "errors": errors, "total_count": total_count}
 
 
 # ── Backfill (sürekli, yavaş) ──────────────────────────

@@ -209,8 +209,28 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   Diğer ikisi eski arşiv boşluğuna hiç dokunmuyor: `backfill` yalnızca `detail_synced_at
   IS NULL` olanları kuyruğa atar ve imleci detayı zaten dolu yıllara geldiğinde 0 besler
   (`detay_kuyruk=0/2000` notu bunu gösterir); `refresh_stale` yalnızca son
-  `EKAP_REFRESH_YEARS`=1 yıla bakar. ⚠️ **Teşhis refleksi**: hız tavanın altındaysa önce
-  `LLEN ekap`'a bak — 0 ise sorun besleme, worker/throttle DEĞİL.
+  `EKAP_REFRESH_YEARS`=1 yıla bakar.
+  ⚠️ **Kuyruk ölçerken DB numarasını unutmayın**: broker `redis://redis:6379/**1**`
+  (`CELERY_BROKER_URL`), cache `/**0**` (`REDIS_URL`). `redis-cli LLEN ekap` varsayılan
+  olarak DB 0'a bakar ve **daima 0 döner** — bu yanlış okuma bir kez "kuyruk aç"
+  teşhisine yol açtı, oysa kuyrukta **218.443** görev vardı. Doğrusu `-n 1`.
+  ⚠️ **Teşhis refleksi**: hız tavanın altındaysa `redis-cli -n 1 LLEN ekap` — 0 ise sorun
+  besleme; büyükse sorun birikim ve yeni işler sıranın SONUNDA demektir.
+- **⚠️ `sync_detail(only_if_missing=True)` — bayat kuyruk girdisi koruması.** Görev
+  `detail_synced_at`'e bakmadan EKAP'a gider; kuyrukta beklerken detayı başka yoldan
+  gelmiş ihale yeniden istenir. Ölçüm 2026-08-11: kuyrukta 218.443 görev vardı ama detayı
+  eksik ihale 159.801'di — fark mükerrer girdi, yani 1 istek/sn bütçesi boşa gidiyordu.
+  Boşluk doldurucular (`enqueue_missing_detail`, `backfill`) bayrağı verir;
+  `refresh_stale` **vermez** (işi zaten tazelemek).
+- **⚠️ Yeni ihalelerin detayı `ekap_oncelik` kuyruğuna gider** (`sync_recent` →
+  `_enqueue_detail(..., queue="ekap_oncelik")`). `ekap` FIFO'dur ve arşiv doldurmadan yüz
+  binlerce görev biriktirir → bugünün ihaleleri sıranın SONUNA düşer. ⚠️ Besleme
+  sorgusundaki `-ihale_tarihi DESC` sıralaması bunu **kurtarmaz**: sıra kuyruğa giriş
+  anına göredir. Belirti: `max(ilan_tarihi)` günlerce geride kalır, "bugün yayınlananlar"
+  bildirimleri boş kümede çalışır.
+- **⚠️ Mükerrer kuyruklama işareti iş BİTİNCE silinir** (`sync_detail` sonunda
+  `cache.delete`), yalnızca TTL'e bırakılmaz: tamamlanmayan kayıtlar besleme penceresinin
+  ilk N slotunu kilitliyordu → 600'ün 600'ü işaretli kalınca besleme tümüyle duruyordu.
   ⚠️ **Mükerrer kuyruklama koruması şart** (`_DETAY_KUYRUK_PREFIX`, `cache.add`/SETNX,
   TTL 1200 sn): sorgu her turda aynı `-ihale_tarihi` sıralı ilk N satırı döndürür; tur
   içinde işlenmeyen satır sonraki turda yeniden kuyruğa girerdi ve `sync_detail`

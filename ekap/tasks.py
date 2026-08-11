@@ -62,9 +62,17 @@ def _run(task_name, lock_ttl=3600):
         cache.delete(lock_key)
 
 
-def _enqueue_detail(ekap_id, defer=True):
+def _enqueue_detail(ekap_id, defer=True, queue=None, only_if_missing=False):
+    """Detay görevini kuyruğa atar.
+
+    ``queue`` verilirse yönlendirme tablosu **atlanır** — zamana duyarlı çağrılar
+    (`sync_recent`) arşiv birikiminin arkasına düşmesin diye `ekap_oncelik`'e gider.
+    ``only_if_missing`` bayat kuyruk girdilerinin boşa EKAP isteği atmasını önler.
+    """
     if defer:
-        sync_detail.delay(ekap_id)
+        sync_detail.apply_async(
+            args=[ekap_id], kwargs={"only_if_missing": only_if_missing}, queue=queue
+        )
     else:
         _client_sync_detail(ekap_id)
 
@@ -98,12 +106,32 @@ def _window_floor():
 
 # ── Detay ──────────────────────────────────────────────
 @shared_task(name="ekap.tasks.sync_detail", bind=True, max_retries=2, default_retry_delay=60)
-def sync_detail(self, ekap_id):
-    """Tek ihalenin detay + ilanlarını çeker."""
+def sync_detail(self, ekap_id, only_if_missing=False):
+    """Tek ihalenin detay + ilanlarını çeker.
+
+    ⚠️ ``only_if_missing=True`` **bayat kuyruk girdilerine karşı korumadır.** Ölçüm
+    2026-08-11: `ekap` kuyruğunda 218.443 görev birikmişti — detayı eksik ihale
+    sayısından (159.801) FAZLA, yani içinde çok sayıda mükerrer girdi vardı. Bu görev
+    `detail_synced_at`'e bakmadan EKAP'a gittiği için, kuyrukta beklerken detayı
+    başka bir yoldan gelmiş ihaleler tekrar isteniyor ve 1 istek/sn bütçesi boşa
+    harcanıyordu. Boşluk doldurucu çağıranlar (`enqueue_missing_detail`, `backfill`)
+    bu bayrağı verir; `refresh_stale` **vermez** — onun işi zaten tazelemek.
+    """
+    mark = f"{_DETAY_KUYRUK_PREFIX}{ekap_id}"
+    if only_if_missing and Tender.objects.filter(
+        ekap_id=str(ekap_id), detail_synced_at__isnull=False
+    ).exists():
+        cache.delete(mark)
+        return {"ekap_id": ekap_id, "atlandi": "zaten_detayli"}
     try:
         sync_mod.sync_detail(ekap_id, EkapV2Client())
     except Exception as e:
         raise self.retry(exc=e)
+    # ⚠️ İşareti iş BİTİNCE sil. Yalnızca kuyruğa atarken koyup TTL'e bırakmak,
+    # tamamlanmayan kayıtların besleme penceresinin (ilk N satır) slotlarını
+    # kilitlemesine yol açıyordu: 600'lük pencerenin 600'ü işaretli kalınca
+    # `detay_kuyruk=0` oluyor ve besleme tümüyle duruyordu.
+    cache.delete(mark)
     return {"ekap_id": ekap_id}
 
 
@@ -157,7 +185,16 @@ def sync_recent(days=None, max_pages=40, page_size=50, defer_detail=True):
                 errors += err
                 if tender:
                     total += 1
-                    _enqueue_detail(tender.ekap_id, defer=defer_detail)
+                    # ⚠️ **Öncelik kuyruğu ŞART.** `ekap` kuyruğu arşiv doldurmadan
+                    # yüz binlerce görev biriktirebiliyor (ölçüldü: 218.443) ve FIFO
+                    # olduğu için bugünün ihaleleri o sıranın SONUNA düşüyordu —
+                    # `-ihale_tarihi DESC` beslemesi bunu kurtarmaz, sıra kuyruğa
+                    # giriş anına göredir. Sonuç: günün ihalelerinin detayı (dolayısıyla
+                    # `ilan_tarihi`) günlerce gelmiyor, "bugün yayınlananlar" bildirimleri
+                    # boş küme üzerinde çalışıyordu.
+                    _enqueue_detail(
+                        tender.ekap_id, defer=defer_detail, queue="ekap_oncelik"
+                    )
             if (page + 1) * page_size >= (total_count or 0):
                 break
         run.items = total
@@ -246,7 +283,9 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
                     # Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail`
                     # ile yakalanır.
                     if tender.detail_synced_at is None:
-                        _enqueue_detail(tender.ekap_id, defer=defer_detail)
+                        _enqueue_detail(
+                            tender.ekap_id, defer=defer_detail, only_if_missing=True
+                        )
                         enqueued += 1
                     if tender.ihale_tarihi:
                         oldest = tender.ihale_tarihi if oldest is None else min(oldest, tender.ihale_tarihi)
@@ -483,7 +522,7 @@ def sync_contractors(
             ):
                 if not cache.add(f"{_DETAY_KUYRUK_PREFIX}{ekap_id}", 1, timeout=_DETAY_KUYRUK_TTL):
                     continue  # bu ihale zaten kuyrukta bekliyor
-                sync_detail.delay(ekap_id)
+                _enqueue_detail(ekap_id, only_if_missing=True)
                 enqueued += 1
 
         kalan = (

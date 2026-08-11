@@ -128,10 +128,12 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   ⚠️ **Rezervasyon hep GELECEKTEKİ pencereye yapılır** (`slot+1`) ve o pencerenin başına
   kadar beklenir; aksi hâlde pencere sonunda ve sonraki pencere başında alınan iki slot
   neredeyse aynı ana denk gelebiliyor (ölçüldü: 0,09 sn).
-  `ekap-worker` **concurrency=3**'tür (1 değil): EKAP yanıt süresi ~1,8 sn olduğu için
-  tek worker'da throttle'ın 1 sn'siyle seri toplanıp 0,36 istek/sn'ye düşüyordu — bütçenin
-  %36'sı. Çoklu worker beklemeleri örtüştürür; **EKAP'a giden yük değişmez**, throttle
-  tavanı korur (~2,8× verim).
+  `ekap-worker` **concurrency=5**'tir (1 değil): tek worker'da EKAP yanıt süresi
+  throttle'ın 1 sn'siyle seri toplanıyor. Çoklu worker beklemeleri örtüştürür;
+  **EKAP'a giden yük değişmez**, throttle tavanı korur.
+  ⚠️ Sayı **ölçümle** belirlendi: 1→0,36 istek/sn · 3→0,66 · hedef 1,0. 3'teki sonuçtan
+  geri hesapla EKAP yanıt+işleme ~3,5 sn çıktı → `ceil(3,5/1)+1 ≈ 5`. Tahminle
+  ayarlamayın; `detail_synced_at > now() - 1 saat` sayımıyla ölçün (tavan 3.600/saat).
 - **Pencere = EKAP tarafı tarih filtresi (kritik)**: Toplama son `EKAP_BACKFILL_YEARS`
   (vars. 5) yılla sınırlıdır ve bu sınır **EKAP aramasında** `ihaleTarihSaatBaslangic`
   ile uygulanır (`sync_recent` + `backfill`, ortak yardımcı `_window_floor()`). EKAP bu

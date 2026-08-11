@@ -176,13 +176,18 @@ services:
     # rezervasyonu, worker'lar arası koordineli) → kaç worker olursa olsun EKAP saniyede
     # yalnızca `EKAP_MIN_INTERVAL_MS`'te bir istek görür.
     #
-    # Neden 1 yetmiyordu (ölçüm 2026-08): EKAP yanıt süresi ~1,8 sn. Tek worker'da bu
-    # süre throttle'ın 1 sn'siyle SERİ toplanıyor → istek başına ~2,8 sn → 0,36 istek/sn,
-    # yani 1 istek/sn bütçesinin yalnızca %36'sı kullanılıyordu. Birden çok worker ile
-    # EKAP beklemeleri ÖRTÜŞÜR ve bütçe tam kullanılır (~2,8× verim).
-    # 3 sayısı: boru hattını dolu tutmak için ceil(yanıt_süresi / aralık) + 1 ≈ 3.
-    # Daha fazlası kazanç getirmez (throttle tavanı) — yalnızca boşta bağlantı tutar.
-    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=3"]
+    # Neden 1 yetmiyordu: tek worker'da EKAP yanıt süresi throttle'ın 1 sn'siyle SERİ
+    # toplanıyor. Birden çok worker ile beklemeler ÖRTÜŞÜR ve bütçe tam kullanılır.
+    #
+    # Sayı **ölçümle** belirlendi (2026-08-10), tahminle değil:
+    #   concurrency=1 → 0,36 istek/sn (bütçenin %36'sı)
+    #   concurrency=3 → 0,66 istek/sn (%66)
+    # 3'teki sonuçtan geri hesap: worker başına istek döngüsü ~4,5 sn, yani EKAP yanıt +
+    # işleme ~3,5 sn (ilk tahminim 1,8 sn'ydi, eksikti). Boru hattını dolu tutmak için
+    # ceil(3,5 / 1) + 1 ≈ 5.
+    # ⚠️ Daha fazlası kazanç getirmez (throttle tavanı 1 istek/sn) — yalnızca boşta
+    # bağlantı ve bellek tutar.
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=5"]
     depends_on:
       - web
       - redis

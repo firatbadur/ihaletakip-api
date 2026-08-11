@@ -173,6 +173,21 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   ihalenin detayını EKAP'tan gereksizce yeniden çeker ve ~1 istek/sn sınırında günler
   harcardı. Detayı hiç gelmemiş eskiler `sync_contractors.enqueue_missing_detail` ile
   yakalanır.
+- **⚠️ Detay borcunu eritme hızının düğmesi = `EKAP_MISSING_DETAIL_LIMIT`** (vars. 600),
+  `max_pages`'in ikizi. Ölçüm 2026-08-11: 167.965 ihalenin detayı eksikken `LLEN ekap = 0`
+  (kuyruk BOŞ, 5 worker boşta) ve hız 2.273 detay/saat — throttle tavanının (3.600) %63'ü.
+  Sebep: `enqueue_missing_detail` **tek besleyiciydi** ve 50×12 tur = 600/saat besliyordu.
+  Diğer ikisi eski arşiv boşluğuna hiç dokunmuyor: `backfill` yalnızca `detail_synced_at
+  IS NULL` olanları kuyruğa atar ve imleci detayı zaten dolu yıllara geldiğinde 0 besler
+  (`detay_kuyruk=0/2000` notu bunu gösterir); `refresh_stale` yalnızca son
+  `EKAP_REFRESH_YEARS`=1 yıla bakar. ⚠️ **Teşhis refleksi**: hız tavanın altındaysa önce
+  `LLEN ekap`'a bak — 0 ise sorun besleme, worker/throttle DEĞİL.
+  ⚠️ **Mükerrer kuyruklama koruması şart** (`_DETAY_KUYRUK_PREFIX`, `cache.add`/SETNX,
+  TTL 1200 sn): sorgu her turda aynı `-ihale_tarihi` sıralı ilk N satırı döndürür; tur
+  içinde işlenmeyen satır sonraki turda yeniden kuyruğa girerdi ve `sync_detail`
+  `detail_synced_at`'e bakmadan EKAP'a gittiği için bu, kurtarmaya çalıştığımız throttle
+  slotlarını mükerrer istekle harcardı. TTL bir beat aralığından uzun (yeniden atılmasın)
+  ama kalıcı değil (worker çökerse satır sonunda yeniden denensin).
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
   (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
   `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı

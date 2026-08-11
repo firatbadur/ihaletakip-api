@@ -286,6 +286,17 @@ EKAP_BACKFILL_YEARS = env.int("EKAP_BACKFILL_YEARS", default=5)
 EKAP_BACKFILL_MAX_PAGES = env.int("EKAP_BACKFILL_MAX_PAGES", default=10)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
+# `sync_contractors.enqueue_missing_detail` turu başına kuyruğa atılacak eksik detay.
+# ⚠️ **Detay borcunu eritme hızının asıl düğmesi budur** — `max_pages`'in ikizi.
+# Ölçüm (2026-08-11): 167.965 ihalenin detayı eksikti, `LLEN ekap = 0` (kuyruk BOŞ,
+# 5 worker boşta bekliyor) ve gerçekleşen hız 2.273 detay/saat — throttle tavanının
+# (3.600/saat) yalnızca %63'ü. Sebep: bu dal tek besleyiciydi ve 50×12 tur = 600/saat
+# besliyordu. `backfill` imleci detayı zaten dolu yıllara geldiği için 0 besliyor,
+# `refresh_stale` ise yalnızca son `EKAP_REFRESH_YEARS` yıla bakıyor → eski arşiv
+# boşluğunu (2019/2020) yalnızca bu dal kapatabiliyor.
+# 600 × 12 tur = 7.200/saat, tavanın ~2 katı → kuyrukta daima küçük bir tampon kalır,
+# worker'lar hiç boşta beklemez. Fazlası throttle'da erir; **EKAP yükü değişmez**.
+EKAP_MISSING_DETAIL_LIMIT = env.int("EKAP_MISSING_DETAIL_LIMIT", default=600)
 
 # Arama uçlarının `totalCount` cache süresi (sn). COUNT soğuk buffer cache'te pahalıdır
 # (500k satır + GIN indeksleri); bu TTL soğuk yola düşme sıklığını doğrudan belirler.

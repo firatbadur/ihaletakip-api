@@ -22,6 +22,12 @@ from .series import series_skeleton
 
 logger = logging.getLogger("ihaletakip")
 
+# `enqueue_missing_detail` mükerrer kuyruklama koruması (bkz. sync_contractors).
+_DETAY_KUYRUK_PREFIX = "ekap:detq:"
+# TTL bir beat aralığından (5 dk) belirgin uzun, ama kalıcı değil: bir `sync_detail`
+# görevi worker çökmesiyle kaybolursa satır 20 dk sonra yeniden denenebilmeli.
+_DETAY_KUYRUK_TTL = 1200
+
 
 @contextmanager
 def _run(task_name, lock_ttl=3600):
@@ -307,7 +313,7 @@ def _update_checkpoint(name, newest=None, oldest=None):
 # ── Yüklenici (firma) çözümlemesi ──────────────────────
 @shared_task(name="ekap.tasks.sync_contractors")
 def sync_contractors(
-    max_tenders=50000, max_seconds=None, enqueue_missing_detail=True, missing_limit=50
+    max_tenders=50000, max_seconds=None, enqueue_missing_detail=True, missing_limit=None
 ):
     """
     Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
@@ -427,7 +433,23 @@ def sync_contractors(
 
         # `refresh_stale` yalnızca EKAP_REFRESH_YEARS geriye bakıyor → daha eski
         # ihaleler hiç detay almaz. Bu dal tek EKAP'a dokunan parçadır, sınırlıdır.
+        #
+        # ⚠️ **Detay borcunu eritme hızının asıl düğmesi burasıdır** (`EKAP_MISSING_DETAIL_LIMIT`).
+        # Ölçüm 2026-08-11: `LLEN ekap = 0` — kuyruk boş, 5 worker boşta bekliyor, hız
+        # 2.273/saat (throttle tavanının %63'ü). Bu dal 50×12 tur = 600/saat besliyordu;
+        # `backfill` (imleç detayı dolu yıllarda) ve `refresh_stale` (son 1 yıl) eski
+        # arşiv boşluğuna hiç dokunmuyor, yani tek besleyici buydu.
+        #
+        # ⚠️ **Mükerrer kuyruklama koruması şart.** Sorgu her turda `-ihale_tarihi`
+        # sıralı ilk N satırı döndürür; bir tur içinde işlenmeyen satır sonraki turda
+        # yeniden kuyruğa girerdi. `sync_detail` `detail_synced_at`'e bakmadan EKAP'a
+        # gittiği için bu, kurtarmaya çalıştığımız throttle slotlarını mükerrer istekle
+        # harcamak demekti. `cache.add` (Redis SETNX) işareti bunu keser; TTL bir tur
+        # aralığından uzun (kuyrukta bekleyen satır yeniden atılmasın), sonsuz değil
+        # (bir görev düşerse satır sonunda yeniden denensin).
         enqueued = 0
+        if missing_limit is None:
+            missing_limit = settings.EKAP_MISSING_DETAIL_LIMIT
         if enqueue_missing_detail and missing_limit > 0:
             for ekap_id in (
                 Tender.objects.filter(detail_synced_at__isnull=True)
@@ -435,6 +457,8 @@ def sync_contractors(
                 .order_by("-ihale_tarihi")
                 .values_list("ekap_id", flat=True)[:missing_limit]
             ):
+                if not cache.add(f"{_DETAY_KUYRUK_PREFIX}{ekap_id}", 1, timeout=_DETAY_KUYRUK_TTL):
+                    continue  # bu ihale zaten kuyrukta bekliyor
                 sync_detail.delay(ekap_id)
                 enqueued += 1
 

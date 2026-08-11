@@ -33,7 +33,21 @@
       "Bash(python manage.py test_push_all --help)",
       "Bash(docker compose *)",
       "Bash(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@91.241.49.109 'cd ~/ihaletakip-api 2>/dev/null || cd /root/ihaletakip-api; docker compose exec -T web python manage.py shell -c \" *)",
-      "Bash(cd ~/Desktop/IhaleTakip 2>/dev/null && echo \"=== saved-filters / savedFilters kullanımı ===\" && grep -rln \"saved-filters\\\\|savedFilters\\\\|SavedFilter\\\\|saved_filter\" src/ | head; echo; echo \"=== ekap/tenders arama çağrısı ===\" && grep -rln \"ekap/tenders\\\\|/tenders\\\\|searchTenders\\\\|getTenders\" src/ | head; echo; echo \"=== DEFAULT_SEARCH_BODY / searchBody / buildBody ===\" && grep -rln \"DEFAULT_SEARCH_BODY\\\\|searchBody\\\\|buildSearch\\\\|searchText\\\\|ihaleDurumIdList\" src/ | head)"
+      "Bash(cd ~/Desktop/IhaleTakip 2>/dev/null && echo \"=== saved-filters / savedFilters kullanımı ===\" && grep -rln \"saved-filters\\\\|savedFilters\\\\|SavedFilter\\\\|saved_filter\" src/ | head; echo; echo \"=== ekap/tenders arama çağrısı ===\" && grep -rln \"ekap/tenders\\\\|/tenders\\\\|searchTenders\\\\|getTenders\" src/ | head; echo; echo \"=== DEFAULT_SEARCH_BODY / searchBody / buildBody ===\" && grep -rln \"DEFAULT_SEARCH_BODY\\\\|searchBody\\\\|buildSearch\\\\|searchText\\\\|ihaleDurumIdList\" src/ | head)",
+      "Bash(python3 -)",
+      "Bash(.venv/bin/python manage.py shell -c ' *)",
+      "Bash(.venv/bin/python manage.py rebuild_contractors --restart --limit 100)",
+      "Bash(.venv/bin/python manage.py gen_api_docs)",
+      "Bash(DJANGO_DEBUG=True python manage.py check)",
+      "Bash(DJANGO_DEBUG=True python -c ' *)",
+      "Bash(ssh -o ConnectTimeout=10 -o BatchMode=yes root@91.241.49.109 'df -h / ; echo \"--- db size ---\"; docker compose -f /root/ihaletakip-api/docker-compose.yml exec -T db psql -U ihale -d ihale -c \"SELECT pg_size_pretty\\(pg_database_size\\(current_database\\(\\)\\)\\);\" 2>/dev/null || \\(cd ~/ihaletakip-api 2>/dev/null && docker compose exec -T db psql -U ihale -d ihale -c \"SELECT pg_size_pretty\\(pg_database_size\\(current_database\\(\\)\\)\\);\"\\)')",
+      "Bash(bash -n install.sh)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=10 root@91.241.49.109 'echo OK; uptime; docker compose ls 2>/dev/null || true')",
+      "Read(//Users/tinyfect/.ssh/**)",
+      "Bash(ssh-add -l)",
+      "Bash(grep -n \"sync_recent\\\\` \\(gece 02:00\\\\|backfill\\\\` \\(\\\\*\\\\*tüm gün\\\\*\\\\*\\\\|Toplama \\(Celery Beat\\)\" CLAUDE.md)",
+      "Bash(python3 -c \"import ast,sys; ast.parse\\(open\\('ekap/views.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(.venv/bin/python -c ' *)"
     ]
   }
 }

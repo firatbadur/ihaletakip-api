@@ -185,9 +185,24 @@ services:
     # 3'teki sonuçtan geri hesap: worker başına istek döngüsü ~4,5 sn, yani EKAP yanıt +
     # işleme ~3,5 sn (ilk tahminim 1,8 sn'ydi, eksikti). Boru hattını dolu tutmak için
     # ceil(3,5 / 1) + 1 ≈ 5.
-    # ⚠️ Daha fazlası kazanç getirmez (throttle tavanı 1 istek/sn) — yalnızca boşta
-    # bağlantı ve bellek tutar.
-    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=5"]
+    #
+    # ⚠️ **Doğru sayı EKAP'ın O ANKİ gecikmesine bağlıdır** (Little yasası:
+    # eşzamanlı istek = hedef hız × gecikme). 2026-08-11 ölçümü: EKAP yavaşladı,
+    # 11 dakikada ~20 istek `curl (28) Connection timed out after 30s` ile düştü ve
+    # ortalama istek maliyeti ~3,5 sn'den **~8 sn**'ye çıktı → 5 worker ÷ 8 sn =
+    # 0,63 istek/sn (ölçülen 2.273/saat ile birebir). 1,0 istek/sn için 1,0 × 8 = **8**.
+    # Bellek doğrulandı: süreç başına ~124 MiB, 3 süreç daha = +372 MiB (3 GB boştu).
+    #
+    # ⚠️ **Thread havuzu (`-P threads`) bilinçli olarak REDDEDİLDİ.** İş saf ağ
+    # beklemesi değil: `sync_detail` → `upsert_tender_detail` → `_sync_children` →
+    # Sonuç İlanı HTML ayrıştırma + firma çözümleme zinciri belirgin CPU işi yapar
+    # (süpürmenin darboğazının CPU olduğu ölçülmüştü). Thread'ler o kısmı GIL'de
+    # seri hâle getirip 4 çekirdeği tek çekirdeğe indirirdi.
+    #
+    # ⚠️ Daha fazlası **EKAP hızlıyken** kazanç getirmez (throttle tavanı 1 istek/sn)
+    # — yalnızca boşta bağlantı ve bellek tutar. EKAP yine yavaşlarsa önce
+    # `son_1s_detay`'ı ölçün, sonra bu sayıyı gecikmeye göre yeniden hesaplayın.
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap", "--concurrency=8"]
     depends_on:
       - web
       - redis

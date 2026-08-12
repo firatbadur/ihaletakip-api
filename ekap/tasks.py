@@ -264,6 +264,10 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
         skip = cp.cursor_skip
         oldest = None
         aborted = None
+        # ⚠️ Bütçeyle çıkışı EKAP hatasından AYRI tut: ikisini aynı değişkene yazmak
+        # `SyncRun.note`'a "EKAP kısmi" yazdırıp normal bir bütçe çıkışını EKAP arızası
+        # gibi gösteriyordu — teşhis ederken yanıltır.
+        butce_doldu = False
         for _ in range(max_pages):
             body = client.build_search_body(
                 orderBy="ihaleTarihi", siralamaTipi="asc",
@@ -309,7 +313,7 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
             # Süre bütçesi doldu → temiz çık. İmleç aşağıda kaydedilir; öldürülmek
             # yerine kendi isteğiyle bitmek kilidin de düzgün bırakılmasını sağlar.
             if time.monotonic() >= deadline:
-                aborted = f"süre bütçesi doldu ({settings.EKAP_BACKFILL_MAX_SECONDS} sn)"
+                butce_doldu = True
                 break
         cp.cursor_skip = skip
         if oldest:
@@ -320,6 +324,8 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
         run.note = f"detay_kuyruk={enqueued}/{total}"
         if aborted:
             run.note = f"EKAP kısmi (sonraki tetikte devam): {aborted}"
+        elif butce_doldu:
+            run.note += f" · süre bütçesi doldu ({settings.EKAP_BACKFILL_MAX_SECONDS} sn)"
         return {
             "upserted": total, "errors": errors, "skip": skip,
             "done": cp.done, "aborted": bool(aborted),

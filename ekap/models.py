@@ -339,6 +339,13 @@ class OkasItem(models.Model):
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="okas_kalemleri")
     kodu = models.CharField(max_length=255, blank=True)
     adi = models.CharField(max_length=500, blank=True)
+    # Türkçe+aksan-duyarsız arama (normalize_tr(adi)); senkronda doldurulur.
+    # ⚠️ Kardeşleri (`Tender.ihale_adi_norm`, `Authority.ad_norm`, `OkasCode.adi_norm`)
+    # baştan normalize sütunluydu; burası **atlanmıştı** ve filtre `adi__icontains`
+    # kullanıyordu. Sonucu iki katmanlıydı: (1) Türkçe küçük harfle arama boş dönüyordu,
+    # (2) `icontains` → `UPPER(adi) LIKE …` ürettiği için kolonun üstündeki fonksiyon
+    # trigram indeksini **kullanılamaz** kılıyordu (denetimde `idx_scan = 0`, 75 MB ölü).
+    adi_norm = models.CharField(max_length=500, blank=True)
 
     class Meta:
         verbose_name = "İhale OKAS Kalemi"
@@ -347,8 +354,11 @@ class OkasItem(models.Model):
             # `okas_kod` filtresi `kodu__startswith` ile arar (Exists alt sorgusu içinde).
             # `tender` FK indeksi tek başına yetmiyordu → tüm OkasItem taranıyordu.
             models.Index(fields=["kodu", "tender"]),
-            # `okas_adi` `icontains` → trigram (bkz. Tender'daki aynı gerekçe).
-            GinIndex(fields=["adi"], opclasses=["gin_trgm_ops"], name="ekap_okasitem_adi_trgm"),
+            # `okas_adi` filtresi `adi_norm__contains` → trigram (bkz. Tender'daki aynı
+            # gerekçe). ⚠️ Trigram `adi`da DEĞİL `adi_norm`da olmalı: sorgu normalize
+            # sütunu tarar, ham sütundaki indeks hiç kullanılmazdı.
+            GinIndex(fields=["adi_norm"], opclasses=["gin_trgm_ops"],
+                     name="ekap_okasitem_adinorm_trgm"),
         ]
 
 

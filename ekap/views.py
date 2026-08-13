@@ -404,9 +404,16 @@ def apply_tender_filters(qs, params):
         qs = qs.filter(_okas_exists(cond))
     okas_adi = _as_str_list(params.get("okas_adi"))
     if okas_adi:
+        # ⚠️ `adi__icontains` KULLANMAYIN (eski hâliydi, iki ayrı hatası vardı):
+        #   1. DB `icontains`/ILIKE Türkçe İ↔i, ş↔s katlaması yapmaz → kullanıcı küçük
+        #      harf Türkçe yazınca ("işlem") sonuç boş dönüyordu.
+        #   2. Django `icontains`'i `UPPER(adi) LIKE UPPER(%s)` diye derler; kolonun
+        #      üstündeki `UPPER()` trigram indeksini kullanılamaz kılar → denetimde
+        #      `ekap_okasitem_adi_trgm` 75 MB / `idx_scan = 0` ölü indeks çıktı.
+        # Doğrusu kardeş filtrelerdeki desen: normalize sütun + `__contains`.
         cond = Q()
         for adi in okas_adi:
-            cond |= Q(adi__icontains=adi)
+            cond |= Q(adi_norm__contains=normalize_tr(adi))
         qs = qs.filter(_okas_exists(cond))
 
     # ── Yüklenici (sözleşme imzalayan firma) ──

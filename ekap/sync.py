@@ -337,7 +337,12 @@ def _sync_children(tender, bilgi, data, announcements):
     # OKAS kalemleri
     tender.okas_kalemleri.all().delete()
     OkasItem.objects.bulk_create([
-        OkasItem(tender=tender, kodu=str(o.get("kodu", "")), adi=o.get("adi", "") or "")
+        OkasItem(
+            tender=tender,
+            kodu=str(o.get("kodu", "")),
+            adi=o.get("adi", "") or "",
+            adi_norm=normalize_tr(o.get("adi", "")),
+        )
         for o in (data.get("ihtiyacKalemiOkasList") or [])
     ])
 

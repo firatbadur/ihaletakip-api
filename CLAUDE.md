@@ -381,9 +381,14 @@ Böylece "bilgi işlem" == "BİLGİ İŞLEM" == "bilgi islem" (EKAP'tan bile esn
   `AuthoritySearchView`, `OkasSearchView`, ve asistan `matching.py` keyword eşleştirmesi.
   OKAS kodu ASCII olduğundan `startswith` bırakıldı.
 - **Yeni metin araması eklerken**: Türkçe alanda `icontains` KULLANMA → normalize sütunu
-  ekle + `normalize_tr(sorgu)` ile `__contains`. Bilinen istisna (henüz düzeltilmedi):
-  `okas_adi` filtresi `OkasItem.adi__icontains` kullanır (mobil `okas_kod` gönderdiği için
-  pratikte tetiklenmez).
+  ekle + `normalize_tr(sorgu)` ile `__contains`.
+  ✅ Son istisna da kapatıldı (`0018`/`0019`): `okas_adi` filtresi artık
+  `OkasItem.adi_norm__contains` kullanıyor. ⚠️ Eski hâlin **iki** hatası vardı ve
+  ikincisi ilk bakışta görünmüyordu: (1) Türkçe katlama yok → "SAĞLIĞI" ve "sagligi"
+  **0 sonuç** dönüyordu (ölçüldü; yalnızca birebir "sağlığı" çalışıyordu),
+  (2) `icontains` → `UPPER(adi) LIKE …` ürettiği için `ekap_okasitem_adi_trgm`
+  trigram indeksi **kullanılamıyordu** → denetimde 75 MB / `idx_scan = 0` ölü indeks.
+  Bu yüzden indeks silinmedi, `adi_norm`'a taşındı — artık gerçekten çalışıyor.
 - **⚠️ `icontains` ASCII alanda bile indeksi ÖLDÜRÜR.** Django Postgres'te `icontains`'i
   `UPPER(kolon::text) LIKE UPPER(%s)` diye derler; kolonun üstündeki `UPPER()` yüzünden o
   kolondaki trigram indeksi kullanılamaz. Bu yüzden `ikn` filtreleri `__contains` kullanır

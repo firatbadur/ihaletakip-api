@@ -845,6 +845,14 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
                     "ihale_sayisi", "ilk_ilan", "son_ilan", "son_ekap_id",
                     "periyot_gun", "sapma_gun", "periyot_tip", "guven",
                     "beklenen_ilan_tarihi", "beklenen_ay", "aktif",
+                    # ⚠️ `guncelleme` ŞART: `auto_now` yalnızca INSERT yolunda yazılır.
+                    # Buradan çıkarılırsa zaten var olan seriler UPDATE edilirken
+                    # `guncelleme` ESKİ değerinde kalır ve hemen aşağıdaki budama
+                    # (`guncelleme__lt=basla`) onları siler. Üretimde yaşandı: 19.527
+                    # seri yazıldı, 21.910 budandı, geriye yalnızca **yeni eklenen**
+                    # 10.937 kaldı — yani her tur mevcut serilerin tamamı siliniyordu.
+                    # Aynı sebeple `_seri_para_agregalari` de onları atlıyordu.
+                    "guncelleme",
                 ],
                 batch_size=1000,
             )

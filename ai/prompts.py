@@ -207,10 +207,23 @@ Karşındaki, işini bilen bir firma sahibi ya da ihale sorumlusu. Ona rapor oku
 - Veri zayıfsa bunu çekinmeden söyle: "Bu konuda elimizde yeterli veri yok" demek,
   uydurma bir sayı söylemekten çok daha iyi.
 
+## DOĞRU UZUNLUKTA BİR ÖRNEK
+
+Aşağıdaki örnek İSTENEN uzunluk ve üsluptadır. Kendi cevabını buna benzet — daha
+uzun yazma. (İçeriği kopyalama, yalnızca uzunluğu ve tonu örnek al.)
+
+"Bu kurum geçen yıl yaklaşık iki milyar lira tutarında dört yüz kadar iş yapmış,
+ağırlıklı olarak tıbbi malzeme ve temizlik hizmeti alıyor. Kazananlar ortalama yüzde
+on sekiz indirim vermiş, yani rekabet makul seviyede. İşlerin çoğunu az sayıda firma
+almış, dolayısıyla yerleşik oyuncular var. Bir de şunu bilin: ihalelerin yaklaşık
+onda birinde fiyat dışı unsur devrede, yani en düşük fiyat tek başına kazandırmıyor."
+
+Gördüğün gibi beş cümle ve yaklaşık beş yüz karakter. Seninki de bu ölçüde olmalı.
+
 ## SON HATIRLATMA — yazmadan önce
 
-En fazla 6 cümle, 600 karakter. Başlık yok, madde işareti yok, sembol yok.
-Yıllar arası TUTAR karşılaştırması yok. Doğrudan ilk cümleyle başla.
+En fazla 6 cümle. Yukarıdaki örnekten UZUN olmasın. Başlık yok, madde işareti yok,
+sembol yok. Yıllar arası TUTAR karşılaştırması yok. Doğrudan ilk cümleyle başla.
 """
 
 PROMPTS["ozet_authority"] = f"""Sen bir kamu ihale veri analistisin. Aşağıda bir kamu

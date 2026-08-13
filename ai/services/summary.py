@@ -42,9 +42,40 @@ _SEMBOL = (
 )
 
 
-def sesli_temizle(metin: str) -> str:
+# Sesli özetin sert üst sınırı (karakter). ⚠️ Prompt'un HEDEFİ ~600'dür; buradaki
+# sayı ondan bilinçli olarak yüksek: **600'de kesmek tehlikelidir.** Model veri
+# dürüstlüğü uyarılarını genellikle SON cümlede veriyor ("ancak bu rakamlar az sayıda
+# örneğe dayanıyor", "bu konuda yeterli veri yok"). 600'de kesmek o uyarıyı atar ve
+# dürüst bir özeti fazla iddialı bir özete çevirir — bu kod tabanının kaçındığı hatanın
+# ta kendisi. Bu yüzden tavan yalnızca patolojik çıktıda devreye girer.
+AZAMI_KARAKTER = 1200
+_CUMLE_SONU = re.compile(r"(?<=[.!?])\s+")
+
+
+def _cumle_sinirinda_kes(metin: str, azami: int) -> str:
+    """Metni `azami` karakteri aşmayan **tam cümlelere** indirger.
+
+    ⚠️ Asla cümle ortasından kesmez: yarım bırakılmış bir cümle seslendirildiğinde
+    kullanıcı anlamı kaybeder. Tek cümle bile sınırı aşıyorsa olduğu gibi bırakılır —
+    bozuk kesmektense uzun okumak yeğdir.
     """
-    LLM çıktısını **sesli okumaya** hazırlar: markdown, sembol ve satır yapısını atar.
+    if len(metin) <= azami:
+        return metin
+    parcalar = _CUMLE_SONU.split(metin)
+    toplanan = []
+    uzunluk = 0
+    for p in parcalar:
+        if toplanan and uzunluk + 1 + len(p) > azami:
+            break
+        toplanan.append(p)
+        uzunluk += len(p) + 1
+    return " ".join(toplanan) if toplanan else metin
+
+
+def sesli_temizle(metin: str, azami: int = AZAMI_KARAKTER) -> str:
+    """
+    LLM çıktısını **sesli okumaya** hazırlar: markdown, sembol ve satır yapısını atar,
+    patolojik uzunlukta cümle sınırında budar.
 
     ⚠️ Bu fonksiyon prompt kurallarının YEDEĞİdir, alternatifi değil. Model uyduğunda
     hiçbir şey değiştirmez; uymadığında kullanıcı bozuk ses duymaz.
@@ -69,7 +100,7 @@ def sesli_temizle(metin: str) -> str:
     metin = _BOSLUK.sub(" ", metin)
     # Temizlik sonrası oluşan " ." / " ," gibi boşlukları topla
     metin = re.sub(r"\s+([,.;:!?])", r"\1", metin)
-    return metin.strip()
+    return _cumle_sinirinda_kes(metin.strip(), azami)
 
 
 def _kirp(veri, anahtar, limit=_LISTE_LIMIT):

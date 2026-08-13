@@ -1292,6 +1292,17 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
   ⚠️ İki ince nokta: `"TL"` düz string değişimi OLAMAZ ("ATLAS" → "A lira AS"),
   sözcük sınırı gerekir; ve sayı önündeki `~` markdown değil "yaklaşık" demektir,
   vurgu temizliğinden **önce** çevrilmeli yoksa anlam sessizce düşer (`~500` → `500`).
+- ⚠️ **Uzunluk sınırı 600'de KESİLMEZ** (`AZAMI_KARAKTER=1200`, cümle sınırında).
+  Prompt'un hedefi ~600 ama model düzenli olarak 800-900 üretiyor; 600'de kesmek
+  **tehlikelidir** çünkü model veri dürüstlüğü uyarılarını genellikle SON cümlede
+  veriyor ("ancak bu rakamlar az sayıda örneğe dayanıyor") — kesmek dürüst bir özeti
+  fazla iddialı bir özete çevirir. Uzunluğu prompt'ta **örnek göstererek** kısaltmak
+  denendi (modeller sayısal kısıttan çok örneği taklit eder); tavan yalnızca patolojik
+  çıktı için. ⚠️ Tek cümle bile sınırı aşıyorsa olduğu gibi bırakılır — cümle
+  ortasından kesilmiş bir ses, uzun sesten kötüdür.
+- ✅ **Yıllar arası tutar yasağı TUTTU**: yasak örnek verilince model kendiliğinden
+  *"bu dönemleri para tutarı açısından karşılaştırmak doğru değil çünkü enflasyon
+  etkiliyor"* yazmaya başladı. Kural + yasak örnek, kural tek başınadan iyi çalışıyor.
 - **Prompt üç kural ailesi taşır** (`ai/prompts.py` → `_OZET_ORTAK_KURALLAR`):
   *veri dürüstlüğü* (veride olmayan sayı üretme, örneklemsiz ortalama anma,
   `indirim_guven="yetersiz"` → "sıfır" deme, yıllar arası tutar karşılaştırma, tavsiye

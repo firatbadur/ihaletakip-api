@@ -669,6 +669,14 @@ Gelişmiş filtreler Pro'ya kilitlidir; **temel arama herkese açık kalır** (u
   `teklif_sayisi`, `istekli_sayisi`) aralık filtresi, değeri **bilinmeyen** ihaleleri de
   sessizce eler (NULL hiçbir aralığa girmez). Bu filtreler kullanılınca yanıt
   `data.uyari` taşır → istemci "sonuç yok" ile "veri yok"u ayırt edebilsin.
+- ✅ **Ölçülen sonuç (2026-08-13, prod)**: benchmark kademe 3 **4.559 → 335 ms**,
+  kademe 1 **4.578 → 14 ms**, kademe 4 **0,16 ms**, seri GROUP BY **2.492 → 434 ms**,
+  Pro tutar aralığı **222 → 81 ms**. Kabul kriteri (<500 ms) tutturuldu.
+  ⚠️ Kademe 3'ün 335 ms'si **en kötü hâl** (en sık OKAS kodu = 77.476 sözleşme);
+  tipik kod ~200 sözleşme. ⚠️ **Kapsayan indeks (`include=[...]`) GEREKMEDİ** —
+  kazancın büyük kısmını `ANALYZE`'ın tazelediği istatistikler verdi. Ağır bir
+  UPDATE'ten sonra **önce `VACUUM (ANALYZE)`, sonra indeks eklemeyi düşünün**:
+  729 → 335 ms farkı yalnızca bundan geldi.
 - ✅ **İndeksler 0015'te kuruldu** (doldurma bittikten SONRA — boş kolona indeks kurup
   ardından 1M satır UPDATE etmek indeksi şişirirdi). Ölçüm betiği:
   `scripts/pro_explain.sql`. ⚠️ **Sıralama kolonu bileşiğin İKİNCİ elemanıdır**

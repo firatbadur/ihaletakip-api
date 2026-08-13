@@ -539,6 +539,23 @@ ve konan korumalar:
   `idare_id` **ve** `okas_ana_kod` şartı + iskelette **en az 2 anlamlı token**; yoksa
   anahtar üretilmez ve ihale hiçbir seriye girmez.
 
+- ⚠️ **`update_conflicts` + zaman damgasıyla budama = `auto_now` alanı `update_fields`'a
+  GİRMELİ.** `auto_now` yalnızca INSERT yolunda uygulanır; upsert'in UPDATE dalında alan
+  listeye konmazsa **eski değerinde kalır** ve hemen ardından gelen
+  `filter(guncelleme__lt=basla).delete()` o satırları siler. Üretimde yaşandı
+  (2026-08-13, `detect_recurring_series`): 19.527 seri yazıldı, 21.910 budandı, geriye
+  yalnızca **yeni eklenen** 10.937 kaldı — yani her tur mevcut serilerin tamamı
+  siliniyordu. Aynı sebeple para agregasyonu da (`guncelleme__gte=basla`) onları
+  atlıyordu. Bu desenin kullanıldığı yerler: `detect_recurring_series`,
+  `refresh_market_stats` (×2). `Authority`/`ContractorAlias` upsert'leri budama
+  yapmadığı için etkilenmez.
+- ⚠️ **Docstring'in "N+1 değil" demesi kodun N+1 olmadığı anlamına gelmez.**
+  `_seri_para_agregalari`'nin yorumu *"ana döngüde her seri için sorgu atmak N+1 olurdu,
+  burada toplu yapılır"* diyordu ama kod seri başına **iki** sorgu atıyordu
+  (21.910 × 2 = 43.820). Görev `CELERY_TASK_TIME_LIMIT=300`'ü aşıp öldürülüyor, para
+  adımına hiç sıra gelmiyordu → mobilde "Veri yok". Yorum niyeti anlatıyordu, kod
+  tersini yapıyordu.
+
 #### Tekrar eden ihaleler — `GET /ekap/recurring/`, `.../tenders/<key>/recurring/`
 
 Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebildiği için kullanıcı

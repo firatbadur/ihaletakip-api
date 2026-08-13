@@ -534,9 +534,15 @@ class Contract(models.Model):
     tender = models.ForeignKey(Tender, on_delete=models.CASCADE, related_name="sozlesmeler")
     # sozlesmeBilgiList[].id — kararlı EKAP anahtarı. Upsert bunun üzerinden yapılır;
     # olmadan her detay senkronunda satırlar silinip yeniden yaratılıyordu (PK churn).
-    ekap_sozlesme_id = models.CharField(max_length=64, blank=True, db_index=True)
+    # ⚠️ `db_index` YOK (0017'de düşürüldü, 138 MB): `_bulk_upsert_children` satırları
+    # `tender.sozlesmeler.all()` ile çekip **Python'da** eşleştirir; DB'ye hiç
+    # `WHERE ekap_sozlesme_id = …` sorgusu gitmez. Denetimde `idx_scan = 0` çıktı.
+    ekap_sozlesme_id = models.CharField(max_length=64, blank=True)
     yuklenici_adi = models.CharField(max_length=500, blank=True)
-    yuklenici_adi_norm = models.CharField(max_length=500, blank=True, db_index=True)
+    # ⚠️ `db_index` YOK (0017'de düşürüldü, 64 MB): metin araması aşağıdaki
+    # `ekap_contract_yukadi_trgm` (GIN trigram) üzerinden gider; `%…%` deseninde
+    # btree zaten işe yaramaz.
+    yuklenici_adi_norm = models.CharField(max_length=500, blank=True)
     yuklenici = models.ForeignKey(
         Contractor, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="sozlesmeler",

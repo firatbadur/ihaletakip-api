@@ -1284,11 +1284,21 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
   `AnalyzeStatusView` sözleşmesi bu alanı okur.
 - **Model `CLAUDE_CHAT_MODEL`** (haiku) + `max_tokens=700`: görev kısa ve şablonlu.
   `call_claude` bunun için `model` parametresi aldı (varsayılan hâlâ `CLAUDE_MODEL`).
-- **Prompt iki kural ailesi taşır** (`ai/prompts.py` → `_OZET_ORTAK_KURALLAR`):
+- ⚠️ **Çıktı `summary.sesli_temizle()`'den GEÇER — prompt kuralı tek başına yetmez.**
+  Üretimde yaşandı: model "markdown kullanma" talimatına rağmen metne `# Sesli Özet`
+  başlığı ekledi ve TTS bunu **"kare sesli özet"** diye okudu. Temizleyici markdown
+  başlık/madde/vurgu atar, sembolleri sözcüğe çevirir (`₺`→lira, `%`→yüzde),
+  satırları tek paragrafa indirir. **Prompt tavsiyedir, kod garantidir.**
+  ⚠️ İki ince nokta: `"TL"` düz string değişimi OLAMAZ ("ATLAS" → "A lira AS"),
+  sözcük sınırı gerekir; ve sayı önündeki `~` markdown değil "yaklaşık" demektir,
+  vurgu temizliğinden **önce** çevrilmeli yoksa anlam sessizce düşer (`~500` → `500`).
+- **Prompt üç kural ailesi taşır** (`ai/prompts.py` → `_OZET_ORTAK_KURALLAR`):
   *veri dürüstlüğü* (veride olmayan sayı üretme, örneklemsiz ortalama anma,
   `indirim_guven="yetersiz"` → "sıfır" deme, yıllar arası tutar karşılaştırma, tavsiye
   verme) ve *sesli okuma* (markdown/sembol yok, büyük sayıları yazıyla yuvarla,
-  4-6 cümle ≤600 karakter). ⚠️ Bu kurallar daha önce **yalnızca docstring'lerde ve
+  4-6 cümle ≤600 karakter, **başlık YASAK**) ve *üslup* (gündelik, sıcak, "meslektaş
+  kahve içerken anlatıyor" tonu; resmî rapor dili yok; sayıyı söylerken ne anlama
+  geldiğini de söyle). ⚠️ Dürüstlük kuralları daha önce **yalnızca docstring'lerde ve
   yanıt `uyari` alanlarında** yaşıyordu; modele hiç gitmiyordu.
 - **Cache 24 sa**, anahtar `ai:summary:{kind}:{sha1(params)}` — **kullanıcı girmez**,
   özet kullanıcıdan bağımsızdır. Cache'i **görev** yazar, view yalnızca okur; isabette

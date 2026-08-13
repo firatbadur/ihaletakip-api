@@ -11,6 +11,7 @@ maskeli tutarlar özet metni üzerinden sızar.
 """
 import hashlib
 import json
+import re
 
 # Prompt'u şişirmemek için liste alanlarından alınacak satır sayısı.
 # (Aynı gerekçe `ai/services/claude.py`'deki karakter budamasında da var.)
@@ -20,6 +21,55 @@ _LISTE_LIMIT = 5
 _YIL_LIMIT = 5
 
 GECERLI_TURLER = ("authority", "market", "benchmark")
+
+# ── Sesli okuma temizliği ─────────────────────────────────────────────────────
+# ⚠️ **Prompt kuralı TEK BAŞINA YETMEZ.** Model "markdown kullanma" talimatına rağmen
+# başlık atabiliyor ve çıktı TTS'e gidince kullanıcı "**kare** sesli özet" duyuyor
+# (üretimde yaşandı: model metne `# Sesli Özet` başlığı ekledi). Prompt tavsiyedir,
+# kod garantidir — bu yüzden metin dönmeden önce burada temizlenir.
+_MD_BASLIK = re.compile(r"^\s{0,3}#{1,6}\s*.*$", re.M)          # # Başlık
+_MD_MADDE = re.compile(r"^\s{0,3}(?:[-*+•·]|\d{1,2}[.)])\s+", re.M)  # - madde / 1. madde
+_MD_VURGU = re.compile(r"[*_`~]+")                               # **kalın**, _italik_, `kod`
+_BOSLUK = re.compile(r"[ \t]+")
+
+# Sembol → sözcük. TTS bunları ya atlıyor ya da adını okuyor ("yüzde işareti").
+# ⚠️ "TL" buraya DÜZ STRING olarak konmaz: "ATLAS" → "A lira AS" olurdu.
+# Sözcük sınırıyla ayrı ele alınır (aşağıda).
+_SEMBOL = (
+    ("₺", " lira"), ("$", " dolar"), ("€", " euro"),
+    ("≈", " yaklaşık "), ("&", " ve "),
+    ("→", " "), ("|", " "), (">", " "), ("<", " "),
+)
+
+
+def sesli_temizle(metin: str) -> str:
+    """
+    LLM çıktısını **sesli okumaya** hazırlar: markdown, sembol ve satır yapısını atar.
+
+    ⚠️ Bu fonksiyon prompt kurallarının YEDEĞİdir, alternatifi değil. Model uyduğunda
+    hiçbir şey değiştirmez; uymadığında kullanıcı bozuk ses duymaz.
+    """
+    if not metin:
+        return ""
+    metin = _MD_BASLIK.sub("", metin)
+    metin = _MD_MADDE.sub("", metin)
+    # ⚠️ Sayı önündeki tilde markdown DEĞİL, "yaklaşık" demektir — vurgu temizliğinden
+    # ÖNCE çevrilmeli, yoksa `_MD_VURGU` onu silip anlamı düşürür ("~500" → "500").
+    # Bu kod tabanında sayıyı olduğundan farklı aktarmak kabul edilmez.
+    metin = re.sub(r"~\s*(?=\d)", "yaklaşık ", metin)
+    metin = _MD_VURGU.sub("", metin)
+    for sembol, karsilik in _SEMBOL:
+        metin = metin.replace(sembol, karsilik)
+    metin = re.sub(r"\bTL\b", "lira", metin)
+    # "%21" → "yüzde 21" (sembolden SONRA sayı gelen hâli), sonra kalan tekil "%"
+    metin = re.sub(r"%\s*(\d)", r"yüzde \1", metin)
+    metin = metin.replace("%", " yüzde ")
+    # Satırları tek akıcı paragrafa indir — TTS satır sonunu duraklama sanmaz
+    metin = " ".join(satir.strip() for satir in metin.splitlines() if satir.strip())
+    metin = _BOSLUK.sub(" ", metin)
+    # Temizlik sonrası oluşan " ." / " ," gibi boşlukları topla
+    metin = re.sub(r"\s+([,.;:!?])", r"\1", metin)
+    return metin.strip()
 
 
 def _kirp(veri, anahtar, limit=_LISTE_LIMIT):
@@ -131,10 +181,14 @@ def ozet_uret(kind, params):
     gövde = json.dumps(_buda(kind, veri), ensure_ascii=False, default=str)
     # ⚠️ Model **haiku** (`CLAUDE_CHAT_MODEL`): görev kısa ve şablonlu, kalite
     # öncelikli `CLAUDE_MODEL` gereksiz maliyet olurdu (bkz. CLAUDE.md model ayrımı).
-    return call_claude(
+    sonuc = call_claude(
         get_api_key(),
         [],
         sablon + gövde,
         max_tokens=700,
         model=settings.CLAUDE_CHAT_MODEL,
     )
+    # ⚠️ Temizlik ŞART — bkz. `sesli_temizle`. Model başlık/madde işareti eklediğinde
+    # TTS bunları sesli okuyor ("kare sesli özet").
+    sonuc["analysis"] = sesli_temizle(sonuc.get("analysis", ""))
+    return sonuc

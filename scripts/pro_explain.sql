@@ -37,13 +37,28 @@ ORDER BY ihale_tarihi DESC
 LIMIT 20;
 
 \echo ''
+\echo '--- Test degerleri secilyor (bu adim OLCUME DAHIL DEGIL) ---'
+-- ⚠️ Degerler `\gset` ile ONCEDEN cozulur. Eski surumde deger bulma alt sorgusu
+--    (InitPlan) EXPLAIN'in ICINDEYDI ve tek basina 1-2 sn yiyip olcumu kirletiyordu.
+SELECT okas_ana_kod AS okas FROM ekap_contract
+ WHERE okas_ana_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
+\gset
+SELECT en_ust_idare_kod AS bakanlik FROM ekap_tender
+ WHERE en_ust_idare_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
+\gset
+SELECT idare_id AS idare FROM ekap_contract
+ WHERE idare_id <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
+\gset
+SELECT okas_bucket AS bucket FROM ekap_contract
+ WHERE okas_bucket <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
+\gset
+\echo :okas :bakanlik :idare :bucket
+
+\echo ''
 \echo '=== 2. OKAS ana kod esitligi + ORDER BY tarih DESC LIMIT ==='
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT id, ikn FROM ekap_tender
-WHERE okas_ana_kod = (
-    SELECT okas_ana_kod FROM ekap_tender
-    WHERE okas_ana_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
-)
+WHERE okas_ana_kod = :'okas'
 ORDER BY ihale_tarihi DESC
 LIMIT 20;
 
@@ -51,10 +66,7 @@ LIMIT 20;
 \echo '=== 3. Bakanlik rollup (en_ust_idare_kod) + ORDER BY tarih DESC LIMIT ==='
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT id, ikn FROM ekap_tender
-WHERE en_ust_idare_kod = (
-    SELECT en_ust_idare_kod FROM ekap_tender
-    WHERE en_ust_idare_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
-)
+WHERE en_ust_idare_kod = :'bakanlik'
 ORDER BY ihale_tarihi DESC
 LIMIT 20;
 
@@ -68,32 +80,30 @@ ORDER BY ihale_tarihi DESC
 LIMIT 20;
 
 \echo ''
-\echo '=== 5. BENCHMARK kademe 3 — Contract JOIN Tender (Contract tarafinda okas yok) ==='
+\echo '=== 5. BENCHMARK kademe 3 (ulke) — ARTIK JOINSIZ, Contract-yerel ==='
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT count(*) AS n, avg(c.indirim_orani) AS ort
-FROM ekap_contract c
-JOIN ekap_tender t ON t.id = c.tender_id
-WHERE t.okas_ana_kod = (
-    SELECT okas_ana_kod FROM ekap_tender
-    WHERE okas_ana_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
-)
-  AND c.sozlesme_tarihi >= now() - interval '5 years';
+SELECT count(*) AS n, avg(indirim_orani) AS ort
+FROM ekap_contract
+WHERE okas_ana_kod = :'okas'
+  AND sozlesme_tarihi >= now() - interval '5 years';
 
 \echo ''
-\echo '=== 6. BENCHMARK kademe 1 — ayni idare + OKAS (JOIN''li) ==='
+\echo '=== 6. BENCHMARK kademe 1 (ayni idare + OKAS) — ARTIK JOINSIZ ==='
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT count(*) AS n, avg(c.indirim_orani) AS ort
-FROM ekap_contract c
-JOIN ekap_tender t ON t.id = c.tender_id
-WHERE t.okas_ana_kod = (
-    SELECT okas_ana_kod FROM ekap_tender
-    WHERE okas_ana_kod <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
-)
-  AND c.idare_id = (
-    SELECT idare_id FROM ekap_contract
-    WHERE idare_id <> '' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
-)
-  AND c.sozlesme_tarihi >= now() - interval '5 years';
+SELECT count(*) AS n, avg(indirim_orani) AS ort
+FROM ekap_contract
+WHERE okas_ana_kod = :'okas'
+  AND idare_id = :'idare'
+  AND sozlesme_tarihi >= now() - interval '5 years';
+
+\echo ''
+\echo '=== 6b. BENCHMARK kademe 4 (is grubu + ihale turu) ==='
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT count(*) AS n, avg(indirim_orani) AS ort
+FROM ekap_contract
+WHERE okas_bucket = :'bucket'
+  AND ihale_tip = 1
+  AND sozlesme_tarihi >= now() - interval '5 years';
 
 \echo ''
 \echo '=== 7. Tekrar eden seri tespiti — seri_anahtar GROUP BY ==='

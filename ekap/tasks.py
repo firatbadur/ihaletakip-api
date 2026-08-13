@@ -780,7 +780,7 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
             .order_by("seri_anahtar")
         )
 
-        yazilacak, islenen, timed_out = [], 0, False
+        yazilacak, islenen, timed_out, para = [], 0, False, 0
         for g in gruplar.iterator(chunk_size=500):
             uyeler = list(
                 Tender.objects.filter(
@@ -848,7 +848,7 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
                 ],
                 batch_size=1000,
             )
-            _seri_para_agregalari(yazilacak)
+            para = _seri_para_agregalari(basla)
 
         budanan = 0
         if not timed_out:
@@ -857,7 +857,10 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
             ).delete()
 
         run.items = islenen
-        run.note = f"{'süre doldu ' if timed_out else ''}seri={islenen} budanan={budanan}"[:1000]
+        run.note = (
+            f"{'süre doldu ' if timed_out else ''}seri={islenen} "
+            f"para={para} budanan={budanan}"
+        )[:1000]
         return {"series": islenen, "pruned": budanan, "timed_out": timed_out}
 
 
@@ -903,45 +906,68 @@ def _beklenen(son_ilan, medyan_gun):
     }
 
 
-def _seri_para_agregalari(seriler):
+def _seri_para_agregalari(basla):
     """
-    Serilerin bedel/indirim ortalamalarını sözleşmelerden doldurur.
+    Serilerin bedel/indirim ortalamalarını sözleşmelerden doldurur — **tek sorguda**.
 
-    Ayrı adım: ana döngüde her seri için sorgu atmak N+1 olurdu. Burada seri başına tek
-    toplu sorgu yapılır ve yalnızca para alanları güncellenir.
+    ⚠️ **Eski sürüm N+1'di ve görevi öldürüyordu.** Docstring'i "ana döngüde her seri için
+    sorgu atmak N+1 olurdu, burada toplu yapılır" diyordu ama kod tam da onu yapıyordu:
+    seri başına bir `aggregate` + bir `.first()` = 21.910 seri × 2 = **43.820 sorgu**.
+    Ana döngü süre bütçesine sığıyor, bu adım `CELERY_TASK_TIME_LIMIT=300`'ü aşıyor ve
+    görev öldürülüyordu → `SyncRun.status='running'`, `finished_at` boş, ve **21.910
+    serinin hiçbirinde `ortalama_bedel` yoktu** (mobilde "Veri yok" olarak görünüyordu).
+    Veri eksikliği değildi: örnek seride 863 sözleşmenin 863'ünde de bedel doluydu.
+
+    Şimdi: sözleşmeler `(seri_anahtar, idare_id)` ile **bir kez** gruplanır, sonuç
+    sözlüğe alınır, seri satırları tek `bulk_update` ile yazılır.
+
+    ``basla`` bu turun başlangıç zamanı; yalnızca bu turda yazılan/güncellenen seriler
+    işlenir (budama mantığıyla aynı işaret).
     """
-    from django.db.models import Avg, Count, Sum
+    from django.db.models import Avg, Count
 
     from .models import Contract, RecurringTenderSeries
 
-    guncel = []
-    for s in seriler:
-        agg = (
-            Contract.objects.filter(
-                tender__seri_anahtar=s.seri_anahtar, tender__idare_id=s.idare_id
-            )
+    # ⚠️ `.order_by()` ŞART: `Contract.Meta.ordering` GROUP BY'a sızarsa gruplama bozulur.
+    agg = {
+        (r["tender__seri_anahtar"], r["tender__idare_id"]): r
+        for r in (
+            Contract.objects.exclude(tender__seri_anahtar="")
             .order_by()
-            .aggregate(
+            .values("tender__seri_anahtar", "tender__idare_id")
+            .annotate(
                 ort=Avg("sozlesme_bedeli_num"),
                 ort_ind=Avg("indirim_orani"),
                 n_ind=Count("indirim_orani"),
             )
         )
-        if agg["ort"] is None and agg["n_ind"] == 0:
+    }
+    if not agg:
+        return 0
+
+    guncel = []
+    for satir in RecurringTenderSeries.objects.filter(
+        guncelleme__gte=basla
+    ).only("id", "seri_anahtar", "idare_id").iterator(chunk_size=2000):
+        a = agg.get((satir.seri_anahtar, satir.idare_id))
+        if a is None:
             continue
-        satir = RecurringTenderSeries.objects.filter(
-            seri_anahtar=s.seri_anahtar, idare_id=s.idare_id
-        ).first()
-        if satir is None:
-            continue
-        satir.ortalama_bedel = agg["ort"]
-        satir.ortalama_indirim = agg["ort_ind"]
-        satir.indirim_ornek = agg["n_ind"]
+        satir.ortalama_bedel = a["ort"]
+        satir.ortalama_indirim = a["ort_ind"]
+        satir.indirim_ornek = a["n_ind"]
         guncel.append(satir)
+        if len(guncel) >= 2000:
+            RecurringTenderSeries.objects.bulk_update(
+                guncel, ["ortalama_bedel", "ortalama_indirim", "indirim_ornek"],
+                batch_size=500,
+            )
+            guncel = []
     if guncel:
         RecurringTenderSeries.objects.bulk_update(
-            guncel, ["ortalama_bedel", "ortalama_indirim", "indirim_ornek"], batch_size=500
+            guncel, ["ortalama_bedel", "ortalama_indirim", "indirim_ornek"],
+            batch_size=500,
         )
+    return len(agg)
 
 
 @shared_task(name="ekap.tasks.refresh_idare_id_set")

@@ -47,6 +47,41 @@ MAX_LIMIT = 100
 # veridir (sözleşmelerin ~%15'i); sessizce düşürmek pazar toplamlarını bozar.
 SINIFLANDIRILMAMIS = "Sınıflandırılmamış"
 
+# ── İndirim ortalamasının güven eşikleri ──────────────────────────────────────
+# ⚠️ **Neden gerekli** (prod'da yakalandı, 2026-08-13): Sonuç İlanı — `indirim_orani`nin
+# tek kaynağı — imzadan **aylar sonra** yayımlanır. Bu yüzden en güncel yılda kapsam
+# neredeyse sıfırdır: 2026'da 82.687 sözleşmenin yalnızca 1.374'ünde (%1,7) indirim
+# biliniyordu ve tek tek gruplarda durum daha kötüydü — "3.192 sözleşme · ortalama
+# indirim %54,8 (n=6)". Altı örnekten çıkan bir manşet sayı YANLIŞTIR.
+# Kod tabanının kuralı nettir: **yanlış sayı göstermektense "veri yok" demek doğrudur**
+# (aynı ilke `indirim_orani` ölçek hatasında ve "ornek_sayisi olmadan ortalama gösterme"
+# kuralında da geçerli).
+# İki kapı birlikte: mutlak taban (azlık) + kapsam oranı (temsil gücü).
+MIN_INDIRIM_ORNEK = 30
+MIN_INDIRIM_KAPSAM = 0.10
+# `guven="yuksek"` için daha sıkı eşik — istemci rozet gösterebilsin.
+GUVEN_YUKSEK_ORNEK = 100
+GUVEN_YUKSEK_KAPSAM = 0.30
+
+
+def _indirim(toplam, ornek, sozlesme_sayisi):
+    """Ortalama indirimi **yalnızca temsil ediyorsa** döner.
+
+    `(deger, guven)` çifti verir. Yetersizse `(None, "yetersiz")` — istemci
+    "veri yok" gösterir, uydurma bir oran değil.
+    """
+    if not ornek or toplam is None:
+        return None, "yetersiz"
+    kapsam = (ornek / sozlesme_sayisi) if sozlesme_sayisi else 0
+    if ornek < MIN_INDIRIM_ORNEK or kapsam < MIN_INDIRIM_KAPSAM:
+        return None, "yetersiz"
+    guven = (
+        "yuksek"
+        if ornek >= GUVEN_YUKSEK_ORNEK and kapsam >= GUVEN_YUKSEK_KAPSAM
+        else "dusuk"
+    )
+    return _ort_str(toplam, ornek), guven
+
 
 # ── Yenileme (gece görevi) ────────────────────────────────────────────────────
 def _bucket_adlari(bucketlar):
@@ -89,8 +124,11 @@ def refresh_market_stats():
     Bu yüzden `sync_contractors` süpürmesiyle pencere çakışması sorunu yoktur ve
     gece penceresi kısıtı gerekmez (`detect_recurring_series` ile aynı gerekçe).
 
-    Tam yeniden hesap ölçüldü: ~4 sn. Yıl bazlı rotasyon / süre bütçesi eklemek
-    gereksiz karmaşıklık olurdu (`CELERY_TASK_TIME_LIMIT=300`'ün çok altında).
+    Tam yeniden hesap **üretimde 94 sn** ölçüldü (9.800 grup / 12 yıl). Sürenin büyük
+    kısmı `_bucket_adlari`'nın `Tender` üzerindeki (bucket, kalem adı) GROUP BY'ı ve
+    yıl bazlı `count(DISTINCT)`'lardır. `CELERY_TASK_TIME_LIMIT=300`'ün altında kalır,
+    bu yüzden yıl rotasyonu/süre bütçesi eklenmedi — ama sınır **iki katı değil üç
+    katı** uzakta, grup sayısı belirgin büyürse yeniden ölçün.
 
     Upsert + buda: turda dokunulmayan eski satırlar silinir (ör. bir grup artık hiç
     sözleşme üretmiyorsa).
@@ -210,12 +248,14 @@ def _ort_str(toplam, ornek):
 
 
 def _grup_satiri(s):
+    ind_deger, ind_guven = _indirim(s.indirim_toplam, s.indirim_ornek, s.sozlesme_sayisi)
     return {
         "okas_bucket": s.okas_bucket,
         "ad": s.ad or (SINIFLANDIRILMAMIS if not s.okas_bucket else ""),
         "sozlesme_sayisi": s.sozlesme_sayisi,
         "toplam_bedel": str(s.toplam_bedel) if s.toplam_bedel is not None else None,
-        "ortalama_indirim": _ort_str(s.indirim_toplam, s.indirim_ornek),
+        "ortalama_indirim": ind_deger,
+        "indirim_guven": ind_guven,
         "indirim_ornek_sayisi": s.indirim_ornek,
         "ortalama_teklif": _ort_str(s.teklif_toplam, s.teklif_ornek),
         "teklif_ornek_sayisi": s.teklif_ornek,
@@ -258,7 +298,12 @@ def genel_bakis(yil=None, limit=VARSAYILAN_LIMIT):
             "firma_sayisi": ys.firma_tekil if ys else None,
             "idare_sayisi": ys.idare_tekil if ys else None,
             "toplam_bedel": str(ys.toplam_bedel) if ys and ys.toplam_bedel is not None else None,
-            "ortalama_indirim": _ort_str(ys.indirim_toplam, ys.indirim_ornek) if ys else None,
+            "ortalama_indirim": (
+                _indirim(ys.indirim_toplam, ys.indirim_ornek, ys.sozlesme_sayisi)[0]
+            ) if ys else None,
+            "indirim_guven": (
+                _indirim(ys.indirim_toplam, ys.indirim_ornek, ys.sozlesme_sayisi)[1]
+            ) if ys else "yetersiz",
             "indirim_ornek_sayisi": ys.indirim_ornek if ys else 0,
             "ortalama_teklif": _ort_str(ys.teklif_toplam, ys.teklif_ornek) if ys else None,
             "teklif_ornek_sayisi": ys.teklif_ornek if ys else 0,
@@ -369,7 +414,12 @@ def grup_detayi(bucket, yil=None, limit=VARSAYILAN_LIMIT):
                 "yil": s.yil,
                 "sozlesme_sayisi": s.sozlesme_sayisi,
                 "toplam_bedel": str(s.toplam_bedel) if s.toplam_bedel is not None else None,
-                "ortalama_indirim": _ort_str(s.indirim_toplam, s.indirim_ornek),
+                "ortalama_indirim": (
+                    _indirim(s.indirim_toplam, s.indirim_ornek, s.sozlesme_sayisi)[0]
+                ),
+                "indirim_guven": (
+                    _indirim(s.indirim_toplam, s.indirim_ornek, s.sozlesme_sayisi)[1]
+                ),
                 "indirim_ornek_sayisi": s.indirim_ornek,
             }
             for s in seri

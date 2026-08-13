@@ -577,6 +577,15 @@ Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebil
   bazlı tekil sayılar `MarketYearStat`'ta kendi kesin grain'inde durur. Aksi hâlde
   "20 iş grubunun firma sayılarını toplayınca yılın firma sayısı çıkar" gibi sessiz
   bir yalan üretilirdi (aynı firma birden çok grupta iş almış olabilir).
+- ⚠️ **`ortalama_indirim` yetersiz örneklemde BASTIRILIR** (`market._indirim`,
+  eşikler `MIN_INDIRIM_ORNEK=30` **ve** `MIN_INDIRIM_KAPSAM=%10`) → `null` +
+  `indirim_guven="yetersiz"`. Prod'da yakalandı: Sonuç İlanı imzadan **aylar sonra**
+  yayımlandığı için en güncel yılda kapsam neredeyse sıfırdır — 2026'da 82.687
+  sözleşmenin yalnızca 1.374'ünde (%1,7) indirim biliniyordu ve pano
+  *"3.192 sözleşme · ortalama indirim %54,8 (n=6)"* gösteriyordu. **Altı örnekten
+  manşet sayı üretmek yanlıştır.** Hacim metrikleri (adet, toplam bedel) güncel yılda
+  sağlamdır → varsayılan yıl değiştirilmedi, yalnızca indirim bastırılır.
+  `indirim_guven`: `yuksek` (≥100 örnek ve ≥%30 kapsam) · `dusuk` · `yetersiz`.
 - **Ortalamalar `(toplam, ornek)` çifti** olarak saklanır, hazır ortalama değil:
   yalnızca böyle satırlar arası doğru birleşir (`Σtoplam/Σornek`). API'de her ortalama
   **örneklem sayısıyla birlikte** döner.

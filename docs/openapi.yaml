@@ -1381,6 +1381,139 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContractPage'
           description: ''
+  /api/v1/ekap/market/:
+    get:
+      operationId: ekap_market_overview
+      description: 'Kamu alım pazarının yıllık görünümü: toplam sözleşme/firma/idare
+        sayısı, toplam bedel, ağırlıklı ortalama indirim ve o yılın **en çok harcama
+        yapılan iş grupları**.
+
+
+        **Free kullanıcı**: `200` döner ama para ve indirim değerleri `null`, `kilitli:
+        true` gelir — sayılar (kaç sözleşme, kaç firma) görünür kalır, böylece teaser
+        gösterilip Paywall''a yönlendirilebilir. **Pro**: hepsi açık.
+
+
+        ⚠️ **Ortalamalar her zaman örneklem sayısıyla gelir** (`ortalama_indirim`
+        + `indirim_ornek_sayisi`): `indirim_orani` yalnızca Sonuç İlanı yayımlanmış
+        sözleşmelerde bilinir, tek başına gösterilirse yanıltır.
+
+
+        ⚠️ **`firma_sayisi` ve `idare_sayisi` iş gruplarından TOPLANAMAZ** — bir firma
+        birden çok grupta iş almış olabilir. Bu sayılar yıl grain''inde ayrıca hesaplanır;
+        istemci onları gruplardan türetmeye çalışmamalıdır.
+
+
+        ⚠️ `okas_bucket=""` (**Sınıflandırılmamış**) gerçek veridir: sözleşmelerin
+        yaklaşık %15''inde OKAS yoktur. Listeden düşürmeyin, toplamlar tutmaz.
+
+
+        Veri gece 01:30''da yenilenir; `guncelleme` alanı tazeliği söyler.'
+      summary: Pazar panosu — yıl özeti ve en büyük iş grupları
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          default: 20
+        description: İş grubu sayısı (en fazla 100).
+      - in: query
+        name: yil
+        schema:
+          type: integer
+        description: Sözleşme yılı (boşsa en güncel yıl).
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Örnek:
+                  value:
+                    yil: 2025
+                    yillar:
+                    - 2026
+                    - 2025
+                    - 2024
+                    ozet:
+                      sozlesme_sayisi: 160947
+                      firma_sayisi: 47213
+                      idare_sayisi: 8104
+                      toplam_bedel: '812450900000.00'
+                      ortalama_indirim: '0.1812'
+                      indirim_ornek_sayisi: 60214
+                      ortalama_teklif: '5.4000'
+                      teklif_ornek_sayisi: 98322
+                    is_gruplari:
+                    - okas_bucket: '4522'
+                      ad: YOL YAPIM İŞLERİ
+                      sozlesme_sayisi: 5120
+                      toplam_bedel: '94210000000.00'
+                      ortalama_indirim: '0.2140'
+                      indirim_ornek_sayisi: 2011
+                      ortalama_teklif: '6.1000'
+                      teklif_ornek_sayisi: 3900
+                    guncelleme: '2026-08-14T01:30:00+03:00'
+                    kilitli: false
+          description: ''
+  /api/v1/ekap/market/{okas_bucket}/:
+    get:
+      operationId: ekap_market_bucket
+      description: 'Bir iş grubunun **yıllara göre seyri** (adet, toplam bedel, ortalama
+        indirim) ve seçilen yıldaki **il** ile **firma** kırılımı + yoğunlaşma (HHI).
+
+
+        **Free kullanıcı**: `200` + `kilitli: true`, para/indirim/HHI değerleri `null`;
+        sayılar ve adlar görünür.
+
+
+        ⚠️ **Yıllar arası tek para karşılaştırması yanıltıcıdır** (TL enflasyonu)
+        — `yillara_gore` serisini olduğu gibi gösterin, yılları tek bir ortalamada
+        birleştirmeyin.
+
+
+        ⚠️ **HHI** (yoğunlaşma) = Σ(pay²); 1''e yakın = tek firma hâkimiyeti. `yogunlasma.yaklasik=true`
+        ise firma sayısı hesap tavanını aşmıştır ve HHI kesilmiş bir küme üzerinden
+        hesaplanmıştır — tam değer değildir.'
+      summary: Pazar panosu — iş grubu detayı
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          default: 20
+        description: Liste uzunluğu (en fazla 100).
+      - in: path
+        name: okas_bucket
+        schema:
+          type: string
+        description: 4 haneli OKAS iş grubu kodu.
+        required: true
+      - in: query
+        name: yil
+        schema:
+          type: integer
+        description: İl/firma kırılımının yılı (boşsa en güncel).
+      tags:
+      - ekap
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/okas/search/:
     get:
       operationId: api_v1_ekap_okas_search_list

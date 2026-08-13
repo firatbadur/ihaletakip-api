@@ -31,7 +31,7 @@ from accounts.premium import (
 )
 from core.response import api_response
 
-from . import authority_profile, benchmark as benchmark_mod
+from . import authority_profile, benchmark as benchmark_mod, market as market_mod
 
 from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
@@ -161,6 +161,22 @@ _LIST_FIELDS = (
 # alanı + 9 `Tender` alanı okuyor; allow-list tutulsaydı serializer'a eklenen her alan
 # sessiz N+1 doğururdu (`_LIST_FIELDS`'in yaşadığı risk). Deny-list kendini korur.
 _TENDER_BLOB_FIELDS = ("tender__detail_raw", "tender__list_raw")
+
+
+def _market_maskele(request, veri):
+    """Pazar panosu yanıtını Free kullanıcı için maskeler.
+
+    ⚠️ Maskeleme **sunucuda** yapılır: yüklenici uçlarında yalnızca istemcide
+    maskelemek bilinen bir açıktı (para değerleri yanıtta açıkça geliyordu).
+    403 DEĞİL `kilitli: true` — sayıların *varlığını* göstermek dönüşümü artırır
+    ve istemci bunu 403'ten ayrı ele almalı (403 → doğrudan Paywall).
+    """
+    if getattr(request.user, "is_premium", False):
+        veri["kilitli"] = False
+    else:
+        veri = market_mod.maskele(veri)
+        veri["kilitli"] = True
+    return veri
 
 # ── Pro'ya kilitli arama parametreleri ────────────────────────────────────────
 # Bunlardan biri istekte varsa `TenderListView` 403 `premium_required` döner. Temel
@@ -1399,6 +1415,118 @@ def _seri_dict(s):
         # ⚠️ Ortalama indirim ASLA örneklem sayısı olmadan gösterilmemeli.
         "indirim_ornek_sayisi": s.indirim_ornek,
     }
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[
+        OpenApiParameter("yil", int, description="Sözleşme yılı (boşsa en güncel yıl)."),
+        OpenApiParameter("limit", int, default=20, description="İş grubu sayısı (en fazla 100)."),
+    ],
+    operation_id="ekap_market_overview",
+    summary="Pazar panosu — yıl özeti ve en büyük iş grupları",
+    description=(
+        "Kamu alım pazarının yıllık görünümü: toplam sözleşme/firma/idare sayısı, "
+        "toplam bedel, ağırlıklı ortalama indirim ve o yılın **en çok harcama yapılan "
+        "iş grupları**.\n\n"
+        "**Free kullanıcı**: `200` döner ama para ve indirim değerleri `null`, "
+        "`kilitli: true` gelir — sayılar (kaç sözleşme, kaç firma) görünür kalır, "
+        "böylece teaser gösterilip Paywall'a yönlendirilebilir. **Pro**: hepsi açık.\n\n"
+        "⚠️ **Ortalamalar her zaman örneklem sayısıyla gelir** "
+        "(`ortalama_indirim` + `indirim_ornek_sayisi`): `indirim_orani` yalnızca Sonuç "
+        "İlanı yayımlanmış sözleşmelerde bilinir, tek başına gösterilirse yanıltır.\n\n"
+        "⚠️ **`firma_sayisi` ve `idare_sayisi` iş gruplarından TOPLANAMAZ** — bir firma "
+        "birden çok grupta iş almış olabilir. Bu sayılar yıl grain'inde ayrıca "
+        "hesaplanır; istemci onları gruplardan türetmeye çalışmamalıdır.\n\n"
+        "⚠️ `okas_bucket=\"\"` (**Sınıflandırılmamış**) gerçek veridir: sözleşmelerin "
+        "yaklaşık %15'inde OKAS yoktur. Listeden düşürmeyin, toplamlar tutmaz.\n\n"
+        "Veri gece 01:30'da yenilenir; `guncelleme` alanı tazeliği söyler."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+    examples=[
+        OpenApiExample(
+            "Örnek",
+            value={
+                "yil": 2025,
+                "yillar": [2026, 2025, 2024],
+                "ozet": {
+                    "sozlesme_sayisi": 160947, "firma_sayisi": 47213, "idare_sayisi": 8104,
+                    "toplam_bedel": "812450900000.00", "ortalama_indirim": "0.1812",
+                    "indirim_ornek_sayisi": 60214, "ortalama_teklif": "5.4000",
+                    "teklif_ornek_sayisi": 98322,
+                },
+                "is_gruplari": [{
+                    "okas_bucket": "4522", "ad": "YOL YAPIM İŞLERİ",
+                    "sozlesme_sayisi": 5120, "toplam_bedel": "94210000000.00",
+                    "ortalama_indirim": "0.2140", "indirim_ornek_sayisi": 2011,
+                    "ortalama_teklif": "6.1000", "teklif_ornek_sayisi": 3900,
+                }],
+                "guncelleme": "2026-08-14T01:30:00+03:00",
+                "kilitli": False,
+            },
+            response_only=True,
+        )
+    ],
+)
+class MarketOverviewView(APIView):
+    """GET /ekap/market/ — pazar panosu ana ekranı."""
+
+    # Girişsiz DEĞİL: maskeleme kullanıcıya göre yapılıyor (benchmark ucuyla aynı desen).
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        try:
+            limit = int(request.query_params.get("limit", market_mod.VARSAYILAN_LIMIT))
+        except (TypeError, ValueError):
+            limit = market_mod.VARSAYILAN_LIMIT
+
+        veri, hata = market_mod.genel_bakis(request.query_params.get("yil"), limit=limit)
+        if hata:
+            return api_response(data=None, message=hata, success=False, status=503)
+        return api_response(data=_market_maskele(request, veri))
+
+
+@extend_schema(
+    tags=["ekap"],
+    parameters=[
+        OpenApiParameter("okas_bucket", str, location=OpenApiParameter.PATH,
+                         description="4 haneli OKAS iş grubu kodu."),
+        OpenApiParameter("yil", int, description="İl/firma kırılımının yılı (boşsa en güncel)."),
+        OpenApiParameter("limit", int, default=20, description="Liste uzunluğu (en fazla 100)."),
+    ],
+    operation_id="ekap_market_bucket",
+    summary="Pazar panosu — iş grubu detayı",
+    description=(
+        "Bir iş grubunun **yıllara göre seyri** (adet, toplam bedel, ortalama indirim) "
+        "ve seçilen yıldaki **il** ile **firma** kırılımı + yoğunlaşma (HHI).\n\n"
+        "**Free kullanıcı**: `200` + `kilitli: true`, para/indirim/HHI değerleri `null`; "
+        "sayılar ve adlar görünür.\n\n"
+        "⚠️ **Yıllar arası tek para karşılaştırması yanıltıcıdır** (TL enflasyonu) — "
+        "`yillara_gore` serisini olduğu gibi gösterin, yılları tek bir ortalamada "
+        "birleştirmeyin.\n\n"
+        "⚠️ **HHI** (yoğunlaşma) = Σ(pay²); 1'e yakın = tek firma hâkimiyeti. "
+        "`yogunlasma.yaklasik=true` ise firma sayısı hesap tavanını aşmıştır ve HHI "
+        "kesilmiş bir küme üzerinden hesaplanmıştır — tam değer değildir."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class MarketBucketView(APIView):
+    """GET /ekap/market/<okas_bucket>/ — iş grubu detayı."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, okas_bucket):
+        try:
+            limit = int(request.query_params.get("limit", market_mod.VARSAYILAN_LIMIT))
+        except (TypeError, ValueError):
+            limit = market_mod.VARSAYILAN_LIMIT
+
+        veri, hata = market_mod.grup_detayi(
+            okas_bucket, yil=request.query_params.get("yil"), limit=limit
+        )
+        if hata:
+            return api_response(data=None, message=hata, success=False, status=404)
+        return api_response(data=_market_maskele(request, veri))
 
 
 @extend_schema(

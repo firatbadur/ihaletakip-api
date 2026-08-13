@@ -10,6 +10,8 @@ from .views import (
     ContractorDetailView,
     ContractorListView,
     DocumentUrlView,
+    MarketBucketView,
+    MarketOverviewView,
     OkasSearchView,
     RecurringSeriesListView,
     TenderAnnouncementsView,
@@ -38,5 +40,9 @@ urlpatterns = [
     path("authorities/profile/", AuthorityProfileView.as_view(), name="ekap-authority-profile"),
     path("authorities/tree/", AuthorityTreeView.as_view(), name="ekap-authority-tree"),
     path("authorities/search/", AuthoritySearchView.as_view(), name="ekap-authority-search"),
+    # Pazar panosu (Adım 6). ⚠️ `okas_bucket` 4 haneli ASCII → `<str:>` yeterli,
+    # İKN'deki gibi `path:` gerekmez.
+    path("market/", MarketOverviewView.as_view(), name="ekap-market"),
+    path("market/<str:okas_bucket>/", MarketBucketView.as_view(), name="ekap-market-bucket"),
     path("cities/", CityListView.as_view(), name="ekap-cities"),
 ]

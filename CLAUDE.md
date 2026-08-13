@@ -559,6 +559,42 @@ Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebil
 - Para agregaları **ayrı adımda** (`_seri_para_agregalari`) — ana döngüde seri başına
   sorgu atmak N+1 olurdu.
 
+#### Pazar panosu — `GET /ekap/market/`, `GET /ekap/market/<okas_bucket>/`
+
+"Kamu bu yıl neye ne kadar harcadı, kim kazandı?" Mantık `ekap/market.py`'de
+(HTTP'den bağımsız), modeller `MarketStat` + `MarketYearStat`, yenileme
+`refresh_market_stats` (beat **01:30**, `celery` kuyruğu).
+
+- **Materialize/canlı ayrımı ÖLÇÜMLE belirlendi** (2026-08-13), planın öngörüsüyle
+  DEĞİL. Plan grain'i `(yil, okas_bucket, il_id, ihale_tip)` = 143.105 satır
+  öngörüyordu; ölçüm `il_id`/`ihale_tip` kırılımlarının **canlı 85-103 ms** olduğunu
+  gösterdi. Yavaş olan yalnızca **yıl boyunu tarayan** şekillerdi: pano ana ekranı
+  **1.488 ms**, yıl özeti **668 ms**, grubun yıllara göre seyri **419 ms**. Bu yüzden
+  grain `(yil, okas_bucket)` = **~20 bin satır** (planın yedide biri); il/firma
+  kırılımları canlı. **Gerekmeyeni materialize etmedik** — bedeli yenileme görevi,
+  bayatlık ve toplanabilirlik kurallarıdır.
+- ⚠️ **`count(DISTINCT firma/idare)` TOPLANAMAZ** → `MarketStat`'ta **YOKTUR**, yıl
+  bazlı tekil sayılar `MarketYearStat`'ta kendi kesin grain'inde durur. Aksi hâlde
+  "20 iş grubunun firma sayılarını toplayınca yılın firma sayısı çıkar" gibi sessiz
+  bir yalan üretilirdi (aynı firma birden çok grupta iş almış olabilir).
+- **Ortalamalar `(toplam, ornek)` çifti** olarak saklanır, hazır ortalama değil:
+  yalnızca böyle satırlar arası doğru birleşir (`Σtoplam/Σornek`). API'de her ortalama
+  **örneklem sayısıyla birlikte** döner.
+- ⚠️ **`okas_bucket=""` GERÇEK VERİDİR** ("Sınıflandırılmamış", sözleşmelerin ~%15'i).
+  Sessizce düşürmek pazar toplamlarını yanlış gösterir; sentinel olarak da kullanılamaz
+  (yıl toplamlarının ayrı modelde olmasının bir sebebi de bu).
+- ⚠️ **`str(_ortalama(...) or "") or None` YAZMAYIN** — `Decimal("0.0000")` falsy'dir,
+  gerçek bir "ortalama sıfır" sessizce `None`'a düşer. `market._ort_str` bunu
+  `is not None` ile doğru yapar.
+- **Free = maskeleme, 403 DEĞİL**: `200 + kilitli:true`, para/indirim/HHI `null`,
+  sayılar (kaç sözleşme, kaç firma) görünür. ⚠️ Maskeleme **sunucuda** yapılır —
+  yüklenici uçlarında yalnızca istemcide maskelemek bilinen bir açıktı.
+- **HHI** (yoğunlaşma) = Σ(pay²); firma sayısı `HHI_MAX_FIRMA` (5000) aşarsa
+  `yaklasik: True` döner (kesilmiş küme üzerinden hesaplanan HHI tam değildir).
+- `refresh_market_stats` **`.values().annotate()` kullanır → `detail_raw` TOAST'ına
+  hiç dokunmaz** → süpürme penceresiyle çakışmaz, gece penceresi kısıtı gerekmez
+  (`detect_recurring_series` ile aynı gerekçe). Ölçülen tam yeniden hesap ~4 sn.
+
 #### İdare (alıcı) profili — `GET /ekap/authorities/profile/`
 
 "Bu kurum ne alıyor, kime, kaça?" Ürün bugüne kadar yalnızca *ihaleyi* gösteriyordu;

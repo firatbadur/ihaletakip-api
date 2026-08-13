@@ -572,6 +572,31 @@ def sync_contractors(
         }
 
 
+@shared_task(name="ekap.tasks.refresh_market_stats")
+def refresh_market_stats():
+    """
+    Pazar panosu özetlerini (`MarketStat` + `MarketYearStat`) yeniden hesaplar.
+
+    ⚠️ **EKAP'a gitmez** ve `.values().annotate()` kullandığı için `detail_raw`
+    TOAST'ına **hiç dokunmaz** → `sync_contractors` süpürmesiyle pencere çakışması
+    YOKTUR, gece penceresi kısıtı gerekmez (`detect_recurring_series` ile aynı gerekçe).
+    Bu yüzden `celery` kuyruğuna yönlendirilir (settings'te `ekap.tasks.*` joker'inden
+    ÖNCE gelen istisna) — tek concurrency'li `ekap` kuyruğunu bloklamamalı.
+
+    Ölçülen tam yeniden hesap ~4 sn (`CELERY_TASK_TIME_LIMIT=300`'ün çok altında),
+    bu yüzden süre bütçesi/yıl rotasyonu gibi karmaşıklıklar eklenmedi.
+    """
+    from . import market as market_mod
+
+    with _run("refresh_market_stats") as run:
+        if run is None:
+            return
+        sonuc = market_mod.refresh_market_stats()
+        run.items = sonuc["gruplar"]
+        run.note = f"grup={sonuc['gruplar']} yil={sonuc['yillar']}"
+        return sonuc
+
+
 @shared_task(name="ekap.tasks.backfill_tender_fields")
 def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500):
     """

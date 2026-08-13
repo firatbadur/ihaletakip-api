@@ -1423,6 +1423,46 @@
           }
         },
         {
+          "name": "Pazar panosu — yıl özeti ve en büyük iş grupları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/market/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "market",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "İş grubu sayısı (en fazla 100).",
+                  "disabled": true
+                },
+                {
+                  "key": "yil",
+                  "value": "1",
+                  "description": "Sözleşme yılı (boşsa en güncel yıl).",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Kamu alım pazarının yıllık görünümü: toplam sözleşme/firma/idare sayısı, toplam bedel, ağırlıklı ortalama indirim ve o yılın **en çok harcama yapılan iş grupları**.\n\n**Free kullanıcı**: `200` döner ama para ve indirim değerleri `null`, `kilitli: true` gelir — sayılar (kaç sözleşme, kaç firma) görünür kalır, böylece teaser gösterilip Paywall'a yönlendirilebilir. **Pro**: hepsi açık.\n\n⚠️ **Ortalamalar her zaman örneklem sayısıyla gelir** (`ortalama_indirim` + `indirim_ornek_sayisi`): `indirim_orani` yalnızca Sonuç İlanı yayımlanmış sözleşmelerde bilinir, tek başına gösterilirse yanıltır.\n\n⚠️ **`firma_sayisi` ve `idare_sayisi` iş gruplarından TOPLANAMAZ** — bir firma birden çok grupta iş almış olabilir. Bu sayılar yıl grain'inde ayrıca hesaplanır; istemci onları gruplardan türetmeye çalışmamalıdır.\n\n⚠️ `okas_bucket=\"\"` (**Sınıflandırılmamış**) gerçek veridir: sözleşmelerin yaklaşık %15'inde OKAS yoktur. Listeden düşürmeyin, toplamlar tutmaz.\n\nVeri gece 01:30'da yenilenir; `guncelleme` alanı tazeliği söyler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Tekrar eden ihaleler (Pro)",
           "request": {
             "method": "GET",
@@ -1526,6 +1566,54 @@
               ]
             },
             "description": "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\nSeriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi önlemek için kasıtlı olarak muhafazakâr).\n\n⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Pazar panosu — iş grubu detayı",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/market/:okas_bucket/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "market",
+                ":okas_bucket",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Liste uzunluğu (en fazla 100).",
+                  "disabled": true
+                },
+                {
+                  "key": "yil",
+                  "value": "1",
+                  "description": "İl/firma kırılımının yılı (boşsa en güncel).",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "okas_bucket",
+                  "value": "ornek",
+                  "description": "**Zorunlu.** 4 haneli OKAS iş grubu kodu."
+                }
+              ]
+            },
+            "description": "Bir iş grubunun **yıllara göre seyri** (adet, toplam bedel, ortalama indirim) ve seçilen yıldaki **il** ile **firma** kırılımı + yoğunlaşma (HHI).\n\n**Free kullanıcı**: `200` + `kilitli: true`, para/indirim/HHI değerleri `null`; sayılar ve adlar görünür.\n\n⚠️ **Yıllar arası tek para karşılaştırması yanıltıcıdır** (TL enflasyonu) — `yillara_gore` serisini olduğu gibi gösterin, yılları tek bir ortalamada birleştirmeyin.\n\n⚠️ **HHI** (yoğunlaşma) = Σ(pay²); 1'e yakın = tek firma hâkimiyeti. `yogunlasma.yaklasik=true` ise firma sayısı hesap tavanını aşmıştır ve HHI kesilmiş bir küme üzerinden hesaplanmıştır — tam değer değildir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

@@ -761,3 +761,98 @@ class SyncRun(models.Model):
 
     def __str__(self):
         return f"{self.task} @ {self.started_at:%Y-%m-%d %H:%M} [{self.status}]"
+
+
+# ── Pazar panosu (Adım 6) ──────────────────────────────
+class MarketStat(models.Model):
+    """
+    Pazar panosu özeti — grain **(yıl, OKAS iş grubu)**. Gece yenilenir.
+
+    ⚠️ **Grain planın öngördüğünden DAR ve bu bilinçli.** Plan
+    `(yil, okas_bucket, il_id, ihale_tip)` = 143.105 satır öngörüyordu; prod ölçümü
+    (2026-08-13) gösterdi ki `il_id`/`ihale_tip` kırılımlarını materialize etmeye
+    gerek yok — o sorgular **canlı 85-103 ms**. Yavaş olan yalnızca **yıl boyunu
+    tarayan** şekillerdi:
+        pano ana ekranı (yıl → iş grubu sıralaması)  1.488 ms
+        yıl özeti                                      668 ms
+        tek grubun yıllara göre seyri                  419 ms
+    Bu grain üçünü de karşılar ve tablo ~20 bin satır (planın yedide biri) kalır.
+    Küçük tablo = kısa yenileme, az bayatlık, az bakım.
+
+    ⚠️ **`okas_bucket=""` GERÇEK VERİDİR** ("Sınıflandırılmamış"): sözleşmelerin
+    214.079'unda OKAS yok. Sessizce düşürmek pazar toplamlarını yanlış gösterirdi.
+    Bu yüzden boş string sentinel olarak KULLANILAMAZ — yıl toplamları ayrı modelde.
+
+    ⚠️ **Ortalamalar `(toplam, ornek)` çifti olarak saklanır**, hazır ortalama değil:
+    yalnızca böyle satırlar arası doğru birleşir (`Σtoplam/Σornek`). Hazır ortalamayı
+    ortalamak ağırlıksız ve yanlış olurdu.
+    ⚠️ **`count(DISTINCT firma)` BU MODELDE YOK** — satırlar arası toplanamaz ve
+    burada tutulsa "yılın toplam firma sayısı" diye toplanmaya davetiye çıkarırdı.
+    Yıl bazlı tekil sayılar `MarketYearStat`'ta, kendi kesin grain'inde durur.
+    """
+
+    yil = models.IntegerField(db_index=True)
+    okas_bucket = models.CharField(max_length=4, blank=True)
+    # Temsili grup adı (OkasCode'da 4 haneli karşılık varsa o, yoksa gruptaki en sık
+    # kalem adı). Sunum içindir; filtreleme her zaman `okas_bucket` ile yapılır.
+    ad = models.CharField(max_length=500, blank=True)
+
+    sozlesme_sayisi = models.IntegerField(default=0)
+    toplam_bedel = models.DecimalField(max_digits=22, decimal_places=2, null=True, blank=True)
+    # Σ indirim_orani ve kaç sözleşmede bilindiği — bkz. yukarıdaki (toplam, ornek) kuralı
+    indirim_toplam = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    indirim_ornek = models.IntegerField(default=0)
+    teklif_toplam = models.BigIntegerField(null=True, blank=True)
+    teklif_ornek = models.IntegerField(default=0)
+
+    guncelleme = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Pazar İstatistiği"
+        verbose_name_plural = "Pazar İstatistikleri"
+        ordering = ["-yil", "-toplam_bedel"]
+        constraints = [
+            models.UniqueConstraint(fields=["yil", "okas_bucket"], name="ekap_marketstat_uq"),
+        ]
+        indexes = [
+            # Pano ana ekranı: bir yılın gruplarını bedele göre sırala
+            models.Index(fields=["yil", "-toplam_bedel"], name="ekap_market_yil_bedel_idx"),
+            # Drill-down: tek grubun yıllara göre seyri
+            models.Index(fields=["okas_bucket", "yil"], name="ekap_market_bucket_yil_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.yil} · {self.okas_bucket or 'Sınıflandırılmamış'}"
+
+
+class MarketYearStat(models.Model):
+    """
+    Yıl bazlı pazar özeti — grain **(yıl)**, ~17 satır.
+
+    ⚠️ **Neden ayrı model:** `count(DISTINCT yuklenici)` ve `count(DISTINCT idare)`
+    satırlar arası **TOPLANAMAZ** — 20 iş grubunda görünen aynı firma bir kez
+    sayılmalıdır. `MarketStat` satırlarından türetmek sessiz bir yalan olurdu
+    (plan R10: "medyan ve distinct sayılar yalnızca tek satır katkı verdiğinde döner").
+    Bu yüzden tekil sayılar **kendi kesin grain'inde** saklanır.
+    Canlı hesabı 668 ms sürüyordu (bir yılın ~161 bin satırı) → materialize edildi.
+    """
+
+    yil = models.IntegerField(unique=True)
+    sozlesme_sayisi = models.IntegerField(default=0)
+    toplam_bedel = models.DecimalField(max_digits=22, decimal_places=2, null=True, blank=True)
+    indirim_toplam = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    indirim_ornek = models.IntegerField(default=0)
+    teklif_toplam = models.BigIntegerField(null=True, blank=True)
+    teklif_ornek = models.IntegerField(default=0)
+    firma_tekil = models.IntegerField(null=True, blank=True)
+    idare_tekil = models.IntegerField(null=True, blank=True)
+
+    guncelleme = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Pazar Yıl Özeti"
+        verbose_name_plural = "Pazar Yıl Özetleri"
+        ordering = ["-yil"]
+
+    def __str__(self):
+        return f"{self.yil} — {self.sozlesme_sayisi} sözleşme"

@@ -67,6 +67,12 @@ app.conf.beat_schedule = {
     # yavaş/yanıtsız olabildiğinden görev sayfa hatasını zarifçe yutar (kısmi
     # ilerlemeyi kaydeder, sonraki tetikte kaldığı yerden devam eder). Kilit (1 sa)
     # üst üste binmeyi, throttle (~1 istek/sn) + tek concurrency EKAP'ı korur.
+    # Pazar panosu özetleri — her gece 01:30. EKAP'a gitmez, `detail_raw` OKUMAZ
+    # (`.values().annotate()`) → süpürme penceresiyle çakışmaz. Ölçülen süre ~4 sn.
+    "ekap-refresh-market-stats": {
+        "task": "ekap.tasks.refresh_market_stats",
+        "schedule": crontab(hour=1, minute=30),
+    },
     "ekap-backfill": {
         "task": "ekap.tasks.backfill",
         "schedule": crontab(minute="*/15"),

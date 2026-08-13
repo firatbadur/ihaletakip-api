@@ -606,12 +606,6 @@
                   "disabled": true
                 },
                 {
-                  "key": "idareye_sikayet_var",
-                  "value": "True",
-                  "description": "İdareye şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
-                  "disabled": true
-                },
-                {
                   "key": "ihale_adi",
                   "value": "bilgisayar",
                   "description": "Yalnızca ihale adında geçen metin (kısmi eşleşme).",
@@ -720,12 +714,6 @@
                   "disabled": true
                 },
                 {
-                  "key": "itirazen_sikayet_var",
-                  "value": "True",
-                  "description": "İtirazen şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
-                  "disabled": true
-                },
-                {
                   "key": "kismi_ihale",
                   "value": "True",
                   "description": "Kısımlı ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
@@ -783,12 +771,6 @@
                   "key": "seri_anahtar",
                   "value": "ornek",
                   "description": "Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan yıla tekrarladığı işler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
-                  "disabled": true
-                },
-                {
-                  "key": "sikayet_dilekce_var",
-                  "value": "True",
-                  "description": "Şikâyet dilekçesi olanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
                   "disabled": true
                 },
                 {

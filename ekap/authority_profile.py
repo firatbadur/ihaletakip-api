@@ -144,8 +144,6 @@ def _ozet(t_qs, c_qs):
         "n": Count("id"),
         "iptal": Count("id", filter=Q(ihale_durum__in=sorted(DURUM_IPTAL))),
         "sonuclanan": Count("id", filter=Q(ihale_durum__in=sorted(DURUM_SONUCLANMIS))),
-        "itirazli": Count("id", filter=Q(itirazen_sikayet_var=True)),
-        "itiraz_bilinen": Count("itirazen_sikayet_var"),
         "istekli_toplam": Sum("istekli_sayisi"),
         "istekli_ornek": Count("istekli_sayisi"),
     }
@@ -170,11 +168,19 @@ def _ozet(t_qs, c_qs):
         "iptal_orani": _oran(t["iptal"], t["n"]),
         "sonuclanma_orani": _oran(t["sonuclanan"], t["n"]),
         "e_ihale_orani": _oran(t["e_ihale"], t["n"]) if t["e_ihale"] is not None else None,
-        # ⚠️ İtiraz oranının paydası TÜM ihaleler değil, bayrağı BİLİNEN ihalelerdir:
-        # detayı gelmemiş kayıtlarda bayrak NULL ve onları "itirazsız" saymak oranı
-        # sistematik olarak düşük gösterirdi.
-        "itiraz_orani": _oran(t["itirazli"], t["itiraz_bilinen"]),
-        "itiraz_ornek_sayisi": t["itiraz_bilinen"],
+        # ⚠️⚠️ **İTİRAZ ORANI KALDIRILDI — EKAP bu veriyi bize VERMİYOR.**
+        # Kaynak alan `islemlerKuralSeti.itirazenESikayetMi` bir ihale özelliği değil,
+        # o an giriş yapmış EKAP kullanıcısına özel bir arayüz bayrağıdır ("BEN itirazen
+        # şikâyet ettim mi"). Üçüncü taraf olarak çağırdığımız için kalıcı `false` döner:
+        # üretimde 1.043.450 ihalenin **sıfırında** true (ölçüm 2026-08-13).
+        # Eskiden bu alan `%0` dönüyordu ve kullanıcı "bu idareye hiç itiraz edilmemiş"
+        # sanıyordu — bilinmeyeni "hayır" diye sunmak, bu üründe yanlış sayı göstermenin
+        # en kötü türü. `null` + gerekçe döner; istemci "veri yok" gösterir.
+        "itiraz_orani": None,
+        "itiraz_ornek_sayisi": 0,
+        "itiraz_veri_yok_nedeni": (
+            "EKAP itirazen şikâyet bilgisini üçüncü taraf çağrılarında paylaşmıyor."
+        ),
         # Ortalamalar HER ZAMAN örneklemle birlikte (kapsam kısmi).
         "ortalama_indirim": (
             str(round(c["indirim_toplam"] / c["indirim_ornek"], 4))

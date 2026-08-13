@@ -1858,12 +1858,6 @@ paths:
         description: İdare (kurum) id listesi (virgülle) — doğrudan `Tender.idare_id`
           ile eşleşir (yaprak seçim).
       - in: query
-        name: idareye_sikayet_var
-        schema:
-          type: boolean
-        description: İdareye şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre kullanılırsa
-          Free/anonim istek `403 premium_required` döner.
-      - in: query
         name: ihale_adi
         schema:
           type: string
@@ -2010,12 +2004,6 @@ paths:
           Free/anonim istek `403 premium_required` döner. İstekli sayısı değerlendirme
           bitince oluşur → açık ihaleler kapsam dışı kalır.
       - in: query
-        name: itirazen_sikayet_var
-        schema:
-          type: boolean
-        description: İtirazen şikâyet başvurusu olanlar. 🔒 **Pro** — bu parametre
-          kullanılırsa Free/anonim istek `403 premium_required` döner.
-      - in: query
         name: kismi_ihale
         schema:
           type: boolean
@@ -2093,12 +2081,6 @@ paths:
         description: Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan yıla
           tekrarladığı işler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek
           `403 premium_required` döner.
-      - in: query
-        name: sikayet_dilekce_var
-        schema:
-          type: boolean
-        description: Şikâyet dilekçesi olanlar. 🔒 **Pro** — bu parametre kullanılırsa
-          Free/anonim istek `403 premium_required` döner.
       - in: query
         name: siralamaTipi
         schema:

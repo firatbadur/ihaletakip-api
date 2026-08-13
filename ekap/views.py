@@ -191,7 +191,11 @@ _PRO_PARAMS = frozenset({
     "teklif_sayisi_min", "teklif_sayisi_max",
     "indirim_orani_min", "indirim_orani_max",
     "sonuclanmis", "iptal", "e_ihale",
-    "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
+    # ⚠️ Şikâyet bayrakları (`itirazen_sikayet_var`, `idareye_sikayet_var`,
+    # `sikayet_dilekce_var`) BİLEREK YOK: kaynak `islemlerKuralSeti` kullanıcıya
+    # özeldir ve üçü de üretimde 1.043.450 ihalenin sıfırında true. Filtre olarak
+    # sunulsalardı `=true` hiç sonuç, `=false` her şeyi döndürürdü — limit kılığına
+    # girmiş bir doğruluk hatası. Bkz. `sync.apply_pro_fields`.
     "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
     "kismi_ihale", "ilansiz_mi",
     "okas_ana_kod", "en_ust_idare_kod", "seri_anahtar",
@@ -530,7 +534,6 @@ def apply_tender_filters(qs, params):
     # `filter(False)` kullanılır: `exclude` NULL'ları (detayı gelmemiş ihaleler) da
     # toplardı ve "itirazsız ihaleler" listesi bilinmeyenlerle şişerdi.
     for param in (
-        "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
         "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
         "kismi_ihale", "ilansiz_mi",
     ):
@@ -587,9 +590,6 @@ _PRO_SCHEMA_PARAMS = [
     OpenApiParameter("fiyat_disi_unsur_var", bool,
                      description="Fiyat dışı unsur içeren ihaleler — en düşük fiyat tek "
                                  f"başına kazandırmaz. {_PRO_ETIKET}"),
-    OpenApiParameter("itirazen_sikayet_var", bool, description=f"İtirazen şikâyet başvurusu olanlar. {_PRO_ETIKET}"),
-    OpenApiParameter("idareye_sikayet_var", bool, description=f"İdareye şikâyet başvurusu olanlar. {_PRO_ETIKET}"),
-    OpenApiParameter("sikayet_dilekce_var", bool, description=f"Şikâyet dilekçesi olanlar. {_PRO_ETIKET}"),
     OpenApiParameter("e_eksiltme_yapilacak", bool, description=f"Elektronik eksiltme yapılacak ihaleler. {_PRO_ETIKET}"),
     OpenApiParameter("duzeltme_ilani_var", bool, description=f"Düzeltme ilanı bulunanlar. {_PRO_ETIKET}"),
     OpenApiParameter("kismi_ihale", bool, description=f"Kısımlı ihaleler. {_PRO_ETIKET}"),

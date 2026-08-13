@@ -157,7 +157,8 @@ PRO_TENDER_FIELDS = [
     "okas_ana_kod", "okas_ana_adi", "okas_bucket", "okas_kalem_sayisi",
     "en_ust_idare_kod", "en_ust_idare_adi",
     "istekli_sayisi",
-    "itirazen_sikayet_var", "idareye_sikayet_var", "sikayet_dilekce_var",
+    # ⚠️ Şikâyet bayrakları BİLEREK YOK — `islemlerKuralSeti` kullanıcıya özeldir,
+    # üçü de üretimde 1.043.450 ihalenin sıfırında true. Bkz. apply_pro_fields.
     "fiyat_disi_unsur_var", "e_eksiltme_yapilacak", "duzeltme_ilani_var",
     "kismi_ihale", "ilansiz_mi",
     "seri_anahtar",
@@ -219,10 +220,23 @@ def apply_pro_fields(tender: Tender, data: dict) -> None:
     tender.istekli_sayisi = len(data.get("tebligatAlanIstekliList") or []) or None
 
     # ── islemlerKuralSeti bayrakları ──────────────────────────────────────────
+    # ⚠️⚠️ **`islemlerKuralSeti` bir İHALE ÖZELLİĞİ DEĞİLDİR** — o an giriş yapmış EKAP
+    # kullanıcısına özel bir arayüz durum kümesidir (hangi buton aktif olacak).
+    # Ham örnek: `dokumanIndirmisMi` (BEN indirdim mi), `teklifteBulunmusMu` (BEN teklif
+    # verdim mi), `sozlesmeImzaliMi` (BENİM sözleşmem var mı), `teklifVerilebilirMi`
+    # (BEN teklif verebilir miyim). Biz EKAP'a üçüncü taraf olarak gittiğimiz için
+    # kullanıcıya bağlı bayraklar **kalıcı olarak `false`** döner.
+    #
+    # Üretim ölçümü (2026-08-13, 1.043.450 detaylı ihale):
+    #   itirazenESikayetMi  → true olan: **0**
+    #   idareyeSikayetMi    → true olan: **0**
+    #   sikayetDilekceVarMi → true olan: **0**
+    # Bunları `False` yazmak "bu ihaleye itiraz edilmedi" demektir — oysa BİLMİYORUZ.
+    # Bilinmeyeni "hayır"a çevirmek bu kod tabanının en sert kuralının ihlalidir
+    # (aynı ilke `_ucdeger`'in var oluş sebebi). Bu yüzden üçü de **yazılmıyor**:
+    # kolonlar `None` (bilinmiyor) kalır ve API'de hiç sunulmaz.
     kural = data.get("islemlerKuralSeti") or {}
-    tender.itirazen_sikayet_var = _ucdeger(kural, "itirazenESikayetMi")
-    tender.idareye_sikayet_var = _ucdeger(kural, "idareyeSikayetMi")
-    tender.sikayet_dilekce_var = _ucdeger(kural, "sikayetDilekceVarMi")
+    # itirazen_sikayet_var / idareye_sikayet_var / sikayet_dilekce_var: BİLEREK YAZILMIYOR
     tender.fiyat_disi_unsur_var = _ucdeger(kural, "fiyatDisiUnsurVarMi")
     tender.e_eksiltme_yapilacak = _ucdeger(kural, "eEksiltmeYapilacakMi")
     tender.duzeltme_ilani_var = _ucdeger(kural, "ilanDuzeltmeIlani")

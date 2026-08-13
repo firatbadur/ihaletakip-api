@@ -509,9 +509,39 @@ ve konan korumalar:
 - ⚠️ **Bayraklar ÜÇ DEĞERLİ** (`BooleanField(null=True)`): `NULL` = "detay ayrıştırılmadı".
   Çıkarımda `k.get(key, False)` **KULLANMAYIN** (`sync._ucdeger` bunu doğru yapar) —
   bilinmeyeni "hayır"a çevirir ve "itirazsız ihaleler" filtresi detayı gelmemişleri de toplar.
-- ⚠️ **`duzeltme_ilani_var` şüpheli**: örneklenen 4 ihalenin dördünde de `True`. Anlamı
-  "düzeltme ilanı yayımlandı" olmayabilir. **Ürün özelliği yapmadan önce prod'da dağılımını
-  ölçün**; şimdilik yalnızca saklanıyor.
+- ⚠️⚠️ **`islemlerKuralSeti` bir İHALE ÖZELLİĞİ DEĞİL, KULLANICIYA ÖZEL arayüz durumudur.**
+  Ham örnek anahtarlar bunu açıkça gösteriyor: `dokumanIndirmisMi` (BEN indirdim mi),
+  `teklifteBulunmusMu` (BEN teklif verdim mi), `sozlesmeImzaliMi` (BENİM sözleşmem var mı),
+  `teklifVerilebilirMi` (BEN teklif verebilir miyim). EKAP'a **üçüncü taraf** olarak
+  gittiğimiz için kullanıcıya bağlı bayraklar kalıcı olarak `false` döner.
+  **Üretim ölçümü (2026-08-13, 1.043.450 detaylı ihale):**
+
+  | anahtar | true olan | değerlendirme |
+  |---|---|---|
+  | `itirazenESikayetMi` | **0** | ❌ kullanıcıya özel — ÜRÜNDEN KALDIRILDI |
+  | `idareyeSikayetMi` | **0** | ❌ aynı |
+  | `sikayetDilekceVarMi` | **0** | ❌ aynı |
+  | `fiyatDisiUnsurVarMi` | 17.990 (%1,7) | ✅ gerçek ihale özelliği |
+  | `eEksiltmeYapilacakMi` | az | ✅ gerçek ihale özelliği |
+  | `ilanDuzeltmeIlani` | 858.543 (**%82**) | ⚠️ hâlâ şüpheli — bkz. aşağısı |
+
+  → `itirazen_sikayet_var` / `idareye_sikayet_var` / `sikayet_dilekce_var` artık
+  **yazılmıyor** (`apply_pro_fields`), `_PRO_PARAMS`'tan **çıkarıldı** ve idare
+  profilindeki `itiraz_orani` **`null` + gerekçe** dönüyor.
+  ⚠️ **Neden `False` bırakmak yanlıştı**: `%0 itiraz oranı` kullanıcıya "bu idareye hiç
+  itiraz edilmemiş" diyordu — oysa BİLMİYORUZ. Bilinmeyeni "hayır" diye sunmak bu üründe
+  yanlış sayı göstermenin en kötü türü; `_ucdeger`'in var oluş sebebi de tam olarak bu.
+  ⚠️ Filtre olarak da bozuktu: `=true` hiç sonuç, `=false` **her şeyi** döndürürdü.
+  ⚠️ **Eski `False` değerleri DB'de kaldıysa NULL'lanmalı** (tek seferlik):
+  `UPDATE ekap_tender SET itirazen_sikayet_var=NULL, idareye_sikayet_var=NULL,
+  sikayet_dilekce_var=NULL WHERE itirazen_sikayet_var IS NOT NULL;`
+- ⚠️ **`duzeltme_ilani_var` HÂLÂ ŞÜPHELİ — ölçüldü, şüphe arttı**: üretimde 858.543
+  ihalede (**%82**) `True`. Gerçekten her beş ihaleden dördüne düzeltme ilanı çıkmaz;
+  kaynak anahtar (`ilanDuzeltmeIlani`) büyük olasılıkla "düzeltme ilanı yayımlandı"
+  değil "düzeltme ilanı yayımlanabilir" anlamında bir izin bayrağıdır — `islemlerKuralSeti`
+  ailesinin geri kalanıyla tutarlı okuma bu. `_PRO_PARAMS`'ta duruyor ama **filtre olarak
+  neredeyse işe yaramaz** (%82 seçicilik yok). Ürün özelliği yapmayın; kaldırmak da
+  düşünülmeli.
 - **`idare.enUstIdareKod/Adi` = bakanlık rollup.** Bu alanlar eskiden **her senkronda
   atılıyordu**: `ust_idare` alanı `ustIdare or enUstIdareAdi` yazıyor ve `ustIdare` genelde
   dolu ama değersiz (canlı örnek: `ustIdare="BAKAN YARDIMCILIKLARI"` kazanıyor,

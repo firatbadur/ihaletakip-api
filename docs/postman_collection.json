@@ -1823,6 +1823,45 @@
               }
             }
           }
+        },
+        {
+          "name": "Rapor sesli özeti üret (Pro)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/summary/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "summary",
+                ""
+              ]
+            },
+            "description": "İdare profili, pazar panosu veya fiyat analizi raporunu **sesli okunmaya uygun** kısa bir metne çevirir. Metin `POST /ai/tts/` ile seslendirilir.\n\nAkış `POST /ai/analyze` ile **birebir aynıdır**: `202` + `task_id` döner, istemci `GET /ai/tasks/{task_id}/` ile yoklar. Cache isabetinde `200` + `status: completed` ile sonuç doğrudan gelir (`cached: true`).\n\n⚠️ Sonuç alanının adı **`analysis`**'tir (`summary` değil) — `AnalyzeStatusView` sözleşmesiyle aynı kalsın diye.\n\n**Kapsam parametreleri `kind`'a göre değişir:**\n\n| `kind` | Zorunlu | Opsiyonel |\n|---|---|---|\n| `authority` | `idare_id` \\| `idare_detsis` \\| `en_ust_idare_kod` (biri) | — |\n| `market` | — | `yil`, `okas_bucket` |\n| `benchmark` | `ekap_id` | — |\n\n⚠️ **Üretilen metin bir fiyat tavsiyesi değildir**; prompt modele rakam taahhüt etmeyi, veride olmayan sayı üretmeyi ve örneklemsiz ortalama anmayı yasaklar.\n\n---\n\n### Alternatif gövde örnekleri\n\n**PazarPanosu—YılGeneli**\n\n```json\n{\n  \"kind\": \"market\",\n  \"yil\": 2025\n}\n```\n\n**PazarPanosu—IşGrubu**\n\n```json\n{\n  \"kind\": \"market\",\n  \"yil\": 2025,\n  \"okas_bucket\": \"4523\"\n}\n```\n\n**FiyatAnaliziÖzeti**\n\n```json\n{\n  \"kind\": \"benchmark\",\n  \"ekap_id\": \"e8c865a28be0b142\"\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"authority\",\n  \"idare_id\": \"28484\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ],
       "description": "Claude ile doküman analizi (asenkron, Celery) ve Google TTS seslendirme."

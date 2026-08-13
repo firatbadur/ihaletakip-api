@@ -66,10 +66,10 @@ tenders/           # İhale ile ilgili kullanıcı içerikleri
 
 ai/                # Yapay zeka servisleri
 ├── models.py      # AnalysisCache
-├── prompts.py     # Claude prompt şablonları
-├── services/      # claude.py (analiz), tts.py (seslendirme)
-├── tasks.py       # Celery: run_analysis_task, cleanup_expired_analyses
-└── views.py       # analyze (async), analyze-status, tts
+├── prompts.py     # Claude prompt şablonları (+ ozet_* rapor sesli özeti)
+├── services/      # claude.py (analiz), tts.py (seslendirme), summary.py (rapor özeti)
+├── tasks.py       # Celery: run_analysis_task, run_summary_task, cleanup_expired_analyses
+└── views.py       # analyze (async), analyze-status, summary (async), tts
 
 assistant/         # İhale Asistanı (firma profili + AI sohbet + günlük öneri)
 ├── models.py      # CompanyProfile, TenderRecommendation, ChatMessage
@@ -1269,6 +1269,33 @@ Doküman analizi gibi uzun süren tüm işler **her zaman** Celery worker'a atı
 1. `POST /api/v1/ai/analyze` → `{task_id, status:'pending'}` (İKN cache varsa
    anında sonuç döner).
 2. `GET /api/v1/ai/tasks/{task_id}` → durum: `pending|processing|completed|failed`.
+
+### Rapor sesli özeti — `POST /api/v1/ai/summary/` (Pro)
+
+İdare profili / pazar panosu / fiyat analizi raporunu **sesli okunmaya uygun** kısa bir
+metne çevirir; mobil onu mevcut `POST /ai/tts/` ile seslendirir. Akış `/ai/analyze` ile
+birebir aynı (`202` + `task_id`, aynı poll ucu).
+
+- ⚠️ **`require_premium` kapısı ATLANAMAZ.** `profil()`, `genel_bakis()`, `grup_detayi()`
+  ve `benchmark()` **maskesiz ham veri** döner — maskeleme view katmanında yapılıyor
+  (`_market_maskele`, `TenderBenchmarkView._KILITLI`). Free kullanıcıya 403 verilmezse
+  maskeli tutarlar **özet metni üzerinden sızar**.
+- ⚠️ **Dönüş alanının adı `analysis`** (`summary`/`text` DEĞİL): mobildeki `pollTask` ve
+  `AnalyzeStatusView` sözleşmesi bu alanı okur.
+- **Model `CLAUDE_CHAT_MODEL`** (haiku) + `max_tokens=700`: görev kısa ve şablonlu.
+  `call_claude` bunun için `model` parametresi aldı (varsayılan hâlâ `CLAUDE_MODEL`).
+- **Prompt iki kural ailesi taşır** (`ai/prompts.py` → `_OZET_ORTAK_KURALLAR`):
+  *veri dürüstlüğü* (veride olmayan sayı üretme, örneklemsiz ortalama anma,
+  `indirim_guven="yetersiz"` → "sıfır" deme, yıllar arası tutar karşılaştırma, tavsiye
+  verme) ve *sesli okuma* (markdown/sembol yok, büyük sayıları yazıyla yuvarla,
+  4-6 cümle ≤600 karakter). ⚠️ Bu kurallar daha önce **yalnızca docstring'lerde ve
+  yanıt `uyari` alanlarında** yaşıyordu; modele hiç gitmiyordu.
+- **Cache 24 sa**, anahtar `ai:summary:{kind}:{sha1(params)}` — **kullanıcı girmez**,
+  özet kullanıcıdan bağımsızdır. Cache'i **görev** yazar, view yalnızca okur; isabette
+  `200` + `status:"completed"` + `cached:true` döner (mobil bu hibriti destekliyor).
+- **Budama** (`summary._buda`): liste alanları ilk 5, yıl serileri son 5. Sayısal özet
+  alanlarına (ortalama, örneklem sayısı, güven) **dokunulmaz** — dürüstlük kuralları
+  onlara dayanıyor.
 
 **Celery Beat** periyodik işleri yürütür (config/celery.py):
 - `cleanup_expired_analyses` — eski AI cache temizliği (günlük 03:00)

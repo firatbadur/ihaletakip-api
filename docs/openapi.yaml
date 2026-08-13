@@ -100,6 +100,100 @@ paths:
               schema:
                 $ref: '#/components/schemas/TaskQueued'
           description: ''
+  /api/v1/ai/summary/:
+    post:
+      operationId: api_v1_ai_summary_create
+      description: 'İdare profili, pazar panosu veya fiyat analizi raporunu **sesli
+        okunmaya uygun** kısa bir metne çevirir. Metin `POST /ai/tts/` ile seslendirilir.
+
+
+        Akış `POST /ai/analyze` ile **birebir aynıdır**: `202` + `task_id` döner,
+        istemci `GET /ai/tasks/{task_id}/` ile yoklar. Cache isabetinde `200` + `status:
+        completed` ile sonuç doğrudan gelir (`cached: true`).
+
+
+        ⚠️ Sonuç alanının adı **`analysis`**''tir (`summary` değil) — `AnalyzeStatusView`
+        sözleşmesiyle aynı kalsın diye.
+
+
+        **Kapsam parametreleri `kind`''a göre değişir:**
+
+
+        | `kind` | Zorunlu | Opsiyonel |
+
+        |---|---|---|
+
+        | `authority` | `idare_id` \| `idare_detsis` \| `en_ust_idare_kod` (biri)
+        | — |
+
+        | `market` | — | `yil`, `okas_bucket` |
+
+        | `benchmark` | `ekap_id` | — |
+
+
+        ⚠️ **Üretilen metin bir fiyat tavsiyesi değildir**; prompt modele rakam taahhüt
+        etmeyi, veride olmayan sayı üretmeyi ve örneklemsiz ortalama anmayı yasaklar.'
+      summary: Rapor sesli özeti üret (Pro)
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryRequest'
+            examples:
+              İdareRaporuÖzeti:
+                value:
+                  kind: authority
+                  idare_id: '28484'
+                summary: İdare raporu özeti
+              PazarPanosu—YılGeneli:
+                value:
+                  kind: market
+                  yil: 2025
+                summary: Pazar panosu — yıl geneli
+              PazarPanosu—IşGrubu:
+                value:
+                  kind: market
+                  yil: 2025
+                  okas_bucket: '4523'
+                summary: Pazar panosu — iş grubu
+              FiyatAnaliziÖzeti:
+                value:
+                  kind: benchmark
+                  ekap_id: e8c865a28be0b142
+                summary: Fiyat analizi özeti
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SummaryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SummaryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                KuyruğaAlındı:
+                  value:
+                    task_id: 3f8c2b1a-7e4d-4a91-9c2f-8b6d5e1a0c33
+                    status: pending
+                  summary: Kuyruğa alındı
+          description: ''
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ai/tasks/{task_id}/:
     get:
       operationId: api_v1_ai_tasks_retrieve
@@ -3593,7 +3687,7 @@ components:
           readOnly: true
         kind:
           allOf:
-          - $ref: '#/components/schemas/KindEnum'
+          - $ref: '#/components/schemas/ChatConversationKindEnum'
           readOnly: true
         tender_ikn:
           type: string
@@ -3621,6 +3715,14 @@ components:
       - tender_ikn
       - title
       - updated_at
+    ChatConversationKindEnum:
+      enum:
+      - chat
+      - digest
+      type: string
+      description: '* `chat` - Sohbet
+
+        * `digest` - Günlük Özet'
     ChatMessage:
       type: object
       properties:
@@ -3991,14 +4093,6 @@ components:
       - group
       - group_name
       - is_saved
-    KindEnum:
-      enum:
-      - chat
-      - digest
-      type: string
-      description: '* `chat` - Sohbet
-
-        * `digest` - Günlük Özet'
     Login:
       type: object
       description: '`username` veya `email`den biri + `password` zorunlu.'
@@ -4389,6 +4483,38 @@ components:
           type: string
       required:
       - detail
+    SummaryRequest:
+      type: object
+      description: '`POST /ai/summary/` gövdesi — rapor sesli özeti.'
+      properties:
+        kind:
+          $ref: '#/components/schemas/SummaryRequestKindEnum'
+        idare_id:
+          type: string
+        idare_detsis:
+          type: string
+        en_ust_idare_kod:
+          type: string
+        yil:
+          type: integer
+          nullable: true
+        okas_bucket:
+          type: string
+        ekap_id:
+          type: string
+      required:
+      - kind
+    SummaryRequestKindEnum:
+      enum:
+      - authority
+      - market
+      - benchmark
+      type: string
+      description: '* `authority` - authority
+
+        * `market` - market
+
+        * `benchmark` - benchmark'
     SupportTicket:
       type: object
       properties:

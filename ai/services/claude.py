@@ -122,8 +122,14 @@ def build_document_block(file_base64: str, file_name: str) -> dict:
 
 
 # ── Claude çağrısı ─────────────────────────────────────
-def call_claude(api_key: str, content_blocks: list, prompt: str, max_tokens: int = None) -> dict:
-    """Claude API'ye istek gönder; {analysis, usage} döndür."""
+def call_claude(api_key: str, content_blocks: list, prompt: str, max_tokens: int = None,
+                model: str = None) -> dict:
+    """Claude API'ye istek gönder; {analysis, usage} döndür.
+
+    ``model`` verilmezse `CLAUDE_MODEL` (kalite öncelikli, doküman analizi için).
+    Kısa ve şablonlu görevler (ör. rapor sesli özeti) `CLAUDE_CHAT_MODEL` (haiku)
+    geçmelidir — bkz. CLAUDE.md "Model ayrımı (token tasarrufu)".
+    """
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -131,7 +137,7 @@ def call_claude(api_key: str, content_blocks: list, prompt: str, max_tokens: int
 
     try:
         message = client.messages.create(
-            model=settings.CLAUDE_MODEL,
+            model=model or settings.CLAUDE_MODEL,
             max_tokens=max_tokens or settings.CLAUDE_MAX_TOKENS,
             messages=[{"role": "user", "content": content_blocks}],
         )

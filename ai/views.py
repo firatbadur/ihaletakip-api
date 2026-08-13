@@ -10,6 +10,7 @@ TTS kısa bir iştir → senkron döner.
 """
 import logging
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -19,14 +20,21 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, serializers, status
 from rest_framework.views import APIView
 
-from accounts.premium import MSG_ANALYSIS, require_premium
+from django.core.cache import cache
+
+from accounts.premium import MSG_AI_OZET, MSG_ANALYSIS, require_premium
 from config import celery_app
 from core.response import api_response
 
 from .models import AnalysisCache
-from .serializers import AnalyzeRequestSerializer, TTSRequestSerializer
+from .serializers import (
+    AnalyzeRequestSerializer,
+    SummaryRequestSerializer,
+    TTSRequestSerializer,
+)
+from .services import summary as summary_mod
 from .services.tts import TTSError, synthesize_speech
-from .tasks import run_analysis_task
+from .tasks import run_analysis_task, run_summary_task
 
 logger = logging.getLogger("ihaletakip")
 
@@ -163,6 +171,95 @@ class AnalyzeView(APIView):
         return api_response(
             data={"task_id": task.id, "status": "pending"},
             message="Analiz kuyruğa alındı.",
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+@extend_schema(
+    tags=["ai"],
+    summary="Rapor sesli özeti üret (Pro)",
+    description=(
+        "İdare profili, pazar panosu veya fiyat analizi raporunu **sesli okunmaya uygun** "
+        "kısa bir metne çevirir. Metin `POST /ai/tts/` ile seslendirilir.\n\n"
+        "Akış `POST /ai/analyze` ile **birebir aynıdır**: `202` + `task_id` döner, istemci "
+        "`GET /ai/tasks/{task_id}/` ile yoklar. Cache isabetinde `200` + `status: completed` "
+        "ile sonuç doğrudan gelir (`cached: true`).\n\n"
+        "⚠️ Sonuç alanının adı **`analysis`**'tir (`summary` değil) — `AnalyzeStatusView` "
+        "sözleşmesiyle aynı kalsın diye.\n\n"
+        "**Kapsam parametreleri `kind`'a göre değişir:**\n\n"
+        "| `kind` | Zorunlu | Opsiyonel |\n"
+        "|---|---|---|\n"
+        "| `authority` | `idare_id` \\| `idare_detsis` \\| `en_ust_idare_kod` (biri) | — |\n"
+        "| `market` | — | `yil`, `okas_bucket` |\n"
+        "| `benchmark` | `ekap_id` | — |\n\n"
+        "⚠️ **Üretilen metin bir fiyat tavsiyesi değildir**; prompt modele rakam taahhüt "
+        "etmeyi, veride olmayan sayı üretmeyi ve örneklemsiz ortalama anmayı yasaklar."
+    ),
+    request=SummaryRequestSerializer,
+    responses={200: OpenApiTypes.OBJECT, 202: OpenApiTypes.OBJECT},
+    examples=[
+        OpenApiExample(
+            "İdare raporu özeti",
+            request_only=True,
+            value={"kind": "authority", "idare_id": "28484"},
+        ),
+        OpenApiExample(
+            "Pazar panosu — yıl geneli",
+            request_only=True,
+            value={"kind": "market", "yil": 2025},
+        ),
+        OpenApiExample(
+            "Pazar panosu — iş grubu",
+            request_only=True,
+            value={"kind": "market", "yil": 2025, "okas_bucket": "4523"},
+        ),
+        OpenApiExample(
+            "Fiyat analizi özeti",
+            request_only=True,
+            value={"kind": "benchmark", "ekap_id": "e8c865a28be0b142"},
+        ),
+        OpenApiExample(
+            "Kuyruğa alındı",
+            response_only=True,
+            value={"task_id": "3f8c2b1a-7e4d-4a91-9c2f-8b6d5e1a0c33", "status": "pending"},
+        ),
+    ],
+)
+class AiSummaryView(APIView):
+    """POST /ai/summary — rapor sesli özetini kuyruğa alır (cache varsa anında döner)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # ⚠️ **Bu kapı atlanamaz.** `profil()`, `genel_bakis()`, `grup_detayi()` ve
+        # `benchmark()` **maskesiz ham veri** döner; maskeleme view katmanında yapılıyor
+        # (`_market_maskele`, `TenderBenchmarkView._KILITLI`). Free kullanıcıya 403
+        # verilmezse maskeli tutarlar özet metni üzerinden sızar.
+        require_premium(request.user, MSG_AI_OZET)
+
+        serializer = SummaryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        kind = data.pop("kind")
+
+        # 1) Cache — özet kullanıcıdan bağımsızdır, aynı rapor herkese aynı metni verir
+        anahtar = summary_mod.cache_anahtari(kind, data)
+        cached = cache.get(anahtar)
+        if cached:
+            return api_response(
+                data={"status": "completed", "cached": True, **cached},
+                message="Önbellekten getirildi.",
+            )
+
+        # 2) Uzun iş → Celery worker'a at (akış /ai/analyze ile birebir aynı)
+        task = run_summary_task.delay(
+            kind=kind,
+            params=data,
+            user_id=request.user.id,  # AnalyzeStatusView sahipliği bununla doğrular
+        )
+        return api_response(
+            data={"task_id": task.id, "status": "pending"},
+            message="Özet kuyruğa alındı.",
             status=status.HTTP_202_ACCEPTED,
         )
 

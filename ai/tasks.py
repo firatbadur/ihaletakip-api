@@ -7,6 +7,10 @@ from django.utils import timezone
 
 logger = logging.getLogger("ihaletakip")
 
+# Rapor özeti cache süresi (sn). Özet kullanıcıdan bağımsızdır; aynı rapor
+# herkese aynı metni verir, bu yüzden anahtara kullanıcı girmez.
+SUMMARY_CACHE_TTL = 24 * 60 * 60
+
 
 @shared_task(name="ai.tasks.run_analysis_task", bind=True)
 def run_analysis_task(self, analysis_type, file_base64=None, file_name=None,
@@ -42,6 +46,38 @@ def run_analysis_task(self, analysis_type, file_base64=None, file_name=None,
         )
 
     return {"success": True, "user_id": user_id, **result}
+
+
+@shared_task(name="ai.tasks.run_summary_task", bind=True)
+def run_summary_task(self, kind, params, user_id=None):
+    """
+    Rapor sesli özeti üretir (idare profili / pazar panosu / fiyat analizi).
+
+    ⚠️ `user_id` dönüş payload'una **konulmalıdır**: `AnalyzeStatusView` sonucu yalnızca
+    görevi başlatan kullanıcıya verir (aynı sözleşme `run_analysis_task` ve
+    `assistant.tasks` için de geçerli — üçü de tek uçtan sorgulanır).
+
+    ⚠️ Dönüş alanının adı **`analysis`** olmalı, `summary`/`text` değil: mobildeki
+    `pollTask` bu alanı okuyor ve `AnalyzeStatusView` sözleşmesi bu.
+    """
+    from django.core.cache import cache
+
+    from ai.services.claude import AnalysisError
+    from ai.services.summary import cache_anahtari, ozet_uret
+
+    try:
+        sonuc = ozet_uret(kind, params or {})
+    except AnalysisError as e:
+        return {"success": False, "error": e.message, "user_id": user_id}
+    except Exception as e:  # beklenmeyen — görev sessizce kaybolmasın
+        logger.exception("run_summary_task hata (kind=%s): %s", kind, e)
+        return {"success": False, "error": "Özet üretilemedi.", "user_id": user_id}
+
+    # Cache'i **görev** yazar, view değil: view yalnızca okur ve isabet varsa hiç
+    # kuyruğa almaz. TTL 24 sa — pazar verisi gece 01:30'da, idare profili ve
+    # benchmark günlük ölçekte değişiyor.
+    cache.set(cache_anahtari(kind, params or {}), sonuc, timeout=SUMMARY_CACHE_TTL)
+    return {"success": True, "user_id": user_id, **sonuc}
 
 
 @shared_task(name="ai.tasks.cleanup_expired_analyses")

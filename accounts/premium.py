@@ -48,6 +48,9 @@ MSG_TEKRAR = (
     "Tekrar eden ihale takibi (bir işin her yıl ne zaman açıldığı ve sıradakinin "
     "beklenen tarihi) Pro aboneliğe özeldir."
 )
+MSG_AI_OZET = (
+    "Raporların yapay zekâ ile sesli özeti Pro üyelere özeldir."
+)
 MSG_PRO_FILTRE = (
     "Gelişmiş filtreler (tutar, rekabet, indirim oranı, şikâyet ve kategori) Pro "
     "aboneliğe özeldir. Temel arama ücretsizdir; bu filtreler için Pro'ya geçin."

@@ -56,30 +56,42 @@ SINIFLANDIRILMAMIS = "Sınıflandırılmamış"
 # Kod tabanının kuralı nettir: **yanlış sayı göstermektense "veri yok" demek doğrudur**
 # (aynı ilke `indirim_orani` ölçek hatasında ve "ornek_sayisi olmadan ortalama gösterme"
 # kuralında da geçerli).
-# İki kapı birlikte: mutlak taban (azlık) + kapsam oranı (temsil gücü).
+# ⚠️ **Bastırma yalnızca MUTLAK örneklem azlığına bakar; kapsam `guven`i etiketler.**
+# İlk sürüm kapsamı da bastırma kapısı yapmıştı (%10) ve gerçek veride fazla agresif
+# çıktı: 2023'te 4521 grubunda n=**427**/7.123 (%6,0) ve 4523'te n=**496**/5.717 (%8,7)
+# eleniyordu — oysa 427 gözlem gayet kullanılabilir bir örneklemdir. Neden düşük kapsam:
+# en büyük bedelli gruplar büyük inşaat işleridir ve onların Sonuç İlanı en geç
+# yayımlanır; küçük mal/hizmet grupları yılın ortalamasını yukarı çeker.
+# Düşük kapsamın gerçek riski örneklem azlığı değil **seçim yanlılığı**dır ve onun
+# doğru karşılığı bastırmak değil etiketlemektir — benchmark ucundaki desenin aynısı
+# ("n<8 → sayılar döner ama `guven: dusuk`").
 MIN_INDIRIM_ORNEK = 30
-MIN_INDIRIM_KAPSAM = 0.10
-# `guven="yuksek"` için daha sıkı eşik — istemci rozet gösterebilsin.
+# `guven` eşikleri (bastırmaz, yalnızca etiketler)
 GUVEN_YUKSEK_ORNEK = 100
-GUVEN_YUKSEK_KAPSAM = 0.30
+GUVEN_YUKSEK_KAPSAM = 0.25
+GUVEN_ORTA_KAPSAM = 0.10
 
 
 def _indirim(toplam, ornek, sozlesme_sayisi):
-    """Ortalama indirimi **yalnızca temsil ediyorsa** döner.
+    """Ortalama indirim + güven etiketi.
 
-    `(deger, guven)` çifti verir. Yetersizse `(None, "yetersiz")` — istemci
-    "veri yok" gösterir, uydurma bir oran değil.
+    `(deger, guven)` çifti döner:
+      • `ornek < MIN_INDIRIM_ORNEK` → `(None, "yetersiz")` — uydurma oran yerine
+        "veri yok". Bu kapı prod'da görülen *"3.192 sözleşme · %54,8 (n=6)"* gibi
+        manşetleri keser.
+      • aksi hâlde değer döner, kapsam `yuksek`/`orta`/`dusuk` diye etiketlenir.
+    İstemci `indirim_ornek_sayisi` ve `sozlesme_sayisi`'nı da gördüğü için kararı
+    kendisi verebilir; sayıyı gizlemek yerine **bağlamıyla** sunuyoruz.
     """
-    if not ornek or toplam is None:
+    if not ornek or toplam is None or ornek < MIN_INDIRIM_ORNEK:
         return None, "yetersiz"
     kapsam = (ornek / sozlesme_sayisi) if sozlesme_sayisi else 0
-    if ornek < MIN_INDIRIM_ORNEK or kapsam < MIN_INDIRIM_KAPSAM:
-        return None, "yetersiz"
-    guven = (
-        "yuksek"
-        if ornek >= GUVEN_YUKSEK_ORNEK and kapsam >= GUVEN_YUKSEK_KAPSAM
-        else "dusuk"
-    )
+    if ornek >= GUVEN_YUKSEK_ORNEK and kapsam >= GUVEN_YUKSEK_KAPSAM:
+        guven = "yuksek"
+    elif ornek >= GUVEN_YUKSEK_ORNEK or kapsam >= GUVEN_ORTA_KAPSAM:
+        guven = "orta"
+    else:
+        guven = "dusuk"
     return _ort_str(toplam, ornek), guven
 
 

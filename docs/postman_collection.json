@@ -94,7 +94,7 @@
                 ""
               ]
             },
-            "description": "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "description": "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır.\n\nYanıt `created: true` taşır (bu uç yalnızca kayıt yapar); sosyal girişle aynı sözleşmeyi kullanır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"password\": \"Test1234!\",\n  \"display_name\": \"Test Kullanıcı\"\n}",
@@ -157,7 +157,7 @@
                 ""
               ]
             },
-            "description": "`username` **veya** `email` ile giriş yapılır (biri yeterli). Yanıttaki `access` token'ı `Authorization: Bearer <access>` header'ında kullanın.\n\nPostman'de bu istek başarılı olduğunda `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik doldurulur.\n\n---\n\n### Alternatif gövde örnekleri\n\n**KullanıcıAdıIle**\n\n```json\n{\n  \"username\": \"firat\",\n  \"password\": \"Test1234!\"\n}\n```\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "description": "`username` **veya** `email` ile giriş yapılır (biri yeterli). Yanıttaki `access` token'ı `Authorization: Bearer <access>` header'ında kullanın.\n\nPostman'de bu istek başarılı olduğunda `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik doldurulur.\n\nYanıt her zaman `created: false` taşır (bu uç hesap açmaz).\n\n---\n\n### Alternatif gövde örnekleri\n\n**KullanıcıAdıIle**\n\n```json\n{\n  \"username\": \"firat\",\n  \"password\": \"Test1234!\"\n}\n```\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"test@ihaletakip.com\",\n  \"password\": \"Test1234!\"\n}",
@@ -221,7 +221,7 @@
                 ""
               ]
             },
-            "description": "İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir; sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "description": "İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir; sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).\n\nYanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden yaptığı için istemci analitik olayını (ör. AppsFlyer `af_complete_registration` vs. `af_login`) bu bayrağa göre ayırmalıdır. Aynı e-posta daha önce şifreyle kayıtlıysa hesap eşleştirilir ve `created=false` döner.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIsImtpZCI6IjE2ZGE...google-id-token\"\n}",
@@ -285,7 +285,7 @@
                 ""
               ]
             },
-            "description": "İstemci `@invertase/react-native-apple-authentication` ile aldığı `identity_token`'ı gönderir; sunucu Apple public key'leriyle doğrular (audience `com.envisoft.ihaletakip`).\n\nApple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name` alanında iletmezse isim kalıcı olarak kaybolur.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "description": "İstemci `@invertase/react-native-apple-authentication` ile aldığı `identity_token`'ı gönderir; sunucu Apple public key'leriyle doğrular (audience `com.envisoft.ihaletakip`).\n\nApple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name` alanında iletmezse isim kalıcı olarak kaybolur.\n\nYanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden yaptığı için istemci analitik olayını (ör. AppsFlyer `af_complete_registration` vs. `af_login`) bu bayrağa göre ayırmalıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"identity_token\": \"eyJraWQiOiJXNldjT0tCIiwiYWxnIjoiUlMyNTYifQ...apple-identity-token\",\n  \"full_name\": \"Test Kullanıcı\"\n}",

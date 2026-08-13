@@ -1238,6 +1238,22 @@ katmanını senkronlar. Sözleşme: **`app_user_id = str(user.id)`**.
   key'leriyle doğrular (audience = `com.envisoft.ihaletakip`).
 - **Çıkış**: `POST /api/v1/auth/logout` body `{refresh}` → token kara listeye alınır.
 
+### `created` bayrağı (analitik — kayıt mı, giriş mi?)
+
+Token dönen **tüm** uçların yanıtı (`register`, `login`, `social/google`,
+`social/apple`) `access`/`refresh`/`user` yanında **`created: bool`** taşır
+(`serializers.issue_tokens(user, created=...)` — tek üretim noktası).
+
+- ⚠️ **Sosyal giriş uçları hem kayıt hem giriş yapar** (`get_or_create_social`
+  upsert'tir). Bayrak olmadan istemci ikisini ayırt edemez; mobil AppsFlyer
+  entegrasyonunda her sosyal giriş `af_login` sayılıyor, `af_complete_registration`
+  **hiç** tetiklenmiyordu. `created=true` → kayıt olayı, `false` → giriş olayı.
+- Manager zaten `(user, created)` döndürüyordu; view'lar ikinciyi `_` ile atıyordu.
+- **Kayıt = yeni `User` satırı**, yeni sosyal sağlayıcı değil: aynı e-posta daha önce
+  şifreyle kayıtlıysa Google girişi mevcut hesaba bağlanır → `created=false`
+  (doğrusu budur; aksi hâlde tek kullanıcı iki kez "kayıt" sayılırdı).
+- `register` daima `true`, `login` daima `false` — istemci tek sözleşmeyle çalışsın diye.
+
 Admin girişi `username` iledir (varsayılan admin: `firat`).
 
 ## Admin Paneli (Jazzmin)

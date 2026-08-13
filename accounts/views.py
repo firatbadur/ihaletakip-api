@@ -35,6 +35,8 @@ User = get_user_model()
     description=(
         "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token "
         "döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır."
+        "\n\nYanıt `created: true` taşır (bu uç yalnızca kayıt yapar); sosyal girişle "
+        "aynı sözleşmeyi kullanır."
     ),
     request=RegisterSerializer,
     responses={201: TokenPairSerializer},
@@ -59,7 +61,9 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        return Response(issue_tokens(user), status=status.HTTP_201_CREATED)
+        return Response(
+            issue_tokens(user, created=True), status=status.HTTP_201_CREATED
+        )
 
 
 @extend_schema(
@@ -70,7 +74,8 @@ class RegisterView(APIView):
         "`username` **veya** `email` ile giriş yapılır (biri yeterli). Yanıttaki "
         "`access` token'ı `Authorization: Bearer <access>` header'ında kullanın.\n\n"
         "Postman'de bu istek başarılı olduğunda `access_token` ve `refresh_token` "
-        "koleksiyon değişkenleri otomatik doldurulur."
+        "koleksiyon değişkenleri otomatik doldurulur.\n\n"
+        "Yanıt her zaman `created: false` taşır (bu uç hesap açmaz)."
     ),
     request=LoginSerializer,
     responses={200: TokenPairSerializer, 401: DetailSerializer},
@@ -124,7 +129,13 @@ class LoginView(APIView):
     auth=[],
     description=(
         "İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir; "
-        "sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert)."
+        "sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).\n\n"
+        "Yanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını "
+        "söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden "
+        "yaptığı için istemci analitik olayını (ör. AppsFlyer "
+        "`af_complete_registration` vs. `af_login`) bu bayrağa göre ayırmalıdır. "
+        "Aynı e-posta daha önce şifreyle kayıtlıysa hesap eşleştirilir ve "
+        "`created=false` döner."
     ),
     request=GoogleLoginSerializer,
     responses={200: TokenPairSerializer, 401: DetailSerializer},
@@ -133,7 +144,21 @@ class LoginView(APIView):
             "Google ID token",
             request_only=True,
             value={"id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE2ZGE...google-id-token"},
-        )
+        ),
+        OpenApiExample(
+            "İlk giriş (kayıt)",
+            response_only=True,
+            value={
+                "success": True,
+                "message": "",
+                "data": {
+                    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "user": {"id": 42, "email": "test@ihaletakip.com"},
+                    "created": True,
+                },
+            },
+        ),
     ],
 )
 class GoogleLoginView(APIView):
@@ -148,14 +173,14 @@ class GoogleLoginView(APIView):
         except GoogleAuthError as e:
             return Response({"detail": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-        user, _ = User.objects.get_or_create_social(
+        user, created = User.objects.get_or_create_social(
             email=info["email"],
             provider=User.Provider.GOOGLE,
             provider_uid=info["sub"],
             display_name=info.get("name", ""),
             photo_url=info.get("picture", ""),
         )
-        return Response(issue_tokens(user))
+        return Response(issue_tokens(user, created=created))
 
 
 @extend_schema(
@@ -167,7 +192,11 @@ class GoogleLoginView(APIView):
         "`identity_token`'ı gönderir; sunucu Apple public key'leriyle doğrular "
         "(audience `com.envisoft.ihaletakip`).\n\n"
         "Apple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu "
-        "`full_name` alanında iletmezse isim kalıcı olarak kaybolur."
+        "`full_name` alanında iletmezse isim kalıcı olarak kaybolur.\n\n"
+        "Yanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını "
+        "söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden "
+        "yaptığı için istemci analitik olayını (ör. AppsFlyer "
+        "`af_complete_registration` vs. `af_login`) bu bayrağa göre ayırmalıdır."
     ),
     request=AppleLoginSerializer,
     responses={200: TokenPairSerializer, 401: DetailSerializer},
@@ -200,13 +229,13 @@ class AppleLoginView(APIView):
         # Apple ismi yalnızca ilk girişte gelir; istemci gönderirse kullan
         full_name = request.data.get("full_name", "") or request.data.get("fullName", "")
 
-        user, _ = User.objects.get_or_create_social(
+        user, created = User.objects.get_or_create_social(
             email=info["email"],
             provider=User.Provider.APPLE,
             provider_uid=info["sub"],
             display_name=full_name,
         )
-        return Response(issue_tokens(user))
+        return Response(issue_tokens(user, created=created))
 
 
 @extend_schema(

@@ -113,6 +113,14 @@ class TokenPairSerializer(serializers.Serializer):
     access = serializers.CharField()
     refresh = serializers.CharField()
     user = UserSerializer()
+    created = serializers.BooleanField(
+        help_text=(
+            "Bu istekte yeni bir hesap açıldıysa `true`, mevcut hesaba giriş "
+            "yapıldıysa `false`. Sosyal girişte (Google/Apple) tek uç hem kayıt "
+            "hem giriş yaptığı için analitik olayını (kayıt vs. giriş) ayırmak "
+            "isteyen istemciler bu bayrağa bakmalıdır."
+        )
+    )
 
 
 class DetailSerializer(serializers.Serializer):
@@ -121,11 +129,18 @@ class DetailSerializer(serializers.Serializer):
     detail = serializers.CharField()
 
 
-def issue_tokens(user):
-    """Bir kullanıcı için access + refresh JWT üret."""
+def issue_tokens(user, created=False):
+    """
+    Bir kullanıcı için access + refresh JWT üret.
+
+    `created`: bu istekte hesap **yeni** açıldıysa True. Sosyal girişte tek uç
+    hem kayıt hem giriş yaptığından istemci bunsuz her girişi "login" sayar
+    (analitikte kayıt olayı hiç tetiklenmez).
+    """
     refresh = RefreshToken.for_user(user)
     return {
         "access": str(refresh.access_token),
         "refresh": str(refresh),
         "user": UserSerializer(user).data,
+        "created": bool(created),
     }

@@ -765,7 +765,10 @@ paths:
 
 
         Postman''de bu istek başarılı olduğunda `access_token` ve `refresh_token`
-        koleksiyon değişkenleri otomatik doldurulur.'
+        koleksiyon değişkenleri otomatik doldurulur.
+
+
+        Yanıt her zaman `created: false` taşır (bu uç hesap açmaz).'
       summary: Giriş yap
       tags:
       - auth
@@ -949,9 +952,13 @@ paths:
   /api/v1/auth/register/:
     post:
       operationId: api_v1_auth_register_create
-      description: E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh`
+      description: 'E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh`
         token döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter
         olmalıdır.
+
+
+        Yanıt `created: true` taşır (bu uç yalnızca kayıt yapar); sosyal girişle aynı
+        sözleşmeyi kullanır.'
       summary: Kayıt ol
       tags:
       - auth
@@ -990,7 +997,13 @@ paths:
 
 
         Apple kullanıcının adını **yalnızca ilk girişte** döner — istemci bunu `full_name`
-        alanında iletmezse isim kalıcı olarak kaybolur.'
+        alanında iletmezse isim kalıcı olarak kaybolur.
+
+
+        Yanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını
+        söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden yaptığı
+        için istemci analitik olayını (ör. AppsFlyer `af_complete_registration` vs.
+        `af_login`) bu bayrağa göre ayırmalıdır.'
       summary: Apple ile giriş
       tags:
       - auth
@@ -1028,8 +1041,15 @@ paths:
   /api/v1/auth/social/google/:
     post:
       operationId: api_v1_auth_social_google_create
-      description: İstemci `@react-native-google-signin` ile aldığı `id_token`'ı gönderir;
-        sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).
+      description: 'İstemci `@react-native-google-signin` ile aldığı `id_token`''ı
+        gönderir; sunucu Google imzasını doğrular. Hesap yoksa oluşturulur (upsert).
+
+
+        Yanıttaki **`created`** bayrağı bu istekte hesabın yeni açılıp açılmadığını
+        söyler: `true` → kayıt, `false` → mevcut hesaba giriş. Uç ikisini birden yaptığı
+        için istemci analitik olayını (ör. AppsFlyer `af_complete_registration` vs.
+        `af_login`) bu bayrağa göre ayırmalıdır. Aynı e-posta daha önce şifreyle kayıtlıysa
+        hesap eşleştirilir ve `created=false` döner.'
       summary: Google ile giriş
       tags:
       - auth
@@ -1056,6 +1076,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
+              examples:
+                İlkGiriş(kayıt):
+                  value:
+                    success: true
+                    message: ''
+                    data:
+                      access: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                      refresh: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                      user:
+                        id: 42
+                        email: test@ihaletakip.com
+                      created: true
+                  summary: İlk giriş (kayıt)
           description: ''
         '401':
           content:
@@ -4690,8 +4723,15 @@ components:
           type: string
         user:
           $ref: '#/components/schemas/User'
+        created:
+          type: boolean
+          description: Bu istekte yeni bir hesap açıldıysa `true`, mevcut hesaba giriş
+            yapıldıysa `false`. Sosyal girişte (Google/Apple) tek uç hem kayıt hem
+            giriş yaptığı için analitik olayını (kayıt vs. giriş) ayırmak isteyen
+            istemciler bu bayrağa bakmalıdır.
       required:
       - access
+      - created
       - refresh
       - user
     TokenRefresh:

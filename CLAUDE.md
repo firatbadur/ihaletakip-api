@@ -577,22 +577,33 @@ Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebil
   bazlı tekil sayılar `MarketYearStat`'ta kendi kesin grain'inde durur. Aksi hâlde
   "20 iş grubunun firma sayılarını toplayınca yılın firma sayısı çıkar" gibi sessiz
   bir yalan üretilirdi (aynı firma birden çok grupta iş almış olabilir).
-- ⚠️ **`ortalama_indirim` yalnızca MUTLAK örneklem azlığında bastırılır**
-  (`market._indirim`, `MIN_INDIRIM_ORNEK=30`) → `null` + `indirim_guven="yetersiz"`.
-  Prod'da yakalandı: Sonuç İlanı imzadan **aylar sonra** yayımlandığı için en güncel
-  yılda kapsam neredeyse sıfırdır — 2026'da 82.687 sözleşmenin yalnızca 1.374'ünde
-  (%1,7) indirim biliniyordu ve pano *"3.192 sözleşme · ortalama indirim %54,8 (n=6)"*
-  gösteriyordu. Hacim metrikleri (adet, toplam bedel) güncel yılda sağlamdır →
-  varsayılan yıl değiştirilmedi, yalnızca indirim bastırılır.
-  ⚠️ **Kapsam oranı bastırma kapısı DEĞİL, `guven` etiketidir.** İlk sürüm %10 kapsam
-  kapısı koymuştu ve gerçek veride fazla agresif çıktı: 2023'te n=427/7.123 (%6,0) ve
-  n=496/5.717 (%8,7) eleniyordu — oysa 427 gözlem kullanılabilir bir örneklemdir.
-  Doğrulama da bunu gösterdi: o düşük kapsamlı gruplar **0,2108 / 0,2117 / 0,2129**
-  verdi, yılın %39,9 kapsamlı ortalaması **0,2115** ile birebir. Düşük kapsamın riski
-  örneklem azlığı değil seçim yanlılığıdır ve karşılığı bastırmak değil etiketlemektir
-  (benchmark ucundaki "n<8 → değer döner ama `guven: dusuk`" deseninin aynısı).
-  `indirim_guven`: `yuksek` (≥100 örnek **ve** ≥%25 kapsam) · `orta` (≥100 örnek
-  **veya** ≥%10 kapsam) · `dusuk` · `yetersiz` (<30 örnek, değer `null`).
+- ⚠️ **`ortalama_indirim` iki kapıdan geçer** (`market._indirim`): mutlak taban
+  `MIN_INDIRIM_ORNEK=30` **ve** kapsam `MIN_INDIRIM_KAPSAM=%5`. Geçemezse `null` +
+  `indirim_guven="yetersiz"` — uydurma oran yerine "veri yok".
+  **Neden**: Sonuç İlanı (`indirim_orani`nin tek kaynağı) imzadan **aylar sonra**
+  yayımlanır, dolayısıyla erken yayımlananlar **sistematik bir alt kümedir**.
+  Üretim ölçümü (2026-08-13) yanlılığı kanıtladı:
+
+  | yıl | kapsam | ort. indirim |
+  |---|---|---|
+  | **2026** | **%1,7** | **0,3894** ← bozuk |
+  | 2025 | %30,9 | 0,2358 |
+  | 2024 | %48,9 | 0,1846 |
+  | 2023 | %39,9 | 0,2115 |
+  | 2022 | %37,7 | 0,1676 |
+  | 2019 | %48,6 | 0,1787 |
+
+  Olgun yıllar (%32+ kapsam) **0,17-0,24** dar bandında; %1,7 kapsamlı 2026 bandın
+  tepesinin iki katı. Kırılma %1,7 ile %6 arasında — grup seviyesinde %6,0 (n=427) ve
+  %8,7 (n=496) kapsamlı örnekler 0,109-0,115 verdi, yani şişmedi. Kapı bu yüzden **%5**.
+  ⚠️ **Eşikleri sezgiyle oynatmayın**: ilk sürüm kapsamı %10 yapıp 427 gözlemlik
+  kullanılabilir örneklemleri eledi; düzeltirken kapıyı tümden kaldırınca 2026'nın
+  %1,7 kapsamlı 0,3894'ü "orta" etiketiyle geri geldi. Doğru ayar ancak yukarıdaki
+  yıl bazlı kapsam/ortalama tablosuna bakılarak yapılır.
+  `indirim_guven`: `yuksek` (≥100 örnek **ve** ≥%25 kapsam) · `orta` (≥%10 kapsam) ·
+  `dusuk` · `yetersiz` (değer `null`).
+  ⚠️ Hacim metrikleri (adet, toplam bedel) güncel yılda **sağlamdır** → varsayılan yıl
+  değiştirilmedi, yalnızca indirim bastırılır.
 - **Ortalamalar `(toplam, ornek)` çifti** olarak saklanır, hazır ortalama değil:
   yalnızca böyle satırlar arası doğru birleşir (`Σtoplam/Σornek`). API'de her ortalama
   **örneklem sayısıyla birlikte** döner.

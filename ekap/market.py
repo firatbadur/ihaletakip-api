@@ -56,17 +56,30 @@ SINIFLANDIRILMAMIS = "Sınıflandırılmamış"
 # Kod tabanının kuralı nettir: **yanlış sayı göstermektense "veri yok" demek doğrudur**
 # (aynı ilke `indirim_orani` ölçek hatasında ve "ornek_sayisi olmadan ortalama gösterme"
 # kuralında da geçerli).
-# ⚠️ **Bastırma yalnızca MUTLAK örneklem azlığına bakar; kapsam `guven`i etiketler.**
-# İlk sürüm kapsamı da bastırma kapısı yapmıştı (%10) ve gerçek veride fazla agresif
-# çıktı: 2023'te 4521 grubunda n=**427**/7.123 (%6,0) ve 4523'te n=**496**/5.717 (%8,7)
-# eleniyordu — oysa 427 gözlem gayet kullanılabilir bir örneklemdir. Neden düşük kapsam:
-# en büyük bedelli gruplar büyük inşaat işleridir ve onların Sonuç İlanı en geç
-# yayımlanır; küçük mal/hizmet grupları yılın ortalamasını yukarı çeker.
-# Düşük kapsamın gerçek riski örneklem azlığı değil **seçim yanlılığı**dır ve onun
-# doğru karşılığı bastırmak değil etiketlemektir — benchmark ucundaki desenin aynısı
-# ("n<8 → sayılar döner ama `guven: dusuk`").
+# ⚠️ **İki kapı: mutlak örneklem tabanı VE kapsam oranı.** Üretim verisiyle (2026-08-13)
+# kalibre edildi — iki kez yanlış ayarladım, üçüncüde ölçtüm:
+#
+#   yıl  | kapsam | ort. indirim        Olgun yıllar (%32+ kapsam) 0,17-0,24 dar
+#   -----|--------|-------------        bandında. %1,7 kapsamlı 2026 ise 0,3894 —
+#   2026 |   1,7% | 0,3894  ← BOZUK     bandın tepesinin iki katı. Seçim yanlılığı
+#   2025 |  30,9% | 0,2358              GERÇEK: Sonuç İlanı imzadan aylar sonra
+#   2024 |  48,9% | 0,1846              yayımlandığı için erken yayımlananlar
+#   2023 |  39,9% | 0,2115              sistematik bir alt kümedir.
+#   2022 |  37,7% | 0,1676
+#   2019 |  48,6% | 0,1787
+#
+# Kırılma noktası %1,7 ile %6 arasında: grup seviyesinde %6,0 (n=427) ve %8,7 (n=496)
+# kapsamlı örnekler 0,109-0,115 verdi, yani ŞİŞMEDİ (inşaat işlerinin indirimi zaten
+# düşük). Bu yüzden kapı **%5**: ölçülen felaket vakayı keser, kullanılabilir grupları
+# korur.
+#
+# ⚠️ **Bu eşikleri sezgiyle oynatmayın.** İlk sürüm kapsamı %10 yapıp 427 gözlemlik
+# örneklemleri elemişti; düzeltirken kapıyı tümden kaldırdım ve 2026'nın %1,7 kapsamlı
+# 0,3894'ü "orta" etiketiyle geri geldi. Doğru ayar ancak yıl bazlı kapsam/ortalama
+# tablosuna bakılarak yapılır (yukarıdaki sorgu: `scripts/` yok, tek satırlık GROUP BY).
 MIN_INDIRIM_ORNEK = 30
-# `guven` eşikleri (bastırmaz, yalnızca etiketler)
+MIN_INDIRIM_KAPSAM = 0.05
+# `guven` eşikleri (bastırmaz, etiketler)
 GUVEN_YUKSEK_ORNEK = 100
 GUVEN_YUKSEK_KAPSAM = 0.25
 GUVEN_ORTA_KAPSAM = 0.10
@@ -75,20 +88,18 @@ GUVEN_ORTA_KAPSAM = 0.10
 def _indirim(toplam, ornek, sozlesme_sayisi):
     """Ortalama indirim + güven etiketi.
 
-    `(deger, guven)` çifti döner:
-      • `ornek < MIN_INDIRIM_ORNEK` → `(None, "yetersiz")` — uydurma oran yerine
-        "veri yok". Bu kapı prod'da görülen *"3.192 sözleşme · %54,8 (n=6)"* gibi
-        manşetleri keser.
-      • aksi hâlde değer döner, kapsam `yuksek`/`orta`/`dusuk` diye etiketlenir.
-    İstemci `indirim_ornek_sayisi` ve `sozlesme_sayisi`'nı da gördüğü için kararı
-    kendisi verebilir; sayıyı gizlemek yerine **bağlamıyla** sunuyoruz.
+    `(deger, guven)` çifti döner. `yetersiz` ise değer `None` — uydurma oran yerine
+    "veri yok" demek bu üründe kuraldır (kullanıcı bu sayıya bakıp teklif fiyatı
+    belirliyor).
     """
     if not ornek or toplam is None or ornek < MIN_INDIRIM_ORNEK:
         return None, "yetersiz"
     kapsam = (ornek / sozlesme_sayisi) if sozlesme_sayisi else 0
+    if kapsam < MIN_INDIRIM_KAPSAM:
+        return None, "yetersiz"
     if ornek >= GUVEN_YUKSEK_ORNEK and kapsam >= GUVEN_YUKSEK_KAPSAM:
         guven = "yuksek"
-    elif ornek >= GUVEN_YUKSEK_ORNEK or kapsam >= GUVEN_ORTA_KAPSAM:
+    elif kapsam >= GUVEN_ORTA_KAPSAM:
         guven = "orta"
     else:
         guven = "dusuk"

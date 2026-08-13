@@ -248,7 +248,116 @@ dokununca Paywall açılsın (istek atmadan).
 
 ---
 
-## 6. Free teaser bildirimi
+## 6. Pazar panosu — `GET /ekap/market/`
+
+"Kamu bu yıl neye ne kadar harcadı, kim kazandı?" İki uç:
+
+| Uç | Ne döner |
+|---|---|
+| `GET /ekap/market/?yil=2025&limit=20` | Yıl özeti + o yılın en büyük iş grupları |
+| `GET /ekap/market/{okas_bucket}/?yil=2025` | Grubun yıllara göre seyri + il + firma + yoğunlaşma |
+
+### Ana ekran
+
+```json
+{
+  "yil": 2025,
+  "yillar": [2026, 2025, 2024, 2023, 2022],
+  "ozet": {
+    "sozlesme_sayisi": 160947, "firma_sayisi": 47213, "idare_sayisi": 8104,
+    "toplam_bedel": "812450900000.00",
+    "ortalama_indirim": "0.2358", "indirim_guven": "yuksek", "indirim_ornek_sayisi": 49772,
+    "ortalama_teklif": "10.4519", "teklif_ornek_sayisi": 79900
+  },
+  "is_gruplari": [{
+    "okas_bucket": "4523", "ad": "Devlet, il ve köy yolları yapım işleri",
+    "sozlesme_sayisi": 5717, "toplam_bedel": "94210000000.00",
+    "ortalama_indirim": "0.1086", "indirim_guven": "dusuk", "indirim_ornek_sayisi": 496,
+    "ortalama_teklif": "6.1000", "teklif_ornek_sayisi": 3900
+  }],
+  "guncelleme": "2026-08-14T01:30:00+03:00",
+  "kilitli": false
+}
+```
+
+`yillar` dizisini yıl seçiciye bağlayın; varsayılan **en güncel yıl**dır.
+
+### ⚠️ `ortalama_indirim` `null` gelebilir — bu bir hata değil
+
+`indirim_guven` alanı dört değer alır ve **görsel olarak ayırt edilmelidir**:
+
+| `indirim_guven` | Ne yapmalı |
+|---|---|
+| `yuksek` | Değeri normal göster. |
+| `orta` | Değeri göster + örneklem sayısını yanına yaz. |
+| `dusuk` | Değeri göster ama **soluk/uyarı rengiyle** + "n=496 sözleşmeden" notu. |
+| `yetersiz` | **`ortalama_indirim` `null`'dur.** "Veri yetersiz" yazın — `0` ya da `—` göstermeyin, "veri yok" deyin. |
+
+Sebebi ürün açısından önemli: indirim oranı yalnızca **Sonuç İlanı yayımlanmış**
+sözleşmelerde bilinir ve o ilan imzadan **aylar sonra** çıkar. Bu yüzden **en güncel
+yılda indirim verisi neredeyse yoktur** (üretimde 2026 kapsamı %1,7) ve o az sayıdaki
+kayıt sistematik bir alt kümedir — sunucu bu durumda değeri bilinçli olarak `null`'lar.
+Hacim metrikleri (`sozlesme_sayisi`, `toplam_bedel`) güncel yılda **sağlamdır**, onları
+gösterin.
+
+### ⚠️ İki sayı iş gruplarından TOPLANAMAZ
+
+`ozet.firma_sayisi` ve `ozet.idare_sayisi` **tekil** sayılardır. Aynı firma birden çok
+iş grubunda iş almış olabilir → `is_gruplari` satırlarını toplayarak bu sayılara
+ulaşmaya **çalışmayın**. Sunucu onları ayrı hesaplar. Toplanabilir olanlar yalnızca:
+`sozlesme_sayisi`, `toplam_bedel`, `*_ornek_sayisi`.
+
+### ⚠️ "Sınıflandırılmamış" grubu listeden düşürmeyin
+
+`okas_bucket: ""` gerçek veridir (sözleşmelerin ~%15'i OKAS'sız) ve `ad` alanı
+`"Sınıflandırılmamış"` gelir. Listeden çıkarırsanız yüzdeler ve toplamlar tutmaz.
+
+### Grup detayı
+
+```json
+{
+  "okas_bucket": "4523", "ad": "Devlet, il ve köy yolları yapım işleri",
+  "yillar": [2026, 2025, 2024],
+  "yillara_gore": [{"yil": 2024, "sozlesme_sayisi": 5100, "toplam_bedel": "…",
+                    "ortalama_indirim": "0.1846", "indirim_guven": "yuksek",
+                    "indirim_ornek_sayisi": 2400}],
+  "yil": 2025,
+  "iller":    [{"il_id": 6, "ad": "ANKARA", "sozlesme_sayisi": 412, "toplam_bedel": "…"}],
+  "firmalar": [{"contractor_id": 8123, "ad": "… LTD ŞTİ", "sozlesme_sayisi": 27,
+                "toplam_bedel": "…"}],
+  "yogunlasma": {"hhi": 0.0421, "firma_sayisi": 5527, "yaklasik": false},
+  "kilitli": false
+}
+```
+
+- `firmalar[].contractor_id` → mevcut firma detayına bağlanır (`GET /ekap/contractors/{id}/`).
+- ⚠️ **`yillara_gore`'daki para değerlerini yıllar arası doğrudan karşılaştırmayın** —
+  TL enflasyonu nedeniyle yanıltır. Trend çiziyorsanız bunu kullanıcıya belirtin;
+  `sozlesme_sayisi` ve `ortalama_indirim` enflasyondan bağımsızdır, onlar güvenli.
+- ⚠️ `yogunlasma.yaklasik: true` → firma sayısı hesap tavanını aşmış, HHI kesilmiş bir
+  küme üzerinden hesaplanmıştır. Değerin başına "≈" koyun.
+
+### Free maskeleme
+
+**403 değil, `200` + `kilitli: true`.** Maskeleme sunucuda yapılır; Free kullanıcıda
+şu alanlar `null` gelir: `toplam_bedel`, `ortalama_indirim`, `ortalama_teklif`,
+`yogunlasma.hhi`. **Sayılar açık kalır** (`sozlesme_sayisi`, `firma_sayisi`,
+`indirim_ornek_sayisi`) — teaser değeri buradan gelir:
+
+> **2025'te en çok harcama yapılan iş grubu: Devlet, il ve köy yolları**
+> 5.717 sözleşme · toplam •.•••.•••.••• ₺ · ortalama indirim %••,•
+> *Pro ile açın*
+
+Dokunuşta Paywall açın. Bkz. **§0** — bu, 403'ten farklı bir mekanizmadır.
+
+### Tazelik
+
+Veri her gece **01:30**'da yenilenir; `guncelleme` alanı son hesaplama zamanıdır.
+Gün içinde değişmez — istemcide agresif cache'lemek güvenlidir.
+
+---
+
+## 7. Free teaser bildirimi
 
 Ücretsiz üyeye **haftada bir** (Pazartesi) gelen `type=INFO` bildirimi:
 
@@ -260,28 +369,32 @@ açın**. Sayılar gerçektir; kullanıcı Pro olduğunda karşılığını gör
 
 ---
 
-## 7. ⚠️ Veri olgunluğu — özellikler kademeli dolacak
+## 8. Veri olgunluğu — arşiv TAMAMLANDI, ama boş değerler hâlâ normal
 
-Yeni kolonların çoğu (`okas_ana_kod`, `istekli_sayisi`, şikâyet bayrakları,
-`seri_anahtar`) **arşive geriye dönük olarak** dolduruluyor. Bu yazının yazıldığı sırada:
+**2026-08-13 itibarıyla geriye dönük doldurma bitti:** 1.043.455 ihalenin **%100'ü**
+detaylı (2019/2020/2021 dahil), 1.407.379 sözleşme, Pro sinyal kolonları %99,99 dolu.
+Yani `okas_ana_kod`, `istekli_sayisi`, şikâyet bayrakları ve `seri_anahtar` artık
+arşivin tamamında mevcut.
 
-- Yalnızca yeni senkronlanan ve tazelenen ihalelerde dolular.
-- Arşivin geri kalanı gece çalışan bir doldurma görevini bekliyor; o da yüklenici
-  süpürmesinin bitmesini bekliyor.
+**Buna rağmen `null` ve boş diziler hâlâ geçerli yanıtlardır** — sebepleri yapısal,
+geçici değil:
 
-**Pratik sonuçları:**
+| Durum | Sebep | Doğru davranış |
+|---|---|---|
+| `ortalama_indirim: null` + `indirim_guven: "yetersiz"` | Sonuç İlanı imzadan aylar sonra yayımlanır → güncel yılda kapsam çok düşük | "Veri yetersiz" yazın |
+| `benchmark` → `yeterli_veri: false` | O benzerlik kademesinde yeterli sonuçlanmış iş yok | Dağılımı hiç göstermeyin |
+| `istekli_sayisi: null` | Alan **değerlendirme sonrası** dolar; açık ihalede daima boş | "—" gösterin, `0` DEĞİL |
+| İhalelerin ~%19'unda OKAS yok | EKAP'ta öyle | `okas_bucket: ""` → "Sınıflandırılmamış" |
+| Şikâyet bayrakları `null` | Üç değerli: `null` = "bilinmiyor", `false` = "hayır" | İkisini ayırt edin |
 
-- `benchmark` bugün `yeterli_veri: false` dönebilir, birkaç hafta sonra dolu döner.
-- `GET /ekap/recurring/` başlangıçta **boş liste** dönebilir — hata değil.
-- İdare profilinin `dagilim.okas` bölümü OKAS kolonu dolana kadar boş gelir.
-- İndirim oranı kapsamı da artıyor (ölçüm: %24,5 → beklenen ~%55).
+⚠️ `indirim_orani` kapsamı **%37,6** (529.798/1.407.379) ve bu **tavana yakındır** —
+EKAP tüm sözleşmeler için Sonuç İlanı yayımlamıyor. Daha da artmasını beklemeyin.
 
-Bu yüzden **boş/eksik durumları normal karşılayın**: `null` değerler, boş diziler ve
-`yeterli_veri: false` geçerli yanıtlardır. Sabit sayılara göre test yazmayın.
+**Sabit sayılara göre test yazmayın**; `null` ve boş diziyi her uçta geçerli kabul edin.
 
 ---
 
-## 8. Kritik alan sözlüğü
+## 9. Kritik alan sözlüğü
 
 | Alan | Dikkat |
 |---|---|
@@ -294,3 +407,6 @@ Bu yüzden **boş/eksik durumları normal karşılayın**: `null` değerler, bo�
 | `beklenen_ilan_tarihi` | **Tahmin.** `guven` ile birlikte sunulmalı. |
 | `fiyat_disi_unsur_var` | `true` → en düşük fiyat tek başına kazandırmaz; belirgin uyarı. |
 | `yillara_gore` | Para karşılaştırmaları **her zaman** buradan; tek medyan enflasyonda yanıltır. |
+| `indirim_guven` | `yuksek`/`orta`/`dusuk`/**`yetersiz`**. `yetersiz` ise değer `null`'dur → "veri yok" yazın, `0` göstermeyin. |
+| `okas_bucket: ""` | **Sınıflandırılmamış** — gerçek veri (sözleşmelerin ~%15'i). Listeden düşürmeyin, toplamlar tutmaz. |
+| `ozet.firma_sayisi` | **Tekil** sayı — iş gruplarından toplanamaz (aynı firma birden çok grupta olabilir). |

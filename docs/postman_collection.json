@@ -558,12 +558,6 @@
               ],
               "query": [
                 {
-                  "key": "duzeltme_ilani_var",
-                  "value": "True",
-                  "description": "Düzeltme ilanı bulunanlar. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
-                  "disabled": true
-                },
-                {
                   "key": "e_eksiltme_yapilacak",
                   "value": "True",
                   "description": "Elektronik eksiltme yapılacak ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",

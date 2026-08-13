@@ -518,6 +518,7 @@ EKAP tüm sözleşmeler için Sonuç İlanı yayımlamıyor. Daha da artmasını
 | `beklenen_ilan_tarihi` | **Tahmin.** `guven` ile birlikte sunulmalı. |
 | `fiyat_disi_unsur_var` | `true` → en düşük fiyat tek başına kazandırmaz; belirgin uyarı. |
 | `itiraz_orani` | **Her zaman `null`** — EKAP itirazen şikâyet bilgisini üçüncü taraf çağrılarında paylaşmıyor. Ekranda göstermeyin ya da "veri yok" yazın. `itiraz_veri_yok_nedeni` gerekçeyi taşır. |
+| `duzeltme_ilani_var` | **Filtre olarak KALDIRILDI** (ihalelerin %82'sinde true → hiçbir şeyi elemiyordu). Gönderilirse sessizce yok sayılır. Gelişmiş filtre ekranından çıkarın. |
 | `yillara_gore` | Para karşılaştırmaları **her zaman** buradan; tek medyan enflasyonda yanıltır. |
 | `indirim_guven` | `yuksek`/`orta`/`dusuk`/**`yetersiz`**. `yetersiz` ise değer `null`'dur → "veri yok" yazın, `0` göstermeyin. |
 | `okas_bucket: ""` | **Sınıflandırılmamış** — gerçek veri (sözleşmelerin ~%15'i). Listeden düşürmeyin, toplamlar tutmaz. |

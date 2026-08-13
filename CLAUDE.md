@@ -535,13 +535,23 @@ ve konan korumalar:
   ⚠️ **Eski `False` değerleri DB'de kaldıysa NULL'lanmalı** (tek seferlik):
   `UPDATE ekap_tender SET itirazen_sikayet_var=NULL, idareye_sikayet_var=NULL,
   sikayet_dilekce_var=NULL WHERE itirazen_sikayet_var IS NOT NULL;`
-- ⚠️ **`duzeltme_ilani_var` HÂLÂ ŞÜPHELİ — ölçüldü, şüphe arttı**: üretimde 858.543
-  ihalede (**%82**) `True`. Gerçekten her beş ihaleden dördüne düzeltme ilanı çıkmaz;
-  kaynak anahtar (`ilanDuzeltmeIlani`) büyük olasılıkla "düzeltme ilanı yayımlandı"
-  değil "düzeltme ilanı yayımlanabilir" anlamında bir izin bayrağıdır — `islemlerKuralSeti`
-  ailesinin geri kalanıyla tutarlı okuma bu. `_PRO_PARAMS`'ta duruyor ama **filtre olarak
-  neredeyse işe yaramaz** (%82 seçicilik yok). Ürün özelliği yapmayın; kaldırmak da
-  düşünülmeli.
+- ⚠️ **`duzeltme_ilani_var` FİLTRESİ KALDIRILDI (kolon duruyor).** Üretimde 858.543
+  ihalede (**%82**) `True`. Her beş ihaleden dördüne düzeltme ilanı çıkmaz; kaynak anahtar
+  (`ilanDuzeltmeIlani`) büyük olasılıkla "düzeltme ilanı yayımlandı" değil "yayımlanabilir"
+  anlamında bir izin bayrağıdır — şikâyet bayraklarını bozan `islemlerKuralSeti` ailesinin
+  aynı okuması.
+  ⚠️ **Ürün açısından asıl sorun seçicilik**: kullanıcı filtreyi işaretler, her beş
+  ihaleden dördünü görür, **filtrelediğini sanır ama filtrelememiştir** — sessiz yanlış
+  sonuç. Şikâyet bayraklarıyla aynı hata sınıfı, ters yönde (onlar hep `false`, bu hep
+  `true`).
+  → `_PRO_PARAMS` + `_PRO_SCHEMA_PARAMS`'tan ve `apply_tender_filters`'tan çıkarıldı
+  (21 → **20** filtre). Parametre gelirse **sessizce yok sayılır** ve Pro kapısını da
+  tetiklemez; eski kayıtlı filtreler bu anahtarı taşısa bile sonuç değişmez (zaten
+  hiçbir şeyi elemiyordu).
+  ⚠️ **Kolon ve ingest BİLEREK duruyor** (`Tender.duzeltme_ilani_var`, `PRO_TENDER_FIELDS`):
+  veri ileride doğrulanırsa (düzeltme ilanı yayımlandığı BİLİNEN ihalelerde `true`,
+  yayımlanmadığı bilinenlerde `false` çıkıyor mu?) filtre geri açılabilir. Kaldırılan
+  yalnızca kullanıcıya sunulan filtredir — "eksik kalmış" diye geri EKLEMEYİN.
 - **`idare.enUstIdareKod/Adi` = bakanlık rollup.** Bu alanlar eskiden **her senkronda
   atılıyordu**: `ust_idare` alanı `ustIdare or enUstIdareAdi` yazıyor ve `ustIdare` genelde
   dolu ama değersiz (canlı örnek: `ustIdare="BAKAN YARDIMCILIKLARI"` kazanıyor,

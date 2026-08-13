@@ -1798,12 +1798,6 @@ paths:
       summary: İhale ara / listele
       parameters:
       - in: query
-        name: duzeltme_ilani_var
-        schema:
-          type: boolean
-        description: Düzeltme ilanı bulunanlar. 🔒 **Pro** — bu parametre kullanılırsa
-          Free/anonim istek `403 premium_required` döner.
-      - in: query
         name: e_eksiltme_yapilacak
         schema:
           type: boolean

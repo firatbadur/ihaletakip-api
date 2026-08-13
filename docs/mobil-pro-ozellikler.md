@@ -28,14 +28,22 @@ Mevcut davranış, değişmedi. Bu uçlarda içerik hiç üretilmez:
 - `GET /ekap/authorities/profile/`
 - `GET /ekap/recurring/`, `GET /ekap/tenders/{id}/recurring/`
 - `GET /ekap/tenders/?<gelişmiş filtre>` — **yalnızca** gelişmiş filtre kullanılırsa
-  (temel arama herkese açıktır, bkz. §5)
+  (temel arama herkese açıktır, bkz. §6)
+- `POST /tender-alarms/` — ihale alarmı **kurma**
+- `POST /saved-filters/` — **yalnızca** `alarm: true` ile
+- `POST /assistant/chat/`, `POST /ai/analyze/`, `POST /support/`
 
 `http.js` interceptor'ı bunu zaten işliyor; ekstra iş yok.
 
+⚠️ **Üçüncü bir durum daha var ve o hiç hata vermez**: favori idare ve takip edilen
+firmada `alarm: true` yazmak **200** döner ama bildirim asla gelmez (Pro'ya özel).
+Mobilin bunu telafi etmesi gerekiyor — bkz. **§1.5**.
+
 ### B) `200` + `kilitli: true` → maskeli göster, dokununca Paywall
 
-**YENİ.** `benchmark` ucu Free kullanıcıya da `200` döner; **örneklem sayıları görünür,
-değerler `null`** gelir:
+**YENİ.** İki uç böyle davranır: **fiyat analizi** (`benchmark`) ve **pazar panosu**
+(`/ekap/market/…`). Free kullanıcıya da `200` döner; **sayılar görünür, para/oran
+değerleri `null`** gelir:
 
 ```json
 {
@@ -58,9 +66,112 @@ kullanıcı neyi satın aldığını görür.
 
 `kilitli: false` geldiğinde tüm alanlar dolu, normal render.
 
+📋 **Hangi özelliğin hangi kapıya girdiğinin TAM listesi §1'de** — koddan doğrulanmış,
+mobil planlaması için oradan başlayın.
+
 ---
 
-## 1. Fiyat analizi — `GET /ekap/tenders/{ekap_id}/benchmark/`
+## 1. Free vs Pro — TAM liste (koddan doğrulandı, 2026-08-13)
+
+⚠️ **Sayısal Free limiti YOKTUR.** Eski 3 filtre / 5 ihale / 10 idare limitleri
+**kaldırıldı**. Free kullanıcı sınırsız kaydeder, favoriler, klasör açar. Kısıt
+**otomasyon ve içgörüde**, kaydetmenin kendisinde değil.
+
+### 1.1 Girişsiz (token olmadan) çalışan uçlar
+
+Mobil, kullanıcı hesap açmadan da arama yaptırabilir:
+
+`GET /ekap/tenders/` · `/ekap/tenders/{id}/` · `/ekap/tenders/{id}/announcements/` ·
+`/ekap/tenders/{id}/contracts/` · `/ekap/tenders/{id}/document-url/` ·
+`/ekap/contractors/` · `/ekap/contractors/{id}/` · `/ekap/contractors/{id}/contracts/` ·
+`/ekap/okas/search/` · `/ekap/authorities/tree/` · `/ekap/authorities/search/` ·
+`/ekap/cities/`
+
+⚠️ `GET /ekap/tenders/` girişsiz çalışır **ama** gelişmiş filtrelerden biri istekte
+varsa 403 döner (anonim kullanıcı `is_premium=False`). Bkz. §1.4.
+
+### 1.2 Free — sınırsız ve tam açık
+
+| Özellik | Uç | Not |
+|---|---|---|
+| İhale arama (temel) | `GET /ekap/tenders/` | `q`, `il_id`, `ihale_tip`, `ihale_usul`, `ihale_durum`, `idare_id`, `idare_detsis`, `okas_kod`, `okas_adi`, `ozellik`, tarih aralıkları |
+| İhale detayı, ilanlar, sözleşmeler | `/ekap/tenders/{id}/…` | |
+| Doküman indirme | `/ekap/tenders/{id}/document-url/` | AI analizi Pro ama **indirme serbest** |
+| Firma arama / detay / geçmiş | `/ekap/contractors/…` | |
+| **İhale kaydetme** | `POST /saved-tenders/` | **Sınırsız** |
+| **Klasör (kayıtlı ihale grubu)** | `/tender-groups/` | Kullanıcı başına en fazla **20** — Pro limiti DEĞİL, akıl sağlığı sınırı |
+| **Filtre kaydetme** (alarmsız) | `POST /saved-filters/` | **Sınırsız** — `alarm` yoksa/`false` ise |
+| **İdare favorileme** | `POST /favorite-authorities/` | **Sınırsız** |
+| **Firma takip etme** | `POST /favorite-contractors/` | **Sınırsız** |
+| İhale alarmı **listeleme/silme** | `GET`/`DELETE /tender-alarms/…` | Kurma Pro (§1.4) |
+| Bildirim listesi / okundu | `/notifications/…` | |
+| Asistan **profili oluşturma** | `GET`/`PUT /assistant/profile/` | Sohbet Pro (§1.4) |
+| Asistan öneri listesi | `GET /assistant/recommendations/` | Liste açık; **öneri üretimi** Pro (§1.5) |
+| Sesli okuma (TTS) | `POST /ai/tts/` | |
+| Destek talebi **listeleme** | `GET /support/` | Oluşturma Pro (§1.4) |
+| Abonelik doğrulama | `POST /subscription/verify/` | |
+
+### 1.3 Free — bildirim olarak gelenler
+
+| Bildirim | Zaman | Kime |
+|---|---|---|
+| **OKAS önerisi** — kaydettiğiniz ihalelerin kategorilerinde yeni ilan | Her gün 08:00 | **Free + Pro** |
+| **Haftalık teaser** — "bu hafta N ihale kaçırdınız" | Pazartesi 10:00 | **Yalnızca Free** |
+
+⚠️ Teaser'ın derin bağlantısı yoktur (`type=INFO`, push data'da `teaser: "1"`) →
+dokunuşta **Paywall** açın. Sayılar gerçektir.
+
+### 1.4 Pro — 403 `premium_required` dönen işlemler
+
+Mobil `http.js` interceptor'ı bunları zaten yakalayıp Paywall açıyor:
+
+| İşlem | Uç |
+|---|---|
+| **İhale alarmı KURMA/güncelleme** | `POST`/`PATCH /tender-alarms/` |
+| **Filtreyi `alarm: true` ile kaydetme/güncelleme** | `POST`/`PATCH /saved-filters/` |
+| Gelişmiş arama filtreleri (24 parametre) | `GET /ekap/tenders/?…` — bkz. §6 |
+| Tekrar eden ihaleler | `GET /ekap/recurring/`, `/ekap/tenders/{id}/recurring/` |
+| **İdare profili** | `GET /ekap/authorities/profile/` |
+| Asistan sohbeti | `POST /assistant/chat/` |
+| AI doküman analizi | `POST /ai/analyze/` |
+| Destek talebi oluşturma | `POST /support/` |
+
+### 1.5 Pro — 403 YOK, ama arka planda çalışmayanlar ⚠️ EN ÖNEMLİ BÖLÜM
+
+Bu dört özellikte **kaydetme serbesttir, bildirim Pro'dur**. Uç 403 vermez, kullanıcı
+anahtarı açar ve **hiçbir şey olmaz**:
+
+| Özellik | Kaydetme | `alarm` alanı | Bildirim |
+|---|---|---|---|
+| Kayıtlı filtre | serbest | `true` yazmak → **403** | Pro (10:00) |
+| **Favori idare** | serbest | `true` yazmak → **serbest** | **Pro** (11:00) |
+| **Takip edilen firma** | serbest | `true` yazmak → **serbest** | **Pro** (12:00) |
+| İhale alarmı | **403** | — | Pro (09:00) |
+
+⚠️ **Aynı görünen anahtar iki farklı davranış gösteriyor**: kayıtlı filtrede
+`alarm: true` **403** döner, favori idare ve firmada **200** döner ama bildirim asla
+gelmez. Bu asimetri bilinçlidir (favorileme kısıtlanmasın istendi) ama mobilde
+**mutlaka telafi edilmelidir**:
+
+> Free kullanıcıda favori idare / firma alarm anahtarını ya **kilit rozetiyle** gösterin
+> ve dokunuşta Paywall açın, ya da açılmasına izin verip **"Bildirimler Pro üyelere
+> gönderilir"** notunu anahtarın altına yazın.
+
+Aksi hâlde kullanıcı anahtarı açar, günlerce bekler, hiçbir bildirim gelmez ve
+**Pro'nun ne işe yaradığını hiç hissetmez** — ürünün asıl dönüşüm açığı buydu.
+
+### 1.6 Pro — maskeli (403 DEĞİL, `200` + `kilitli: true`)
+
+| Özellik | Uç | Free'de görünen |
+|---|---|---|
+| Fiyat analizi | `/ekap/tenders/{id}/benchmark/` | Örneklem sayıları görünür, değerler `null` |
+| Pazar panosu | `/ekap/market/`, `/ekap/market/{bucket}/` | Sözleşme/firma sayıları görünür, para ve indirim `null` |
+
+Bkz. **§0** — bu, 403'ten farklı bir mekanizmadır ve **ayrı ele alınmalıdır**.
+
+---
+
+## 2. Fiyat analizi — `GET /ekap/tenders/{ekap_id}/benchmark/`
 
 **Önerilen yer:** `TenderDetail` ekranına 4. sekme — "Fiyat Analizi".
 
@@ -112,7 +223,7 @@ GET /api/v1/ekap/tenders/e8c865a28be0b142/benchmark/?yil_geri=5
 
 ---
 
-## 2. İdare profili — `GET /ekap/authorities/profile/`
+## 3. İdare profili — `GET /ekap/authorities/profile/`
 
 **Önerilen yer:** `SavedAuthorities`, `AuthoritySelect` ve ihale detayındaki **idare adına
 dokunma** → "İdare Raporu" ekranı.
@@ -155,7 +266,7 @@ Kapsam **üç yoldan biriyle** verilir (birini gönderin):
 
 ---
 
-## 3. Tekrar eden ihaleler
+## 4. Tekrar eden ihaleler
 
 ### 3.1 İhale bazlı — `GET /ekap/tenders/{ekap_id}/recurring/`
 
@@ -193,7 +304,7 @@ Kapsam **üç yoldan biriyle** verilir (birini gönderin):
 
 ---
 
-## 4. Rakip takibi — `/favorite-contractors/`
+## 5. Rakip takibi — `/favorite-contractors/`
 
 **Önerilen yer:** `ContractorDetail`'e "Takip Et" butonu + drawer'a "Takip Ettiğim
 Firmalar" (`SavedAuthorities` ekranının ikizi).
@@ -220,7 +331,7 @@ gelir → firma detayını açın. Derin bağlantı önceliği güncellendi (bkz
 
 ---
 
-## 5. Gelişmiş filtreler — `GET /ekap/tenders/`
+## 6. Gelişmiş filtreler — `GET /ekap/tenders/`
 
 **Temel arama herkese açık kalır.** Yalnızca aşağıdaki parametreler Pro'dur; biri
 kullanılırsa Free/anonim istek `403 premium_required` alır.
@@ -248,7 +359,7 @@ dokununca Paywall açılsın (istek atmadan).
 
 ---
 
-## 6. Pazar panosu — `GET /ekap/market/`
+## 7. Pazar panosu — `GET /ekap/market/`
 
 "Kamu bu yıl neye ne kadar harcadı, kim kazandı?" İki uç:
 
@@ -357,7 +468,7 @@ Gün içinde değişmez — istemcide agresif cache'lemek güvenlidir.
 
 ---
 
-## 7. Free teaser bildirimi
+## 8. Free teaser bildirimi
 
 Ücretsiz üyeye **haftada bir** (Pazartesi) gelen `type=INFO` bildirimi:
 
@@ -369,7 +480,7 @@ açın**. Sayılar gerçektir; kullanıcı Pro olduğunda karşılığını gör
 
 ---
 
-## 8. Veri olgunluğu — arşiv TAMAMLANDI, ama boş değerler hâlâ normal
+## 9. Veri olgunluğu — arşiv TAMAMLANDI, ama boş değerler hâlâ normal
 
 **2026-08-13 itibarıyla geriye dönük doldurma bitti:** 1.043.455 ihalenin **%100'ü**
 detaylı (2019/2020/2021 dahil), 1.407.379 sözleşme, Pro sinyal kolonları %99,99 dolu.
@@ -394,7 +505,7 @@ EKAP tüm sözleşmeler için Sonuç İlanı yayımlamıyor. Daha da artmasını
 
 ---
 
-## 9. Kritik alan sözlüğü
+## 10. Kritik alan sözlüğü
 
 | Alan | Dikkat |
 |---|---|

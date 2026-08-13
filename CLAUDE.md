@@ -592,8 +592,10 @@ alıcının davranışı teklif verecek firma için en az ihale kadar önemli. M
 - **`.order_by()` her agregasyonda ŞART** (Meta.ordering GROUP BY'a sızmasın).
 - **JSONB `contains` (e-ihale payı) yalnızca PostgreSQL'de** — SQLite'a düşen yerel
   geliştirmede o sayım atlanır (`_jsonb_var`), uç 500 vermez.
-- ⚠️ **TODO (doldurma sonrası):** `en_ust_idare_kod` ve `okas_ana_kod` `Contract`'a
-  ingest-kopyası olarak taşınmalı → bakanlık kapsamı ve OKAS kırılımı da JOIN'siz olur.
+- ✅ **`en_ust_idare_kod` + `okas_ana_kod`/`okas_bucket` `Contract`'a taşındı** (0014):
+  bakanlık kapsamı ve OKAS kırılımı artık JOIN'siz. ⚠️ OKAS kırılımında **ad** kopyalanmadı
+  (500 bayt × 1,4M satır); ad çözümü ilk 20 kod için **ayrı ve küçük** bir sorgudur —
+  adı GROUP BY'a koymak grubu yeniden `ekap_tender` JOIN'ine bağlardı.
 
 #### Fiyat istihbaratı — `GET /ekap/tenders/<key>/benchmark/`
 
@@ -632,10 +634,11 @@ dağılımı, beklenen rekabet ve karşılaştırma listesi. Mantık `ekap/bench
   atlar, `kilitli` maskeli gösterip dokunuşta Paywall açar.
 - ⚠️ `benzer_ihaleler` listesi `.select_related` + **`.defer(tender__detail_raw/list_raw)`**
   kullanır — sözleşme uçlarında yaşanan TOAST hatasının aynısı burada da olurdu.
-- ⚠️ **TODO (doldurma sonrası):** OKAS'lı kademeler şimdilik `tender__okas_ana_kod`
-  üzerinden JOIN yapıyor. `Tender.okas_ana_kod` dolunca `Contract`'a ingest-kopyası
-  olarak taşınmalı (mevcut `idare_id`/`il_id`/`ihale_tip` gibi) → tüm kademeler tek tablo
-  olur. **Şimdi taşınamaz**: kaynak kolon henüz boş, kopyalanacak veri yok.
+- ✅ **Tüm kademeler artık tek tablo** (`ekap_contract`), JOIN yok — `okas_ana_kod` /
+  `okas_bucket` ingest-kopyası 0014'te eklendi. ⚠️ **Neden kritikti** (ölçüm 2026-08-13):
+  `tender__okas_ana_kod` üzerinden JOIN, planlayıcıya 11 GB'lık `ekap_tender`'da **tam
+  Seq Scan** yaptırıyordu (487.244 satır elendi, 1,7 GB okundu) → uç başına **4,5 sn**.
+  Bu, ürünün en çok ödeme isteği yaratan özelliğiydi.
 
 #### Pro arama filtreleri (`_PRO_PARAMS`)
 
@@ -666,10 +669,16 @@ Gelişmiş filtreler Pro'ya kilitlidir; **temel arama herkese açık kalır** (u
   `teklif_sayisi`, `istekli_sayisi`) aralık filtresi, değeri **bilinmeyen** ihaleleri de
   sessizce eler (NULL hiçbir aralığa girmez). Bu filtreler kullanılınca yanıt
   `data.uyari` taşır → istemci "sonuç yok" ile "veri yok"u ayırt edebilsin.
-- ⚠️ **İndeksler henüz YOK.** Doldurma bitmeden kurulursa ~1M satırlık UPDATE onları
-  şişirir. `AddIndexConcurrently` doldurma tamamlanınca eklenecek; o zamana kadar dar
-  aralıklı sorgular için **`EXPLAIN (ANALYZE, BUFFERS)` şart** (`ORDER BY tarih DESC
-  LIMIT N` + seçici filtre bu kod tabanını üç kez ısırmış plan tuzağıdır).
+- ✅ **İndeksler 0015'te kuruldu** (doldurma bittikten SONRA — boş kolona indeks kurup
+  ardından 1M satır UPDATE etmek indeksi şişirirdi). Ölçüm betiği:
+  `scripts/pro_explain.sql`. ⚠️ **Sıralama kolonu bileşiğin İKİNCİ elemanıdır**
+  (`("okas_ana_kod", "-ihale_tarihi")`): baş kolon yapılsaydı `ORDER BY tarih DESC
+  LIMIT N` + seçici filtre tuzağının kendisi olurdu. ⚠️ **Kısmi indeks
+  (`WHERE okas_ana_kod <> ''`) bilinçli KULLANILMADI**: sorgu parametreli
+  (`= %s`), planlayıcı parametrenin boş olmadığını plan zamanında kanıtlayamaz ve
+  kısmi indeksi kullanamazdı. ⚠️ Tutar aralığı filtreleri hâlâ tarih indeksini geriye
+  tarıyor (ölçüm: geniş aralık 222 ms, sonuçlanmış+bedel 20 ms) — **dar aralıkta**
+  yeniden EXPLAIN'leyin.
 
 #### Doldurma: `backfill_tender_fields`
 

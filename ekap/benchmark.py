@@ -80,21 +80,21 @@ def _merdiven(tender):
         if tender.idare_id:
             kademeler.append(Kademe(
                 "idare", "Aynı idare, aynı iş kalemi",
-                Q(tender__okas_ana_kod=okas, idare_id=tender.idare_id),
+                Q(okas_ana_kod=okas, idare_id=tender.idare_id),
             ))
         if tender.il_id:
             kademeler.append(Kademe(
                 "il", "Aynı il, aynı iş kalemi",
-                Q(tender__okas_ana_kod=okas, il_id=tender.il_id),
+                Q(okas_ana_kod=okas, il_id=tender.il_id),
             ))
         kademeler.append(Kademe(
             "ulke", "Türkiye geneli, aynı iş kalemi",
-            Q(tender__okas_ana_kod=okas),
+            Q(okas_ana_kod=okas),
         ))
     if bucket:
         kademeler.append(Kademe(
             "grup", "Aynı iş grubu",
-            Q(tender__okas_bucket=bucket)
+            Q(okas_bucket=bucket)
             & (Q(ihale_tip=tender.ihale_tip) if tender.ihale_tip else Q()),
         ))
     # 4b — OKAS'sız ihaleler için tek yol (üretimde ~%19).

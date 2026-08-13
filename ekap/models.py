@@ -240,6 +240,17 @@ class Tender(models.Model):
         ordering = ["-ihale_tarihi"]
         indexes = [
             models.Index(fields=["ihale_tip", "ihale_durum"]),
+            # ── Pro filtreleri (0015, prod EXPLAIN'iyle kanıtlandı) ──────────────
+            # ⚠️ Sıralama kolonu bileşiğin **İKİNCİ** elemanı: baş kolon yapılsaydı
+            # `ORDER BY tarih DESC LIMIT N` + seçici filtre tuzağının kendisi olurdu.
+            # Eşitlik baş kolonda olunca dar bir aralık taranır ve sıralı çıktı bedava
+            # gelir. Ölçüm öncesi: `okas_ana_kod` filtresi 11 GB'lık tabloyu seq scan
+            # ediyordu (benchmark ucu 4,5 sn).
+            models.Index(fields=["okas_ana_kod", "-ihale_tarihi"], name="ekap_tender_okas_tarih_idx"),
+            models.Index(fields=["en_ust_idare_kod", "-ihale_tarihi"], name="ekap_tender_bakanlik_tarih_idx"),
+            # Haftalık seri tespiti `GROUP BY seri_anahtar, idare_id` yapıyor; sıralı
+            # indeks taraması diske taşan external merge sort'u (3×20 MB) kaldırır.
+            models.Index(fields=["seri_anahtar", "idare_id"], name="ekap_tender_seri_idare_idx"),
             # NOT: `Index(fields=["-ilan_tarihi"])` KALDIRILDI — `ilan_tarihi` zaten
             # `db_index=True` (yukarıda) ve Postgres btree'yi geriye doğru tarayabildiği
             # için birebir kopyaydı. Backfill sürekli INSERT/UPDATE attığından iki kat
@@ -576,6 +587,15 @@ class Contract(models.Model):
     idare_id = models.CharField(max_length=255, blank=True, db_index=True)
     il_id = models.IntegerField(null=True, blank=True, db_index=True)
     ihale_tip = models.IntegerField(null=True, blank=True, db_index=True)
+    # ⚠️ Bunlar **fiyat istihbaratının** (benchmark) darboğazıydı. Ölçüm 2026-08-13:
+    # benzerlik merdiveni `tender__okas_ana_kod` üzerinden JOIN yapıyordu ve planlayıcı
+    # 11 GB'lık `ekap_tender`'da **tam Seq Scan** seçiyordu (487.244 satır elendi,
+    # 1,7 GB okundu) → uç başına **4,5 saniye**. Kopyayla sorgu tamamen `ekap_contract`
+    # (1 GB) içinde kalır. `db_index` YOK: aşağıdaki bileşik indeksler (kod + tarih)
+    # zaten baş kolonu kapsıyor, tek kolonluk btree fazladan yazma maliyeti olurdu.
+    okas_ana_kod = models.CharField(max_length=16, blank=True)
+    okas_bucket = models.CharField(max_length=4, blank=True)
+    en_ust_idare_kod = models.CharField(max_length=16, blank=True)
 
     class Meta:
         verbose_name = "Sözleşme"
@@ -583,6 +603,15 @@ class Contract(models.Model):
         indexes = [
             models.Index(fields=["yuklenici", "-sozlesme_tarihi"]),
             models.Index(fields=["-sozlesme_tarihi"]),
+            # ── Benchmark benzerlik merdiveni (0015) ────────────────────────────
+            # Kademe 1-3 (idare / il / ülke) hepsi `okas_ana_kod` eşitliğiyle başlar;
+            # idare/il o dar aralıkta ucuz heap filtresidir (kod başına ~300 sözleşme).
+            models.Index(fields=["okas_ana_kod", "-sozlesme_tarihi"], name="ekap_contract_okas_tarih_idx"),
+            # Kademe 4: OKAS grubu + ihale türü. (Kademe 4b — OKAS'ı olmayan %19 —
+            # mevcut `idare_id` indeksini kullanır, ek indeks gerekmez.)
+            models.Index(fields=["okas_bucket", "ihale_tip", "-sozlesme_tarihi"], name="ekap_contract_bucket_tip_idx"),
+            # İdare profilinin bakanlık kapsamı — artık `tender__` JOIN'i yapmadan.
+            models.Index(fields=["en_ust_idare_kod", "-sozlesme_tarihi"], name="ekap_contract_bakanlik_idx"),
             # İhale listesindeki `yuklenici` metin filtresi (Exists alt sorgusu) bu
             # kolonda `%…%` LIKE yapıyor; `db_index=True` btree'si yetmez → trigram.
             GinIndex(

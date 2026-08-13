@@ -464,6 +464,7 @@ _CONTRACT_FIELDS = [
     "dokuman_indiren_sayisi", "indirim_orani", "ekap_ilan_id",
     "fesih_string", "tasfiye_transfer_string",
     "idare_id", "il_id", "ihale_tip",
+    "okas_ana_kod", "okas_bucket", "en_ust_idare_kod",
     # ⚠️ `ilk_gorulme` BİLEREK YOK: yalnızca yaratma yolunda yazılır. Buraya eklenirse
     # her detay tazelemesinde güncellenir ve rakip alarmının dayandığı "yeni keşfedilen
     # sözleşme" sinyali anlamını yitirir.
@@ -582,6 +583,10 @@ def sync_contracts_from_raw(
             "idare_id": tender.idare_id or "",
             "il_id": tender.il_id,
             "ihale_tip": tender.ihale_tip,
+            # Benchmark benzerlik merdiveni bunlarla `ekap_tender`'a hiç dokunmaz.
+            "okas_ana_kod": tender.okas_ana_kod or "",
+            "okas_bucket": tender.okas_bucket or "",
+            "en_ust_idare_kod": tender.en_ust_idare_kod or "",
         }
 
         # 3) Sonuç İlanı — yaklaşık maliyetin TEK doğru kaynağı

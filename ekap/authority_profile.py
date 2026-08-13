@@ -87,7 +87,7 @@ def kapsam_coz(params):
         )
         return Kapsam(
             Q(en_ust_idare_kod=bakanlik),
-            Q(tender__en_ust_idare_kod=bakanlik),
+            Q(en_ust_idare_kod=bakanlik),
             {"tur": "bakanlik", "anahtar": bakanlik, "ad": ad or "", "idare_sayisi": None},
         ), None
 
@@ -298,15 +298,31 @@ def _kirilimlar(t_qs, c_qs):
         .values("il_id").annotate(adet=Count("id"), toplam=Sum("sozlesme_bedeli_num"))
         .order_by("-adet")[:20]
     ]
-    # OKAS kırılımı `Tender.okas_ana_kod` üzerinden (Contract'a henüz kopyalanmadı).
-    okas = [
-        {"okas_ana_kod": r["tender__okas_ana_kod"], "ad": r["tender__okas_ana_adi"],
-         "adet": r["adet"],
-         "toplam_bedel": str(r["toplam"]) if r["toplam"] is not None else None}
-        for r in c_qs.exclude(tender__okas_ana_kod="").order_by()
-        .values("tender__okas_ana_kod", "tender__okas_ana_adi")
+    # OKAS kırılımı artık `Contract.okas_ana_kod` (ingest-kopyası) üzerinden — JOIN yok.
+    # ⚠️ Adı da GROUP BY'a koymak grubu yeniden `ekap_tender` JOIN'ine bağlardı; aynı
+    # JOIN benchmark'ta ölçüldü ve 11 GB'lık tabloyu seq scan edip 4,5 sn sürüyordu.
+    # Ad çözümü bu yüzden AYRI ve küçük bir sorgu (yalnızca ilk 20 kod).
+    okas_satir = list(
+        c_qs.exclude(okas_ana_kod="").order_by()
+        .values("okas_ana_kod")
         .annotate(adet=Count("id"), toplam=Sum("sozlesme_bedeli_num"))
         .order_by("-toplam")[:20]
+    )
+    okas_adlari = {}
+    if okas_satir:
+        for kod, ad in (
+            Tender.objects.filter(okas_ana_kod__in=[r["okas_ana_kod"] for r in okas_satir])
+            .exclude(okas_ana_adi="")
+            .order_by()
+            .values_list("okas_ana_kod", "okas_ana_adi")
+            .distinct()
+        ):
+            okas_adlari.setdefault(kod, ad)
+    okas = [
+        {"okas_ana_kod": r["okas_ana_kod"], "ad": okas_adlari.get(r["okas_ana_kod"], ""),
+         "adet": r["adet"],
+         "toplam_bedel": str(r["toplam"]) if r["toplam"] is not None else None}
+        for r in okas_satir
     ]
     return {"usul": usul, "tur": tur, "mevsimsellik": mevsim, "il": il, "okas": okas}
 

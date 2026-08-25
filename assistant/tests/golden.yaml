@@ -17,6 +17,11 @@
 #   param_korunmali — son `ihale_ara` çağrısında bulunması gereken parametre adları.
 #                 Metin ölçütü yetmez: model doğru cümleyi kurup yanlış filtreyi
 #                 çalıştırabilir ve hata tam orada gizlenir.
+#   konu_korunmali  — daraltma turunda KONU filtresi hayatta kalmalı (okas_kod /
+#                 okas_adi / ihale_adi / q'dan en az biri). ⚠️ Belirli bir anahtarı
+#                 `param_korunmali` ile şart koşmayın: model konuyu meşru biçimde
+#                 okas_kod'dan ihale_adi'na çevirebilir (OKAS boş dönünce ad
+#                 aramasına düşmek DOĞRU davranıştır) ve ölçüt yanlış yeri suçlar.
 
 - soru: "otomasyon ihalelerini getir"
   arac_bekle: [okas_ara, ihale_ara]
@@ -76,7 +81,8 @@
     - "otomasyon ihalelerini getir"
     - "peki sadece Ankara'dakiler?"
   arac_bekle: [ihale_ara]
-  param_korunmali: [okas_kod, il_id]
+  param_korunmali: [il_id]
+  konu_korunmali: true
   icermeli: ["ankara"]
   icermemeli: ["**"]
   kart_bekle: 0
@@ -90,12 +96,17 @@
     - "geçici teminat oranı nedir?"
     - "peki bunlardan yapım işi olanlar?"
   arac_bekle: [ihale_ara]
-  param_korunmali: [okas_kod, il_id, ihale_tip]
+  param_korunmali: [il_id, ihale_tip]
+  konu_korunmali: true
   icermemeli: ["**"]
   kart_bekle: 0
   not: >
     Araya alakasız bir mevzuat sorusu girdiğinde bağlam KAYBOLMAMALI. Üretimde
     `conversation.son_arama` arama yapılmayan turda silinmiyor; bu test onu koruyor.
+    ⚠️ İlk ölçümde `okas_kod` şart koşulmuştu ve test kırmızı yandı: model 1. turda
+    OKAS araması sonuç vermeyince ad aramasına düşmüş, 3. turda o filtreyi (ihale_adi,
+    il_id, ihale_durum) AYNEN taşıyıp ihale_tip eklemişti — yani doğru davranmıştı.
+    Ölçüt yanlıştı, asistan değil.
 
 - soru: "2026/1473120 için ne kadar kırım yapmalıyım?"
   arac_bekle: [ihale_benchmark]

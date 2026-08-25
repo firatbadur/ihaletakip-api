@@ -16,6 +16,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 SET_YOLU = Path(__file__).resolve().parent.parent.parent / "tests" / "golden.yaml"
 
+# `ihale_ara`da KONUYU ifade eden alanlar. Bir daraltma turunda bunlardan en az biri
+# hayatta kalmalı; hangisi olduğu önemli değil.
+_KONU_ALANLARI = {"okas_kod", "okas_adi", "okas_ana_kod", "ihale_adi", "q"}
+
 # (giriş, çıkış) $/milyon token. Cache okuma girişin ~%10'u, cache yazma ~%125'i.
 # ⚠️ Modele göre seçilir: tek bir fiyat listesine sabitlemek, kademe karşılaştırmasında
 # ucuz modelin maliyetini pahalı modelin fiyatıyla hesaplayıp kararı bozar.
@@ -137,6 +141,20 @@ class Command(BaseCommand):
             # çalıştırabilir; hata tam olarak orada gizlenir.
             son = [a for a in (sonuc.get("arac_izi") or [])
                    if a.get("arac") == "ihale_ara" and a.get("ok")]
+
+            # Konu filtresi korunmuş mu? ⚠️ Belirli bir ANAHTARI şart koşmak yanlış:
+            # model konuyu meşru biçimde `okas_kod`dan `ihale_adi`na çevirebilir
+            # (OKAS araması sonuç vermeyince ad aramasına düşmek doğru davranıştır).
+            # Korunması gereken şey konunun KENDİSİ, hangi alanla ifade edildiği değil.
+            if s.get("konu_korunmali"):
+                onceki_konu = _KONU_ALANLARI & set(onceki_arama or {})
+                if not onceki_konu:
+                    sorunlar.append("önceki turda konu filtresi hiç yoktu")
+                elif not son:
+                    sorunlar.append("arama yapılmadı (konu korunamazdı)")
+                elif not (_KONU_ALANLARI & set(son[-1].get("param") or {})):
+                    sorunlar.append(
+                        f"KONU FİLTRESİ DÜŞTÜ (önceki: {', '.join(sorted(onceki_konu))})")
             for anahtar in s.get("param_korunmali") or []:
                 if not son:
                     sorunlar.append(f"arama yapılmadı ({anahtar!r} korunamazdı)")

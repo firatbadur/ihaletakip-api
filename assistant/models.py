@@ -192,6 +192,14 @@ class AssistantAction(models.Model):
         IHALE_KAYDET = "ihale_kaydet", "İhaleyi Kaydet"
         ALARM_KUR = "alarm_kur", "Alarm Kur"
         FILTRE_KAYDET = "filtre_kaydet", "Filtre Kaydet"
+        # ── Faz 3 ──
+        TOPLU_IHALE_KAYDET = "toplu_ihale_kaydet", "İhaleleri Toplu Kaydet"
+        IHALE_TASI = "ihale_tasi", "İhaleyi Klasöre Taşı"
+        FIRMA_TAKIP = "firma_takip", "Firmayı Takibe Al"
+        IDARE_FAVORI = "idare_favori", "İdareyi Favoriye Ekle"
+        # ⚠️ Silme geri alınamaz. Kart mobilde YIKICI biçimde gösterilir
+        # (kırmızı onay butonu) — bkz. mobil `ActionCard.js`.
+        KAYIT_SIL = "kayit_sil", "Kaydı Sil"
 
     class Durum(models.TextChoices):
         BEKLIYOR = "bekliyor", "Bekliyor"

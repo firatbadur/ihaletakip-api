@@ -7,6 +7,7 @@ Throttle nedeniyle tek istek, rate-limit'e dokunmaz.
 """
 from django.core.management.base import BaseCommand
 
+from ekap import keyfetch
 from ekap.client import EkapV2Client
 from ekap.signing import decrypt_cbc_b64, generate_signing_headers
 from ekap.sync import extract_list
@@ -19,11 +20,19 @@ class Command(BaseCommand):
         parser.add_argument("--take", type=int, default=3)
 
     def handle(self, *args, **options):
+        # 0) Çalışan imza şeması (anahtar + başlık adları rotasyona tabi)
+        scheme = keyfetch.resolve()
+        names = scheme["headers"]
+        self.stdout.write(
+            f"🧩 Şema: anahtar {len(scheme['key'])} karakter ({scheme['key'][:4]}…), "
+            f"başlıklar {sorted(names.values())}"
+        )
+
         # 1) İmza header'larını lokal doğrula (decrypt → eşleşme)
-        h = generate_signing_headers()
-        guid_dec = decrypt_cbc_b64(h["X-Csrf-Token"], h["X-Session-Id"])
-        ts_dec = decrypt_cbc_b64(h["X-Trace-Id"], h["X-Session-Id"])
-        ok = guid_dec == h["X-Correlation-Id"]
+        h = generate_signing_headers(path="/b_ihalearama/api/Ihale/GetListByParameters")
+        guid_dec = decrypt_cbc_b64(h[names["r8id"]], h[names["iv"]])
+        ts_dec = decrypt_cbc_b64(h[names["ts"]], h[names["iv"]])
+        ok = guid_dec == h[names["guid"]]
         self.stdout.write(f"🔐 İmza self-test: guid eşleşme={ok}, ts={ts_dec}")
         if not ok:
             self.stderr.write(self.style.ERROR("İmza self-test BAŞARISIZ."))

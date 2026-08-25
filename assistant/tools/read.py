@@ -11,6 +11,8 @@ Sözleşme: `-> dict`, daima `{"ok": bool, ...}`; exception sızdırmaz.
 """
 import logging
 
+from django.db.models import F
+
 from .trim import butceye_sigdir, kes, para
 
 logger = logging.getLogger("ihaletakip")
@@ -20,6 +22,12 @@ AZAMI_IHALE = 20
 AZAMI_FIRMA = 15
 AZAMI_SOZLESME = 15
 AZAMI_OKAS_TERIM = 10
+AZAMI_BENZER = 8
+AZAMI_SERI = 10
+
+# Tekrar eden seri sıralaması: sıradaki ilanı en yakın olan önce; tarihi bilinmeyen
+# seriler (beklenen_ilan_tarihi NULL) sona. `RecurringSeriesListView` ile aynı kural.
+_SERI_SIRA = F("beklenen_ilan_tarihi").asc(nulls_last=True)
 
 
 def _hata(mesaj, **ek):
@@ -389,10 +397,61 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
             return {"ok": True, "liste": [
                 {"id": r.contractor_id, "ad": kes(getattr(r.contractor, "kanonik_ad", ""), 120),
                  "alarm": getattr(r, "alarm", None)} for r in rows]}
+        if tur == "yaklasan":
+            # ⚠️ `SavedTender.tender_date` bir CharField'dır (serbest metin) — ona göre
+            # sıralamak "10.03.2026" ile "9.3.2026"yı yanlış sıralar. Gerçek tarih
+            # `ekap.Tender.ihale_tarihi`de; İKN üzerinden JOIN'liyoruz.
+            from django.utils import timezone
+
+            from ekap.models import Tender
+
+            iknler = set(
+                SavedTender.objects.filter(user=u).values_list("tender_ikn", flat=True)
+            )
+            iknler |= set(
+                TenderAlarm.objects.filter(user=u, completed=False)
+                .exclude(tender_ikn__isnull=True).exclude(tender_ikn="")
+                .values_list("tender_ikn", flat=True)
+            )
+            if not iknler:
+                return {"ok": True, "liste": [],
+                        "not": "Kullanıcının kayıtlı ihalesi ya da alarmı yok."}
+            bugun = timezone.localdate()
+            rows = (
+                Tender.objects.filter(ikn__in=sorted(iknler), ihale_tarihi__gte=bugun)
+                .defer("detail_raw", "list_raw")
+                .order_by("ihale_tarihi")[:n]
+            )
+            liste = []
+            for t in rows:
+                kart = ctx.kart_ekle(t)      # kullanıcı "buna alarm kur" diyebilsin
+                liste.append({**kart, "kalan_gun": (t.ihale_tarihi - bugun).days})
+            return {"ok": True, "liste": liste,
+                    "not": "Yalnızca ihale tarihi BUGÜN veya sonrası olanlar; "
+                           "tarihi geçmiş kayıtlar listelenmez."}
+        if tur == "onerilerim":
+            from assistant.models import TenderRecommendation
+
+            rows = (
+                TenderRecommendation.objects.filter(user=u)
+                .select_related("tender")
+                .defer("tender__detail_raw", "tender__list_raw")
+                .order_by("-date", "-score")[:n]
+            )
+            liste = []
+            for r in rows:
+                kart = ctx.kart_ekle(r.tender)
+                liste.append({**kart, "skor": round(r.score, 1),
+                              "gerekce": r.reasons or [], "gorulduMu": r.seen})
+            return {"ok": True, "liste": liste,
+                    "not": "gerekce alanı, öneriyi üreten KURAL TABANLI eşleşmedir "
+                           "(anahtar kelime/OKAS/il/tür). 'Neden önerdin' sorusunda "
+                           "bunu aynen aktar, yeni gerekçe uydurma."}
     except Exception:
         logger.exception("kullanicinin_verisi başarısız: %s", tur)
         return _hata("Kayıtlarınız alınamadı.")
-    return _hata("Geçersiz tür. Seçenekler: kayitli_ihaleler, kayitli_filtreler, alarmlar, favori_idareler, favori_firmalar.")
+    return _hata("Geçersiz tür. Seçenekler: kayitli_ihaleler, kayitli_filtreler, alarmlar, "
+                 "favori_idareler, favori_firmalar, yaklasan, onerilerim.")
 
 
 # ── 9. İdare arama ─────────────────────────────────────
@@ -443,4 +502,255 @@ def idare_ara(ctx, q=None, take=None, **_):
         "ok": True,
         "liste": liste,
         "not": "idare_profili için: yaprak birim ise idare_id, üst kurum ise detsis_no kullan.",
+    })
+
+
+# ── 10. Fiyat analizi (benchmark) ──────────────────────
+def ihale_benchmark(ctx, key=None, yil_geri=None, kapsam=None, **_):
+    """
+    "Bu iş kaça kapanır / ne kadar indirim verilir?" sorusunun karşılığı.
+
+    ⚠️ Free maskelemesi YAPILMAZ: asistan ucu `require_premium(MSG_CHAT)` ile
+    korunuyor (assistant/views.py::AssistantChatView), buraya yalnızca Pro üye
+    ulaşır. `TenderBenchmarkView._KILITLI` maskesi HTTP ucuna aittir; burada
+    tekrarlanırsa Pro kullanıcıya boş veri gösteririz.
+    """
+    from ekap import benchmark as benchmark_mod
+    from ekap.views import _tender_by_key
+
+    if not key:
+        return _hata("İhale anahtarı (İKN veya ekap_id) gerekli.")
+    try:
+        # ⚠️ defer_raw YOK: `benchmark()` ilk satırda `tender.detail_synced_at`e ve
+        # `_merdiven` içinde OKAS/idare alanlarına bakıyor; `_tender_by_key`nin tam
+        # nesnesi gerekiyor.
+        t = _tender_by_key(str(key))
+        if t is None:
+            return _hata(f"{key} sistemde bulunamadı.")
+        veri, hata = benchmark_mod.benchmark(
+            t, yil_geri=yil_geri or benchmark_mod.VARSAYILAN_YIL, kapsam=kapsam or "auto",
+            limit=AZAMI_BENZER,
+        )
+    except Exception:
+        logger.exception("ihale_benchmark başarısız: %s", key)
+        return _hata("Fiyat analizi üretilemedi.")
+    if hata:
+        return _hata(hata)
+
+    ornek = veri.get("ornek") or {}
+    sonuc = {
+        "ok": True,
+        "ihale": veri.get("ihale"),
+        # `kapsam.aciklama` modele ZORUNLU: aynı sayı "bu idarede" ile "Türkiye
+        # genelinde" tamamen farklı anlam taşır.
+        "kapsam": veri.get("kapsam"),
+        "ornek": ornek,
+        "indirim_orani": veri.get("indirim_orani"),
+        "ortalama_indirim_orani": veri.get("ortalama_indirim_orani"),
+        "sozlesme_bedeli": veri.get("sozlesme_bedeli"),
+        # ⚠️ benchmark._yillara_gore `.order_by("-yil")` üretir → AZALAN.
+        # `son_yillar` doğru araç. (market.grup_detayi ARTAN üretir, orada değil.)
+        "yillara_gore": son_yillar(veri.get("yillara_gore")),
+        "rekabet": veri.get("rekabet"),
+        "fiyat_disi_unsur_var": veri.get("fiyat_disi_unsur_var"),
+        "benzer_ihaleler": [
+            {
+                "ikn": b.get("ikn"),
+                "ihale_adi": kes(b.get("ihale_adi"), 110),
+                "idare_adi": kes(b.get("idare_adi"), 80),
+                "tarih": b.get("sozlesme_tarihi"),
+                "sozlesme_bedeli": b.get("sozlesme_bedeli"),
+                "indirim_orani": b.get("indirim_orani"),
+                "teklif_sayisi": b.get("teklif_sayisi"),
+                "yuklenici": (b.get("yuklenici") or {}).get("ad"),
+            }
+            for b in (veri.get("benzer_ihaleler") or [])
+        ],
+    }
+    if veri.get("uyari"):
+        sonuc["uyari"] = veri["uyari"]
+    if ornek.get("yeterli_veri") is False:
+        sonuc["not"] = (
+            "Örneklem yetersiz: dağılımı rakamla verme, 'bu iş için karşılaştırılabilir "
+            "yeterli sözleşme yok' de ve kapsamı genişletmeyi öner."
+        )
+    return butceye_sigdir(sonuc, "benzer_ihaleler")
+
+
+# ── 11. Tekrar eden ihaleler ───────────────────────────
+def tekrar_eden_ihaleler(ctx, key=None, beklenen_gun=None, page_size=None, **params):
+    """
+    İki kip:
+      · `key` verilirse → BU ihalenin serisi + geçmiş örnekleri
+        ("bu iş her yıl açılıyor mu, geçen sene kaça verilmişti").
+      · verilmezse → filtreli seri listesi ("bu idare önümüzdeki 60 günde ne açar").
+
+    ⚠️ `beklenen_ilan_tarihi` bir TAHMİNDİR. `guven` alanı cevaba mutlaka taşınmalı;
+    `dusuk` güvende tarih kesin verilmemeli.
+    """
+    from ekap.models import RecurringTenderSeries, Tender
+    from ekap.views import _seri_dict, _tender_by_key
+
+    n = min(int(page_size or 10), AZAMI_SERI)
+    try:
+        if key:
+            t = _tender_by_key(str(key), defer_raw=True)
+            if t is None:
+                return _hata(f"{key} sistemde bulunamadı.")
+            if not t.seri_anahtar:
+                return {
+                    "ok": True, "seri": None, "gecmis": [],
+                    "not": "Bu ihale tekrar eden bir seriye ait değil; benzerleri için "
+                           "ihale_benchmark kullan.",
+                }
+            seri = RecurringTenderSeries.objects.filter(
+                seri_anahtar=t.seri_anahtar, idare_id=t.idare_id
+            ).first()
+            gecmis = (
+                Tender.objects.filter(seri_anahtar=t.seri_anahtar, idare_id=t.idare_id)
+                .exclude(pk=t.pk)
+                .only("ikn", "ekap_id", "ihale_adi", "ilan_tarihi", "sozlesme_bedeli_num")
+                .order_by("-ilan_tarihi")[:n]
+            )
+            return butceye_sigdir({
+                "ok": True,
+                "seri": _seri_dict(seri) if seri else None,
+                "gecmis": [
+                    {
+                        "ikn": g.ikn,
+                        "ihale_adi": kes(g.ihale_adi, 110),
+                        "ilan_tarihi": g.ilan_tarihi.isoformat() if g.ilan_tarihi else None,
+                        "sozlesme_bedeli": para(g.sozlesme_bedeli_num),
+                    }
+                    for g in gecmis
+                ],
+            }, "gecmis")
+
+        qs = RecurringTenderSeries.objects.filter(aktif=True)
+        for alan in ("idare_id", "en_ust_idare_kod", "okas_ana_kod", "il_id",
+                     "ihale_tip", "periyot_tip", "guven"):
+            deger = params.get(alan)
+            if deger:
+                qs = qs.filter(**{f"{alan}__in": deger if isinstance(deger, list) else [deger]})
+        detsis = (params.get("idare_detsis") or "").strip() if params.get("idare_detsis") else ""
+        if detsis:
+            from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
+
+            genis = descendant_idare_ids([detsis]) & tender_idare_id_set()
+            qs = qs.filter(idare_id__in=sorted(genis)) if genis else qs.none()
+        if beklenen_gun:
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            bugun = timezone.localdate()
+            qs = qs.filter(
+                beklenen_ilan_tarihi__gte=bugun,
+                beklenen_ilan_tarihi__lte=bugun + timedelta(days=int(beklenen_gun)),
+            )
+        toplam = qs.count()
+        satirlar = qs.order_by(_SERI_SIRA)[:n]
+        liste = [_seri_dict(s) for s in satirlar]
+    except Exception:
+        logger.exception("tekrar_eden_ihaleler başarısız: %s / %s", key, params)
+        return _hata("Tekrar eden ihale bilgisi alınamadı.")
+
+    sonuc = {"ok": True, "toplam": toplam, "liste": liste}
+    if not liste:
+        sonuc["not"] = (
+            "Bu filtrelerle tekrar eden seri yok. Seri kurulması için aynı idarede aynı "
+            "işin en az 2 kez açılmış olması gerekir; kısıtı gevşetmeyi öner."
+        )
+    else:
+        sonuc["not"] = (
+            "beklenen_ilan_tarihi TAHMİNDİR. guven='dusuk' olan satırlarda tarihi kesin "
+            "verme, '≈' ile yaklaşık söyle."
+        )
+    return butceye_sigdir(sonuc)
+
+
+# ── 12. Pazar panosu ───────────────────────────────────
+def pazar_panosu(ctx, okas_bucket=None, yil=None, limit=None):
+    """
+    `okas_bucket` yoksa yılın genel görünümü + en büyük iş grupları;
+    varsa o iş grubunun yıllara göre seyri, il/firma kırılımı ve yoğunlaşması.
+
+    ⚠️ İhale listesine geçerken `okas_kod` kullanılır (önek eşleşir), `okas_ana_kod`
+    DEĞİL: `okas_bucket = okas_ana_kod[:4]` olduğu için tam eşleşme boş döner.
+    """
+    from ekap import market as market_mod
+
+    n = min(int(limit or 10), 20)
+    try:
+        if okas_bucket is not None and str(okas_bucket).strip():
+            veri, hata = market_mod.grup_detayi(str(okas_bucket).strip(), yil=yil, limit=n)
+        else:
+            veri, hata = market_mod.genel_bakis(yil, limit=n)
+    except Exception:
+        logger.exception("pazar_panosu başarısız: %s / %s", okas_bucket, yil)
+        return _hata("Pazar panosu verisi alınamadı.")
+    if hata:
+        return _hata(hata)
+
+    sonuc = {"ok": True, **veri}
+    # ⚠️ market.grup_detayi serisi ARTAN üretir (`order_by("yil")`) — burada
+    # `son_yillar` KULLANILMAZ, kuyruk alınır. (benchmark AZALAN üretir, orada tersi.)
+    if isinstance(sonuc.get("yillara_gore"), list):
+        sonuc["yillara_gore"] = sonuc["yillara_gore"][-6:]
+    for anahtar in ("iller", "firmalar", "gruplar"):
+        if isinstance(sonuc.get(anahtar), list):
+            sonuc[anahtar] = sonuc[anahtar][:n]
+    sonuc["not"] = (
+        "hhi 0–1 aralığındadır, YÜZDE DEĞİLDİR (0,25 = orta yoğunlaşma). "
+        "okas_bucket='' 'Sınıflandırılmamış' gerçek veridir, listeden düşürme. "
+        "Yıllar arası tutar karşılaştırmasında enflasyon notu düş."
+    )
+    return butceye_sigdir(sonuc, "firmalar")
+
+
+# ── 13. Doküman analizi (varsa) ────────────────────────
+def dokuman_analizi(ctx, ikn=None, tur=None, **_):
+    """
+    İhaleye ait DAHA ÖNCE üretilmiş şartname/maliyet analizini döner.
+
+    ⚠️ Asistan dokümanı KENDİ İNDİREMEZ: EKAP doküman indirme captcha'lı bir
+    kullanıcı akışıdır (mobil `TenderDetail` → Dokümanlar). `AnalysisCache` ise
+    kullanıcı bazlı DEĞİL (ikn, analysis_type) bazlıdır; başka bir kullanıcı analiz
+    ettiyse sonuç burada hazır durur. Yoksa uydurma — kullanıcıyı uygulama içindeki
+    akışa yönlendir (EKAP'a DEĞİL).
+    """
+    from ai.models import AnalysisCache
+
+    if not ikn:
+        return _hata("İKN gerekli.")
+    try:
+        qs = AnalysisCache.objects.filter(ikn=str(ikn).strip())
+        if tur:
+            qs = qs.filter(analysis_type=tur)
+        satirlar = list(qs.order_by("-updated_at")[:2])
+    except Exception:
+        logger.exception("dokuman_analizi başarısız: %s", ikn)
+        return _hata("Analiz kaydı okunamadı.")
+
+    if not satirlar:
+        return {
+            "ok": True,
+            "liste": [],
+            "not": (
+                "Bu ihale için hazır analiz yok. Kullanıcıya: ihale detayındaki "
+                "Dokümanlar sekmesinden şartnameyi indirip Analiz sekmesinde "
+                "analiz ettirebileceğini söyle. EKAP'a yönlendirme."
+            ),
+        }
+    return butceye_sigdir({
+        "ok": True,
+        "liste": [
+            {
+                "tur": s.get_analysis_type_display(),
+                "tarih": s.updated_at.strftime("%d.%m.%Y"),
+                "metin": kes(s.analysis, 3000),
+            }
+            for s in satirlar
+        ],
+        "not": "Bu analiz uygulama içinde yüklenen dokümandan üretildi; özetleyerek aktar.",
     })

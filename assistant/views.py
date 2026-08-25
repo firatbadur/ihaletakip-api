@@ -508,27 +508,59 @@ class AssistantActionExecuteView(_EylemBaseView):
             p = dict(eylem.params or {})
             # ⚠️ require_premium buradan fırlarsa (403) transaction geri alınır ve eylem
             # `bekliyor` KALIR — kullanıcı Pro alıp aynı karta tekrar basabilsin diye.
-            if eylem.tur == AssistantAction.Tur.IHALE_KAYDET:
-                klasor = p.pop("klasor", None)
-                kayit, _yeni = yazma.ihale_kaydet(request.user, **p)
-                if klasor:
-                    from tenders.models import TenderGroup
-
-                    grup = TenderGroup.objects.filter(user=request.user, name=klasor).first()
-                    if grup:
-                        kayit.group = grup
-                        kayit.save(update_fields=["group"])
-                sonuc = {"kaydedildi": True, "ikn": kayit.tender_ikn}
-            elif eylem.tur == AssistantAction.Tur.ALARM_KUR:
-                alarm, _yeni = yazma.alarm_kur(request.user, **p)
-                sonuc = {"alarm_kuruldu": True, "tender_id": alarm.tender_id}
-            elif eylem.tur == AssistantAction.Tur.FILTRE_KAYDET:
-                filtre = yazma.filtre_kaydet(request.user, **p)
-                sonuc = {"filtre_kaydedildi": True, "id": filtre.pk, "ad": filtre.name}
-            else:
-                return api_response(
-                    data=None, message="Bilinmeyen eylem türü.", success=False, status=400
-                )
+            T = AssistantAction.Tur
+            try:
+                if eylem.tur == T.IHALE_KAYDET:
+                    klasor = p.pop("klasor", None)
+                    # ⚠️ Klasör YOKSA oluşturulur. Eskiden yok sayılıyordu: kullanıcı
+                    # "Yol İşleri klasörüne kaydet" deyip onaylıyor, kayıt sessizce
+                    # Genel'e düşüyordu — asistan yalan söylemiş oluyordu.
+                    grup = yazma.klasor_bul_veya_olustur(request.user, klasor) if klasor else None
+                    kayit, _yeni = yazma.ihale_kaydet(request.user, group=grup, **p)
+                    sonuc = {"kaydedildi": True, "ikn": kayit.tender_ikn,
+                             "klasor": grup.name if grup else "Genel"}
+                elif eylem.tur == T.TOPLU_IHALE_KAYDET:
+                    klasor = p.get("klasor")
+                    grup = yazma.klasor_bul_veya_olustur(request.user, klasor) if klasor else None
+                    iknler = []
+                    for satir in p.get("kayitlar") or []:
+                        kayit, _yeni = yazma.ihale_kaydet(request.user, group=grup, **satir)
+                        iknler.append(kayit.tender_ikn)
+                    sonuc = {"kaydedildi": True, "adet": len(iknler), "iknler": iknler,
+                             "klasor": grup.name if grup else "Genel"}
+                elif eylem.tur == T.IHALE_TASI:
+                    kayit = yazma.ihale_tasi(request.user, **p)
+                    sonuc = {"tasindi": True, "ikn": kayit.tender_ikn,
+                             "klasor": kayit.group.name if kayit.group_id else "Genel"}
+                elif eylem.tur == T.ALARM_KUR:
+                    alarm, _yeni = yazma.alarm_kur(request.user, **p)
+                    sonuc = {"alarm_kuruldu": True, "tender_id": alarm.tender_id}
+                elif eylem.tur == T.FILTRE_KAYDET:
+                    filtre = yazma.filtre_kaydet(request.user, **p)
+                    sonuc = {"filtre_kaydedildi": True, "id": filtre.pk, "ad": filtre.name}
+                elif eylem.tur == T.FIRMA_TAKIP:
+                    fav, _yeni = yazma.firma_takip_et(request.user, **p)
+                    sonuc = {"takip_ediliyor": True, "contractor_id": fav.contractor_id}
+                elif eylem.tur == T.IDARE_FAVORI:
+                    fav, _yeni = yazma.idare_favori_ekle(request.user, **p)
+                    sonuc = {"favoriye_eklendi": True, "detsis_no": fav.detsis_no}
+                elif eylem.tur == T.KAYIT_SIL:
+                    silinen = yazma.kaydi_sil(request.user, **p)
+                    sonuc = {"silindi": True, "adet": silinen, "tur": p.get("tur")}
+                else:
+                    return api_response(
+                        data=None, message="Bilinmeyen eylem türü.", success=False, status=400
+                    )
+            except ValueError as e:
+                # Servis katmanının iş kuralı reddi (klasör limiti, kayıt yok…).
+                # ⚠️ `hata` durumuna DÜŞÜRÜLÜR: bu istekle çözülmeyecek bir sorundur,
+                # `bekliyor` bırakmak kullanıcıya sonuçsuz bir kart bırakırdı.
+                # (Pro 403'ü farklıdır — orada exception transaction'ı geri alır.)
+                eylem.durum = AssistantAction.Durum.HATA
+                eylem.sonuc = {"hata": str(e)}
+                eylem.save(update_fields=["durum", "sonuc"])
+                return api_response(data={"durum": eylem.durum}, message=str(e),
+                                    success=False, status=400)
 
             eylem.durum = AssistantAction.Durum.ONAYLANDI
             eylem.sonuc = sonuc

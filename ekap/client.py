@@ -12,6 +12,7 @@ import time
 from curl_cffi import requests as curl_requests
 from django.conf import settings
 
+from . import keyfetch
 from .constants import DEFAULT_SEARCH_BODY
 from .signing import generate_signing_headers
 from .throttle import wait_for_slot
@@ -51,6 +52,17 @@ class EkapV2Client:
     def _post(self, path: str, payload: dict):
         url = f"{self.base_url}{path}"
         last_exc = None
+        # İmza reddi → şemayı bir kez yeniden keşfedip tekrar dene. EKAP anahtarı
+        # ve başlık adlarını döndürüyor (2026-08'de bir haftada üç kez, ikisi aynı
+        # gün); rotasyon anında tüm toplama durur.
+        # ⚠️ **Tetikleyici yalnızca 401 DEĞİL.** Ölçüldü: geçersiz anahtarla EKAP
+        # bazen `401 HataKodu: 1200`, bazen **`500 Sunucu hatası oluştu`** döner
+        # (imza çözülemeyince şifre çözme katmanı patlıyor olmalı). Yalnızca 401'e
+        # bakan bir kurtarma, rotasyonun yarısını kaçırırdı.
+        # ⚠️ **Bir kez**: şema gerçekten değiştiyse tek yenileme yeter; değişmediyse
+        # (gerçek sunucu hatası) döngü her denemede portalden 3 dosya indirir ve
+        # kurtarma kendi başına bir yüke dönüşürdü.
+        yenilendi = False
 
         for attempt in range(self.max_retries + 1):
             wait_for_slot()  # throttle
@@ -63,7 +75,8 @@ class EkapV2Client:
                 "Accept-Language": "tr-TR,tr;q=0.9",
                 "Content-Type": "application/json",
                 "api-version": "v1",
-                **generate_signing_headers(),
+                # ⚠️ İmzalanan yol istek yoluyla BİREBİR aynı olmalı.
+                **generate_signing_headers(method="POST", path=path),
             }
             try:
                 resp = self.session.post(
@@ -79,6 +92,13 @@ class EkapV2Client:
                     return resp.json()
                 except ValueError:
                     return resp.text
+
+            if resp.status_code in (401, 403, 500) and not yenilendi:
+                yenilendi = True
+                logger.warning("EKAP HTTP %s (%s) — imza şeması yeniden keşfediliyor",
+                               resp.status_code, resp.text[:120])
+                keyfetch.invalidate()
+                continue
 
             # 429 / 5xx → backoff + retry
             if resp.status_code == 429 or resp.status_code >= 500:

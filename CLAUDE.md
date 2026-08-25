@@ -118,27 +118,50 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   `_post` başlıklarına **`Accept-Language: tr-TR,tr;q=0.9`** eklendi → Türkçe döner.
   Yalnızca **yeni/yeniden senkronlanan** kayıtlar düzelir; eski kayıtlar `refresh_stale`/
   `sync_recent` ile zamanla güncellenir. (`ihaleKapsamAciklama` zaten hep Türkçe geliyor.)
-- **İmzalama**: Her EKAP v2 isteği AES-192-CBC imza header'ı ister
-  (`X-Correlation-Id` = düz GUID, `X-Csrf-Token` = AES(GUID), `X-Session-Id` = IV,
-  `X-Trace-Id` = AES(unix_ms)). Anahtar `EKAP_SIGNING_KEY` (env).
-  ⚠️ **2026-08-21 kırılması — header adları VE anahtar birlikte değişti.** EKAP public
-  "İhale Arama"yı yeni Angular portalına taşıdı (eski
+- **İmzalama**: Her EKAP v2 isteği AES-CBC imza başlıkları ister. Sabit olan
+  yalnızca **algoritma**: düz GUID + AES(GUID) + IV(Base64) + AES(unix_ms), ve
+  2026-08-25'ten beri AES("POST") + AES(istek yolu). Anahtar ham AES anahtarıdır
+  (salt/KDF yok), ciphertext IV öneki taşımaz.
+  ⚠️ ⚠️ **Anahtar VE başlık adları EKAP tarafından döndürülüyor — koda gömmeyin.**
+  Ölçülen tempo: **bir haftada üç şema, ikisi aynı gün (2026-08-25)**:
+  `X-Custom-Request-Guid/R8id/Siv/Ts` + 24 baytlık anahtar → `X-Correlation-Id/
+  X-Csrf-Token/X-Session-Id/X-Trace-Id` + yeni 24 baytlık anahtar →
+  `X-Ekap-Sec-1..6` + **32 baytlık** anahtar (AES-256) + yol/metot imzası.
+  Tetikleyici: EKAP public "İhale Arama"yı yeni Angular portalına taşıdı (eski
   `ekap.kik.gov.tr/EKAP/Ortak/IhaleArama/index.html` → `ekapv2.kik.gov.tr/ekap/search`).
-  Eski `X-Custom-Request-Guid/R8id/Siv/Ts` başlıkları artık tanınmıyor; anahtar
-  `Qm2LtXR0aByP69vZNKef4wMJ` → **`Kj9PxV3sM5wE7tC2zY1bR8qL`** oldu. Algoritma aynı
-  (AES-192-CBC + PKCS7, ciphertext Base64, IV ayrı başlıkta) — yalnızca 4 ad ve anahtar.
-  ⚠️ **Belirti (bu arıza sınıfının parmak izi)**: `SyncRun` `status=error`, **`items=0`
-  ve `errors=0`**, `started_at == finished_at`. `errors` yalnızca satır döngüsünde artar,
-  yani sıfır olması hatanın **ilk arama isteğinde** olduğunu söyler. Gerçek sebep
-  `SyncRun.note` alanındadır (admin liste ekranında görünmez, **detay sayfasında** durur) —
-  burada `EKAP ... → HTTP 401: İstek doğrulanamadı. HataKodu: 1200` yazıyordu.
-  ⚠️ **401'i IP engeli sanmayın**: gateway başlıksız isteğe de **aynı** 1200 kodunu
-  döndürüyor, yani "imza yanlış" ile "imza yok" ayırt edilemiyor. Ayrım için istek
-  **başka bir ağdan** tekrarlanır; oradan da 401 geliyorsa engel değil şema değişikliğidir.
-  ⚠️ **Anahtar tekrar dönerse teşhis yolu**: `ekapv2.kik.gov.tr/` → `main.<hash>.js`
-  içindeki webpack chunk haritasından `common.<hash>.js` (`@environments` modülü)
-  indirilir, `r8fact` aranır. İmza üretimi `RequestSecurityService.
-  generateSecurityHeaders()` içinde (chunk `1959.*`, `Se.AES.encrypt(...)`).
+- **`ekap/keyfetch.py` — şemanın çalışma anında keşfi.** Anahtar ve başlık adları
+  portalın kendi JS paketinden çıkarılır: `ekapv2.kik.gov.tr/` → `main.<hash>.js`
+  (webpack chunk haritası) → `common.<hash>.js` (`@environments` modülü,
+  `r8fact:"<anahtar>"`) + imza chunk'ı (`generateSecurityHeaders()`).
+  Sonuç Redis'te önbelleklenir (1 sa) → web ve tüm worker'lar aynı değeri paylaşır,
+  keşif küme başına bir kez yapılır. `EKAP_SIGNING_KEY` artık **yalnızca yedektir**.
+  - ⚠️ **Rol, başlık adından DEĞİL yanındaki ifadeden çıkarılır** (`_parse_headers`):
+    adlar anlamsız (`X-Ekap-Sec-1`) ve rotasyonda değişiyor; `Base64.stringify(iv)`,
+    `new Date(...).getTime()`, `.toUpperCase()` gibi ifadeler ise şemanın kendisi.
+  - ⚠️ **Kurtarma tetikleyicisi yalnızca 401 DEĞİL.** Ölçüldü: geçersiz anahtarla
+    EKAP bazen `401 HataKodu: 1200`, bazen **`500 Sunucu hatası oluştu`** döner
+    (imza çözülemeyince şifre çözme katmanı patlıyor). Yalnızca 401'e bakan bir
+    kurtarma rotasyonun yarısını kaçırırdı → `client._post` 401/403/500'de şemayı
+    **bir kez** yeniler ve tekrar dener. "Bir kez" şart: gerçek sunucu hatasında
+    döngü her denemede portalden 3 dosya indirirdi.
+  - ⚠️ **SPA fallback tuzağı**: bilinmeyen yol `HTTP 200 + index.html` döner. JS
+    beklerken HTML almak parse'ı hatasız ama sonuçsuz bırakır (sessiz başarısızlık)
+    → `_fetch(expect_js=True)` HTML görürse hata verir. Chunk `2076` webpack'te
+    `common` adıyla yayımlanır (`__webpack_require__.u` özel durumu).
+  - ⚠️ **İmzalanan yol istek yoluyla BİREBİR aynı olmalı** (`/b_ihalearama/...`),
+    sorgu dizesi hariç; aksi hâlde 401.
+  - ⚠️ **Keşif başarısızsa fallback ZORUNLU** (`settings.EKAP_SIGNING_KEY` + son
+    bilinen `DEFAULT_HEADERS`): minify edilmiş gövdeyi regex'le okuyoruz, EKAP
+    derleyici sürümünü değiştirdiğinde parse boş dönebilir. Başarısızlık da 5 dk
+    önbelleklenir — 401 fırtınasında her istekte 3 dosya indirmek kendi başına yük.
+  - **Belirti (bu arıza sınıfının parmak izi)**: `SyncRun` `status=error`, **`items=0`
+    ve `errors=0`**, `started_at == finished_at`. `errors` yalnızca satır döngüsünde
+    artar → sıfır olması hatanın **ilk arama isteğinde** olduğunu söyler. Gerçek
+    sebep `SyncRun.note`'tadır (admin **detay** sayfasında; liste ekranında görünmez).
+  - ⚠️ **401'i IP engeli sanmayın**: gateway başlıksız isteğe de **aynı** 1200
+    kodunu döndürür, yani "imza yanlış" ile "imza yok" ayırt edilemez. Ayrım için
+    istek **başka bir ağdan** tekrarlanır; oradan da 401 geliyorsa engel değil
+    şema değişikliğidir.
 - **Rate limit**: `throttle.py` — **atomik** slot rezervasyonu (Redis `SETNX`, worker'lar
   arası koordineli): zaman `EKAP_MIN_INTERVAL_MS` pencerelerine bölünür, her pencereyi
   yalnızca bir çağrı alır. ⚠️ Eski sürüm `get`→`set` yapıyordu; atomik değildi ve

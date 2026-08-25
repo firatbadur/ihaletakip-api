@@ -158,14 +158,9 @@ _DETSIS_NO_PARAM = OpenApiParameter(
 )
 
 
-def _enrich_authority(detsis_no):
-    """`detsis_no`'dan `ekap.Authority` bulup ad/idare_id/has_items döndürür (yoksa boş)."""
-    from ekap.models import Authority
-
-    a = Authority.objects.filter(detsis_no=detsis_no).first()
-    if not a:
-        return {}
-    return {"ad": a.ad, "idare_id": a.idare_id or None, "has_items": a.has_items}
+# Gövde `tenders/services/actions.py`'ye taşındı: asistanın onay kartı ucu da aynı
+# zenginleştirmeyi yapıyor, iki kopya zamanla ayrışırdı.
+from .services.actions import enrich_authority as _enrich_authority
 
 
 @extend_schema_view(
@@ -202,13 +197,12 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
     def perform_create(self, serializer):
         # Sınır yok (Free dahil). Aynı idare tekrar eklenirse günceller (upsert);
         # ad/idare_id/has_items DB'den zenginleşir, alarm tercihi korunur.
-        detsis_no = serializer.validated_data["detsis_no"]
-        defaults = _enrich_authority(detsis_no)
-        defaults["alarm"] = serializer.validated_data.get("alarm", True)
-        FavoriteAuthority.objects.update_or_create(
-            user=self.request.user,
-            detsis_no=detsis_no,
-            defaults=defaults,
+        from .services.actions import idare_favori_ekle
+
+        idare_favori_ekle(
+            self.request.user,
+            detsis_no=serializer.validated_data["detsis_no"],
+            alarm=serializer.validated_data.get("alarm", True),
         )
 
 
@@ -242,10 +236,12 @@ class FavoriteContractorListCreateView(OwnerQuerysetMixin, generics.ListCreateAP
 
     def perform_create(self, serializer):
         # Sınır yok (Free dahil). Aynı firma tekrar eklenirse alarm tercihi güncellenir.
-        FavoriteContractor.objects.update_or_create(
-            user=self.request.user,
-            contractor=serializer.validated_data["contractor"],
-            defaults={"alarm": serializer.validated_data.get("alarm", True)},
+        from .services.actions import firma_takip_et
+
+        firma_takip_et(
+            self.request.user,
+            contractor_id=serializer.validated_data["contractor"].pk,
+            alarm=serializer.validated_data.get("alarm", True),
         )
 
 

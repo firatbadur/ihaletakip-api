@@ -182,3 +182,27 @@ class KirpmaTests(TestCase):
             {"ok": True, "toplam": 900, "liste": [{"ad": "y" * 900} for _ in range(40)]}
         )
         self.assertEqual(sonuc["toplam"], 900)
+
+
+class ModelYetenekTests(TestCase):
+    """
+    ⚠️ Adaptive thinking ve `output_config.effort` yalnızca 4.6+ modellerde var.
+    Eski modele gönderilirse API **400** döner ve hata "geçici sorun" gibi görünür.
+    Bu test, model kademesi değiştirilirken (ucuzlatma denemesi) sessizce kırılmayı önler.
+    """
+
+    def test_modern_modeller_ek_parametre_alir(self):
+        from assistant.services.agent import _modelin_yetenekleri
+
+        for model in ("claude-opus-5", "claude-sonnet-5", "claude-sonnet-4-6"):
+            with self.subTest(model=model):
+                ek = _modelin_yetenekleri(model)
+                self.assertEqual(ek["thinking"], {"type": "adaptive"})
+                self.assertIn("effort", ek["output_config"])
+
+    def test_eski_modeller_ek_parametre_almaz(self):
+        from assistant.services.agent import _modelin_yetenekleri
+
+        for model in ("claude-haiku-4-5", "claude-sonnet-4-20250514"):
+            with self.subTest(model=model):
+                self.assertEqual(_modelin_yetenekleri(model), {})

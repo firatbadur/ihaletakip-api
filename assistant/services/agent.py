@@ -23,6 +23,22 @@ from ai.services.claude import AnalysisError, get_api_key
 logger = logging.getLogger("ihaletakip")
 
 
+# Adaptive thinking + `output_config.effort` YALNIZCA 4.6 ve sonrası modellerde vardır.
+# Haiku 4.5 / Sonnet 4.5 gibi eski modellerde ikisi de **400** döndürür — üstelik hata
+# "AI servisi geçici olarak yanıt vermiyor" gibi görünür ve saatlerce yanlış yerde aranır.
+# (Ölçüldü: ASSISTANT_AGENT_MODEL=claude-haiku-4-5 ile üç sorunun üçü de 400.)
+# Yeni model ailesi eklerken buraya da ekle.
+_MODERN_AILE = ("opus-5", "opus-4-8", "opus-4-7", "opus-4-6",
+                "sonnet-5", "sonnet-4-6", "fable-5", "mythos-5")
+
+
+def _modelin_yetenekleri(model: str) -> dict:
+    """Modele göre gönderilebilecek opsiyonel parametreler."""
+    if any(ad in model for ad in _MODERN_AILE):
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"}}
+    return {}
+
+
 def _tool_result(blok_id, icerik: dict):
     """Araç sonucunu API'nin beklediği bloğa çevirir."""
     return {
@@ -122,6 +138,8 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
     basladi = time.monotonic()
     harcanan = 0
 
+    ek = _modelin_yetenekleri(settings.ASSISTANT_AGENT_MODEL)
+
     def _cagir(tools):
         try:
             return client.messages.create(
@@ -130,14 +148,25 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
                 system=system,
                 messages=messages,
                 tools=tools,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
+                **ek,
             )
         except anthropic.APIError as e:
-            code = getattr(e, "status_code", None) or "bağlantı"
-            logger.warning("Asistan Claude API hatası (%s): %s", code, e)
+            code = getattr(e, "status_code", None)
+            # ⚠️ 400 GEÇİCİ DEĞİLDİR — istekte bir hata var (desteklenmeyen parametre,
+            # geçersiz model kimliği, bozuk mesaj dizisi). "Tekrar deneyin" demek
+            # kullanıcıyı da bizi de yanlış yönlendirir; hatanın kendisini logla.
+            if code == 400:
+                logger.error(
+                    "Asistan isteği reddedildi (400) — model=%s ek=%s: %s",
+                    settings.ASSISTANT_AGENT_MODEL, list(ek), e,
+                )
+                raise AnalysisError(
+                    "Asistan yapılandırmasında bir sorun var; ekibimiz bilgilendirildi.",
+                    status=502,
+                ) from e
+            logger.warning("Asistan Claude API hatası (%s): %s", code or "bağlantı", e)
             raise AnalysisError(
-                f"AI servisi geçici olarak yanıt vermiyor ({code}).", status=502
+                f"AI servisi geçici olarak yanıt vermiyor ({code or 'bağlantı'}).", status=502
             ) from e
 
     while True:

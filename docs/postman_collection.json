@@ -3098,6 +3098,76 @@
           }
         },
         {
+          "name": "Asistan önerisini reddet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/actions/:action_id/dismiss/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "actions",
+                ":action_id",
+                "dismiss",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "action_id",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Öneriyi `reddedildi` yapar. Kart pasifleşir; yeniden onaylanamaz.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Asistan önerisini uygula",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/actions/:action_id/execute/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "actions",
+                ":action_id",
+                "execute",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "action_id",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Asistanın önerdiği eylemi (ihale kaydet / alarm kur / filtre kaydet) **kullanıcı adına** uygular. Yazma işlemi burada olur; model hiçbir zaman doğrudan yazmaz.\n\n· Eylem zaten işlenmişse **200** + mevcut sonuç döner (idempotent: çift dokunuş ikinci kaydı üretmez).\n· Süresi dolmuşsa **410** döner; kart pasifleştirilmeli.\n· Alarm ve alarmlı filtre **Pro**'dur: Free üye **403** `premium_required` alır ve eylem `bekliyor` durumunda KALIR (Pro alıp tekrar basabilir).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Öneriyi görüldü işaretle",
           "request": {
             "method": "POST",

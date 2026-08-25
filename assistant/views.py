@@ -5,6 +5,7 @@ from drf_spectacular.utils import (
     extend_schema,
     inline_serializer,
 )
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import permissions, serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -13,7 +14,13 @@ from rest_framework.views import APIView
 from accounts.premium import MSG_CHAT, require_premium
 from core.response import api_response
 
-from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
+from .models import (
+    AssistantAction,
+    ChatConversation,
+    ChatMessage,
+    CompanyProfile,
+    TenderRecommendation,
+)
 from .serializers import (
     ChatConversationSerializer,
     ChatMessageSerializer,
@@ -422,3 +429,126 @@ class RecommendationSeenView(APIView):
     def post(self, request, pk):
         updated = TenderRecommendation.objects.filter(user=request.user, id=pk).update(seen=True)
         return Response({"updated": updated})
+
+
+# ── Asistan Eylemleri (onay kartı) ─────────────────────
+def _eylem_karti(eylem):
+    """Mobilin `payload.blocks` içinde beklediği kart sözlüğü."""
+    return {
+        "type": "action",
+        "action_id": str(eylem.id),
+        "tur": eylem.tur,
+        "ozet": eylem.ozet,
+        "durum": eylem.durum,
+        "expires_at": eylem.expires_at.isoformat() if eylem.expires_at else None,
+        "sonuc": eylem.sonuc,
+    }
+
+
+class _EylemBaseView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _eylem(self, request, action_id, kilitle=False):
+        """
+        ⚠️ Sahiplik URL'den değil SORGUDAN gelir: `user=request.user` filtresi olmadan
+        başkasının action_id'si çalıştırılabilirdi. Bulunamayan kayıt 404 döner —
+        "yetkiniz yok" demek eylemin varlığını sızdırır.
+        """
+        qs = AssistantAction.objects.filter(id=action_id, user=request.user)
+        if kilitle:
+            qs = qs.select_for_update()
+        eylem = qs.first()
+        if not eylem:
+            raise NotFound("Eylem bulunamadı.")
+        return eylem
+
+
+@extend_schema(
+    tags=["assistant"],
+    summary="Asistan önerisini uygula",
+    description=(
+        "Asistanın önerdiği eylemi (ihale kaydet / alarm kur / filtre kaydet) **kullanıcı "
+        "adına** uygular. Yazma işlemi burada olur; model hiçbir zaman doğrudan yazmaz.\n\n"
+        "· Eylem zaten işlenmişse **200** + mevcut sonuç döner (idempotent: çift dokunuş "
+        "ikinci kaydı üretmez).\n"
+        "· Süresi dolmuşsa **410** döner; kart pasifleştirilmeli.\n"
+        "· Alarm ve alarmlı filtre **Pro**'dur: Free üye **403** `premium_required` alır ve "
+        "eylem `bekliyor` durumunda KALIR (Pro alıp tekrar basabilir)."
+    ),
+    request=None,
+    responses={200: OpenApiTypes.OBJECT},
+)
+class AssistantActionExecuteView(_EylemBaseView):
+    def post(self, request, action_id):
+        from django.db import transaction
+        from django.utils import timezone
+
+        from tenders.services import actions as yazma
+
+        with transaction.atomic():
+            eylem = self._eylem(request, action_id, kilitle=True)
+
+            # Zaten işlenmiş → idempotent yanıt (ağ tekrarı / çift dokunuş)
+            if eylem.durum != AssistantAction.Durum.BEKLIYOR:
+                return api_response(
+                    data={"durum": eylem.durum, "sonuc": eylem.sonuc},
+                    message="Bu öneri daha önce işlendi.",
+                )
+
+            if eylem.suresi_doldu:
+                eylem.durum = AssistantAction.Durum.SURESI_DOLDU
+                eylem.save(update_fields=["durum"])
+                return api_response(
+                    data={"durum": eylem.durum},
+                    message="Bu öneri güncelliğini yitirdi. Asistana tekrar sorabilirsiniz.",
+                    success=False,
+                    status=410,
+                )
+
+            p = dict(eylem.params or {})
+            # ⚠️ require_premium buradan fırlarsa (403) transaction geri alınır ve eylem
+            # `bekliyor` KALIR — kullanıcı Pro alıp aynı karta tekrar basabilsin diye.
+            if eylem.tur == AssistantAction.Tur.IHALE_KAYDET:
+                klasor = p.pop("klasor", None)
+                kayit, _yeni = yazma.ihale_kaydet(request.user, **p)
+                if klasor:
+                    from tenders.models import TenderGroup
+
+                    grup = TenderGroup.objects.filter(user=request.user, name=klasor).first()
+                    if grup:
+                        kayit.group = grup
+                        kayit.save(update_fields=["group"])
+                sonuc = {"kaydedildi": True, "ikn": kayit.tender_ikn}
+            elif eylem.tur == AssistantAction.Tur.ALARM_KUR:
+                alarm, _yeni = yazma.alarm_kur(request.user, **p)
+                sonuc = {"alarm_kuruldu": True, "tender_id": alarm.tender_id}
+            elif eylem.tur == AssistantAction.Tur.FILTRE_KAYDET:
+                filtre = yazma.filtre_kaydet(request.user, **p)
+                sonuc = {"filtre_kaydedildi": True, "id": filtre.pk, "ad": filtre.name}
+            else:
+                return api_response(
+                    data=None, message="Bilinmeyen eylem türü.", success=False, status=400
+                )
+
+            eylem.durum = AssistantAction.Durum.ONAYLANDI
+            eylem.sonuc = sonuc
+            eylem.executed_at = timezone.now()
+            eylem.save(update_fields=["durum", "sonuc", "executed_at"])
+
+        return api_response(data={"durum": eylem.durum, "sonuc": sonuc}, message="Tamamdır.")
+
+
+@extend_schema(
+    tags=["assistant"],
+    summary="Asistan önerisini reddet",
+    description="Öneriyi `reddedildi` yapar. Kart pasifleşir; yeniden onaylanamaz.",
+    request=None,
+    responses={200: OpenApiTypes.OBJECT},
+)
+class AssistantActionDismissView(_EylemBaseView):
+    def post(self, request, action_id):
+        eylem = self._eylem(request, action_id)
+        if eylem.durum == AssistantAction.Durum.BEKLIYOR:
+            eylem.durum = AssistantAction.Durum.REDDEDILDI
+            eylem.save(update_fields=["durum"])
+        return api_response(data={"durum": eylem.durum})

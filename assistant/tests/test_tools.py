@@ -42,7 +42,7 @@ class AracKatalogTests(TestCase):
             [t["name"] for t in TOOL_SPECS],
             ["ihale_ara", "ihale_detay", "okas_ara", "idare_profili",
              "firma_ara", "firma_profili", "firma_isleri", "kullanicinin_verisi",
-             "idare_ara"],
+             "idare_ara", "ihale_kaydet_oner", "alarm_kur_oner", "filtre_kaydet_oner"],
         )
 
 
@@ -227,3 +227,75 @@ class YilSerisiTests(TestCase):
                          [2025, 2026])
         self.assertEqual(son_yillar([]), [])
         self.assertEqual(son_yillar(None), [])
+
+
+class EylemOnerisiTests(TestCase):
+    """
+    ⚠️ Eylem araçları YAZMAZ. Bu sınıf o sınırı korur: bir gün biri "kullanıcı zaten
+    istedi, doğrudan kaydedelim" diye kısayol yaparsa testler kırmızıya döner.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth import get_user_model
+
+        cls.user = get_user_model().objects.create(
+            email="eylem@test.local", username="eylem-test"
+        )
+        cls.tender = Tender.objects.create(
+            ekap_id="test-ekap-2", ikn="2026/999002", ihale_adi="Test Alarm İşi",
+            ihale_adi_norm="test alarm isi", idare_adi="TEST İDARE", il_id=251,
+        )
+
+    def _ctx_kartli(self):
+        ctx = _ctx(user=self.user)
+        ctx.kart_ekle(self.tender)
+        return ctx
+
+    def test_havuz_disindaki_ikn_reddedilir(self):
+        """Model uydurduğu bir İKN'yi kullanıcının kayıtlarına yazdıramamalı."""
+        sonuc = TOOL_IMPL["ihale_kaydet_oner"](_ctx(user=self.user), ikn="2099/123456")
+        self.assertFalse(sonuc["ok"])
+
+    def test_oneri_uretilir_ama_kayit_YAPILMAZ(self):
+        from assistant.models import AssistantAction
+        from tenders.models import SavedTender
+
+        ctx = self._ctx_kartli()
+        sonuc = TOOL_IMPL["ihale_kaydet_oner"](ctx, ikn="2026/999002")
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual(sonuc["durum"], "bekliyor")
+        # Öneri var…
+        eylem = AssistantAction.objects.get(id=sonuc["action_id"])
+        self.assertEqual(eylem.tur, "ihale_kaydet")
+        self.assertEqual(eylem.params["tender_ikn"], "2026/999002")
+        self.assertEqual(len(ctx.oneriler), 1)
+        # …ama kullanıcının verisine HİÇBİR ŞEY yazılmadı.
+        self.assertEqual(SavedTender.objects.filter(user=self.user).count(), 0)
+
+    def test_alarm_onerisi_de_yazmaz_ve_premium_ISTEMEZ(self):
+        """Pro kontrolü onay anında (HTTP'de) yapılır; öneri üretmek serbesttir."""
+        from tenders.models import TenderAlarm
+
+        ctx = self._ctx_kartli()
+        sonuc = TOOL_IMPL["alarm_kur_oner"](ctx, ikn="2026/999002")
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual(TenderAlarm.objects.filter(user=self.user).count(), 0)
+
+    def test_filtre_onerisinde_gecersiz_alan_reddedilir(self):
+        """
+        `SavedFilter.filters` doğrudan `apply_tender_filters`'a besleniyor; geçersiz
+        anahtar sessizce yok sayılsa kullanıcı kurduğunu sandığından FARKLI bir filtre
+        kaydeder ve alarmı yanlış çalışır.
+        """
+        ctx = _ctx(user=self.user)
+        self.assertFalse(
+            TOOL_IMPL["filtre_kaydet_oner"](ctx, ad="Test", filtreler={"il": "Ankara"})["ok"]
+        )
+        self.assertTrue(
+            TOOL_IMPL["filtre_kaydet_oner"](ctx, ad="Test", filtreler={"il_id": [251]})["ok"]
+        )
+
+    def test_bos_filtre_reddedilir(self):
+        ctx = _ctx(user=self.user)
+        self.assertFalse(TOOL_IMPL["filtre_kaydet_oner"](ctx, ad="X", filtreler={})["ok"])

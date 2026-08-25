@@ -368,11 +368,11 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = SavedFilter
 
     def perform_create(self, serializer):
-        # Filtre kaydetme serbest; ancak ALARM açıksa Pro gerekir (yeni ihale bildirimi).
-        from .tasks import _alarm_enabled
+        # Kural `tenders/services/actions.py`'de; nesne yaratımı burada kalır çünkü
+        # DRF yanıtı `serializer.instance`'a ihtiyaç duyar.
+        from .services import actions
 
-        if _alarm_enabled(serializer.validated_data.get("alarm")):
-            require_premium(self.request.user, MSG_FILTER_ALARM)
+        actions.filtre_alarm_izni(self.request.user, serializer.validated_data.get("alarm"))
         serializer.save(user=self.request.user)
 
 
@@ -527,13 +527,11 @@ class SavedTenderListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
         return super().get_queryset().select_related("group")
 
     def perform_create(self, serializer):
-        # Sınır yok (Free dahil). Aynı İKN tekrar gönderilirse günceller (upsert).
-        # `group` gönderilmezse mevcut klasör korunur (yeni kayıtta null = "Genel").
-        SavedTender.objects.update_or_create(
-            user=self.request.user,
-            tender_ikn=serializer.validated_data["tender_ikn"],
-            defaults=serializer.validated_data,
-        )
+        # Mantık `tenders/services/actions.py`'de — asistanın onay kartı ucu da aynı
+        # fonksiyonu çağırır (iki yazma yolu ayrışmasın).
+        from .services import actions
+
+        actions.ihale_kaydet(self.request.user, **serializer.validated_data)
 
 
 @extend_schema(tags=["saved-tenders"], parameters=[_IKN_PARAM])
@@ -654,13 +652,10 @@ class TenderAlarmListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = TenderAlarm
 
     def perform_create(self, serializer):
-        # İhale alarmı kurma Pro'ya özeldir (kurma/güncelleme kilitli; listeleme/silme serbest).
-        require_premium(self.request.user, MSG_ALARM)
-        TenderAlarm.objects.update_or_create(
-            user=self.request.user,
-            tender_id=serializer.validated_data["tender_id"],
-            defaults=serializer.validated_data,
-        )
+        # Pro kontrolü dahil mantık `tenders/services/actions.py`'de (tek kaynak).
+        from .services import actions
+
+        actions.alarm_kur(self.request.user, **serializer.validated_data)
 
 
 @extend_schema(tags=["alarms"], parameters=[_TENDER_ID_PARAM])

@@ -10,7 +10,7 @@ Parametre adları bilerek `ekap.views.apply_tender_filters` ile birebir aynıdı
 ürettiği sözlük çevrilmeden geçirilir. Ara çeviri katmanı = zamanla ayrışan ikinci
 gerçek kaynağı.
 """
-from . import read
+from . import read, write
 
 # Yalnızca sık kullanılan filtreler şemada; tamamı ~40 parametre ve hepsini yazmak
 # cache önekini gereksiz şişirir. Model bilmediği bir filtreye ihtiyaç duyarsa
@@ -195,6 +195,58 @@ _IDARE_ARA = {
     },
 }
 
+_IHALE_KAYDET = {
+    "name": "ihale_kaydet_oner",
+    "description": (
+        "Kullanıcıya 'bu ihaleyi kaydedeyim mi?' onay kartı gösterir. Kullanıcı açıkça "
+        "istediğinde ya da profiline çok uygun bir ihale bulduğunda kullan. "
+        "SEN KAYDETMEZSİN — kullanıcı butona basınca kaydedilir."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ikn": {"type": "string", "description": "Bu sohbette bir araçtan gelmiş İKN."},
+            "klasor": {"type": "string", "description": "Klasör adı (opsiyonel)."},
+        },
+        "required": ["ikn"],
+    },
+}
+
+_ALARM_KUR = {
+    "name": "alarm_kur_oner",
+    "description": (
+        "Kullanıcıya 'bu ihaleye alarm kurayım mı?' onay kartı gösterir. Alarm PRO "
+        "özelliğidir; onay anında kontrol edilir, sen kontrol etme."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ikn": {"type": "string"},
+            "ihale_gunu": {"type": "boolean", "description": "İhale günü hatırlat."},
+            "dokuman_degisikligi": {"type": "boolean", "description": "Doküman değişince bildir."},
+        },
+        "required": ["ikn"],
+    },
+}
+
+_FILTRE_KAYDET = {
+    "name": "filtre_kaydet_oner",
+    "description": (
+        "Yaptığın aramayı kayıtlı filtre olarak eklemeyi önerir. `filtreler` alanına "
+        "`ihale_ara`'da KULLANDIĞIN parametreleri aynen koy. `alarm: true` ise yeni "
+        "eşleşen ihalede bildirim gider (PRO)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ad": {"type": "string", "description": "Kullanıcının tanıyacağı kısa ad."},
+            "filtreler": {"type": "object", "description": "ihale_ara parametreleri."},
+            "alarm": {"type": "boolean"},
+        },
+        "required": ["ad", "filtreler"],
+    },
+}
+
 # ⚠️ SIRA SABİT — yeni araç SONA eklenir (bkz. modül docstring'i, prompt cache).
 TOOL_SPECS = [
     _IHALE_ARA,
@@ -206,6 +258,9 @@ TOOL_SPECS = [
     _FIRMA_ISLERI,
     _KULLANICI_VERISI,
     _IDARE_ARA,
+    _IHALE_KAYDET,
+    _ALARM_KUR,
+    _FILTRE_KAYDET,
 ]
 
 TOOL_IMPL = {
@@ -218,6 +273,9 @@ TOOL_IMPL = {
     "firma_isleri": read.firma_isleri,
     "kullanicinin_verisi": read.kullanicinin_verisi,
     "idare_ara": read.idare_ara,
+    "ihale_kaydet_oner": write.ihale_kaydet_oner,
+    "alarm_kur_oner": write.alarm_kur_oner,
+    "filtre_kaydet_oner": write.filtre_kaydet_oner,
 }
 
 assert {t["name"] for t in TOOL_SPECS} == set(TOOL_IMPL), "TOOL_SPECS ve TOOL_IMPL ayrıştı"

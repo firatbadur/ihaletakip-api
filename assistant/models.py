@@ -1,11 +1,14 @@
 """
 İhale Asistanı modelleri.
 
+AssistantAction       — asistanın önerdiği, kullanıcının onayladığı eylem
 CompanyProfile        — kullanıcının firma profili + AI üretimi profil haritası
 TenderRecommendation  — günlük eşleştirme sonucu ihale önerileri
 ChatConversation      — sohbet oturumu (her yeni sohbet ayrı konuşma)
 ChatMessage           — asistan sohbet geçmişi
 """
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -168,3 +171,64 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.user} [{self.role}]: {self.content[:40]}"
+
+
+class AssistantAction(models.Model):
+    """
+    Asistanın ÖNERDİĞİ, kullanıcının onayladığı eylem (kaydet / alarm / filtre).
+
+    ⚠️ Model doğrudan YAZMAZ. Üç gerekçe:
+    1. Halüsinasyon yazma üretir — kullanıcının istemediği ihaleyi kaydetmek ya da yanlış
+       firmayı takibe almak, kullanıcının verisini kirletir. Okuma hatası düzeltilebilir,
+       yazma hatası kalıcıdır.
+    2. Ürün zaten asistanın SORMASINI istiyor ("Bu ihaleyi kaydedeyim mi?") — bu tanımı
+       gereği bir onay akışıdır.
+    3. `require_premium` bir DRF `APIException`'dır; Celery görevi içinde 403'e dönüşmez,
+       görevi çökertir. Onay kartı bunu doğal olarak çözer: yazma, kullanıcının bastığı
+       GERÇEK BİR HTTP İSTEĞİNDE olur (bkz. tenders/services/actions.py).
+    """
+
+    class Tur(models.TextChoices):
+        IHALE_KAYDET = "ihale_kaydet", "İhaleyi Kaydet"
+        ALARM_KUR = "alarm_kur", "Alarm Kur"
+        FILTRE_KAYDET = "filtre_kaydet", "Filtre Kaydet"
+
+    class Durum(models.TextChoices):
+        BEKLIYOR = "bekliyor", "Bekliyor"
+        ONAYLANDI = "onaylandi", "Onaylandı"
+        REDDEDILDI = "reddedildi", "Reddedildi"
+        SURESI_DOLDU = "suresi_doldu", "Süresi Doldu"
+        HATA = "hata", "Hata"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="assistant_actions")
+    message = models.ForeignKey(
+        ChatMessage, on_delete=models.CASCADE, related_name="actions", null=True, blank=True
+    )
+    tur = models.CharField(max_length=20, choices=Tur.choices)
+    # Araçtan gelen, DOĞRULANMIŞ parametreler. Yazma anında olduğu gibi kullanılır →
+    # burada uydurma bir İKN olamaz (araç kart havuzundan doğrular).
+    params = models.JSONField(default=dict)
+    ozet = models.CharField(max_length=250)          # kartta gösterilecek soru
+    durum = models.CharField(max_length=15, choices=Durum.choices, default=Durum.BEKLIYOR)
+    sonuc = models.JSONField(null=True, blank=True)  # onaylandıysa ne olduğu
+    # ⚠️ Bayat öneri tehlikelidir: ihale tarihi geçmiş bir işe alarm kurmak anlamsız,
+    # kullanıcı da sohbete günler sonra dönebiliyor.
+    expires_at = models.DateTimeField(db_index=True)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Asistan Eylemi"
+        verbose_name_plural = "Asistan Eylemleri"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "durum"])]
+
+    def __str__(self):
+        return f"{self.get_tur_display()} · {self.get_durum_display()} · {self.user}"
+
+    @property
+    def suresi_doldu(self):
+        from django.utils import timezone
+
+        return self.expires_at is not None and self.expires_at < timezone.now()

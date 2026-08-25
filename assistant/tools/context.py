@@ -33,6 +33,10 @@ class ToolContext:
     # TAMAMINI göstermek (ör. üç tur önceki alakasız aramanın sonuçlarını) kafa karıştırır.
     son_grup: list = field(default_factory=list)
 
+    # Bu turda üretilen AssistantAction nesneleri (onay kartları). Araçlar YAZMAZ,
+    # yalnızca buraya öneri koyar; gerçek yazma kullanıcının onayıyla HTTP'de olur.
+    oneriler: list = field(default_factory=list)
+
     def kart_ekle(self, tender) -> dict:
         """Tender'ı karta çevirip havuza yazar ve kartı döner."""
         from assistant.services.matching import tender_card

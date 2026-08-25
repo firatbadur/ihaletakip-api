@@ -416,6 +416,67 @@ paths:
               schema:
                 $ref: '#/components/schemas/AppStatus'
           description: ''
+  /api/v1/assistant/actions/{action_id}/dismiss/:
+    post:
+      operationId: api_v1_assistant_actions_dismiss_create
+      description: Öneriyi `reddedildi` yapar. Kart pasifleşir; yeniden onaylanamaz.
+      summary: Asistan önerisini reddet
+      parameters:
+      - in: path
+        name: action_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/assistant/actions/{action_id}/execute/:
+    post:
+      operationId: api_v1_assistant_actions_execute_create
+      description: 'Asistanın önerdiği eylemi (ihale kaydet / alarm kur / filtre kaydet)
+        **kullanıcı adına** uygular. Yazma işlemi burada olur; model hiçbir zaman
+        doğrudan yazmaz.
+
+
+        · Eylem zaten işlenmişse **200** + mevcut sonuç döner (idempotent: çift dokunuş
+        ikinci kaydı üretmez).
+
+        · Süresi dolmuşsa **410** döner; kart pasifleştirilmeli.
+
+        · Alarm ve alarmlı filtre **Pro**''dur: Free üye **403** `premium_required`
+        alır ve eylem `bekliyor` durumunda KALIR (Pro alıp tekrar basabilir).'
+      summary: Asistan önerisini uygula
+      parameters:
+      - in: path
+        name: action_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistant
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/assistant/chat/:
     post:
       operationId: api_v1_assistant_chat_create

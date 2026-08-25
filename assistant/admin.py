@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecommendation
+from .models import (
+    AssistantAction,
+    ChatConversation,
+    ChatMessage,
+    CompanyProfile,
+    TenderRecommendation,
+)
 
 
 @admin.register(CompanyProfile)
@@ -76,3 +82,13 @@ class ChatMessageAdmin(admin.ModelAdmin):
             f"{u.get('input_tokens', 0)} / {u.get('output_tokens', 0)}"
             f" / {u.get('cache_read_input_tokens', 0)}"
         )
+
+
+@admin.register(AssistantAction)
+class AssistantActionAdmin(admin.ModelAdmin):
+    list_display = ("user", "tur", "durum", "ozet", "created_at", "executed_at")
+    list_filter = ("tur", "durum")
+    search_fields = ("user__email", "ozet")
+    readonly_fields = ("params", "sonuc", "created_at", "executed_at")
+    raw_id_fields = ("user", "message")
+    list_select_related = ("user",)

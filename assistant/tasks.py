@@ -180,6 +180,11 @@ def generate_profile_map_task(user_id):
     return {"success": True, "analysis": profile_map, "usage": usage}
 
 
+def ctx_mesaj_id(save_sonucu):
+    """`_save` dönüşünden kaydedilen ChatMessage id'sini çıkarır."""
+    return ((save_sonucu or {}).get("analysis") or {}).get("id")
+
+
 def _agent_yaniti(profile, user_msg, conversation, today):
     """
     Araç kullanan yanıt yolu. Dönen: `(reply_metni, kartlar, usage)`.
@@ -232,7 +237,12 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     anilan = [i for i in dict.fromkeys(IKN_RE.findall(reply)) if i in ctx.card_pool]
     secilen = anilan or [i for i in ctx.son_grup if i in ctx.card_pool]
     kartlar = [ctx.card_pool[i] for i in secilen[:8]]
-    return reply, kartlar, sonuc.get("usage")
+
+    # Onay kartları (kaydet / alarm / filtre önerileri) — mobil `payload.blocks`'tan okur.
+    from assistant.views import _eylem_karti
+
+    bloklar = [_eylem_karti(e) for e in ctx.oneriler[:3]]
+    return reply, kartlar, sonuc.get("usage"), bloklar
 
 
 # ⚠️ soft_time_limit ŞART: hard limit (CELERY_TASK_TIME_LIMIT=300) SIGKILL demek →
@@ -263,7 +273,7 @@ def assistant_chat_task(user_id, message_id):
     text = user_msg.content or ""
 
     # Asistan mesajını kaydedip standart sonucu döndüren yardımcılar
-    def _save(reply, cards, usage=None):
+    def _save(reply, cards, usage=None, blocks=None):
         # `usage` DB'ye yazılır (maliyet izleme, bkz. ChatMessage.usage) ama
         # ChatMessageSerializer'da YOK → mobile sızmaz, iç veridir.
         msg = ChatMessage.objects.create(
@@ -271,7 +281,13 @@ def assistant_chat_task(user_id, message_id):
             conversation=conversation,
             role=ChatMessage.Role.ASSISTANT,
             content=reply,
-            payload={"kind": "text", "tender_cards": cards or []},
+            payload={
+                "kind": "text",
+                # ⚠️ `tender_cards` KORUNUR: eski mesajlar ve güncellenmemiş mobil
+                # sürümler bu alandan okuyor. `blocks` üstüne eklenir, yerine değil.
+                "tender_cards": cards or [],
+                **({"blocks": blocks} if blocks else {}),
+            },
             usage=usage or None,
         )
         if conversation:
@@ -313,7 +329,9 @@ def assistant_chat_task(user_id, message_id):
     # akışı devreye girer (kademeli çıkış / acil geri dönüş anahtarı).
     if settings.ASSISTANT_AGENT_ENABLED:
         try:
-            reply, kartlar, usage = _agent_yaniti(profile, user_msg, conversation, today)
+            reply, kartlar, usage, bloklar = _agent_yaniti(
+                profile, user_msg, conversation, today
+            )
         except SoftTimeLimitExceeded:
             logger.warning("assistant_chat_task süre aşımı (user=%s)", user_id)
             return _save(
@@ -328,7 +346,15 @@ def assistant_chat_task(user_id, message_id):
             return {"success": False, "error": "Asistan şu an yanıt veremiyor."}
         if reply is None:
             return {"success": False, "error": "Sohbet mesajı bulunamadı."}
-        return _save(reply, kartlar, usage=usage)
+        msg_sonuc = _save(reply, kartlar, usage=usage, blocks=bloklar)
+        # Öneriler mesaja bağlanır: kart hangi mesajda gösterildi, izlenebilir olsun.
+        if bloklar and ctx_mesaj_id(msg_sonuc):
+            from assistant.models import AssistantAction
+
+            AssistantAction.objects.filter(
+                id__in=[b["action_id"] for b in bloklar]
+            ).update(message_id=ctx_mesaj_id(msg_sonuc))
+        return msg_sonuc
 
     # ── 1) BELİRLİ BİR İHALE HAKKINDA (seçili ihale veya mesajda İKN) ──
     # Kullanıcı bir ihaleyi seçmiş VEYA mesajında İKN geçiyorsa: o ihaleyi DB'den
@@ -596,3 +622,26 @@ def match_recommendations(since_days=1):
         "recommendations": total_recs,
         "skipped_free": skipped_free,
     }
+
+
+@shared_task(name="assistant.tasks.expire_actions")
+def expire_actions():
+    """
+    Süresi dolmuş önerileri işaretler ve eskileri siler.
+
+    Uç zaten istek anında süreyi kontrol ediyor; bu görev kullanıcının hiç dokunmadığı
+    kartların DURUMUNU düzeltir (mobil kartı pasif gösterebilsin) ve tabloyu şişmekten
+    korur — kart başına bir satır, sohbet başına birkaç kart birikir.
+    """
+    from datetime import timedelta
+
+    from assistant.models import AssistantAction
+
+    simdi = timezone.now()
+    doldu = AssistantAction.objects.filter(
+        durum=AssistantAction.Durum.BEKLIYOR, expires_at__lt=simdi
+    ).update(durum=AssistantAction.Durum.SURESI_DOLDU)
+    silindi, _ = AssistantAction.objects.filter(created_at__lt=simdi - timedelta(days=90)).delete()
+    if doldu or silindi:
+        logger.info("expire_actions: %s süresi doldu, %s eski kayıt silindi", doldu, silindi)
+    return {"suresi_doldu": doldu, "silinen": silindi}

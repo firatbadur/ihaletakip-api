@@ -2,6 +2,8 @@
 from django.urls import path
 
 from .views import (
+    AssistantActionDismissView,
+    AssistantActionExecuteView,
     ChatMessageListView,
     ChatSendView,
     ConversationDetailView,
@@ -21,6 +23,16 @@ urlpatterns = [
         name="assistant-conversation-detail",
     ),
     path("chat/", ChatSendView.as_view(), name="assistant-chat"),
+    path(
+        "actions/<uuid:action_id>/execute/",
+        AssistantActionExecuteView.as_view(),
+        name="assistant-action-execute",
+    ),
+    path(
+        "actions/<uuid:action_id>/dismiss/",
+        AssistantActionDismissView.as_view(),
+        name="assistant-action-dismiss",
+    ),
     path("recommendations/", RecommendationListView.as_view(), name="assistant-recommendations"),
     path(
         "recommendations/<int:pk>/seen/",

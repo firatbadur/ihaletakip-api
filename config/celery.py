@@ -18,6 +18,11 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=0),
         "kwargs": {"days": 30},
     },
+    # Asistan onay kartları: süresi dolanları işaretle, 90 günden eskileri sil (03:15)
+    "assistant-expire-actions": {
+        "task": "assistant.tasks.expire_actions",
+        "schedule": crontab(hour=3, minute=15),
+    },
     # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
     # İhale Asistanı: günlük öneri digest'i + push (her gün 07:00 — ekap sync sonrası)
     "assistant-match-recommendations": {

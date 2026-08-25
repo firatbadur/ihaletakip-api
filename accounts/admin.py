@@ -59,15 +59,17 @@ class SubscriptionCancelFilter(admin.SimpleListFilter):
             return cancelled.filter(subscription_period_type="TRIAL")
         if value == "paid":
             return cancelled.exclude(subscription_period_type="TRIAL")
+        # ⚠️ "Erişimi sürüyor" = `User.is_premium`'in SQL karşılığı: katman pro VE
+        # (bitiş boş [süresiz/deneme] VEYA gelecekte). Yalnızca `expires_at__gt=now`
+        # demek, bitişi bilinmeyen deneme kullanıcılarını sessizce churn'e düşürürdü.
         now = timezone.now()
+        erisim = Q(subscription_tier=User.Tier.PRO) & (
+            Q(subscription_expires_at__isnull=True) | Q(subscription_expires_at__gt=now)
+        )
         if value == "active":
-            return cancelled.filter(subscription_expires_at__gt=now)
+            return cancelled.filter(erisim)
         if value == "churn":
-            # Bitiş geçmişte VEYA katman zaten free'ye düşmüş.
-            return cancelled.filter(
-                Q(subscription_expires_at__lte=now)
-                | Q(subscription_expires_at__isnull=True, subscription_tier=User.Tier.FREE)
-            )
+            return cancelled.exclude(erisim)
         return queryset
 
 
@@ -153,10 +155,12 @@ class UserAdmin(BaseUserAdmin):
         if obj.subscription_last_event == "BACKFILL":
             tarih = f"≈{tarih}"
         tur = "deneme" if obj.subscription_period_type == "TRIAL" else "ücretli"
-        exp = obj.subscription_expires_at
-        if exp and exp > timezone.now():
-            kalan = timezone.localtime(exp).strftime("%d.%m.%Y")
-            return f"✖ İptal ({tur}) · {tarih} → {kalan}'e kadar erişim"
+        if obj.is_premium:
+            exp = obj.subscription_expires_at
+            if exp:
+                kalan = timezone.localtime(exp).strftime("%d.%m.%Y")
+                return f"✖ İptal ({tur}) · {tarih} → {kalan}'e kadar erişim"
+            return f"✖ İptal ({tur}) · {tarih} · erişim sürüyor"
         return f"✖ İptal ({tur}) · {tarih} · süresi doldu"
 
     @admin.display(description="Push (FCM)", ordering="fcm_token")

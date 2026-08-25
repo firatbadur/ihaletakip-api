@@ -1,0 +1,67 @@
+# Altın soru seti — asistanın davranışını model değiştirdiğimizde ölçen sabit ölçüt.
+#
+# Çalıştırma:  python manage.py asistan_altin_set --user <email>
+#
+# Her soru, agent döngüsünden GERÇEKTEN geçirilir (gerçek DB + gerçek LLM çağrısı).
+# Bu bir birim test değildir; ücretli ve yavaştır. Amacı, model kademesi ya da prompt
+# değiştiğinde "daha ucuz ama hâlâ doğru mu?" sorusunu tek komutla yanıtlamak.
+#
+# Alanlar:
+#   soru        — kullanıcının yazdığı mesaj
+#   arac_bekle  — bu araçlardan EN AZ biri çağrılmalı (liste)
+#   icermeli    — cevapta geçmesi gereken metinler (küçük harfe indirgenip aranır)
+#   icermemeli  — cevapta ASLA geçmemesi gereken metinler
+#   kart_bekle  — en az bu kadar ihale kartı dönmeli
+#   not         — bu sorunun neyi ölçtüğü
+
+- soru: "otomasyon ihalelerini getir"
+  arac_bekle: [okas_ara, ihale_ara]
+  icermeli: ["otomasyon"]
+  icermemeli: ["**", "iptal edilmiş"]
+  kart_bekle: 3
+  not: >
+    Konu→OKAS köprüsü ve fırsat filtresi. Haiku testinde iptal edilmiş ve sonuçlanmış
+    ihaleler dönmüştü; kullanıcı "ihale getir" derken teklif verilebilir iş arıyor.
+
+- soru: "Toplu Konut İdaresi kimlere iş vermiş?"
+  arac_bekle: [idare_ara, idare_profili]
+  icermeli: ["1.963", "REC"]
+  icermemeli: ["**", "kazanma oran", "2016-2020"]
+  kart_bekle: 0
+  not: >
+    idare_ara → idare_profili zinciri. "2016-2020" bir REGRESYON İŞARETİDİR: yıl serisi
+    azalan gelir, ters dilimlenirse modele en eski yıllar gider (bkz. read.son_yillar).
+
+- soru: "ONLİNE ÇEVRE en son ne iş almış?"
+  arac_bekle: [firma_ara, firma_isleri]
+  icermeli: ["2026/845304", "9.870.000"]
+  icermemeli: ["**", "kazanma oran", "katıldığı ihale"]
+  kart_bekle: 1
+  not: >
+    firma_ara → firma_isleri zinciri ve EKAP sınırı: yalnızca imzalanmış sözleşmeler
+    vardır, "katıldığı ihaleler" ifadesi kullanılamaz.
+
+- soru: "Kaydettiğim ihaleler neler?"
+  arac_bekle: [kullanicinin_verisi]
+  icermeli: []
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: Kullanıcıya özel veri yolu.
+
+- soru: "Geçici teminat nedir?"
+  arac_bekle: []
+  icermeli: ["teminat"]
+  icermemeli: ["**", "ekap'tan indir", "ekap'ta arayın"]
+  kart_bekle: 0
+  not: >
+    Araç gerektirmeyen genel soru — gereksiz araç turu atmamalı ve kullanıcıyı ihale
+    aramak/doküman indirmek için EKAP'a YÖNLENDİRMEMELİ (bunlar uygulamada var).
+
+- soru: "İhale dokümanlarını nasıl inceleyebilirim?"
+  arac_bekle: []
+  icermeli: ["doküman"]
+  icermemeli: ["**", "ekap'tan indir", "teklif ver butonu"]
+  kart_bekle: 0
+  not: >
+    Ürün bilgisi. "Teklif Ver butonu" uygulamada YOKTUR; model uydurmuştu, persona
+    envanteri bunu engelliyor.

@@ -231,6 +231,119 @@ def apply_event_fallback(user, event: dict) -> None:
         logger.info("apply_event_fallback: belirsiz event '%s' uid=%s → dokunulmadı", etype, user.pk)
 
 
+# İptal izini TEMİZLEYEN event'ler: kullanıcı yeniden satın aldı / iptalden döndü.
+_UNCANCEL_EVENTS = _GRANT_EVENTS  # INITIAL_PURCHASE, RENEWAL, UNCANCELLATION, ...
+
+_CANCEL_FIELDS = [
+    "subscription_cancelled_at",
+    "subscription_cancel_reason",
+    "subscription_period_type",
+    "subscription_last_event",
+]
+
+
+def v1_subscriber(customer_id: str):
+    """
+    RC **v1** `subscribers/{id}` — geçmiş backfill'i için (v2'de yok olan alanlar).
+
+    v2 `subscriptions` yalnızca `auto_renewal_status` gibi ANLIK durumu verir; iptalin
+    **ne zaman** olduğunu (`unsubscribe_detected_at`) ve dönem tipini (`period_type`:
+    trial/normal/intro) yalnızca v1 döndürür. Webhook yolu bunu kullanmaz — yalnızca
+    `backfill_subscription_cancels` komutu içindir.
+
+    ⚠️ Bu uç, olmayan bir müşteriyi **yaratır** → çağırmadan önce v2 ile varlığını
+    doğrulayın (bkz. `customer_subscriptions`).
+    """
+    import requests
+
+    key = getattr(settings, "REVENUECAT_SECRET_KEY", "")
+    if not key:
+        raise RevenueCatError("REVENUECAT_SECRET_KEY tanımlı değil.")
+    url = f"https://api.revenuecat.com/v1/subscribers/{customer_id}"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+    except requests.RequestException as e:
+        raise RevenueCatError(f"RevenueCat v1 isteği başarısız: {e}") from e
+    if resp.status_code == 404:
+        return None
+    if resp.status_code >= 400:
+        raise RevenueCatError(f"RevenueCat v1 HTTP {resp.status_code}: {resp.text[:200]}")
+    try:
+        return (resp.json() or {}).get("subscriber") or {}
+    except ValueError as e:
+        raise RevenueCatError(f"RevenueCat v1 yanıtı JSON değil: {e}") from e
+
+
+def customer_subscriptions(customer_id: str):
+    """
+    v2 `customers/{id}/subscriptions` → item listesi. Müşteri yoksa **None** (404).
+
+    Müşteri **yaratmaz** — v1'e gitmeden önceki ucuz varlık kontrolü budur.
+    """
+    data = _get(customer_id, "subscriptions")
+    if data is None:
+        return None
+    return (data or {}).get("items", []) or []
+
+
+def record_event_state(user, event: dict) -> bool:
+    """
+    Webhook event'inden **iptal izini** kullanıcıya yazar (RC API'ye GİTMEZ).
+
+    Neden ayrı: `sync_user_subscription` yalnızca "şu an Pro mu?"yu senkronlar. İptal
+    edildiğinde kullanıcı dönem sonuna kadar Pro KALIR, dolayısıyla katmana bakarak
+    iptali görmek imkânsızdır — iz burada tutulur ve admin'de raporlanır.
+
+    - CANCELLATION → iptal tarihi + neden + dönem tipi (TRIAL = ücretsiz deneme iptali).
+    - EXPIRATION → iz yoksa (ör. CANCELLATION webhook'unu kaçırdık) süre bitişini
+      iptal olarak kaydeder; nedeni `expiration_reason`'dan alınır.
+    - Grant event'leri (satın alma / yenileme / UNCANCELLATION) → izi TEMİZLER.
+
+    Değişiklik yapıldıysa True döner. Bu fonksiyon istek yolunda (webhook view)
+    çağrılabilir; tek ucuz UPDATE'tir.
+    """
+    etype = (event.get("type") or "").upper()
+    if not etype:
+        return False
+
+    ent_key = _entitlement_key()
+    ent_ids = event.get("entitlement_ids") or []
+    if ent_ids and ent_key not in ent_ids:
+        return False  # bu event Pro entitlement'ını ilgilendirmiyor
+
+    before = [getattr(user, f) for f in _CANCEL_FIELDS]
+    user.subscription_last_event = etype[:40]
+    period = (event.get("period_type") or "").upper()
+    if period:
+        user.subscription_period_type = period[:16]
+
+    ts = _parse_rc_ts(event.get("event_timestamp_ms")) or timezone.now()
+
+    if etype == "CANCELLATION":
+        user.subscription_cancelled_at = ts
+        user.subscription_cancel_reason = (event.get("cancel_reason") or "")[:32]
+    elif etype == "EXPIRATION":
+        if user.subscription_cancelled_at is None:
+            user.subscription_cancelled_at = ts
+            user.subscription_cancel_reason = (event.get("expiration_reason") or "")[:32]
+    elif etype in _UNCANCEL_EVENTS:
+        user.subscription_cancelled_at = None
+        user.subscription_cancel_reason = ""
+
+    if [getattr(user, f) for f in _CANCEL_FIELDS] == before:
+        return False
+    user.save(update_fields=_CANCEL_FIELDS)
+    logger.info(
+        "abonelik event izi: uid=%s type=%s period=%s iptal=%s",
+        user.pk, etype, user.subscription_period_type, user.subscription_cancelled_at,
+    )
+    return True
+
+
 def resolve_user_from_event(event: dict):
     """
     Webhook event'inden Django kullanıcısını bulur. `app_user_id` ve `aliases` içinden

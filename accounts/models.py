@@ -52,6 +52,39 @@ class User(AbstractUser):
         help_text="Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.",
     )
 
+    # ── İptal izi (RevenueCat webhook'undan yazılır, API'de read-only) ──────
+    # Katman (`subscription_tier`) "şu an Pro mu?" sorusunu yanıtlar; iptal edildiğinde
+    # kullanıcı dönem sonuna kadar Pro KALIR, dolayısıyla katmana bakarak iptali göremeyiz.
+    # Bu alanlar ayrı tutulur ki admin "iptal etti ama süresi devam ediyor" ile
+    # "iptal etti, süresi doldu"yu ayırt edebilsin.
+    subscription_cancelled_at = models.DateTimeField(
+        "abonelik iptal tarihi",
+        null=True,
+        blank=True,
+        help_text="RevenueCat CANCELLATION/EXPIRATION event'i geldiği an. "
+        "Yeni satın alma / iptalden dönüş (UNCANCELLATION) ile temizlenir.",
+    )
+    subscription_cancel_reason = models.CharField(
+        "iptal nedeni",
+        max_length=32,
+        blank=True,
+        help_text="RevenueCat cancel_reason / expiration_reason (UNSUBSCRIBE, "
+        "BILLING_ERROR, CUSTOMER_SUPPORT ...).",
+    )
+    subscription_period_type = models.CharField(
+        "dönem tipi",
+        max_length=16,
+        blank=True,
+        help_text="Son event'in dönem tipi: TRIAL (ücretsiz deneme), NORMAL, INTRO. "
+        "Deneme iptali ile ücretli iptali ayırt eder.",
+    )
+    subscription_last_event = models.CharField(
+        "son RC event'i",
+        max_length=40,
+        blank=True,
+        help_text="RevenueCat'ten gelen son webhook event tipi (teşhis için).",
+    )
+
     objects = UserManager()
 
     class Meta:
@@ -79,6 +112,16 @@ class User(AbstractUser):
         from django.utils import timezone
 
         return exp > timezone.now()
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Kullanıcı aboneliğini iptal etti mi (süresi hâlâ devam ediyor olabilir)?"""
+        return self.subscription_cancelled_at is not None
+
+    @property
+    def is_trial_cancelled(self) -> bool:
+        """İptal edilen abonelik ücretsiz deneme miydi?"""
+        return self.is_cancelled and self.subscription_period_type == "TRIAL"
 
     def save(self, *args, **kwargs):
         # display_name boşsa email'in yerel kısmından türet

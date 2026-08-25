@@ -118,7 +118,7 @@ class RevenueCatWebhookView(APIView):
     authentication_classes = []  # RC JWT göndermez; Authorization = paylaşılan sır
 
     def post(self, request):
-        from .services.revenuecat import resolve_user_from_event
+        from .services.revenuecat import record_event_state, resolve_user_from_event
         from .tasks import sync_subscription_task
 
         expected = getattr(settings, "REVENUECAT_WEBHOOK_AUTH", "")
@@ -135,6 +135,14 @@ class RevenueCatWebhookView(APIView):
                 event.get("app_user_id"), event.get("type"),
             )
             return api_response(data={"handled": False}, message="Kullanıcı eşleşmedi.")
+
+        # İptal izi (CANCELLATION/EXPIRATION/UNCANCELLATION) burada, SENKRON yazılır:
+        # tek ucuz UPDATE'tir ve RC API'ye gitmez → Celery/RC arızasında bile kaybolmaz.
+        # Katman senkronu (RC sorgusu) arka plana atılır.
+        try:
+            record_event_state(user, event)
+        except Exception:  # iz yazılamazsa webhook yine 200 dönmeli
+            logger.exception("revenuecat webhook: iptal izi yazılamadı uid=%s", user.pk)
 
         # Senkronu arka plana at → hızlıca 200 dön. RC ulaşılamazsa görev event'e düşer.
         sync_subscription_task.delay(user.id, event=event)

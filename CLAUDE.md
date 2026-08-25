@@ -1264,6 +1264,32 @@ katmanını senkronlar. Sözleşme: **`app_user_id = str(user.id)`**.
     senkron **Celery'ye atılır** (`sync_subscription_task`, event yedeğiyle) ve **hızlıca
     200** döner. Kullanıcı eşleşmezse (anonim id) yine 200 `handled:false`. Test Store
     da webhook fırlatır → sandbox'ta test edilebilir.
+#### İptal takibi (admin panelde "kim iptal etti?")
+
+⚠️ **Katmana bakarak iptal GÖRÜLEMEZ**: iptal eden kullanıcı dönem sonuna kadar
+`subscription_tier=pro` KALIR (erişimi devam eder). Bu yüzden iptal ayrı bir iz olarak
+tutulur — `accounts.User`: `subscription_cancelled_at`, `subscription_cancel_reason`
+(UNSUBSCRIBE / BILLING_ERROR / ...), `subscription_period_type` (**TRIAL** = ücretsiz
+deneme iptali, NORMAL, INTRO), `subscription_last_event`.
+
+- **Yazan**: `revenuecat.record_event_state(user, event)` — webhook view'ında **senkron**
+  çağrılır (tek ucuz UPDATE, RC API'ye gitmez) → Celery/RC arızasında bile iz kaybolmaz.
+  CANCELLATION → iz yazılır; EXPIRATION → iz yoksa (kaçan webhook) süre bitişi iptal
+  sayılır; grant event'leri (satın alma/yenileme/UNCANCELLATION) → izi **temizler**.
+  ⚠️ `_apply` (katman senkronu) bu alanlara dokunmaz — iki yol birbirini ezmez.
+- **Admin**: kullanıcı listesinde "Abonelik durumu" kolonu + **"abonelik iptali"** filtresi:
+  hepsi / ücretsiz deneme iptali / ücretli iptal / **iptal etti · erişimi sürüyor**
+  (win-back hedefi) / **iptal etti · süresi doldu** (churn). Alanlar admin'de salt okunur.
+- ⚠️ **Geçmiş iptaller DB'de YOKTU** (bu özellikten önceki webhook'lar hiçbir yere
+  yazılmıyordu) → tek seferlik backfill: `python manage.py backfill_subscription_cancels
+  [--dry-run] [--limit N] [--from-pk N] [--force]`. Kullanıcı başına önce **v2**
+  `customers/{id}/subscriptions` (404 → müşteri yok, atla), sonra **v1**
+  `subscribers/{id}` sorulur.
+  ⚠️ **Sıra şart**: v1 `subscribers/{id}` olmayan müşteriyi **YARATIR** → önce v2 ile
+  varlık doğrulanır. ⚠️ İptalin **zamanı** yalnızca v1'de var
+  (`unsubscribe_detected_at` + `period_type`); v2 yalnızca anlık `auto_renewal_status`
+  verir. Varsayılan olarak yalnızca boş izi doldurur (webhook'tan geleni ezmez).
+
 - **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i
   yeniden sorgular → durum her zaman RC ile tutarlı. `verify` ve webhook aynı
   `sync_user_subscription`'ı kullanır.

@@ -21,9 +21,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # 1) İmza header'larını lokal doğrula (decrypt → eşleşme)
         h = generate_signing_headers()
-        guid_dec = decrypt_cbc_b64(h["X-Custom-Request-R8id"], h["X-Custom-Request-Siv"])
-        ts_dec = decrypt_cbc_b64(h["X-Custom-Request-Ts"], h["X-Custom-Request-Siv"])
-        ok = guid_dec == h["X-Custom-Request-Guid"]
+        guid_dec = decrypt_cbc_b64(h["X-Csrf-Token"], h["X-Session-Id"])
+        ts_dec = decrypt_cbc_b64(h["X-Trace-Id"], h["X-Session-Id"])
+        ok = guid_dec == h["X-Correlation-Id"]
         self.stdout.write(f"🔐 İmza self-test: guid eşleşme={ok}, ts={ts_dec}")
         if not ok:
             self.stderr.write(self.style.ERROR("İmza self-test BAŞARISIZ."))

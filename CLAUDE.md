@@ -119,8 +119,26 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   Yalnızca **yeni/yeniden senkronlanan** kayıtlar düzelir; eski kayıtlar `refresh_stale`/
   `sync_recent` ile zamanla güncellenir. (`ihaleKapsamAciklama` zaten hep Türkçe geliyor.)
 - **İmzalama**: Her EKAP v2 isteği AES-192-CBC imza header'ı ister
-  (`X-Custom-Request-Guid/R8id/Siv/Ts`). `signing.py`, mobil `calls.js`'in birebir
-  karşılığı; anahtar `EKAP_SIGNING_KEY` (env).
+  (`X-Correlation-Id` = düz GUID, `X-Csrf-Token` = AES(GUID), `X-Session-Id` = IV,
+  `X-Trace-Id` = AES(unix_ms)). Anahtar `EKAP_SIGNING_KEY` (env).
+  ⚠️ **2026-08-21 kırılması — header adları VE anahtar birlikte değişti.** EKAP public
+  "İhale Arama"yı yeni Angular portalına taşıdı (eski
+  `ekap.kik.gov.tr/EKAP/Ortak/IhaleArama/index.html` → `ekapv2.kik.gov.tr/ekap/search`).
+  Eski `X-Custom-Request-Guid/R8id/Siv/Ts` başlıkları artık tanınmıyor; anahtar
+  `Qm2LtXR0aByP69vZNKef4wMJ` → **`Kj9PxV3sM5wE7tC2zY1bR8qL`** oldu. Algoritma aynı
+  (AES-192-CBC + PKCS7, ciphertext Base64, IV ayrı başlıkta) — yalnızca 4 ad ve anahtar.
+  ⚠️ **Belirti (bu arıza sınıfının parmak izi)**: `SyncRun` `status=error`, **`items=0`
+  ve `errors=0`**, `started_at == finished_at`. `errors` yalnızca satır döngüsünde artar,
+  yani sıfır olması hatanın **ilk arama isteğinde** olduğunu söyler. Gerçek sebep
+  `SyncRun.note` alanındadır (admin liste ekranında görünmez, **detay sayfasında** durur) —
+  burada `EKAP ... → HTTP 401: İstek doğrulanamadı. HataKodu: 1200` yazıyordu.
+  ⚠️ **401'i IP engeli sanmayın**: gateway başlıksız isteğe de **aynı** 1200 kodunu
+  döndürüyor, yani "imza yanlış" ile "imza yok" ayırt edilemiyor. Ayrım için istek
+  **başka bir ağdan** tekrarlanır; oradan da 401 geliyorsa engel değil şema değişikliğidir.
+  ⚠️ **Anahtar tekrar dönerse teşhis yolu**: `ekapv2.kik.gov.tr/` → `main.<hash>.js`
+  içindeki webpack chunk haritasından `common.<hash>.js` (`@environments` modülü)
+  indirilir, `r8fact` aranır. İmza üretimi `RequestSecurityService.
+  generateSecurityHeaders()` içinde (chunk `1959.*`, `Se.AES.encrypt(...)`).
 - **Rate limit**: `throttle.py` — **atomik** slot rezervasyonu (Redis `SETNX`, worker'lar
   arası koordineli): zaman `EKAP_MIN_INTERVAL_MS` pencerelerine bölünür, her pencereyi
   yalnızca bir çağrı alır. ⚠️ Eski sürüm `get`→`set` yapıyordu; atomik değildi ve

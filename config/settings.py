@@ -268,7 +268,7 @@ NOTIF_OKAS_PUBLISH_DAYS = env.int("NOTIF_OKAS_PUBLISH_DAYS", default=1)
 # ── EKAP veri toplama ──────────────────────────────────
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")
 # AES-192 imzalama anahtarı (mobil calls.js ile aynı olmalı)
-EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="Qm2LtXR0aByP69vZNKef4wMJ")
+EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="Kj9PxV3sM5wE7tC2zY1bR8qL")
 EKAP_MIN_INTERVAL_MS = env.int("EKAP_MIN_INTERVAL_MS", default=1000)  # ~1 istek/sn
 # TLS parmak izi engelini aşmak için curl_cffi tarayıcı taklidi
 EKAP_IMPERSONATE = env("EKAP_IMPERSONATE", default="chrome")

@@ -4,10 +4,28 @@ EKAP v2 istek imzalama — AES-192-CBC.
 Mobil istemcideki `src/api/v1/calls.js:10-42` (CryptoJS) mantığının Python
 birebir karşılığı. EKAP v2 her isteği bu 4 header ile doğrular:
 
-    X-Custom-Request-Guid : düz metin v4 GUID
-    X-Custom-Request-R8id : AES-CBC(GUID) ciphertext, Base64
-    X-Custom-Request-Siv  : IV, Base64
-    X-Custom-Request-Ts   : AES-CBC(unix_ms) ciphertext, Base64
+    X-Correlation-Id : düz metin v4 GUID
+    X-Csrf-Token     : AES-CBC(GUID) ciphertext, Base64
+    X-Session-Id     : IV, Base64
+    X-Trace-Id       : AES-CBC(unix_ms) ciphertext, Base64
+
+⚠️ **2026-08 kırılması — header adları VE anahtar değişti.** EKAP public "İhale
+Arama" uygulamasını yeni Angular portalına taşıdı (eski
+`ekap.kik.gov.tr/EKAP/Ortak/IhaleArama/index.html` artık
+`ekapv2.kik.gov.tr/ekap/search`'e yönlendiriyor). 21 Ağustos 2026'dan itibaren
+`/b_*` gateway'i eski `X-Custom-Request-*` başlıklarını tanımıyor ve **her
+istek** (başlıksız istekler dahil, aynı kodla) `HTTP 401 "İstek doğrulanamadı.
+HataKodu: 1200"` dönüyordu → `sync_recent` her gece ilk aramada patlıyor,
+`SyncRun` `status=error / items=0 / errors=0` yazıyordu.
+
+Yeni şema portalın `RequestSecurityService.generateSecurityHeaders()`
+fonksiyonundan çıkarıldı; anahtar frontend'in `@environments` modülünde
+`environment.r8fact` olarak duruyor (`common.<hash>.js`). Algoritma **aynı**
+(AES-192-CBC + PKCS7, ciphertext Base64, IV ayrı header) — yalnızca 4 başlığın
+adı ve anahtar değişti.
+
+⚠️ **Anahtar tekrar dönerse teşhis yolu**: `ekapv2.kik.gov.tr/` → `main.*.js`
+içindeki chunk haritasından `common.<hash>.js` indirilir, `r8fact` aranır.
 
 Anahtar CryptoJS'te `enc.Utf8.parse(...)` ile WordArray olarak veriliyor →
 salt/KDF yok, ham AES-192 anahtarı. R8id/Ts sadece ciphertext'tir (IV öneki yok),
@@ -50,10 +68,10 @@ def generate_signing_headers(now_ms: int | None = None) -> dict:
     ts = str(now_ms if now_ms is not None else int(time.time() * 1000))
 
     return {
-        "X-Custom-Request-Guid": guid,
-        "X-Custom-Request-R8id": _aes_cbc_b64(guid, iv),
-        "X-Custom-Request-Siv": base64.b64encode(iv).decode("ascii"),
-        "X-Custom-Request-Ts": _aes_cbc_b64(ts, iv),
+        "X-Correlation-Id": guid,
+        "X-Csrf-Token": _aes_cbc_b64(guid, iv),
+        "X-Session-Id": base64.b64encode(iv).decode("ascii"),
+        "X-Trace-Id": _aes_cbc_b64(ts, iv),
     }
 
 

@@ -1291,8 +1291,17 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
   `current_period_ends_at`. Bu satırlar `subscription_last_event="BACKFILL"` ile
   işaretlenir ve admin tarihi **`≈`** ile gösterir — webhook izleri kesindir.
   ⚠️ Hiçbir tarih yoksa **iz YAZILMAZ** (uydurma tarih üretmeyiz).
-  ⚠️ Alan keşfi için `--probe N`: aboneliği olan ilk N müşterinin ham v2 JSON'unu basar
-  — `auto_renewal_status` / `status` isimleri RC sürümüne göre değişebilir.
+  ⚠️ Alan keşfi için `--probe N`: aboneliği olan ilk N müşterinin ham v2 JSON'unu basar.
+  ⚠️⚠️ **`auto_renewal_status="will_not_renew"` TEK BAŞINA iptal DEĞİLDİR** (prod probe,
+  2026-08-25): süresi dolmuş **her** abonelik bu değeri taşıyor — Apple süresi bitene de
+  yazıyor. Kesin iptal = yenileme kapalı **VE `gives_access=True`** (erişim sürüyor) →
+  `UNSUBSCRIBE`. Süresi dolmuşlarda neden **boş** bırakılır ("iptal mi ödeme sorunu mu
+  bilinmiyor"); orada `UNSUBSCRIBE` yazmak sessiz bir yalan olurdu.
+  ⚠️ **Yalnızca `environment="production"`** sayılır; sandbox/test_store kayıtları test
+  verisidir ve admin'i sahte iptalle doldururdu (`--include-sandbox` ile açılır).
+  ⚠️ Tarih pencere sınırıdır: erişim bitmişse **bitiş tarihi** (iptal ondan önce),
+  sürüyorsa **dönem başlangıcı** (iptal ondan sonra) — gelecekteki bitişi "iptal tarihi"
+  diye yazmak yanıltıcı olurdu.
   Varsayılan olarak yalnızca boş izi doldurur (webhook'tan geleni ezmez).
 
 - **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i

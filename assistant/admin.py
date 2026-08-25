@@ -8,7 +8,33 @@ class CompanyProfileAdmin(admin.ModelAdmin):
     list_display = ("company_name", "user", "sector", "is_active", "profile_map_generated_at")
     list_filter = ("is_active", "sector")
     search_fields = ("company_name", "user__email")
-    readonly_fields = ("profile_map", "profile_map_generated_at", "created_at", "updated_at")
+    # ⚠️ raw_id_fields ŞART. `contractor` 100k+ satırlık `ekap.Contractor`'a bakıyor;
+    # admin'in varsayılan <select> widget'ı TÜM yüklenicileri tek sayfaya basmaya
+    # çalıştığı için değişiklik sayfası açılmıyordu. raw_id_fields yalnızca id kutusu
+    # basar, adı yanında gösterir ve arama açılır pencereden yapılır.
+    # `user` de aynı sınıf sorundur (kullanıcı sayısı büyüdükçe aynı yavaşlık) —
+    # profiller uygulamadan oluşuyor, admin'den elle kullanıcı seçme akışı yok.
+    raw_id_fields = ("contractor", "user")
+    readonly_fields = (
+        "contractor_bilgi",
+        "profile_map",
+        "profile_map_generated_at",
+        "created_at",
+        "updated_at",
+    )
+    # Liste sayfasında `user` için satır başına ek sorgu atılmasın
+    list_select_related = ("user", "contractor")
+
+    @admin.display(description="Bağlı EKAP firması")
+    def contractor_bilgi(self, obj):
+        """Firma adını okunur biçimde gösterir — raw_id kutusunda yalnızca id görünür."""
+        c = obj.contractor if obj.pk else None
+        if not c:
+            return "— (EKAP kaydına bağlı değil; bilgiler elle girilmiş)"
+        parcalar = [c.kanonik_ad, f"{c.sozlesme_sayisi} sözleşme"]
+        if c.il_adi:
+            parcalar.append(c.il_adi)
+        return " · ".join(parcalar)
 
 
 @admin.register(TenderRecommendation)

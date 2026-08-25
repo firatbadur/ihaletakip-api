@@ -20,13 +20,31 @@ class CompanyProfile(TimeStampedModel):
     user = models.OneToOneField(
         USER, on_delete=models.CASCADE, related_name="company_profile"
     )
+    # Onboarding artık firmayı EKAP yüklenici veritabanında ARATIR (100k+ kayıt).
+    # Bağlıysa geçmiş işler / iller / ihale türleri SORULMAZ — sözleşme geçmişinden
+    # türetilir (bkz. services/profile_map.derive_from_contractor). SET_NULL: firma
+    # kaydı birleştirilir/silinirse profil kaybolmasın, elle girilmiş ada düşsün.
+    contractor = models.ForeignKey(
+        "ekap.Contractor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="company_profiles",
+    )
     company_name = models.CharField(max_length=255)
+    # Firmanın kendi web sitesi — profil haritası üretilirken KISACA okunur
+    # (services/profile_map._website_text). Erişilemezse sessizce atlanır.
+    website = models.URLField(max_length=300, blank=True)
+    # Firmanın merkez ili (ekap_il_id). `cities` "ilgilenilen iller"dir, bu AYRI.
+    il_id = models.IntegerField(null=True, blank=True)
     sector = models.CharField(max_length=255, blank=True)
     activity_areas = models.TextField(blank=True)
     cities = models.JSONField(default=list, blank=True)        # [ekap_il_id, ...]
     tender_types = models.JSONField(default=list, blank=True)  # [1..4]
     budget_min = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     budget_max = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    # ⚠️ ARTIK ONBOARDING'DE SORULMUYOR (firma bağlıysa EKAP sözleşme geçmişi zaten
+    # elimizde). Alan eski profillerin verisi için duruyor; prompt'a hâlâ ekleniyor.
     past_works = models.JSONField(default=list, blank=True)    # ["2023 Ankara yol yapımı", ...]
 
     # Claude üretimi profil haritası (keywords, okas_prefixes, ...) — API'de read-only

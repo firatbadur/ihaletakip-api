@@ -136,11 +136,21 @@ def generate_profile_map_task(user_id):
     """Firma profilinden AI profil haritası üretir ve kaydeder."""
     from ai.services.claude import AnalysisError
     from assistant.models import CompanyProfile
-    from assistant.services.profile_map import generate_profile_map, profile_input_digest
+    from assistant.services.profile_map import (
+        derive_from_contractor,
+        generate_profile_map,
+        profile_input_digest,
+    )
 
-    profile = CompanyProfile.objects.filter(user_id=user_id).first()
+    profile = CompanyProfile.objects.select_related("contractor").filter(user_id=user_id).first()
     if not profile:
         return {"success": False, "error": "Firma profili bulunamadı."}
+
+    # Sihirbaz artık il/tür sormuyor: firma EKAP kaydına bağlıysa bunlar sözleşme
+    # geçmişinden türetilir. Digest'ten ÖNCE yapılır — türetilen alanlar prompt'a
+    # girdiği için hash'i etkilemeli.
+    if derive_from_contractor(profile):
+        profile.save(update_fields=["cities", "tender_types", "updated_at"])
 
     # ── Maliyet kapısı ────────────────────────────────────────────────────────
     # `PUT /assistant/profile/` her çağrıldığında ücretli bir Sonnet isteği gidiyordu;

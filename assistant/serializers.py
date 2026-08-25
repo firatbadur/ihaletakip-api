@@ -5,11 +5,23 @@ from .models import ChatConversation, ChatMessage, CompanyProfile, TenderRecomme
 
 
 class CompanyProfileSerializer(serializers.ModelSerializer):
+    # Firma EKAP yüklenici kaydına bağlıysa geçmiş işler/iller/türler ondan türetilir
+    # (bkz. services/profile_map.derive_from_contractor) → sihirbaz bunları sormaz.
+    contractor_ad = serializers.CharField(source="contractor.kanonik_ad", read_only=True, default=None)
+    contractor_sozlesme_sayisi = serializers.IntegerField(
+        source="contractor.sozlesme_sayisi", read_only=True, default=None
+    )
+
     class Meta:
         model = CompanyProfile
         fields = [
             "id",
+            "contractor",
+            "contractor_ad",
+            "contractor_sozlesme_sayisi",
             "company_name",
+            "website",
+            "il_id",
             "sector",
             "activity_areas",
             "cities",
@@ -23,7 +35,15 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "profile_map", "profile_map_generated_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "contractor_ad",
+            "contractor_sozlesme_sayisi",
+            "profile_map",
+            "profile_map_generated_at",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):

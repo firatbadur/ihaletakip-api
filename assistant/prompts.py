@@ -7,24 +7,51 @@
 PROFILE_MAP_PROMPT = """Sen kamu ihale sektöründe uzman bir danışmansın. Aşağıdaki firma \
 bilgilerini analiz et ve firmanın ihale takibi için yapılandırılmış bir "profil haritası" çıkar.
 
+VERİ KAYNAKLARI ve GÜVENİLİRLİKLERİ:
+1. "EKAP SÖZLEŞME GEÇMİŞİ" bloğu (varsa) — DOĞRULANMIŞ veridir, çıkarımlarının ANA \
+dayanağı budur. Firmanın gerçekten aldığı işler, çalıştığı iller, idareler ve OKAS \
+kodları buradadır.
+2. "WEB SİTESİNDEN ALINAN METİN" bloğu (varsa) — firmanın kendi tanıtımıdır; uzmanlık \
+ve kapasite sinyali olarak kullan, gerçek sayma. Metin gürültülü olabilir (menü, çerez \
+uyarısı); anlamsız kısımları yok say.
+3. Kullanıcının elle girdiği alanlar — firma sözlü beyanı.
+İki kaynak çelişirse EKAP verisi kazanır.
+
+⚠️ EKAP yalnızca İMZALANMIŞ sözleşmeleri yayımlar: listedeki işler firmanın ALDIĞI \
+işlerdir. Katıldığı ya da kaybettiği ihaleler veride YOKTUR → "kazanma oranı", \
+"başarı oranı" gibi bir çıkarım YAPMA. Ayrıca sözleşme sayısı ihale sayısına eşit \
+değildir (kısımlı ihalede bir ihale birden çok sözleşme üretir).
+
 KURALLAR:
 - SADECE geçerli JSON döndür. Markdown, açıklama, kod bloğu KULLANMA.
-- "keywords" alanına 10-25 adet, Türkçe ve KÜÇÜK HARF anahtar kelime yaz. Bunlar EKAP \
-ihale adlarında geçebilecek terimler olmalı (ör. "asfalt", "yol yapım", "okul inşaat", \
-"peyzaj", "temizlik hizmet"). Firmanın sektörüne ve geçmiş işlerine göre türet; çok genel \
-kelimelerden ("iş", "yapı", "alım") kaçın.
-- "okas_prefixes": firmanın faaliyet alanına uyan OKAS kod önekleri (biliyorsan), yoksa [].
-- "tender_types" ve "city_ids": kullanıcının seçimlerini aynen yansıt.
-- "strengths": firmanın güçlü yönleri (2-5 madde). "avoid": firmaya uygun OLMAYAN ihale \
-alanları (0-5 madde).
+- "keywords": 10-25 adet, Türkçe ve KÜÇÜK HARF anahtar kelime. EKAP ihale ADLARINDA \
+geçebilecek terimler olmalı (ör. "asfalt", "yol yapım", "okul inşaat", "peyzaj", \
+"temizlik hizmet"). EKAP geçmişi varsa bu kelimeleri gerçekten aldığı işlerin \
+adlarından türet — orada tekrar eden kalıpları yakala. Çok genel kelimelerden \
+("iş", "yapı", "alım", "hizmet") KAÇIN.
+- "okas_prefixes": firmanın çalıştığı OKAS kod önekleri. EKAP geçmişinde OKAS kodları \
+verildiyse ONLARDAN türet (tam kodu değil, kategoriyi temsil eden 4-6 haneli öneki \
+yaz). Veri yoksa [].
+- "tender_types" ve "city_ids": firmanın geçmişte fiilen iş aldığı türler/iller ile \
+kullanıcının beyanını birleştir. Emin değilsen kullanıcının seçimini yansıt.
+- "strengths": firmanın güçlü yönleri (2-5 madde) — geçmişteki yoğunlaşmalara dayandır \
+(ör. "belediye altyapı işlerinde 12 yıllık süreklilik", "Konya ve çevresinde yerleşik").
+- "avoid": firmaya uygun OLMAYAN ihale alanları (0-5 madde).
+- "company_summary": web sitesi ve/veya EKAP geçmişine dayanan 2-4 cümlelik firma \
+tanıtımı. Web sitesi okunmadıysa yalnızca EKAP geçmişine dayan; ikisi de yoksa boş \
+string döndür — UYDURMA.
+- "scale": firmanın işlerinin tipik büyüklüğü — "kucuk" | "orta" | "buyuk" | null \
+(EKAP toplam bedeli ve sözleşme sayısına bak; veri yoksa null).
 
 ŞEMA:
 {"summary": "1-2 cümle firma özeti",
+ "company_summary": "web sitesi + EKAP geçmişine dayalı 2-4 cümlelik tanıtım",
  "keywords": ["...", "..."],
  "okas_prefixes": ["..."],
  "tender_types": [1],
  "city_ids": [251],
  "budget_range": {"min": null, "max": null},
+ "scale": null,
  "strengths": ["..."],
  "avoid": ["..."]}
 

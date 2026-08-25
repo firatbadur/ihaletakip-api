@@ -31,14 +31,27 @@ _PROFILE_EXAMPLE = OpenApiExample(
     "Firma profili kaydet",
     request_only=True,
     value={
+        "contractor": 40321,
         "company_name": "Örnek İnşaat Ltd. Şti.",
+        "website": "https://ornekinsaat.com.tr",
+        "il_id": 251,
+    },
+)
+
+_PROFILE_MANUEL_EXAMPLE = OpenApiExample(
+    "Firma profili kaydet (EKAP'ta bulunamayan firma)",
+    request_only=True,
+    value={
+        "contractor": None,
+        "company_name": "Yeni Kurulan İnşaat Ltd. Şti.",
+        "website": "https://yenifirma.com.tr",
+        "il_id": 251,
         "sector": "İnşaat / Yapım",
         "activity_areas": "Yol, altyapı ve bina inşaatı; asfalt serimi",
         "cities": [251, 284],
         "tender_types": [2],
         "budget_min": 1000000,
         "budget_max": 50000000,
-        "past_works": ["2023 Ankara Çankaya yol yapımı", "2022 okul binası onarımı"],
     },
 )
 
@@ -74,7 +87,7 @@ class ProfileView(APIView):
         responses={200: CompanyProfileSerializer},
     )
     def get(self, request):
-        profile = CompanyProfile.objects.filter(user=request.user).first()
+        profile = CompanyProfile.objects.select_related("contractor").filter(user=request.user).first()
         if not profile:
             raise NotFound("Firma profili bulunamadı.")
         return Response(CompanyProfileSerializer(profile).data)
@@ -84,9 +97,16 @@ class ProfileView(APIView):
         description=(
             "Profili oluşturur veya günceller ve **profil haritası üretimini** arka "
             "planda başlatır. Yanıttaki `task_id` mevcut `GET /ai/tasks/{task_id}/` "
-            "ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır."
+            "ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır.\n\n"
+            "**`contractor` doluysa** (kullanıcı firmasını `GET /ekap/contractors/` "
+            "aramasında buldu) geçmiş işler, çalışılan iller ve ihale türleri EKAP "
+            "sözleşme geçmişinden türetilir — istemcinin `cities`/`tender_types`/"
+            "`past_works` göndermesine gerek yoktur. Firma EKAP'ta bulunamadıysa "
+            "`contractor: null` gönderilir ve bu alanlar kullanıcıdan istenir.\n\n"
+            "`website` doluysa profil haritası üretilirken site **kısaca okunur**; "
+            "erişilemezse sessizce atlanır, üretim başarısız olmaz."
         ),
-        examples=[_PROFILE_EXAMPLE],
+        examples=[_PROFILE_EXAMPLE, _PROFILE_MANUEL_EXAMPLE],
         request=CompanyProfileSerializer,
         responses={
             202: inline_serializer(

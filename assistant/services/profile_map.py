@@ -5,6 +5,8 @@ import logging
 
 from ai.services.claude import AnalysisError, call_claude, get_api_key
 
+from . import company_intel
+
 logger = logging.getLogger("ihaletakip")
 
 TENDER_TYPE_LABELS = {1: "Mal Alımı", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
@@ -26,16 +28,32 @@ def parse_json_output(text: str) -> dict:
 
 
 def _profile_text(profile) -> str:
-    """CompanyProfile → prompt'a eklenecek okunabilir firma bilgisi."""
-    from ekap.models import City
+    """
+    CompanyProfile → prompt'a eklenecek okunabilir firma bilgisi.
 
-    city_names = list(
-        City.objects.filter(ekap_il_id__in=profile.cities or []).values_list("ad", flat=True)
-    )
+    ⚠️ `profile_input_digest` bu metnin özetini alır: prompt'a giren HER ŞEY buradan
+    geçmeli, aksi halde alan değişince harita yeniden üretilmez. Tek istisna web
+    sitesi İÇERİĞİ — burada yalnızca URL geçer (içerik her üretimde canlı okunur,
+    site değişti diye ücretli çağrı tetiklemek istemiyoruz).
+    """
+    # ⚠️ İl adları statik seed'den okunur, `ekap.models.City` tablosundan DEĞİL:
+    # o tablo boş olabilir (bkz. ekap/views.py `_dagilim` aynı gerekçeyle böyle yapar).
+    # Eskiden City sorgulanıyordu ve tablo boşken prompt'a "İlgilenilen iller: Tümü"
+    # yazılıyordu — kullanıcı il seçmiş olsa bile.
+    from ekap.constants import CITIES
+
+    il_adlari = {ekap_il_id: ad for ekap_il_id, _plaka, ad, _big in CITIES}
+    city_names = [il_adlari[i] for i in (profile.cities or []) if i in il_adlari]
     type_labels = [TENDER_TYPE_LABELS.get(t, str(t)) for t in (profile.tender_types or [])]
 
-    lines = [
-        f"- Firma adı: {profile.company_name}",
+    lines = [f"- Firma adı: {profile.company_name}"]
+    if profile.contractor_id:
+        lines.append(f"- EKAP yüklenici kaydı: VAR (id: {profile.contractor_id})")
+    if profile.website:
+        lines.append(f"- Web sitesi: {profile.website}")
+    if profile.il_id:
+        lines.append(f"- Firmanın bulunduğu il: {il_adlari.get(profile.il_id, profile.il_id)}")
+    lines += [
         f"- Sektör: {profile.sector or 'Belirtilmedi'}",
         f"- Faaliyet alanları: {profile.activity_areas or 'Belirtilmedi'}",
         f"- İlgilenilen iller: {', '.join(city_names) or 'Tümü'} (id: {profile.cities or []})",
@@ -44,16 +62,50 @@ def _profile_text(profile) -> str:
     if profile.budget_min or profile.budget_max:
         lines.append(f"- Bütçe aralığı: {profile.budget_min or '-'} — {profile.budget_max or '-'} TL")
     if profile.past_works:
-        lines.append("- Geçmiş işler:")
+        lines.append("- Geçmiş işler (kullanıcının elle eklediği):")
         for w in profile.past_works:
             if isinstance(w, dict):
-                # İKN aramalı yeni format: {ikn, title, city, type}
+                # İKN aramalı format: {ikn, title, city, type}
                 parts = [w.get("title") or ""]
                 extra = " · ".join(x for x in [w.get("ikn"), w.get("city"), w.get("type")] if x)
                 lines.append(f"  * {parts[0]}" + (f" ({extra})" if extra else ""))
             else:
                 lines.append(f"  * {w}")  # eski düz metin format
+
+    # EKAP sözleşme geçmişi — sihirbaz artık geçmiş iş / il / tür SORMUYOR, firma
+    # bağlıysa bilgi buradan gelir.
+    if profile.contractor_id and profile.contractor:
+        lines.append("")
+        lines.append(company_intel.contractor_text(profile.contractor))
+
     return "\n".join(lines)
+
+
+def derive_from_contractor(profile) -> bool:
+    """
+    Firma EKAP kaydına bağlıysa `cities` / `tender_types` alanlarını sözleşme
+    geçmişinden doldurur. Değişiklik yapıldıysa True döner (çağıran kaydeder).
+
+    Neden gerekli: kural tabanlı eşleştirme bu iki alanı indeksli ÖN FİLTRE olarak
+    kullanıyor (`services/matching.py`). Sihirbaz artık sormuyor → boş kalırsa
+    eşleştirme tüm Türkiye'yi tarar.
+
+    Kullanıcı elle bir şey seçtiyse (manuel akış) DOKUNULMAZ.
+    """
+    if not profile.contractor_id or not profile.contractor:
+        return False
+    if profile.cities and profile.tender_types:
+        return False
+
+    iller, turler = company_intel.contractor_facets(profile.contractor)
+    degisti = False
+    if not profile.cities and iller:
+        profile.cities = iller
+        degisti = True
+    if not profile.tender_types and turler:
+        profile.tender_types = turler
+        degisti = True
+    return degisti
 
 
 def profile_input_digest(profile) -> str:
@@ -76,6 +128,17 @@ def generate_profile_map(profile) -> tuple[dict, dict]:
 
     api_key = get_api_key()
     prompt = PROFILE_MAP_PROMPT + _profile_text(profile)
+
+    # Web sitesi: kullanıcı girdiyse kısaca okunur. Erişilemezse boş döner ve
+    # prompt'a hiç eklenmez — harita üretimi site yüzünden başarısız OLMAZ.
+    site = company_intel.website_text(profile.website)
+    if site:
+        prompt += (
+            "\n\n## FİRMANIN WEB SİTESİNDEN ALINAN METİN (ham, gürültülü olabilir)\n"
+            "Bu metin firmanın kendi tanıtımıdır; EKAP verisi kadar güvenilir değildir. "
+            "Yalnızca faaliyet alanı/uzmanlık sinyali olarak kullan, sayısal iddialarını "
+            "doğrulanmış gerçek sayma.\n" + site
+        )
 
     last_error = None
     for attempt in range(2):  # bozuk JSON'da 1 kez yeniden dene

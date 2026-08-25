@@ -3037,10 +3037,10 @@
                 ""
               ]
             },
-            "description": "Profili oluşturur veya günceller ve **profil haritası üretimini** arka planda başlatır. Yanıttaki `task_id` mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Profili oluşturur veya günceller ve **profil haritası üretimini** arka planda başlatır. Yanıttaki `task_id` mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı profil haritasıdır.\n\n**`contractor` doluysa** (kullanıcı firmasını `GET /ekap/contractors/` aramasında buldu) geçmiş işler, çalışılan iller ve ihale türleri EKAP sözleşme geçmişinden türetilir — istemcinin `cities`/`tender_types`/`past_works` göndermesine gerek yoktur. Firma EKAP'ta bulunamadıysa `contractor: null` gönderilir ve bu alanlar kullanıcıdan istenir.\n\n`website` doluysa profil haritası üretilirken site **kısaca okunur**; erişilemezse sessizce atlanır, üretim başarısız olmaz.\n\n---\n\n### Alternatif gövde örnekleri\n\n**FirmaProfiliKaydet(EKAP'taBulunamayanFirma)**\n\n```json\n{\n  \"contractor\": null,\n  \"company_name\": \"Yeni Kurulan İnşaat Ltd. Şti.\",\n  \"website\": \"https://yenifirma.com.tr\",\n  \"il_id\": 251,\n  \"sector\": \"İnşaat / Yapım\",\n  \"activity_areas\": \"Yol, altyapı ve bina inşaatı; asfalt serimi\",\n  \"cities\": [\n    251,\n    284\n  ],\n  \"tender_types\": [\n    2\n  ],\n  \"budget_min\": 1000000,\n  \"budget_max\": 50000000\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"company_name\": \"Örnek İnşaat Ltd. Şti.\",\n  \"sector\": \"İnşaat / Yapım\",\n  \"activity_areas\": \"Yol, altyapı ve bina inşaatı; asfalt serimi\",\n  \"cities\": [\n    251,\n    284\n  ],\n  \"tender_types\": [\n    2\n  ],\n  \"budget_min\": 1000000,\n  \"budget_max\": 50000000,\n  \"past_works\": [\n    \"2023 Ankara Çankaya yol yapımı\",\n    \"2022 okul binası onarımı\"\n  ]\n}",
+              "raw": "{\n  \"contractor\": 40321,\n  \"company_name\": \"Örnek İnşaat Ltd. Şti.\",\n  \"website\": \"https://ornekinsaat.com.tr\",\n  \"il_id\": 251\n}",
               "options": {
                 "raw": {
                   "language": "json"

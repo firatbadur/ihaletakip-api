@@ -40,13 +40,32 @@ def _guvenli_calistir(ctx, ad, girdi):
     Araçtan sızan bir exception tüm sohbeti öldürürdü — model bunun yerine hata
     metnini okuyup kullanıcıya açıklayabilmeli ya da başka bir yol deneyebilmeli.
     """
-    from assistant.tools import TOOL_IMPL
+    from assistant.tools import TOOL_IMPL, TOOL_SPECS
 
     fn = TOOL_IMPL.get(ad)
     if fn is None:
         return {"ok": False, "hata": f"Bilinmeyen araç: {ad}"}
     if not isinstance(girdi, dict):
         return {"ok": False, "hata": "Araç parametreleri sözlük olmalı."}
+
+    # ⚠️ Bilinmeyen parametre SESSİZCE YOK SAYILMAZ, reddedilir.
+    # Araçlar `**_` ile fazlalığı yutuyor; model `il_id` yerine `il` yazarsa filtre hiç
+    # uygulanmaz ve araç TÜM TÜRKİYE'yi döndürür — model de "Ankara'da 2013 ihale var"
+    # der. Bu bir limit değil, limit kılığına girmiş bir DOĞRULUK hatasıdır (aynı gerekçe
+    # `ekap/views.py::_PRO_PARAMS` kapısında da yazılı: parametreyi yok saymak yerine
+    # hata döndürülür). Modele doğru adları söylersek kendini düzeltir.
+    spec = next((t for t in TOOL_SPECS if t["name"] == ad), None)
+    if spec:
+        bilinen = set(spec["input_schema"].get("properties") or {})
+        bilinmeyen = sorted(set(girdi) - bilinen)
+        if bilinmeyen:
+            return {
+                "ok": False,
+                "hata": (
+                    f"Şu parametreler bu araçta yok: {', '.join(bilinmeyen)}. "
+                    f"Geçerli parametreler: {', '.join(sorted(bilinen))}."
+                ),
+            }
     try:
         sonuc = fn(ctx, **girdi)
     except TypeError as e:

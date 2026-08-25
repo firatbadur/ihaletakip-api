@@ -106,14 +106,29 @@
     Fiyat analizi yolu. İndirim ORAN olarak gelir (0,2140), yüzde yazılmalı.
     Kesin rakam TAAHHÜT edilmemeli — "garanti" kelimesi bir regresyon işaretidir.
 
-- soru: "bu idare her yıl aynı işi açıyor mu, sıradaki ne zaman çıkar?"
-  arac_bekle: [tekrar_eden_ihaleler, idare_ara]
+- soru: "TOKİ her yıl aynı işleri açıyor mu, sıradaki ne zaman çıkar?"
+  arac_bekle: [tekrar_eden_ihaleler]
   icermeli: ["tahmin"]
   icermemeli: ["**"]
   kart_bekle: 0
   not: >
-    `beklenen_ilan_tarihi` bir tahmindir; model bunu kesin tarih gibi sunarsa
+    ⚠️ Bu soru ÖNCE "bu idare ..." diye yazılmıştı ve model haklı olarak "hangi
+    idare?" diye sorup araç çağırmamıştı — ölçüt hatalıydı, model değil. Tek turlu
+    bir sette zamir kullanmak, ölçülmek istenen şeyi (araç seçimi) ölçmez.
+    Ölçülen: `beklenen_ilan_tarihi` bir tahmindir; model kesin tarih gibi sunarsa
     kullanıcı takvimine yazar ve ürün güven kaybeder.
+
+- mesajlar:
+    - "Toplu Konut İdaresi kimlere iş vermiş?"
+    - "peki bu idare her yıl aynı işleri açıyor mu?"
+  arac_bekle: [tekrar_eden_ihaleler]
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: >
+    Zamirli takip sorusu. `son_arama` yalnızca `ihale_ara` parametrelerini taşır;
+    idare kimliği taşımaz. Model "bu idare"yi kendi önceki CEVABINDAN çözüp
+    `idare_ara`yı tekrar çağırmalı. Çözemezse kullanıcıya sormalı — sessizce
+    başka bir idareye geçmek en kötü sonuç.
 
 - soru: "bu hafta neyin son günü geliyor?"
   arac_bekle: [kullanicinin_verisi]

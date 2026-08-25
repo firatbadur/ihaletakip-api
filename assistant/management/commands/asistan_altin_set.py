@@ -78,7 +78,7 @@ class Command(BaseCommand):
             turlar_metni = s.get("mesajlar") or [s["soru"]]
             s.setdefault("soru", turlar_metni[-1])
             ctx = ToolContext(user=user, premium=bool(getattr(user, "is_premium", False)))
-            gecmis, son_arama = [], None
+            gecmis, son_arama, onceki_arama = [], None, None
             t0 = time.monotonic()
             try:
                 for j, metin_turu in enumerate(turlar_metni):
@@ -94,14 +94,22 @@ class Command(BaseCommand):
                                    + _json.dumps(son_arama, ensure_ascii=False)
                                    + "\nKullanıcı bu aramayı daraltıyorsa parametrelerin "
                                      "TAMAMINI yeniden gönder.")
+                    onceki_arama = son_arama          # bu tura GİREN bağlam
                     sonuc = sohbet_turu(ctx, profile.profile_map, baglam, gecmis)
                     gecmis.append({"role": "assistant", "content": sonuc["metin"]})
                     aramalar = [a for a in (sonuc.get("arac_izi") or [])
                                 if a.get("arac") == "ihale_ara" and a.get("ok")]
                     if aramalar:
                         son_arama = aramalar[-1].get("param")
-                    if j < len(turlar_metni) - 1:
-                        self.stdout.write(f"   ↳ tur {j + 1}: {metin_turu[:60]}")
+                    if len(turlar_metni) > 1:
+                        # ⚠️ Her turun ÇAĞRILARINI parametreleriyle bas. Yalnızca son
+                        # turu görmek, "filtre düştü" hatasının modelden mi yoksa zaten
+                        # hiç kurulmamış bir filtreden mi geldiğini ayırt ettirmiyordu.
+                        izler = "; ".join(
+                            f"{a['arac']}({', '.join(sorted(a.get('param') or {}))})"
+                            for a in (sonuc.get("arac_izi") or [])
+                        ) or "araç yok"
+                        self.stdout.write(f"   ↳ tur {j + 1}: {metin_turu[:44]:<44} {izler}")
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"{i}. {s['soru'][:45]} → ÇÖKTÜ: {e}"))
                 continue
@@ -127,11 +135,21 @@ class Command(BaseCommand):
             # Takip sorusu ölçütü: son aramada bu parametreler HÂLÂ duruyor olmalı.
             # Metne bakarak ölçmek yetmez — model doğru cümleyi kurup yanlış filtreyi
             # çalıştırabilir; hata tam olarak orada gizlenir.
+            son = [a for a in (sonuc.get("arac_izi") or [])
+                   if a.get("arac") == "ihale_ara" and a.get("ok")]
             for anahtar in s.get("param_korunmali") or []:
-                son = [a for a in (sonuc.get("arac_izi") or [])
-                       if a.get("arac") == "ihale_ara" and a.get("ok")]
-                if not son or anahtar not in (son[-1].get("param") or {}):
+                if not son:
+                    sorunlar.append(f"arama yapılmadı ({anahtar!r} korunamazdı)")
+                elif anahtar in (son[-1].get("param") or {}):
+                    continue
+                elif anahtar in (onceki_arama or {}):
+                    # Bağlamda VARDI ve son turda DÜŞTÜ → gerçek regresyon.
                     sorunlar.append(f"filtre düştü: {anahtar!r}")
+                else:
+                    # Bağlamda hiç YOKTU → önceki turun araç seçimi farklı olmuş.
+                    # Bu bir bağlam taşıma hatası DEĞİL; ayrı raporlanır, yoksa
+                    # ölçüt yanlış yeri suçlar ve gerçek hata gizlenir.
+                    sorunlar.append(f"önceki turda hiç kurulmamış: {anahtar!r}")
 
             u = sonuc.get("usage") or {}
             if fiyat:

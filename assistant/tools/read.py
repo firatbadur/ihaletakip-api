@@ -378,3 +378,54 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
         logger.exception("kullanicinin_verisi başarısız: %s", tur)
         return _hata("Kayıtlarınız alınamadı.")
     return _hata("Geçersiz tür. Seçenekler: kayitli_ihaleler, kayitli_filtreler, alarmlar, favori_idareler, favori_firmalar.")
+
+
+# ── 9. İdare arama ─────────────────────────────────────
+def idare_ara(ctx, q=None, take=None, **_):
+    """
+    İdareyi ADIYLA arayıp `idare_id` / `detsis_no` çözer.
+
+    ⚠️ Bu araç olmadan `idare_profili` kullanılamaz: model idare adını biliyor ama
+    kimliğini bilmiyor. (Canlı testte "Toplu Konut İdaresi kimlere iş vermiş?" sorusu
+    tam da bu yüzden yarım kalmıştı.)
+
+    `only_with_tenders` bilerek AÇIK: DETSIS'te aynı kurum birçok kez farklı idare_id
+    ile bulunur ve ihaleler yalnızca birinin altındadır; ihalesi olmayan kopyalar
+    modeli çıkmaza sokar.
+    """
+    from django.db.models import Q
+
+    from ekap.detsis_tree import annotate_paths, tender_idare_id_set
+    from ekap.models import Authority
+    from ekap.utils import normalize_tr
+
+    if not q or len(str(q).strip()) < 3:
+        return _hata("İdare adının en az 3 harfini verin.")
+    try:
+        qs = Authority.objects.filter(
+            Q(ad_norm__contains=normalize_tr(str(q))) | Q(idare_id__startswith=str(q))
+        ).filter(Q(has_items=True) | Q(idare_id__in=tender_idare_id_set()))
+        nodes = list(qs.order_by("ad")[: min(int(take or 10), 15)])
+        # Seçilebilir (idare_id dolu) düğümler önce — model doğrudan kullanabilsin.
+        nodes.sort(key=lambda a: (a.idare_id == "", a.ad))
+        yollar = annotate_paths(nodes)
+        liste = [
+            {
+                "ad": kes(a.ad, 120),
+                "idare_id": a.idare_id or None,
+                "detsis_no": a.detsis_no,
+                # `annotate_paths` liste döner; modele düz metin ver ("A > B").
+                "yol": kes(" > ".join(yollar.get(a.detsis_no) or []), 160),
+            }
+            for a in nodes
+        ]
+    except Exception:
+        logger.exception("idare_ara başarısız: %s", q)
+        return _hata("İdare araması sırasında bir sorun oldu.")
+    if not liste:
+        return {"ok": True, "liste": [], "not": "Bu adla idare bulunamadı. Adın bir parçasını dene."}
+    return butceye_sigdir({
+        "ok": True,
+        "liste": liste,
+        "not": "idare_profili için: yaprak birim ise idare_id, üst kurum ise detsis_no kullan.",
+    })

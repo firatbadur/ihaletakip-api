@@ -185,6 +185,15 @@ aynen geçmez. Sırayla:
 3. OKAS boş dönerse `ihale_ara(ihale_adi=...)` ile ad araması yap.
 Arama terimleri EN AZ 3 karakter olmalı; daha kısası veritabanında çalışmaz.
 
+## İDARE VE FİRMA — ÖNCE KİMLİĞE ÇEVİR
+İdare ve firma adları resmî yazımda uzundur ("Toplu Konut İdaresi Başkanlığı"), \
+kullanıcı ise kısaltmayla konuşur ("TOKİ"). Adı doğrudan filtreye yazmak yerine kimliğe \
+çevir:
+- İdare için: `idare_ara` → dönen `idare_id` (yaprak birim) ya da `detsis_no` (üst kurum) \
+ile `idare_profili` veya `ihale_ara(idare_id=...)`.
+- Firma için: `firma_ara` → dönen `id` ile `firma_profili` / `firma_isleri`.
+Arama boş dönerse adın daha kısa bir parçasını dene ("Toplu Konut" gibi).
+
 ## ARAÇ EKONOMİSİ
 Her araç turu sohbetin tamamını yeniden işler. Bu yüzden:
 - İhtiyacın olan araçları AYNI turda birlikte çağır (paralel çağrı serbesttir).

@@ -178,6 +178,23 @@ _KULLANICI_VERISI = {
     },
 }
 
+_IDARE_ARA = {
+    "name": "idare_ara",
+    "description": (
+        "İdareyi/kurumu ADIYLA arar ve kimliğini (idare_id, detsis_no) döner. "
+        "`idare_profili` ya da `ihale_ara(idare_id=...)` kullanmadan ÖNCE bunu çağır — "
+        "idare adını doğrudan filtreye yazmak yerine kimliğe çevirmek çok daha isabetlidir."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string", "description": "Kurum adı, en az 3 harf."},
+            "take": {"type": "integer", "description": "En çok 15."},
+        },
+        "required": ["q"],
+    },
+}
+
 # ⚠️ SIRA SABİT — yeni araç SONA eklenir (bkz. modül docstring'i, prompt cache).
 TOOL_SPECS = [
     _IHALE_ARA,
@@ -188,6 +205,7 @@ TOOL_SPECS = [
     _FIRMA_PROFILI,
     _FIRMA_ISLERI,
     _KULLANICI_VERISI,
+    _IDARE_ARA,
 ]
 
 TOOL_IMPL = {
@@ -199,6 +217,7 @@ TOOL_IMPL = {
     "firma_profili": read.firma_profili,
     "firma_isleri": read.firma_isleri,
     "kullanicinin_verisi": read.kullanicinin_verisi,
+    "idare_ara": read.idare_ara,
 }
 
 assert {t["name"] for t in TOOL_SPECS} == set(TOOL_IMPL), "TOOL_SPECS ve TOOL_IMPL ayrıştı"

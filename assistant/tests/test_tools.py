@@ -9,6 +9,7 @@ uydurma İKN) — LLM'li bir test bunları güvenilir biçimde yakalayamaz.
 """
 from decimal import Decimal
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from assistant.tools import TOOL_IMPL, TOOL_SPECS
@@ -38,9 +39,10 @@ class AracKatalogTests(TestCase):
         bölünür ve her mesaj tam fiyattan ödenir. Yeni araç SONA eklenmeli.
         """
         self.assertEqual(
-            [t["name"] for t in TOOL_SPECS][:8],
+            [t["name"] for t in TOOL_SPECS],
             ["ihale_ara", "ihale_detay", "okas_ara", "idare_profili",
-             "firma_ara", "firma_profili", "firma_isleri", "kullanicinin_verisi"],
+             "firma_ara", "firma_profili", "firma_isleri", "kullanicinin_verisi",
+             "idare_ara"],
         )
 
 
@@ -94,6 +96,14 @@ class PremiumKapisiTests(TestCase):
 
 
 class VeriTests(TestCase):
+    def setUp(self):
+        # ⚠️ `ekap.views._cached_count` sonucu 600 sn cache'ler ve anahtar yalnızca
+        # FİLTRE parametrelerinden üretilir — veritabanından değil. Test sınıfları aynı
+        # süreçte aynı `q=okul` sorgusunu farklı fixture'larla çalıştırınca ilk sınıfın
+        # sonucu (0) ikincisine sızıyordu. Üretimde bu doğru davranış (aynı filtre = aynı
+        # sayı), testte izolasyon gerekiyor.
+        cache.clear()
+
     @classmethod
     def setUpTestData(cls):
         cls.tender = Tender.objects.create(

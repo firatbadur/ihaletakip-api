@@ -13,8 +13,8 @@ tarafta ne değiştiğini, neyin **değişmediğini** ve ne yapılması gerekti�
 
 Asistan eskiden mesajı **anahtar kelimelere** göre dallara ayırıyor ve LLM'e yalnızca
 prompt'a önceden konmuş bağlamı veriyordu; veritabanına erişemiyordu. Artık modele
-**8 araç** verildi (ihale arama, ihale detayı, OKAS arama, idare raporu, firma arama /
-profili / işleri, kullanıcının kendi kayıtları) ve model hangi aracı çağıracağına kendisi
+**9 araç** verildi (ihale arama, ihale detayı, OKAS arama, idare arama, idare raporu,
+firma arama / profili / işleri, kullanıcının kendi kayıtları) ve model hangi aracı çağıracağına kendisi
 karar veriyor. "Şu idare kimlere iş vermiş?", "otomasyon ihalelerini getir", "bu firma en
 son ne iş almış?" gibi sorular artık gerçek veriyle yanıtlanıyor.
 

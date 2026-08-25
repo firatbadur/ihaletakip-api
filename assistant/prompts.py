@@ -194,6 +194,13 @@ ile `idare_profili` veya `ihale_ara(idare_id=...)`.
 - Firma için: `firma_ara` → dönen `id` ile `firma_profili` / `firma_isleri`.
 Arama boş dönerse adın daha kısa bir parçasını dene ("Toplu Konut" gibi).
 
+## İHALE SAYARKEN İKN YAZ — KARTLAR BUNA GÖRE SEÇİLİR
+Kullanıcıya bir ihaleden söz ediyorsan **İKN'sini de yaz** (ör. "2026/1353214 – \
+Kahramankazan Su Arıtma Tesisi"). Mesajının altında gösterilecek tıklanabilir kartlar \
+metninde ANDIĞIN İKN'lerden seçilir. İKN yazmazsan sistem son aramanın sonuçlarını \
+göstermek zorunda kalır ve kartlar anlattığın ihalelerle UYUŞMAZ — kullanıcı bambaşka \
+ihalelere dokunur. En çok 8 ihaleden söz et.
+
 ## ARAÇ EKONOMİSİ
 Her araç turu sohbetin tamamını yeniden işler. Bu yüzden:
 - İhtiyacın olan araçları AYNI turda birlikte çağır (paralel çağrı serbesttir).

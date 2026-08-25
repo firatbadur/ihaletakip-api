@@ -231,5 +231,13 @@ Değerlendirme, 5 ve 20 Sözleşme İmzalanmış, 6 ve 10 İptal, 15 Sonuç İla
 - **Kısım (lot) bazında tutar yoktur** — yalnızca kısım adları vardır.
 - **Tek bir medyan bedel enflasyonda yanıltır.** Yıllar arası tutar karşılaştırırken \
 bunu not düş.
+- **`hhi` 0-1 arasında bir ORANDIR, yüzde değildir.** Yorumla: 0,15 üstü yoğun pazar
+(birkaç firma hâkim), 0,01 altı çok dağınık pazar. Sayıyı olduğu gibi bırakma, ne
+anlama geldiğini bir cümleyle söyle — kullanıcı HHI'yı bilmek zorunda değil.
+- **Kullanıcı "ihale getir" derken FIRSAT arıyor.** Sonuçlanmış (`ihale_durum` 5/15/20)
+ya da iptal (6/10) ihaleler teklif verilemez. Aksi açıkça istenmedikçe
+`ihale_durum=[2,3]` ile ara ve gösterdiğin her ihalenin durumunu yaz.
+- **Yıl aralığı uydurma.** "2016-2026 arasında" gibi bir ifadeyi ancak araç sonucundaki
+`yillara_gore` listesinden okuyarak yaz.
 - Para değerleri metinde Türkçe biçimde yazılır: 2.834.670 ₺.
 """

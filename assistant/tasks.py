@@ -185,6 +185,21 @@ def ctx_mesaj_id(save_sonucu):
     return ((save_sonucu or {}).get("analysis") or {}).get("id")
 
 
+def _eylem_idleri(bloklar):
+    """
+    Blok listesinden onay kartı (`action`) kimliklerini süzer.
+
+    Ayrı fonksiyon: `bloklar` karışık tipli bir listedir (`action`, `bar_chart`,
+    `suggestions`) ve hepsinde `action_id` olduğunu varsaymak üretimde görevi
+    çökerten bir hataydı. Tip süzgeci tek yerde ve test edilebilir olsun.
+    """
+    return [
+        b["action_id"]
+        for b in (bloklar or [])
+        if isinstance(b, dict) and b.get("type") == "action" and b.get("action_id")
+    ]
+
+
 def _agent_yaniti(profile, user_msg, conversation, today):
     """
     Araç kullanan yanıt yolu. Dönen: `(reply_metni, kartlar, usage)`.
@@ -385,12 +400,25 @@ def assistant_chat_task(user_id, message_id):
             return {"success": False, "error": "Sohbet mesajı bulunamadı."}
         msg_sonuc = _save(reply, kartlar, usage=usage, blocks=bloklar)
         # Öneriler mesaja bağlanır: kart hangi mesajda gösterildi, izlenebilir olsun.
-        if bloklar and ctx_mesaj_id(msg_sonuc):
-            from assistant.models import AssistantAction
+        # ⚠️ YALNIZCA `action` blokları — `bloklar` artık grafik ve soru önerisi de
+        # taşıyor, onlarda `action_id` YOK. Burada körlemesine `b["action_id"]`
+        # okumak KeyError veriyordu ve bu satır try/except'in DIŞINDA olduğu için
+        # görev çöküp kullanıcıya jenerik "Analiz sırasında bir hata oluştu."
+        # dönüyordu (üretimde yaşandı).
+        # ⚠️ Bu blok DEFTER TUTMADIR ve mesaj ZATEN KAYDEDİLDİ. Burada bir hata
+        # görevi çökertirse istemci "başarısız" görür ve kullanıcı, aslında üretilmiş
+        # ve veritabanına yazılmış cevabı kaybeder (üretimde tam olarak bu yaşandı).
+        # Cevabın teslimi, izlenebilirlik kaydından daha önemlidir.
+        try:
+            eylem_idleri = _eylem_idleri(bloklar)
+            if eylem_idleri and ctx_mesaj_id(msg_sonuc):
+                from assistant.models import AssistantAction
 
-            AssistantAction.objects.filter(
-                id__in=[b["action_id"] for b in bloklar]
-            ).update(message_id=ctx_mesaj_id(msg_sonuc))
+                AssistantAction.objects.filter(id__in=eylem_idleri).update(
+                    message_id=ctx_mesaj_id(msg_sonuc)
+                )
+        except Exception:
+            logger.exception("eylem-mesaj bağlama başarısız (user=%s)", user_id)
         return msg_sonuc
 
     # ── 1) BELİRLİ BİR İHALE HAKKINDA (seçili ihale veya mesajda İKN) ──

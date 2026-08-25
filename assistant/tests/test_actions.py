@@ -212,3 +212,34 @@ class KlasorServisTests(TestCase):
         # ⚠️ `iexact` Türkçe İ/ı'da çalışmaz; eşleşmezse aynı klasörden iki tane olurdu.
         self.assertEqual(TenderGroup.objects.filter(user=self.user).count(), 1)
         self.assertEqual(g.name, "İşleri")
+
+
+class BlokSuzgeciTests(TestCase):
+    """
+    ⚠️ ÜRETİM ARIZASI REGRESYONU (Ağustos 2026).
+
+    `bloklar` listesine grafik ve soru önerisi blokları eklendiğinde, onay kartı
+    kimliklerini toplayan satır hepsinde `action_id` olduğunu varsayıyordu →
+    `KeyError`. Satır try/except'in DIŞINDA olduğu için Celery görevi çöküyor,
+    kullanıcı sohbette jenerik "Analiz sırasında bir hata oluştu." görüyordu.
+    Altın set bu yolu hiç çalıştırmadığı için 15/15 geçerken sohbet kırıktı.
+    """
+
+    def test_yalnizca_action_bloklarindan_id_toplanir(self):
+        from assistant.tasks import _eylem_idleri
+
+        bloklar = [
+            {"type": "bar_chart", "baslik": "Yıllara göre", "veri": []},
+            {"type": "action", "action_id": "abc", "tur": "ihale_kaydet"},
+            {"type": "suggestions", "sorular": ["Bu iş kaça kapanır?"]},
+            {"type": "action", "action_id": "def", "tur": "alarm_kur"},
+        ]
+        self.assertEqual(_eylem_idleri(bloklar), ["abc", "def"])
+
+    def test_bos_ve_bozuk_girdi_patlamaz(self):
+        from assistant.tasks import _eylem_idleri
+
+        self.assertEqual(_eylem_idleri(None), [])
+        self.assertEqual(_eylem_idleri([]), [])
+        self.assertEqual(_eylem_idleri([{"type": "action"}]), [])   # action_id yok
+        self.assertEqual(_eylem_idleri(["bozuk", None, 42]), [])

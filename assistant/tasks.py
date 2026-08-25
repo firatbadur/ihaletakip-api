@@ -224,6 +224,21 @@ def _agent_yaniti(profile, user_msg, conversation, today):
             + ". Bunları `ihale_detay` ile çöz."
         )
 
+    # Takip soruları ("peki İstanbul'dakiler?", "sadece yapım işleri") için son arama.
+    # ⚠️ Sohbet geçmişi metin-only olduğu için model önceki filtresini HATIRLAYAMAZ;
+    # bu enjeksiyon olmadan aramayı sıfırdan kurar ve konu filtresi sessizce düşer.
+    if conversation and conversation.son_arama:
+        import json as _json
+
+        baglam.append(
+            "SON ARAMANIN PARAMETRELERİ: "
+            + _json.dumps(conversation.son_arama, ensure_ascii=False)
+            + "\nKullanıcı bu aramayı DARALTIYOR ya da genişletiyorsa (\"peki "
+            "İstanbul'dakiler\", \"sadece yapım\", \"geçen yıl\") bu parametrelerin "
+            "TAMAMINI yeniden gönder, üstüne değişikliği ekle. Konuyu açıkça "
+            "değiştirdiyse bunları KULLANMA."
+        )
+
     messages = build_chat_messages(profile.user, conversation=conversation)
     if not messages:
         return None, [], None
@@ -242,6 +257,17 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     from assistant.views import _eylem_karti
 
     bloklar = [_eylem_karti(e) for e in ctx.oneriler[:3]]
+
+    # Bu turdaki SON başarılı ihale aramasını konuşmaya yaz → sonraki tur daraltabilsin.
+    # Arama yapılmadıysa öncekini SİLME: kullanıcı araya "geçici teminat nedir?" gibi
+    # bir soru sıkıştırıp sonra "peki İstanbul'dakiler?" diyebilir.
+    if conversation:
+        aramalar = [a for a in (sonuc.get("arac_izi") or [])
+                    if a.get("arac") == "ihale_ara" and a.get("ok")]
+        if aramalar:
+            conversation.son_arama = aramalar[-1].get("param") or None
+            conversation.save(update_fields=["son_arama"])
+
     return reply, kartlar, sonuc.get("usage"), bloklar
 
 

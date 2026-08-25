@@ -401,6 +401,9 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
             # ⚠️ `SavedTender.tender_date` bir CharField'dır (serbest metin) — ona göre
             # sıralamak "10.03.2026" ile "9.3.2026"yı yanlış sıralar. Gerçek tarih
             # `ekap.Tender.ihale_tarihi`de; İKN üzerinden JOIN'liyoruz.
+            from datetime import datetime
+            from datetime import time as dt_time
+
             from django.utils import timezone
 
             from ekap.models import Tender
@@ -417,15 +420,25 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
                 return {"ok": True, "liste": [],
                         "not": "Kullanıcının kayıtlı ihalesi ya da alarmı yok."}
             bugun = timezone.localdate()
+            # ⚠️ `ihale_tarihi` DateTimeField: sınırı `date` olarak vermek Django'da
+            # naive-datetime uyarısı üretir ve sınır UTC'ye göre kayabilir. Yerel gün
+            # başlangıcını aware datetime olarak kuruyoruz.
+            gun_basi = timezone.make_aware(
+                datetime.combine(bugun, dt_time.min), timezone.get_current_timezone()
+            )
             rows = (
-                Tender.objects.filter(ikn__in=sorted(iknler), ihale_tarihi__gte=bugun)
+                Tender.objects.filter(ikn__in=sorted(iknler), ihale_tarihi__gte=gun_basi)
                 .defer("detail_raw", "list_raw")
                 .order_by("ihale_tarihi")[:n]
             )
             liste = []
             for t in rows:
                 kart = ctx.kart_ekle(t)      # kullanıcı "buna alarm kur" diyebilsin
-                liste.append({**kart, "kalan_gun": (t.ihale_tarihi - bugun).days})
+                # ⚠️ `Tender.ihale_tarihi` DateTimeField'dır (DateField DEĞİL) —
+                # doğrudan `date`ten çıkarmak TypeError verir. Yerel güne indiriyoruz;
+                # "kalan gün" kullanıcının takvimine göre okunmalı, UTC'ye göre değil.
+                gun = timezone.localtime(t.ihale_tarihi).date()
+                liste.append({**kart, "kalan_gun": (gun - bugun).days})
             return {"ok": True, "liste": liste,
                     "not": "Yalnızca ihale tarihi BUGÜN veya sonrası olanlar; "
                            "tarihi geçmiş kayıtlar listelenmez."}

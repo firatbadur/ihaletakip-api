@@ -38,12 +38,17 @@ class AracKatalogTests(TestCase):
         `tools` bloğu prompt cache önekinde render edilir; sıra değişirse cache havuzu
         bölünür ve her mesaj tam fiyattan ödenir. Yeni araç SONA eklenmeli.
         """
-        self.assertEqual(
-            [t["name"] for t in TOOL_SPECS],
-            ["ihale_ara", "ihale_detay", "okas_ara", "idare_profili",
-             "firma_ara", "firma_profili", "firma_isleri", "kullanicinin_verisi",
-             "idare_ara", "ihale_kaydet_oner", "alarm_kur_oner", "filtre_kaydet_oner"],
-        )
+        # ⚠️ Tam liste DEĞİL, ÖNEK sabitlenir: yeni araç eklemek listeyi bir kez
+        # uzatır (cache bir kez yenilenir, kaçınılmaz). Asıl hata, mevcut bir aracın
+        # yerini değiştirmek ya da araya sokmaktır — o her istekte cache'i böler.
+        onek = ["ihale_ara", "ihale_detay", "okas_ara", "idare_profili",
+                "firma_ara", "firma_profili", "firma_isleri", "kullanicinin_verisi",
+                "idare_ara", "ihale_kaydet_oner", "alarm_kur_oner", "filtre_kaydet_oner",
+                "ihale_benchmark", "tekrar_eden_ihaleler", "pazar_panosu",
+                "dokuman_analizi", "toplu_ihale_kaydet_oner", "ihale_tasi_oner",
+                "firma_takip_oner", "idare_favori_oner", "kayit_sil_oner"]
+        adlar = [t["name"] for t in TOOL_SPECS]
+        self.assertEqual(adlar[: len(onek)], onek, "Mevcut araçların sırası değişmiş")
 
 
 class SozlesmeTests(TestCase):
@@ -299,3 +304,138 @@ class EylemOnerisiTests(TestCase):
     def test_bos_filtre_reddedilir(self):
         ctx = _ctx(user=self.user)
         self.assertFalse(TOOL_IMPL["filtre_kaydet_oner"](ctx, ad="X", filtreler={})["ok"])
+
+
+class Faz3YazmaAraciTests(TestCase):
+    """
+    Faz 3 eylem araçları öneri ÜRETMEDEN ÖNCE hedefi doğrular.
+
+    Doğrulama olmasaydı model uydurduğu bir kimlik için onay kartı çıkarır, kullanıcı
+    "Evet"e basar ve hata ancak yazma anında görünürdü — kullanıcı gözünde asistan
+    var olmayan bir şeyi vaat etmiş olur.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth import get_user_model
+
+        from ekap.models import Authority
+
+        U = get_user_model()
+        cls.user = U.objects.create(email="w3@test.local", username="w3-test")
+        cls.tender = Tender.objects.create(
+            ekap_id="test-ekap-3", ikn="2026/999010", ihale_adi="Test Toplu İş",
+            ihale_adi_norm="test toplu is", idare_adi="TEST İDARE", il_id=251,
+        )
+        cls.firma = Contractor.objects.create(kanonik_ad="TEST FİRMA", arama_norm="test firma")
+        Authority.objects.create(detsis_no="99887766", ad="TEST BELEDİYESİ")
+
+    def _ctx_kartli(self):
+        ctx = _ctx(user=self.user)
+        ctx.kart_ekle(self.tender)
+        return ctx
+
+    def test_toplu_kaydet_havuz_disi_ikn_reddedilir(self):
+        from assistant.tools import write
+
+        sonuc = write.toplu_ihale_kaydet_oner(
+            self._ctx_kartli(), iknler=["2026/999010", "2026/UYDURMA"]
+        )
+        self.assertFalse(sonuc["ok"])
+        self.assertIn("2026/UYDURMA", sonuc["hata"])
+
+    def test_toplu_kaydet_tek_oneri_uretir(self):
+        from assistant.models import AssistantAction
+        from assistant.tools import write
+
+        ctx = self._ctx_kartli()
+        sonuc = write.toplu_ihale_kaydet_oner(ctx, iknler=["2026/999010"], klasor="Test")
+        self.assertTrue(sonuc["ok"])
+        # Kart başına değil, TOPLAM bir öneri: 12 ihale = 12 kart sohbeti kullanılamaz kılar.
+        self.assertEqual(len(ctx.oneriler), 1)
+        self.assertEqual(AssistantAction.objects.count(), 1)
+
+    def test_firma_takip_uydurma_id_reddedilir(self):
+        from assistant.tools import write
+
+        self.assertFalse(write.firma_takip_oner(_ctx(user=self.user), firma_id=99999999)["ok"])
+        self.assertTrue(write.firma_takip_oner(_ctx(user=self.user), firma_id=self.firma.pk)["ok"])
+
+    def test_idare_favori_uydurma_detsis_reddedilir(self):
+        from assistant.tools import write
+
+        self.assertFalse(write.idare_favori_oner(_ctx(user=self.user), detsis_no="00000")["ok"])
+        self.assertTrue(write.idare_favori_oner(_ctx(user=self.user), detsis_no="99887766")["ok"])
+
+    def test_silme_onerisi_olmayan_kayit_icin_cikmaz(self):
+        from assistant.tools import write
+
+        sonuc = write.kayit_sil_oner(_ctx(user=self.user), tur="ihale", anahtar="2026/999010")
+        self.assertFalse(sonuc["ok"])
+
+    def test_silme_onerisi_kayitli_ihale_icin_cikar(self):
+        from assistant.tools import write
+        from tenders.models import SavedTender
+
+        SavedTender.objects.create(user=self.user, tender_ikn="2026/999010",
+                                   tender_title="Test Toplu İş")
+        sonuc = write.kayit_sil_oner(_ctx(user=self.user), tur="ihale", anahtar="2026/999010")
+        self.assertTrue(sonuc["ok"])
+
+    def test_alarm_silmede_ikn_ile_de_bulunur(self):
+        """Alarm `tender_id` ile tutulur; kullanıcı İKN söyler. İkisi de çalışmalı."""
+        from assistant.tools import write
+        from tenders.models import TenderAlarm
+
+        TenderAlarm.objects.create(user=self.user, tender_id="test-ekap-3",
+                                   tender_ikn="2026/999010", tender_title="Test")
+        self.assertTrue(write.kayit_sil_oner(_ctx(user=self.user), tur="alarm",
+                                             anahtar="2026/999010")["ok"])
+
+
+class YaklasanVeOnerilerTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import timedelta
+
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        U = get_user_model()
+        cls.user = U.objects.create(email="y3@test.local", username="y3-test")
+        cls.gelecek = Tender.objects.create(
+            ekap_id="ek-gelecek", ikn="2026/900001", ihale_adi="Gelecek İş",
+            ihale_adi_norm="gelecek is", idare_adi="İDARE", il_id=251,
+            ihale_tarihi=timezone.now() + timedelta(days=5),
+        )
+        cls.gecmis = Tender.objects.create(
+            ekap_id="ek-gecmis", ikn="2026/900002", ihale_adi="Geçmiş İş",
+            ihale_adi_norm="gecmis is", idare_adi="İDARE", il_id=251,
+            ihale_tarihi=timezone.now() - timedelta(days=5),
+        )
+
+    def test_yaklasan_yalnizca_gelecek_tarihlileri_verir(self):
+        from assistant.tools import read
+        from tenders.models import SavedTender
+
+        for t in (self.gelecek, self.gecmis):
+            SavedTender.objects.create(user=self.user, tender_ikn=t.ikn)
+        sonuc = read.kullanicinin_verisi(_ctx(user=self.user), tur="yaklasan")
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual([r["ikn"] for r in sonuc["liste"]], ["2026/900001"])
+        self.assertEqual(sonuc["liste"][0]["kalan_gun"], 5)
+
+    def test_onerilerim_gerekceyi_aynen_tasir(self):
+        from django.utils import timezone
+
+        from assistant.models import TenderRecommendation
+        from assistant.tools import read
+
+        TenderRecommendation.objects.create(
+            user=self.user, tender=self.gelecek, score=7.0,
+            reasons=["Şehir: ANKARA", "Anahtar kelime: asfalt"],
+            date=timezone.localdate(),
+        )
+        sonuc = read.kullanicinin_verisi(_ctx(user=self.user), tur="onerilerim")
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual(sonuc["liste"][0]["gerekce"], ["Şehir: ANKARA", "Anahtar kelime: asfalt"])

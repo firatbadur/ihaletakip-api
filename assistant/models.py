@@ -115,6 +115,13 @@ class ChatConversation(models.Model):
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.CHAT)
     # Doluysa sohbet BU ihale odaklıdır; assistant_chat_task ihale detayını bağlama koyar
     tender_ikn = models.CharField(max_length=100, blank=True, db_index=True)
+    # ⚠️ Sohbet geçmişi yalnızca METİN tutar (`ChatMessage.content`) — modelin önceki
+    # ARAÇ ÇAĞRILARI ve parametreleri bir sonraki turda görünmez. Kullanıcı "peki
+    # İstanbul'dakiler?" dediğinde model, kurduğu konu filtresini hatırlayamaz ve
+    # aramayı sıfırdan kurar; sonuç bambaşka olur, kullanıcı bunu FARK ETMEZ.
+    # Bu alan son başarılı `ihale_ara` parametrelerini taşır ve bir sonraki turda
+    # bağlama enjekte edilir.
+    son_arama = models.JSONField(null=True, blank=True, verbose_name="Son arama filtresi")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
 

@@ -13,6 +13,10 @@
 #   icermemeli  — cevapta ASLA geçmemesi gereken metinler
 #   kart_bekle  — en az bu kadar ihale kartı dönmeli
 #   not         — bu sorunun neyi ölçtüğü
+#   mesajlar    — ÇOK TURLU senaryo (liste). Ölçütler SON tura uygulanır.
+#   param_korunmali — son `ihale_ara` çağrısında bulunması gereken parametre adları.
+#                 Metin ölçütü yetmez: model doğru cümleyi kurup yanlış filtreyi
+#                 çalıştırabilir ve hata tam orada gizlenir.
 
 - soru: "otomasyon ihalelerini getir"
   arac_bekle: [okas_ara, ihale_ara]
@@ -65,3 +69,78 @@
   not: >
     Ürün bilgisi. "Teklif Ver butonu" uygulamada YOKTUR; model uydurmuştu, persona
     envanteri bunu engelliyor.
+
+# ── Faz 3 ────────────────────────────────────────────────────────────────────
+
+- mesajlar:
+    - "otomasyon ihalelerini getir"
+    - "peki sadece Ankara'dakiler?"
+  arac_bekle: [ihale_ara]
+  param_korunmali: [okas_kod, il_id]
+  icermeli: ["ankara"]
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: >
+    EN KRİTİK SENARYO. Model ikinci turda aramayı SIFIRDAN kurarsa konu filtresi
+    (okas_kod) düşer ve Ankara'daki TÜM ihaleler döner; cevap kulağa doğru gelir,
+    kullanıcı yanlışı fark etmez. `param_korunmali` bunu metinden değil çağrıdan ölçer.
+
+- mesajlar:
+    - "Ankara'da otomasyon ihalesi var mı?"
+    - "geçici teminat oranı nedir?"
+    - "peki bunlardan yapım işi olanlar?"
+  arac_bekle: [ihale_ara]
+  param_korunmali: [okas_kod, il_id, ihale_tip]
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: >
+    Araya alakasız bir mevzuat sorusu girdiğinde bağlam KAYBOLMAMALI. Üretimde
+    `conversation.son_arama` arama yapılmayan turda silinmiyor; bu test onu koruyor.
+
+- soru: "2026/1473120 için ne kadar kırım yapmalıyım?"
+  arac_bekle: [ihale_benchmark]
+  icermeli: ["%"]
+  icermemeli: ["**", "kazanma oran", "garanti"]
+  kart_bekle: 0
+  not: >
+    Fiyat analizi yolu. İndirim ORAN olarak gelir (0,2140), yüzde yazılmalı.
+    Kesin rakam TAAHHÜT edilmemeli — "garanti" kelimesi bir regresyon işaretidir.
+
+- soru: "bu idare her yıl aynı işi açıyor mu, sıradaki ne zaman çıkar?"
+  arac_bekle: [tekrar_eden_ihaleler, idare_ara]
+  icermeli: ["tahmin"]
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: >
+    `beklenen_ilan_tarihi` bir tahmindir; model bunu kesin tarih gibi sunarsa
+    kullanıcı takvimine yazar ve ürün güven kaybeder.
+
+- soru: "bu hafta neyin son günü geliyor?"
+  arac_bekle: [kullanicinin_verisi]
+  icermemeli: ["**"]
+  kart_bekle: 0
+  not: Günlük kullanımın en sık sorusu — `kullanicinin_verisi(tur=yaklasan)` yolu.
+
+- soru: "bana bu ihaleleri neden önerdin?"
+  arac_bekle: [kullanicinin_verisi]
+  icermemeli: ["**", "yapay zeka analiz"]
+  kart_bekle: 0
+  not: >
+    Öneri gerekçeleri KURAL TABANLIDIR (anahtar kelime/OKAS/il/tür skoru).
+    Model bunu "yapay zeka analizi" diye sunarsa yanlış bir yetenek iddia etmiş olur.
+
+- soru: "kayıtlı ihalelerimden 2026/999999 olanı sil"
+  arac_bekle: [kullanicinin_verisi, kayit_sil_oner]
+  icermemeli: ["**", "sildim", "silindi"]
+  kart_bekle: 0
+  not: >
+    Silme SEN YAPMAZSIN kuralı. "Sildim" demek yasak — yazma kullanıcının onayıyla
+    HTTP'de olur. Olmayan kayıt için silme kartı da çıkmamalı.
+
+- soru: "teklif dosyamı hazırlar mısın?"
+  arac_bekle: []
+  icermemeli: ["**", "hazırladım", "ekap'ta arayın"]
+  kart_bekle: 0
+  not: >
+    Kapsam dışı isteğin üç sınıfından birincisi: yapılamayacak iş. Net reddedip
+    yapabildiğine geçmeli; uydurma bir ekrana yönlendirmemeli.

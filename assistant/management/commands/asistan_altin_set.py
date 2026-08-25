@@ -72,13 +72,36 @@ class Command(BaseCommand):
 
         gecen, toplam_usd, toplam_sn = 0, 0.0, 0.0
         for i, s in enumerate(sorular, 1):
+            # `mesajlar` çok turlu senaryo: ölçütler SON tura uygulanır. Takip soruları
+            # ("peki İstanbul'dakiler?") ancak böyle ölçülebilir — tek turlu bir sette
+            # asistanın en sinsi hatası (önceki filtreyi düşürmek) hiç görünmez.
+            turlar_metni = s.get("mesajlar") or [s["soru"]]
+            s.setdefault("soru", turlar_metni[-1])
             ctx = ToolContext(user=user, premium=bool(getattr(user, "is_premium", False)))
+            gecmis, son_arama = [], None
             t0 = time.monotonic()
             try:
-                sonuc = sohbet_turu(
-                    ctx, profile.profile_map, "Bugünün tarihi: bugün",
-                    [{"role": "user", "content": s["soru"]}],
-                )
+                for j, metin_turu in enumerate(turlar_metni):
+                    gecmis.append({"role": "user", "content": metin_turu})
+                    baglam = "Bugünün tarihi: bugün"
+                    if son_arama:
+                        # ⚠️ Üretimdeki davranışın AYNISI (assistant/tasks.py):
+                        # sohbet geçmişi metin-only olduğu için önceki arama
+                        # parametreleri bağlama ayrıca enjekte edilir.
+                        import json as _json
+
+                        baglam += ("\n\nSON ARAMANIN PARAMETRELERİ: "
+                                   + _json.dumps(son_arama, ensure_ascii=False)
+                                   + "\nKullanıcı bu aramayı daraltıyorsa parametrelerin "
+                                     "TAMAMINI yeniden gönder.")
+                    sonuc = sohbet_turu(ctx, profile.profile_map, baglam, gecmis)
+                    gecmis.append({"role": "assistant", "content": sonuc["metin"]})
+                    aramalar = [a for a in (sonuc.get("arac_izi") or [])
+                                if a.get("arac") == "ihale_ara" and a.get("ok")]
+                    if aramalar:
+                        son_arama = aramalar[-1].get("param")
+                    if j < len(turlar_metni) - 1:
+                        self.stdout.write(f"   ↳ tur {j + 1}: {metin_turu[:60]}")
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"{i}. {s['soru'][:45]} → ÇÖKTÜ: {e}"))
                 continue
@@ -101,6 +124,14 @@ class Command(BaseCommand):
                     sorunlar.append(f"YASAK: {k!r}")
             if kart < (s.get("kart_bekle") or 0):
                 sorunlar.append(f"kart {kart}<{s['kart_bekle']}")
+            # Takip sorusu ölçütü: son aramada bu parametreler HÂLÂ duruyor olmalı.
+            # Metne bakarak ölçmek yetmez — model doğru cümleyi kurup yanlış filtreyi
+            # çalıştırabilir; hata tam olarak orada gizlenir.
+            for anahtar in s.get("param_korunmali") or []:
+                son = [a for a in (sonuc.get("arac_izi") or [])
+                       if a.get("arac") == "ihale_ara" and a.get("ok")]
+                if not son or anahtar not in (son[-1].get("param") or {}):
+                    sorunlar.append(f"filtre düştü: {anahtar!r}")
 
             u = sonuc.get("usage") or {}
             if fiyat:

@@ -11,6 +11,13 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
     contractor_sozlesme_sayisi = serializers.IntegerField(
         source="contractor.sozlesme_sayisi", read_only=True, default=None
     )
+    # ⚠️ `URLField` DEĞİL: kullanıcılar sitelerini doğal biçimde yazıyor
+    # ("ornekinsaat.com.tr", "www.ornekinsaat.com.tr") ve URLField bunları
+    # "Geçerli bir URL girin." diye REDDEDİYORDU. Şema `validate_website`'te
+    # tamamlanır; doğrulama ondan sonra yapılır.
+    website = serializers.CharField(
+        max_length=300, required=False, allow_blank=True, trim_whitespace=True
+    )
 
     class Meta:
         model = CompanyProfile
@@ -44,6 +51,35 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+    def validate_website(self, value):
+        """
+        Web sitesini normalize eder: şema yoksa `https://` ekler.
+
+        Kullanıcı sihirbazda "ornekinsaat.com.tr" yazıyor — bu geçerli bir girdidir,
+        eksik olan yalnızca şemadır. Reddetmek yerine tamamlıyoruz; ancak gerçekten
+        bozuk bir değeri (boşluklu metin, nokta içermeyen kelime) yine de eleriz ki
+        profil haritası üretimi anlamsız bir adrese istek atmasın.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.core.validators import URLValidator
+
+        url = (value or "").strip()
+        if not url:
+            return ""
+        # Şema kontrolü küçük harfe indirgenmiş kopyada yapılır: "HTTP://…" de
+        # geçerli bir adrestir, başına ikinci bir şema eklenmemeli.
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url.lstrip("/")
+
+        try:
+            URLValidator()(url)
+        except DjangoValidationError:
+            raise serializers.ValidationError(
+                "Web sitesi adresi anlaşılamadı. Örnek: ornekinsaat.com.tr"
+            ) from None
+        return url[:300]
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):

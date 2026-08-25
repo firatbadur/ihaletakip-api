@@ -3852,7 +3852,6 @@ components:
           maxLength: 255
         website:
           type: string
-          format: uri
           maxLength: 300
         il_id:
           type: integer

@@ -41,7 +41,11 @@ kullanıcının beyanını birleştir. Emin değilsen kullanıcının seçimini 
 tanıtımı. Web sitesi okunmadıysa yalnızca EKAP geçmişine dayan; ikisi de yoksa boş \
 string döndür — UYDURMA.
 - "scale": firmanın işlerinin tipik büyüklüğü — "kucuk" | "orta" | "buyuk" | null \
-(EKAP toplam bedeli ve sözleşme sayısına bak; veri yoksa null).
+(EKAP "Sözleşme büyüklüğü" satırındaki medyana bak; veri yoksa null).
+- "budget_range": firmanın ilgilenebileceği ihale bedeli aralığı (TL, sayı). Kullanıcı \
+bütçe BEYAN ETTİYSE onu aynen yansıt. Beyan yoksa ve EKAP "Sözleşme büyüklüğü" satırı \
+verildiyse geçmişten TAHMİN et (kabaca medyanın yarısı ile en yüksek bedelin biraz \
+üstü arası — firma büyüdükçe üst sınır esner). İkisi de yoksa {"min": null, "max": null}.
 
 ŞEMA:
 {"summary": "1-2 cümle firma özeti",

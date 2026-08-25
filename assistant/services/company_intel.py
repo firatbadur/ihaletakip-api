@@ -67,6 +67,24 @@ def contractor_text(contractor) -> str:
     )
     if contractor.toplam_sozlesme_bedeli is not None:
         lines.append(f"- Toplam sözleşme bedeli: {_money(contractor.toplam_sozlesme_bedeli)} TL")
+
+    # Sözleşme BÜYÜKLÜĞÜ dağılımı. Toplam bedel tek başına firmanın hangi ölçekte
+    # işlere girdiğini söylemez (60 küçük iş ile 3 dev iş aynı toplamı verebilir);
+    # profil haritasındaki `scale` ve `budget_range` çıkarımının dayanağı budur.
+    # ⚠️ Medyan Python'da hesaplanır: tek firmanın sözleşmeleri tipik olarak <100 satır,
+    # ORM'de medyan yok ve bunun için pencere fonksiyonu yazmaya değmez.
+    bedeller = sorted(
+        b for b in base.exclude(sozlesme_bedeli_num__isnull=True).values_list(
+            "sozlesme_bedeli_num", flat=True
+        )
+    )
+    if bedeller:
+        orta = bedeller[len(bedeller) // 2]
+        lines.append(
+            f"- Sözleşme büyüklüğü ({len(bedeller)} sözleşme üzerinden): "
+            f"medyan {_money(orta)} TL, en düşük {_money(bedeller[0])} TL, "
+            f"en yüksek {_money(bedeller[-1])} TL"
+        )
     if contractor.ilk_sozlesme_tarihi and contractor.son_sozlesme_tarihi:
         lines.append(
             f"- Faaliyet aralığı: {contractor.ilk_sozlesme_tarihi:%Y} — "

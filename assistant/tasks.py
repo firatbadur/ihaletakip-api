@@ -342,6 +342,53 @@ def assistant_chat_task(user_id, message_id):
     return _run_llm(f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}", {})
 
 
+def _repair_missing_profile_maps(limit: int = 20) -> int:
+    """
+    Profil haritası olmayan profiller için üretimi yeniden dener.
+
+    ⚠️ Neden gerekli: harita `PUT /assistant/profile/` sırasında TEK SEFER üretiliyor.
+    O çağrı başarısız olursa (ör. AI yanıtı token sınırında kesildi) profil haritasız
+    kalıyor ve `match_recommendations` aşağıdaki `exclude(profile_map__isnull=True)`
+    ile onu SONSUZA DEK atlıyordu → kullanıcı hiçbir öneri almıyordu, üstelik mobil
+    ona "daha sonra otomatik denenecek" demişti. Deneme burada yapılır.
+
+    `limit`: her turda en çok kaç profil denenir (ücretli LLM çağrısı — kalıcı bir
+    arıza durumunda maliyet sınırsız büyümesin).
+    """
+    from assistant.models import CompanyProfile
+    from assistant.services.profile_map import (
+        derive_from_contractor,
+        generate_profile_map,
+        profile_input_digest,
+    )
+
+    onarilan = 0
+    profiles = (
+        CompanyProfile.objects.filter(is_active=True, profile_map__isnull=True)
+        .select_related("contractor")
+        .order_by("-updated_at")[:limit]
+    )
+    for profile in profiles:
+        try:
+            if derive_from_contractor(profile):
+                profile.save(update_fields=["cities", "tender_types", "updated_at"])
+            profile_map, _usage = generate_profile_map(profile)
+        except Exception:
+            logger.exception("profil haritası onarımı başarısız (profil=%s)", profile.id)
+            continue
+        profile.profile_map = profile_map
+        profile.profile_map_generated_at = timezone.now()
+        profile.profile_map_kaynak_hash = profile_input_digest(profile)
+        profile.save(update_fields=[
+            "profile_map", "profile_map_generated_at", "profile_map_kaynak_hash", "updated_at",
+        ])
+        onarilan += 1
+
+    if onarilan:
+        logger.info("profil haritası onarıldı: %s profil", onarilan)
+    return onarilan
+
+
 @shared_task(name="assistant.tasks.match_recommendations")
 def match_recommendations(since_days=1):
     """
@@ -369,6 +416,10 @@ def match_recommendations(since_days=1):
     # Elle geniş pencere (since_days>1): eski gevşek `since` (backfill/test).
     published_on = today if since_days <= 1 else None
     since = None if since_days <= 1 else (timezone.now() - timedelta(days=since_days))
+
+    # Haritası eksik kalan profilleri önce onar — yoksa aşağıdaki exclude onları
+    # kalıcı olarak eşleştirme dışında bırakır (bkz. _repair_missing_profile_maps).
+    _repair_missing_profile_maps()
 
     profiles = (
         CompanyProfile.objects.filter(is_active=True)

@@ -11,6 +11,13 @@ logger = logging.getLogger("ihaletakip")
 
 TENDER_TYPE_LABELS = {1: "Mal Alımı", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
 
+# ⚠️ 1500 İDİ ve çıktıyı kesiyordu → "geçersiz AI çıktısı" hatası.
+# `CLAUDE_MODEL` (Sonnet 5) **adaptive thinking'i varsayılan olarak açık** çalıştırır
+# ve düşünme token'ları da bu bütçeden düşer. Firma sözleşme geçmişi + web sitesi
+# metni prompt'a eklendikten sonra model daha uzun düşünüyor, JSON yarıda kalıyordu.
+# Bütçeyi düşürmeden önce `stop_reason` loglarına bak.
+MAX_TOKENS = 8000
+
 
 def parse_json_output(text: str) -> dict:
     """Model çıktısından JSON çıkarır: kod bloğu çitlerini temizler, ilk { .. son } arasını parse eder."""
@@ -141,14 +148,38 @@ def generate_profile_map(profile) -> tuple[dict, dict]:
         )
 
     last_error = None
+    kesildi = False
     for attempt in range(2):  # bozuk JSON'da 1 kez yeniden dene
-        result = call_claude(api_key, [], prompt, max_tokens=1500)
+        istek = prompt
+        if attempt:
+            # İkinci denemede modele ne yanlış gittiğini söyle — aynı prompt'u
+            # aynen tekrarlamak çoğu zaman aynı bozuk çıktıyı üretiyor.
+            istek += (
+                "\n\nÖNEMLİ: Önceki yanıtın geçerli JSON değildi. Bu kez SADECE "
+                "yukarıdaki şemaya uyan tek bir JSON nesnesi döndür; açıklama, "
+                "markdown ya da kod bloğu yazma. Kısa tut ki yanıt kesilmesin."
+            )
+        result = call_claude(api_key, [], istek, max_tokens=MAX_TOKENS)
+        kesildi = result.get("stop_reason") == "max_tokens"
         try:
             profile_map = parse_json_output(result["analysis"])
         except (ValueError, json.JSONDecodeError) as e:
-            logger.warning("profile_map JSON parse hatası (deneme %s): %s", attempt + 1, e)
+            # Ham çıktının başını logla: "geçersiz AI çıktısı" tek başına hiçbir şey
+            # anlatmıyordu, sunucu logundan sebebi görebilmek gerek.
+            logger.warning(
+                "profile_map JSON parse hatası (deneme %s, stop_reason=%s, %s token): %s | çıktı: %.400s",
+                attempt + 1,
+                result.get("stop_reason"),
+                (result.get("usage") or {}).get("output_tokens"),
+                e,
+                result.get("analysis") or "(boş)",
+            )
             last_error = e
             continue
         return profile_map, result.get("usage")
 
+    if kesildi:
+        raise AnalysisError(
+            "Profil haritası üretilemedi (AI yanıtı token sınırında kesildi).", status=502
+        ) from last_error
     raise AnalysisError("Profil haritası üretilemedi (geçersiz AI çıktısı).", status=502) from last_error

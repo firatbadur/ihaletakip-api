@@ -150,6 +150,10 @@ def call_claude(api_key: str, content_blocks: list, prompt: str, max_tokens: int
     analysis = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
     return {
         "analysis": analysis,
+        # ⚠️ `stop_reason` bilerek dışarı veriliyor: "max_tokens" cevabın YARIDA
+        # KESİLDİĞİ anlamına gelir. JSON bekleyen çağıranlar (profil haritası) bunu
+        # "geçersiz AI çıktısı" diye raporlarsa gerçek sebep gizlenir.
+        "stop_reason": getattr(message, "stop_reason", None),
         "usage": {
             "input_tokens": message.usage.input_tokens,
             "output_tokens": message.usage.output_tokens,

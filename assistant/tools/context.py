@@ -28,11 +28,19 @@ class ToolContext:
     # Araç sonuçlarının bu turda harcadığı yaklaşık token — döngü bütçe kapısı okur.
     harcanan_token: int = 0
 
+    # SON araç turunda eklenen İKN'ler. Kullanıcıya gösterilecek kartlar buradan seçilir:
+    # model cevabını çoğunlukla en son yaptığı arama üzerine kurar, dolayısıyla havuzun
+    # TAMAMINI göstermek (ör. üç tur önceki alakasız aramanın sonuçlarını) kafa karıştırır.
+    son_grup: list = field(default_factory=list)
+
     def kart_ekle(self, tender) -> dict:
         """Tender'ı karta çevirip havuza yazar ve kartı döner."""
         from assistant.services.matching import tender_card
 
         kart = tender_card(tender)
-        if kart.get("ikn"):
-            self.card_pool[kart["ikn"]] = kart
+        ikn = kart.get("ikn")
+        if ikn:
+            self.card_pool[ikn] = kart
+            if ikn not in self.son_grup:
+                self.son_grup.append(ikn)
         return kart

@@ -15,6 +15,8 @@ import logging
 import re
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
+from django.conf import settings
 from django.utils import timezone
 
 logger = logging.getLogger("ihaletakip")
@@ -178,7 +180,65 @@ def generate_profile_map_task(user_id):
     return {"success": True, "analysis": profile_map, "usage": usage}
 
 
-@shared_task(name="assistant.tasks.assistant_chat_task")
+def _agent_yaniti(profile, user_msg, conversation, today):
+    """
+    Araç kullanan yanıt yolu. Dönen: `(reply_metni, kartlar, usage)`.
+
+    ⚠️ Anahtar kelime yönlendirmesi (eski `_wants_tender_listing` / `_wants_saved`)
+    BURADA YOK ve geri eklenmemeli: model hangi aracı çağıracağına kendi karar veriyor.
+    Substring tetikleyicileri modelle çelişir — kullanıcı "bugünkü ihaleler neler" derken
+    aslında kayıtlılarını kastediyorsa tetikleyici yanlış dalı seçer, model seçmez.
+    """
+    from assistant.services.agent import sohbet_turu
+    from assistant.services.chat import build_chat_messages
+    from assistant.tools.context import ToolContext
+    from ekap.models import Tender
+
+    ctx = ToolContext(
+        user=profile.user,
+        premium=bool(getattr(profile.user, "is_premium", False)),
+        conversation=conversation,
+    )
+
+    baglam = [f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}"]
+
+    # Seçili ihale (ihale odaklı sohbet): detayı ÖN ÇAĞRIYLA bağlama koy — modelin
+    # ilk turu bunu aramakla harcamasın (tur = en pahalı değişken).
+    if conversation and conversation.tender_ikn:
+        t = Tender.objects.filter(ikn=conversation.tender_ikn).first()
+        if t:
+            baglam.append(_selected_tender_context(t, today))
+            ctx.kart_ekle(t)
+
+    # Mesajda geçen İKN'ler: modele ipucu olarak verilir, araç çağrısını o yapar.
+    gecen = [i for i in dict.fromkeys(IKN_RE.findall(user_msg.content or ""))][:5]
+    if gecen:
+        baglam.append(
+            "Kullanıcının mesajında şu İKN'ler geçiyor: "
+            + ", ".join(gecen)
+            + ". Bunları `ihale_detay` ile çöz."
+        )
+
+    messages = build_chat_messages(profile.user, conversation=conversation)
+    if not messages:
+        return None, [], None
+
+    sonuc = sohbet_turu(ctx, profile.profile_map, "\n\n".join(baglam), messages)
+    reply = sonuc["metin"]
+
+    # Kart seçimi: önce cevap metninde ANILAN İKN'ler (model kastettiğini söylemiş),
+    # yoksa son araç turunun ürettiği kartlar. Her iki durumda da YALNIZCA havuzdaki
+    # (yani gerçekten bir araçtan gelmiş) İKN'ler karta dönüşür → uydurma imkânsız.
+    anilan = [i for i in dict.fromkeys(IKN_RE.findall(reply)) if i in ctx.card_pool]
+    secilen = anilan or [i for i in ctx.son_grup if i in ctx.card_pool]
+    kartlar = [ctx.card_pool[i] for i in secilen[:8]]
+    return reply, kartlar, sonuc.get("usage")
+
+
+# ⚠️ soft_time_limit ŞART: hard limit (CELERY_TASK_TIME_LIMIT=300) SIGKILL demek →
+# mesaj kaydedilmeden ölür, kullanıcı boş sohbet görür. Soft limit exception fırlatır,
+# aşağıdaki yakalayıcı elimizdekiyle bir mesaj kaydeder.
+@shared_task(name="assistant.tasks.assistant_chat_task", soft_time_limit=240)
 @_stamp_owner
 def assistant_chat_task(user_id, message_id):
     """Kullanıcı mesajına asistan yanıtı üretir ve kaydeder."""
@@ -247,6 +307,28 @@ def assistant_chat_task(user_id, message_id):
                 seen.add(ikn)
                 cards.append(card_pool[ikn])
         return _save(reply, cards, usage=result.get("usage"))
+
+    # ── 0) ARAÇ KULLANAN YOL (varsayılan) ──────────────────────────────────
+    # Kapatmak için ASSISTANT_AGENT_ENABLED=False → aşağıdaki eski anahtar kelime
+    # akışı devreye girer (kademeli çıkış / acil geri dönüş anahtarı).
+    if settings.ASSISTANT_AGENT_ENABLED:
+        try:
+            reply, kartlar, usage = _agent_yaniti(profile, user_msg, conversation, today)
+        except SoftTimeLimitExceeded:
+            logger.warning("assistant_chat_task süre aşımı (user=%s)", user_id)
+            return _save(
+                "Bu soruyu yanıtlamak beklenenden uzun sürdü. Biraz daha dar bir "
+                "soruyla tekrar dener misiniz?",
+                [],
+            )
+        except AnalysisError as e:
+            return {"success": False, "error": e.message}
+        except Exception:
+            logger.exception("assistant_chat_task araç yolu çöktü (user=%s)", user_id)
+            return {"success": False, "error": "Asistan şu an yanıt veremiyor."}
+        if reply is None:
+            return {"success": False, "error": "Sohbet mesajı bulunamadı."}
+        return _save(reply, kartlar, usage=usage)
 
     # ── 1) BELİRLİ BİR İHALE HAKKINDA (seçili ihale veya mesajda İKN) ──
     # Kullanıcı bir ihaleyi seçmiş VEYA mesajında İKN geçiyorsa: o ihaleyi DB'den

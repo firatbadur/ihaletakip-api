@@ -217,6 +217,24 @@ CLAUDE_MAX_TOKENS = env.int("CLAUDE_MAX_TOKENS", default=3000)
 # İhale Asistanı sohbet modeli (sık çalışır → ucuz model + kısa çıktı ile token tasarrufu)
 CLAUDE_CHAT_MODEL = env("CLAUDE_CHAT_MODEL", default="claude-haiku-4-5")
 CLAUDE_CHAT_MAX_TOKENS = env.int("CLAUDE_CHAT_MAX_TOKENS", default=1000)
+
+# ── İhale Asistanı: araç kullanan (tool calling) sohbet ────────────────────────
+# ⚠️ `CLAUDE_CHAT_MODEL`'den AYRI tutulur. Araç döngüsü çok adımlı planlama +
+# 32 parametreli bir filtre şemasını doğru doldurma istiyor; ucuz modelin yanlış
+# araç/parametre seçimi kullanıcıya "inandırıcı yanlış sayı" olarak yansır ve bu
+# üründe yanlış cevabın maliyeti token maliyetinden büyüktür.
+# ⚠️ Model kimliklerine TARİH EKİ YAZMA (claude-opus-5, claude-opus-5-2026xxxx değil).
+ASSISTANT_AGENT_MODEL = env("ASSISTANT_AGENT_MODEL", default="claude-opus-5")
+ASSISTANT_MAX_TOKENS = env.int("ASSISTANT_MAX_TOKENS", default=8000)
+# Tur = modelin araç çağırıp sonucu okuduğu bir gidiş-dönüş. Her tur TÜM sohbet
+# geçmişini yeniden gönderir → tur sayısı en pahalı değişkendir. 6 bir TAVAN, hedef değil.
+ASSISTANT_MAX_TURNS = env.int("ASSISTANT_MAX_TURNS", default=6)
+# Duvar saati bütçesi. Zincir: tur ~40sn < 180 < soft_time_limit 240 < hard 300.
+ASSISTANT_WALL_SECONDS = env.int("ASSISTANT_WALL_SECONDS", default=180)
+# Araç sonuçlarının toplam token tavanı (bir turda). Aşılırsa döngü kapanış turuna geçer.
+ASSISTANT_TOOL_TOKEN_BUDGET = env.int("ASSISTANT_TOOL_TOKEN_BUDGET", default=12000)
+# Araç döngüsü açık mı — kademeli çıkış için. Kapalıyken eski anahtar kelime akışı çalışır.
+ASSISTANT_AGENT_ENABLED = env.bool("ASSISTANT_AGENT_ENABLED", default=True)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Google Sign-In (idToken audience'ları)

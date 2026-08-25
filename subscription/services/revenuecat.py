@@ -242,47 +242,17 @@ _CANCEL_FIELDS = [
 ]
 
 
-def v1_subscriber(customer_id: str):
-    """
-    RC **v1** `subscribers/{id}` — geçmiş backfill'i için (v2'de yok olan alanlar).
-
-    v2 `subscriptions` yalnızca `auto_renewal_status` gibi ANLIK durumu verir; iptalin
-    **ne zaman** olduğunu (`unsubscribe_detected_at`) ve dönem tipini (`period_type`:
-    trial/normal/intro) yalnızca v1 döndürür. Webhook yolu bunu kullanmaz — yalnızca
-    `backfill_subscription_cancels` komutu içindir.
-
-    ⚠️ Bu uç, olmayan bir müşteriyi **yaratır** → çağırmadan önce v2 ile varlığını
-    doğrulayın (bkz. `customer_subscriptions`).
-    """
-    import requests
-
-    key = getattr(settings, "REVENUECAT_SECRET_KEY", "")
-    if not key:
-        raise RevenueCatError("REVENUECAT_SECRET_KEY tanımlı değil.")
-    url = f"https://api.revenuecat.com/v1/subscribers/{customer_id}"
-    try:
-        resp = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-            timeout=_TIMEOUT,
-        )
-    except requests.RequestException as e:
-        raise RevenueCatError(f"RevenueCat v1 isteği başarısız: {e}") from e
-    if resp.status_code == 404:
-        return None
-    if resp.status_code >= 400:
-        raise RevenueCatError(f"RevenueCat v1 HTTP {resp.status_code}: {resp.text[:200]}")
-    try:
-        return (resp.json() or {}).get("subscriber") or {}
-    except ValueError as e:
-        raise RevenueCatError(f"RevenueCat v1 yanıtı JSON değil: {e}") from e
-
-
 def customer_subscriptions(customer_id: str):
     """
     v2 `customers/{id}/subscriptions` → item listesi. Müşteri yoksa **None** (404).
 
-    Müşteri **yaratmaz** — v1'e gitmeden önceki ucuz varlık kontrolü budur.
+    Müşteri **yaratmaz**.
+
+    ⚠️ **v1 `subscribers/{id}` KULLANILAMAZ**: RC'nin yeni proje anahtarları (`sk_...`)
+    V1 API'ye kapalıdır — `HTTP 403 code 7723 "secret API key incompatible with
+    RevenueCat API V1"`. İptalin tam zamanını veren `unsubscribe_detected_at` yalnızca
+    v1'de olduğu için backfill v2 alanlarından **türetmek** zorundadır (bkz.
+    `backfill_subscription_cancels`).
     """
     data = _get(customer_id, "subscriptions")
     if data is None:

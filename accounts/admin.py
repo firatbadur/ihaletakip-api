@@ -149,6 +149,9 @@ class UserAdmin(BaseUserAdmin):
         if obj.subscription_cancelled_at is None:
             return "Pro (aktif)" if obj.is_premium else "—"
         tarih = timezone.localtime(obj.subscription_cancelled_at).strftime("%d.%m.%Y")
+        # Backfill izinde tarih YAKLAŞIKTIR (RC v2 iptal anını vermiyor) → "≈" ile işaretle.
+        if obj.subscription_last_event == "BACKFILL":
+            tarih = f"≈{tarih}"
         tur = "deneme" if obj.subscription_period_type == "TRIAL" else "ücretli"
         exp = obj.subscription_expires_at
         if exp and exp > timezone.now():

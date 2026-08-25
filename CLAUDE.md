@@ -1282,13 +1282,18 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
   (win-back hedefi) / **iptal etti · süresi doldu** (churn). Alanlar admin'de salt okunur.
 - ⚠️ **Geçmiş iptaller DB'de YOKTU** (bu özellikten önceki webhook'lar hiçbir yere
   yazılmıyordu) → tek seferlik backfill: `python manage.py backfill_subscription_cancels
-  [--dry-run] [--limit N] [--from-pk N] [--force]`. Kullanıcı başına önce **v2**
-  `customers/{id}/subscriptions` (404 → müşteri yok, atla), sonra **v1**
-  `subscribers/{id}` sorulur.
-  ⚠️ **Sıra şart**: v1 `subscribers/{id}` olmayan müşteriyi **YARATIR** → önce v2 ile
-  varlık doğrulanır. ⚠️ İptalin **zamanı** yalnızca v1'de var
-  (`unsubscribe_detected_at` + `period_type`); v2 yalnızca anlık `auto_renewal_status`
-  verir. Varsayılan olarak yalnızca boş izi doldurur (webhook'tan geleni ezmez).
+  [--probe N] [--dry-run] [--limit N] [--from-pk N] [--force]`. Kullanıcı başına v2
+  `customers/{id}/subscriptions` sorulur (404/boş → müşteri yok, atla).
+  ⚠️⚠️ **v1 API KULLANILAMAZ**: RC'nin yeni proje anahtarları (`sk_...`) V1'e kapalı —
+  `403 code 7723 "secret API key incompatible with RevenueCat API V1"` (prod'da ölçüldü,
+  2026-08-25). İptalin **tam zamanını** veren `unsubscribe_detected_at` yalnızca v1'de
+  olduğu için tarih v2'den **türetilir**: varsa RC'nin verdiği bir damga, yoksa
+  `current_period_ends_at`. Bu satırlar `subscription_last_event="BACKFILL"` ile
+  işaretlenir ve admin tarihi **`≈`** ile gösterir — webhook izleri kesindir.
+  ⚠️ Hiçbir tarih yoksa **iz YAZILMAZ** (uydurma tarih üretmeyiz).
+  ⚠️ Alan keşfi için `--probe N`: aboneliği olan ilk N müşterinin ham v2 JSON'unu basar
+  — `auto_renewal_status` / `status` isimleri RC sürümüne göre değişebilir.
+  Varsayılan olarak yalnızca boş izi doldurur (webhook'tan geleni ezmez).
 
 - **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i
   yeniden sorgular → durum her zaman RC ile tutarlı. `verify` ve webhook aynı

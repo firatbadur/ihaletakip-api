@@ -16,6 +16,26 @@ from django.core.management.base import BaseCommand, CommandError
 
 SET_YOLU = Path(__file__).resolve().parent.parent.parent / "tests" / "golden.yaml"
 
+# (giriş, çıkış) $/milyon token. Cache okuma girişin ~%10'u, cache yazma ~%125'i.
+# ⚠️ Modele göre seçilir: tek bir fiyat listesine sabitlemek, kademe karşılaştırmasında
+# ucuz modelin maliyetini pahalı modelin fiyatıyla hesaplayıp kararı bozar.
+_FIYAT = {
+    "opus-5": (5.0, 25.0),
+    "opus-4-8": (5.0, 25.0),
+    "opus-4-7": (5.0, 25.0),
+    "sonnet-5": (2.0, 10.0),
+    "sonnet-4-6": (3.0, 15.0),
+    "haiku-4-5": (1.0, 5.0),
+    "fable-5": (10.0, 50.0),
+}
+
+
+def _fiyat(model: str):
+    for ad, ucret in _FIYAT.items():
+        if ad in model:
+            return ucret
+    return None
+
 
 class Command(BaseCommand):
     help = "İhale Asistanı altın soru setini çalıştırır (gerçek LLM çağrısı yapar)."
@@ -43,6 +63,11 @@ class Command(BaseCommand):
             sorular = sorular[opts["sadece"] - 1 : opts["sadece"]]
 
         model = settings.ASSISTANT_AGENT_MODEL
+        fiyat = _fiyat(model)
+        if not fiyat:
+            self.stdout.write(self.style.WARNING(
+                f"{model} için fiyat tanımlı değil; maliyet hesaplanmayacak "
+                f"(_FIYAT tablosuna ekleyin)."))
         self.stdout.write(f"Model: {model} | {len(sorular)} soru | kullanıcı: {user.email}\n")
 
         gecen, toplam_usd, toplam_sn = 0, 0.0, 0.0
@@ -78,10 +103,15 @@ class Command(BaseCommand):
                 sorunlar.append(f"kart {kart}<{s['kart_bekle']}")
 
             u = sonuc.get("usage") or {}
-            # Kaba maliyet (Opus 5 fiyatları; kademe karşılaştırması için yeterli)
-            usd = (u.get("input_tokens", 0) * 5 + u.get("output_tokens", 0) * 25
-                   + u.get("cache_read_input_tokens", 0) * 0.5) / 1e6
-            toplam_usd += usd
+            if fiyat:
+                g, c = fiyat
+                usd = (
+                    u.get("input_tokens", 0) * g
+                    + u.get("output_tokens", 0) * c
+                    + u.get("cache_read_input_tokens", 0) * g * 0.1
+                    + u.get("cache_creation_input_tokens", 0) * g * 1.25
+                ) / 1e6
+                toplam_usd += usd
 
             if sorunlar:
                 self.stdout.write(self.style.ERROR(
@@ -94,7 +124,8 @@ class Command(BaseCommand):
                     f"araç={','.join(sorted(cagrilan)) or '-'}"))
 
         n = max(len(sorular), 1)
-        self.stdout.write(
-            f"\n{gecen}/{len(sorular)} geçti | ortalama {toplam_sn/n:.0f} sn | "
-            f"~${toplam_usd:.3f} toplam, ${toplam_usd/n:.4f}/soru"
-        )
+        satir = f"\n{gecen}/{len(sorular)} geçti | ortalama {toplam_sn/n:.0f} sn"
+        if fiyat:
+            satir += (f" | ~${toplam_usd:.3f} toplam, ${toplam_usd/n:.4f}/soru "
+                      f"(~{toplam_usd/n*42:.2f} TL)")
+        self.stdout.write(satir)

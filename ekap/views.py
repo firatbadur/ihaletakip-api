@@ -268,6 +268,40 @@ def _cached_count(qs, params, scope="tender"):
     return total
 
 
+def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):
+    """
+    Filtrelenmiş Tender queryset'ine sıralama + sayfalama uygular.
+
+    `TenderListView` ve İhale Asistanı'nın `ihale_ara` aracı **aynı** sıralama/sayfalama
+    davranışını göstermeli; ikisinde ayrı kopya tutmak zamanla ayrışır (asistan "en yeni"
+    derken view'ın "en yeni"sinden başka bir şey döndürmeye başlar). Tek kaynak burası.
+
+    Dönen: `(items_queryset, page, page_size)`. COUNT çağıran tarafta (`_cached_count`),
+    çünkü asistan bazı çağrılarda toplamı hiç istemiyor.
+    """
+    order = params.get("order", "ihale_tarihi")
+    direction = params.get("siralamaTipi", "desc")
+    field = "ilan_tarihi" if order == "ilan_tarihi" else "ihale_tarihi"
+    prefix = "" if direction == "asc" else "-"
+    qs = qs.order_by(f"{prefix}{field}")
+
+    try:
+        page = max(1, int(params.get("page", 1)))
+        page_size = min(azami_boyut, max(1, int(params.get("page_size", varsayilan_boyut))))
+    except (TypeError, ValueError):
+        page, page_size = 1, varsayilan_boyut
+
+    start = (page - 1) * page_size
+    # ⚠️ `.only()` filtrelerden SONRA — apply_tender_filters başka alanlara bakabilir.
+    return qs.only(*_LIST_FIELDS)[start : start + page_size], page, page_size
+
+
+def kismi_kapsam_uyarisi(params) -> str:
+    """Kapsamı kısmi kolonlarda aralık filtresi kullanıldıysa dürüstlük uyarısı döner."""
+    uyarilar = [_KISMI_KAPSAM_UYARI[p] for p in _KISMI_KAPSAM_UYARI if p in params]
+    return " ".join(dict.fromkeys(uyarilar))
+
+
 def _tender_by_key(key, *, defer_raw=False):
     """
     İhaleyi `ikn` ya da `ekap_id` ile bulur (detay/ilan/sözleşme uçlarının ortak girişi).
@@ -780,36 +814,17 @@ class TenderListView(APIView):
             require_premium(request.user, MSG_PRO_FILTRE)
 
         qs = apply_tender_filters(Tender.objects.all(), qp)
-
-        # Sıralama (model alan adları)
-        order = qp.get("order", "ihale_tarihi")
-        direction = qp.get("siralamaTipi", "desc")
-        field = "ilan_tarihi" if order == "ilan_tarihi" else "ihale_tarihi"
-        prefix = "" if direction == "asc" else "-"
-        qs = qs.order_by(f"{prefix}{field}")
-
-        # Pagination
-        try:
-            page = max(1, int(qp.get("page", 1)))
-            page_size = min(100, max(1, int(qp.get("page_size", 10))))
-        except (TypeError, ValueError):
-            page, page_size = 1, 10
-
         total = _cached_count(qs, qp)
-        start = (page - 1) * page_size
-        # ⚠️ `.only()` filtrelerden SONRA — `apply_tender_filters` başka alanlara bakabilir.
-        items = qs.only(*_LIST_FIELDS)[start:start + page_size]
+        items, page, _boyut = sirala_sayfala(qs, qp)
         data = EkapTenderListSerializer(items, many=True).data
         payload = {"list": data, "totalCount": total, "page": page}
 
         # Dürüstlük uyarısı: kapsamı kısmi olan kolonlarda aralık filtresi, değeri
         # BİLİNMEYEN ihaleleri de sessizce eler (NULL hiçbir aralığa girmez). Kullanıcı
         # "sonuç yok" ile "veri yok"u ayırt edebilmeli.
-        uyarilar = [
-            _KISMI_KAPSAM_UYARI[p] for p in _KISMI_KAPSAM_UYARI if p in qp
-        ]
-        if uyarilar:
-            payload["uyari"] = " ".join(dict.fromkeys(uyarilar))
+        uyari = kismi_kapsam_uyarisi(qp)
+        if uyari:
+            payload["uyari"] = uyari
         return api_response(data=payload)
 
 

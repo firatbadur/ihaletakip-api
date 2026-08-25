@@ -61,7 +61,43 @@ class CompanyProfile(TimeStampedModel):
     # katmandaki eşleştirme/teaser da buna dayanıyor → harita Free için de gerekli.
     profile_map_kaynak_hash = models.CharField(max_length=64, blank=True)
 
+    # ── Kullanıcıya hitap ──────────────────────────────────────────────────
+    # ⚠️ CİNSİYET İSİMDEN TAHMİN EDİLMEZ. "Deniz", "Evren", "Yağmur", "Özgür" gibi
+    # isimler her iki cinsiyette de yaygındır; yanlış hitap gerçek bir insana yanlış
+    # cinsiyetle seslenmek demektir ve hitapsız konuşmaktan çok daha kötüdür.
+    # Kullanıcı bir kez seçer, burada saklanır. Boş = bilinmiyor → hitap KULLANILMAZ.
+    class Hitap(models.TextChoices):
+        BEY = "bey", "Bey"
+        HANIM = "hanim", "Hanım"
+        YOK = "yok", "Hitap kullanma"
+
+    hitap = models.CharField(
+        max_length=8, choices=Hitap.choices, blank=True, verbose_name="Hitap"
+    )
+    # Hitapta kullanılacak ad. Boşsa `User.display_name`in ilk kelimesi kullanılır
+    # (bkz. `hitap_metni`); o da e-postadan türemiş olabileceği için düzenlenebilir.
+    hitap_ad = models.CharField(max_length=60, blank=True, verbose_name="Hitap adı")
+
     is_active = models.BooleanField(default=True)  # günlük eşleştirme açık/kapalı
+
+    def hitap_metni(self):
+        """
+        Asistanın kullanacağı hitap: "Fırat Bey" / "Ayşe Hanım" / "" (kullanma).
+
+        Boş string dönmesi NORMALDİR ve hata değildir: hitap seçilmemişse ya da
+        kullanıcı istemiyorsa asistan hitapsız konuşur.
+        """
+        if self.hitap in ("", self.Hitap.YOK):
+            return ""
+        ad = (self.hitap_ad or "").strip()
+        if not ad:
+            # display_name "Fırat Badur" ya da e-postadan türemiş "badurfrat" olabilir;
+            # ilk kelimeyi alıp baş harfi büyütüyoruz.
+            ham = (getattr(self.user, "display_name", "") or "").strip()
+            ad = ham.split()[0] if ham else ""
+        if not ad:
+            return ""
+        return f"{ad} {self.get_hitap_display()}"
 
     class Meta:
         verbose_name = "Firma Profili"

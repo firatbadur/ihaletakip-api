@@ -560,3 +560,45 @@ class SoruOnerisiTests(TestCase):
 
         # Araç hata döndüyse üzerine öneri kurmak yanlış: veri gelmedi.
         self.assertEqual(soru_onerileri(_ctx(), [{"arac": "idare_profili", "ok": False}]), [])
+
+
+class HitapTests(TestCase):
+    """
+    ⚠️ Cinsiyet isimden TAHMİN EDİLMEZ. "Deniz", "Evren", "Yağmur", "Özgür" gibi
+    isimler her iki cinsiyette de yaygındır ve yanlış hitap, hitapsız konuşmaktan
+    çok daha kötüdür. Kullanıcı bir kez seçer; seçmediyse hitap kullanılmaz.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth import get_user_model
+
+        from assistant.models import CompanyProfile
+
+        U = get_user_model()
+        cls.user = U.objects.create(
+            email="h@test.local", username="h-test", display_name="Fırat Badur"
+        )
+        cls.profile = CompanyProfile.objects.create(user=cls.user, company_name="TEST A.Ş.")
+
+    def _hitap(self, **alanlar):
+        for k, v in alanlar.items():
+            setattr(self.profile, k, v)
+        return self.profile.hitap_metni()
+
+    def test_secilmediyse_hitap_yok(self):
+        self.assertEqual(self._hitap(hitap="", hitap_ad=""), "")
+
+    def test_kullanma_secildiyse_hitap_yok(self):
+        self.assertEqual(self._hitap(hitap="yok", hitap_ad="Fırat"), "")
+
+    def test_display_name_ilk_kelimesi_kullanilir(self):
+        # "Fırat Badur" → "Fırat Bey" (soyadıyla hitap etmek Türkçede yanlış durur)
+        self.assertEqual(self._hitap(hitap="bey", hitap_ad=""), "Fırat Bey")
+
+    def test_acik_verilen_ad_display_name_i_ezer(self):
+        self.assertEqual(self._hitap(hitap="hanim", hitap_ad="Ayşe"), "Ayşe Hanım")
+
+    def test_ad_hic_yoksa_hitap_uretilmez(self):
+        self.user.display_name = ""
+        self.assertEqual(self._hitap(hitap="bey", hitap_ad=""), "")

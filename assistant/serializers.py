@@ -27,6 +27,8 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             "contractor_ad",
             "contractor_sozlesme_sayisi",
             "company_name",
+            "hitap",
+            "hitap_ad",
             "website",
             "il_id",
             "sector",

@@ -3754,6 +3754,9 @@ components:
           description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
       required:
       - identity_token
+    BlankEnum:
+      enum:
+      - ''
     ChatAccepted:
       type: object
       properties:
@@ -3911,6 +3914,14 @@ components:
         company_name:
           type: string
           maxLength: 255
+        hitap:
+          oneOf:
+          - $ref: '#/components/schemas/HitapEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        hitap_ad:
+          type: string
+          title: Hitap adı
+          maxLength: 60
         website:
           type: string
           maxLength: 300
@@ -4165,6 +4176,17 @@ components:
       required:
       - service
       - status
+    HitapEnum:
+      enum:
+      - bey
+      - hanim
+      - yok
+      type: string
+      description: '* `bey` - Bey
+
+        * `hanim` - Hanım
+
+        * `yok` - Hitap kullanma'
     IsFavorite:
       type: object
       properties:

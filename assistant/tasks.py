@@ -258,7 +258,18 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     if not messages:
         return None, [], None
 
-    sonuc = sohbet_turu(ctx, profile.profile_map, "\n\n".join(baglam), messages)
+    # Hitap CACHE'Lİ bloğa gider (`sistem_ek`): kullanıcı başına sabittir, turdan
+    # tura değişmez — değişken bağlamla (tarih, son arama) karıştırılırsa her
+    # mesajda cache önekini bozardı.
+    hitap = profile.hitap_metni()
+    sistem_ek = (
+        f"## KULLANICIYA HİTAP\nKullanıcıya “{hitap}” diye hitap et."
+        if hitap else ""
+    )
+
+    sonuc = sohbet_turu(
+        ctx, profile.profile_map, "\n\n".join(baglam), messages, sistem_ek=sistem_ek
+    )
     reply = sonuc["metin"]
 
     # Kart seçimi: önce cevap metninde ANILAN İKN'ler (model kastettiğini söylemiş),

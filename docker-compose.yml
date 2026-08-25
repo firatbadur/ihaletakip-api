@@ -234,6 +234,21 @@ services:
       - web
       - redis
 
+  # Asistan sohbeti: kullanıcı BEKLİYOR (mobil 2 sn'de bir yokluyor). Arşiv
+  # görevleriyle slot paylaşmasın diye ayrı kuyruk + ayrı worker.
+  # concurrency=2: iş CPU değil ağ-bekleme; prefetch=1 uzun bir sohbetin kuyruktaki
+  # ikinci sohbeti rehin almasını engeller.
+  assistant-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      RUN_MIGRATIONS: "false"
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "assistant", "--concurrency=2", "--prefetch-multiplier=1"]
+    depends_on:
+      - web
+      - redis
+
   beat:
     build: .
     restart: unless-stopped

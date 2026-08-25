@@ -356,6 +356,13 @@ PRO_BACKFILL_MAX_SECONDS = env.int("PRO_BACKFILL_MAX_SECONDS", default=270)
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
 # joker'inden ÖNCE gelmelidir.
 CELERY_TASK_ROUTES = {
+    # ⚠️ **Asistan sohbeti AYRI kuyrukta** (`assistant`). Araç kullanan asistan artık
+    # 10-180 sn süren, LLM bekleyen bir görev; varsayılan `celery` kuyruğunda 4 slotu
+    # `sync_contractors` / `backfill_tender_fields` / `refresh_market_stats` gibi
+    # dakikalarca süren arşiv görevleriyle paylaşıyordu. Bir gece işi dört slotu da
+    # tutarsa KULLANICININ SOHBETİ FIFO'da bekler — `ekap_oncelik` ile aynı gerekçe
+    # (aşağıda ölçümü yazılı: beat 02:00'de tetikliyor, worker 9-20 saat sonra koşuyordu).
+    "assistant.tasks.assistant_chat_task": {"queue": "assistant"},
     # sync_contractors EKAP'a HİÇ gitmez (Tender.detail_raw arşivinden çalışır) →
     # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
     "ekap.tasks.sync_contractors": {"queue": "celery"},

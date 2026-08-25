@@ -260,6 +260,15 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     # önce veriyi görüp sonra kararı verir.
     bloklar = ctx.gorsel_bloklar[:2] + [_eylem_karti(e) for e in ctx.oneriler[:3]]
 
+    # Soru önerileri EN SONA: kullanıcı önce cevabı ve kartları görsün, "sıradaki adım"
+    # en altta dursun. Deterministik üretilir (assistant/tools/oneri.py) — model
+    # yapamayacağı bir şeyi öneremez.
+    from assistant.tools.oneri import oneri_blogu
+
+    oneri_bloku = oneri_blogu(ctx, sonuc.get("arac_izi"))
+    if oneri_bloku:
+        bloklar.append(oneri_bloku)
+
     # Bu turdaki SON başarılı ihale aramasını konuşmaya yaz → sonraki tur daraltabilsin.
     # Arama yapılmadıysa öncekini SİLME: kullanıcı araya "geçici teminat nedir?" gibi
     # bir soru sıkıştırıp sonra "peki İstanbul'dakiler?" diyebilir.

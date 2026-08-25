@@ -473,3 +473,71 @@ class GrafikBlokTests(TestCase):
             {"yil": 2026, "medyan": "2000"},
         ], "medyan")
         self.assertEqual([d["label"] for d in blok["veri"]], ["2025", "2026"])
+
+
+class SoruOnerisiTests(TestCase):
+    """Öneriler deterministik: hangi araçlar çalıştıysa ona göre — model karışmaz."""
+
+    def _iz(self, *adlar):
+        return [{"arac": a, "ok": True} for a in adlar]
+
+    def test_arac_calismadiysa_oneri_yok(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        # Mevzuat sorusunda ("geçici teminat nedir?") öneri çıkarmak gürültüdür.
+        self.assertEqual(soru_onerileri(_ctx(), self._iz()), [])
+        self.assertEqual(soru_onerileri(_ctx(), None), [])
+
+    def test_liste_donen_aramada_ihaleye_ozel_oneri_cikmaz(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        ctx = _ctx()
+        ctx.son_grup = ["2026/1", "2026/2", "2026/3"]
+        oneriler = soru_onerileri(ctx, self._iz("ihale_ara"))
+        # ⚠️ "Bu iş kaça kapanır?" belirsizdir: "bu" hangi iş belli değil, model
+        # yanlış ihaleyi seçebilir. Tek odak yokken çıkmamalı.
+        self.assertNotIn("Bu iş kaça kapanır, ne kadar kırım yapmalıyım?", oneriler)
+        self.assertIn("Bu aramayı kaydet, yenisi çıkınca haber ver", oneriler)
+
+    def test_tek_ihale_odaginda_fiyat_ve_tekrar_onerilir(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        ctx = _ctx()
+        ctx.son_grup = ["2026/1"]
+        oneriler = soru_onerileri(ctx, self._iz("ihale_detay"))
+        self.assertIn("Bu iş kaça kapanır, ne kadar kırım yapmalıyım?", oneriler)
+        self.assertIn("Bu iş her yıl açılıyor mu?", oneriler)
+
+    def test_zaten_calisan_arac_tekrar_onerilmez(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        ctx = _ctx()
+        ctx.son_grup = ["2026/1"]
+        oneriler = soru_onerileri(ctx, self._iz("ihale_detay", "ihale_benchmark"))
+        # Fiyat analizi bu turda zaten yapıldı; tekrar önermek kullanıcıyı döngüye sokar.
+        self.assertNotIn("Bu iş kaça kapanır, ne kadar kırım yapmalıyım?", oneriler)
+        self.assertIn("Bu alanda pazar nasıl, kimler iş alıyor?", oneriler)
+
+    def test_firma_ve_idare_takip_onerileri(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        self.assertIn("Bu firmayı takibe al",
+                      soru_onerileri(_ctx(), self._iz("firma_ara", "firma_isleri")))
+        self.assertIn("Bu idareyi favorilerime ekle",
+                      soru_onerileri(_ctx(), self._iz("idare_ara", "idare_profili")))
+
+    def test_en_cok_uc_oneri(self):
+        from assistant.tools.oneri import AZAMI_ONERI, soru_onerileri
+
+        ctx = _ctx()
+        ctx.son_grup = ["2026/1"]
+        oneriler = soru_onerileri(
+            ctx, self._iz("ihale_detay", "idare_profili", "firma_profili", "pazar_panosu"))
+        self.assertLessEqual(len(oneriler), AZAMI_ONERI)
+        self.assertEqual(len(set(oneriler)), len(oneriler), "öneriler tekrarlanmış")
+
+    def test_basarisiz_arac_oneri_uretmez(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        # Araç hata döndüyse üzerine öneri kurmak yanlış: veri gelmedi.
+        self.assertEqual(soru_onerileri(_ctx(), [{"arac": "idare_profili", "ok": False}]), [])

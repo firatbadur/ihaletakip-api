@@ -305,3 +305,27 @@ Asistan sohbeti ucu `require_premium(MSG_CHAT)` ile korunuyor; buraya yalnızca 
 üye ulaşıyor. `TenderBenchmarkView._KILITLI` ve `_market_maskele` maskeleri **HTTP
 uçlarına** aittir, araç katmanında tekrarlanmaz — tekrarlansaydı Pro kullanıcıya
 boş veri gösterirdik.
+
+## Soru önerileri — `suggestions` bloğu
+
+Asistanın 21 aracının çoğunu kullanıcı **sormadıkça keşfedemez**. Statik hazır-soru
+çipleri yalnızca sohbetin başında işe yarar; asıl fırsat kullanıcı bir idareye ya da
+firmaya baktıktan **hemen sonra** "bunu takip edeyim mi" diyebilmesidir.
+
+Her asistan cevabına `{"type":"suggestions","sorular":["...","..."]}` bloğu eklenir
+(en çok 3). Mobil bunu **balonun içinde çizmez** — input üstündeki `QuickReplies`
+çubuğunu besler (`AIAssistant/index.js` → `dinamikOneriler`). İki çip şeridi görsel
+tekrar olur ve kullanıcı zaten o çubuğa bakıyor.
+
+⚠️ **Öneriler modelin çıktısı DEĞİLDİR** (`assistant/tools/oneri.py`). Deterministik
+kurallarla, o turda GERÇEKTEN çalışan araçlara bakılarak üretilir. Gerekçe:
+· Model yapamayacağı bir şeyi önerirse ("teklifini hazırlayayım mı?") kullanıcı
+  dokunur ve hayal kırıklığına uğrar. Her öneri var olan bir araca birebir karşılık gelir.
+· Öneri üretmek her mesajda ek çıktı tokenı demektir.
+· Sabit kurallar test edilebilir; model çıktısı edilemez.
+
+İki kural özellikle önemli:
+· **Araç çalışmadıysa öneri çıkmaz** — mevzuat sorusundan sonra öneri gürültüdür.
+· **Liste dönen aramadan sonra ihaleye özel öneri çıkmaz** ("bu iş kaça kapanır?"
+  belirsizdir, model yanlış ihaleyi seçebilir). Yalnızca tek ihale odaktayken çıkar
+  (`conversation.tender_ikn` ya da `son_grup` tek elemanlı).

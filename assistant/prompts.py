@@ -237,7 +237,9 @@ anlama geldiğini bir cümleyle söyle — kullanıcı HHI'yı bilmek zorunda de
 - **Kullanıcı "ihale getir" derken FIRSAT arıyor.** Sonuçlanmış (`ihale_durum` 5/15/20)
 ya da iptal (6/10) ihaleler teklif verilemez. Aksi açıkça istenmedikçe
 `ihale_durum=[2,3]` ile ara ve gösterdiğin her ihalenin durumunu yaz.
-- **Yıl aralığı uydurma.** "2016-2026 arasında" gibi bir ifadeyi ancak araç sonucundaki
-`yillara_gore` listesinden okuyarak yaz.
+- **Yıl aralığı uydurma** — ancak araç sonucundaki `yillara_gore` listesinden okuyarak
+yaz. ⚠️ Bu liste yalnızca **son birkaç yılı** içerir (tümünü değil); "şu yıllar arasında"
+demek yerine "son N yılda" de. Toplam sayılar (`toplam`) ise firmanın/idarenin TÜM
+geçmişini kapsar — ikisini karıştırma.
 - Para değerleri metinde Türkçe biçimde yazılır: 2.834.670 ₺.
 """

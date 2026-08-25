@@ -206,3 +206,24 @@ class ModelYetenekTests(TestCase):
         for model in ("claude-haiku-4-5", "claude-sonnet-4-20250514"):
             with self.subTest(model=model):
                 self.assertEqual(_modelin_yetenekleri(model), {})
+
+
+class YilSerisiTests(TestCase):
+    """`authority_profile` yıl serisini AZALAN üretir; dilimleme yönü kritik."""
+
+    def test_en_yeni_yillar_kronolojik_doner(self):
+        from assistant.tools.read import son_yillar
+
+        azalan = [{"yil": y} for y in (2026, 2025, 2024, 2023, 2022, 2021, 2020, 2016)]
+        self.assertEqual(
+            [r["yil"] for r in son_yillar(azalan)],
+            [2022, 2023, 2024, 2025, 2026],  # en yeni 5, eskiden yeniye
+        )
+
+    def test_kisa_seri_ve_bos_seri(self):
+        from assistant.tools.read import son_yillar
+
+        self.assertEqual([r["yil"] for r in son_yillar([{"yil": 2026}, {"yil": 2025}])],
+                         [2025, 2026])
+        self.assertEqual(son_yillar([]), [])
+        self.assertEqual(son_yillar(None), [])

@@ -26,6 +26,19 @@ def _hata(mesaj, **ek):
     return {"ok": False, "hata": mesaj, **ek}
 
 
+def son_yillar(liste, n=5):
+    """
+    Yıl serisinden EN YENİ `n` yılı, kronolojik (eskiden yeniye) sırada döner.
+
+    ⚠️ `ekap.authority_profile._yillara_gore` seriyi **azalan** üretir
+    (`sorted(..., reverse=True)`, en yeni başta). Burada `[-n:]` yazmak en ESKİ n yılı
+    verir. Bu hata üretimde yakalandı: TOKİ profili 2016-2026 kapsarken modele yalnızca
+    2016-2020 gidiyordu ve model —doğru biçimde— "2016-2020 arası" diye yazıyordu.
+    Model uydurmuyordu; yanlış veriyi doğru okuyordu. En sinsi hata sınıfı budur.
+    """
+    return list(reversed((liste or [])[:n]))
+
+
 # ── 1. İhale arama ─────────────────────────────────────
 def ihale_ara(ctx, **params):
     """
@@ -194,7 +207,7 @@ def idare_profili(ctx, **params):
         "toplam": veri.get("toplam"),
         # Son 5 yıl yeter; enflasyon nedeniyle yıllar arası tutar karşılaştırması
         # zaten dikkatli yapılmalı (system prompt'ta yazılı).
-        "yillara_gore": (veri.get("yillara_gore") or [])[-5:],
+        "yillara_gore": son_yillar(veri.get("yillara_gore")),
         "yukleniciler": (yd.get("liste") or [])[:10],
         "yogunlasma": yd.get("yogunlasma"),
         "okas_dagilim": (dag.get("okas") or [])[:8],
@@ -284,7 +297,9 @@ def firma_profili(ctx, contractor_id=None, **_):
         },
         "ihale_tipi_dagilim": (dag.get("ihale_tipi") or [])[:4],
         "il_dagilim": (dag.get("il") or [])[:5],
-        "yil_dagilim": (dag.get("yil") or [])[:6],
+        # ⚠️ Bu liste YILA göre değil ADETE göre sıralıdır (`_dagilim` `-adet` kullanır):
+        # "en yoğun 6 yıl" demektir, "son 6 yıl" değil. Anahtar adı bunu belli etsin.
+        "en_yogun_yillar": (dag.get("yil") or [])[:6],
         "idare_dagilim": (dag.get("idare") or [])[:10],
         # `aliaslar` bilerek DIŞARIDA: 50 satıra kadar çıkar, modele bir şey katmaz.
         "not": "EKAP yalnızca imzalanmış sözleşmeleri yayımlar; kaybedilen teklifler yoktur. Kazanma oranı hesaplanamaz.",

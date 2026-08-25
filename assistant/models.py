@@ -147,6 +147,13 @@ class ChatMessage(models.Model):
     content = models.TextField()
     # {"kind": "digest"|"text", "tender_cards": [{ikn, ihale_adi, idare_adi, il, ihale_tarihi, ihale_tip}]}
     payload = models.JSONField(null=True, blank=True)
+    # Bu mesajı üretmenin LLM maliyeti: {input_tokens, output_tokens, cache_read_input_tokens,
+    # cache_creation_input_tokens, model, tur_sayisi}. Yalnızca asistan mesajlarında dolu.
+    #
+    # ⚠️ Araç kullanan asistanda mesaj başına maliyet, tek atış sohbete göre kat kat yüksek
+    # (her araç turu tüm geçmişi yeniden gönderir). Bu alan İLK GÜNDEN toplanmalı — sonradan
+    # eklenirse geriye dönük veri olmaz ve tavan/kademe kararı tahminle verilir.
+    usage = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

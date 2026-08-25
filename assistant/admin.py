@@ -54,11 +54,25 @@ class ChatConversationAdmin(admin.ModelAdmin):
 
 @admin.register(ChatMessage)
 class ChatMessageAdmin(admin.ModelAdmin):
-    list_display = ("user", "conversation", "role", "short_content", "created_at")
+    list_display = ("user", "conversation", "role", "short_content", "token_ozet", "created_at")
     list_filter = ("role",)
     search_fields = ("user__email", "content")
-    raw_id_fields = ("conversation",)
+    # `user` de raw_id: bu tablo en hızlı büyüyen tablolardan; varsayılan <select>
+    # tüm kullanıcıları sayfaya basar (bkz. CompanyProfileAdmin aynı gerekçe).
+    raw_id_fields = ("conversation", "user")
+    list_select_related = ("user", "conversation")
 
     @admin.display(description="İçerik")
     def short_content(self, obj):
         return obj.content[:80]
+
+    @admin.display(description="Token (giriş/çıkış/cache)")
+    def token_ozet(self, obj):
+        """Mesaj başına LLM maliyetinin okunur özeti — kademe/tavan kararının verisi."""
+        u = obj.usage or {}
+        if not u:
+            return "—"
+        return (
+            f"{u.get('input_tokens', 0)} / {u.get('output_tokens', 0)}"
+            f" / {u.get('cache_read_input_tokens', 0)}"
+        )

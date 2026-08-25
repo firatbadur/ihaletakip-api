@@ -204,12 +204,15 @@ def assistant_chat_task(user_id, message_id):
 
     # Asistan mesajını kaydedip standart sonucu döndüren yardımcılar
     def _save(reply, cards, usage=None):
+        # `usage` DB'ye yazılır (maliyet izleme, bkz. ChatMessage.usage) ama
+        # ChatMessageSerializer'da YOK → mobile sızmaz, iç veridir.
         msg = ChatMessage.objects.create(
             user_id=user_id,
             conversation=conversation,
             role=ChatMessage.Role.ASSISTANT,
             content=reply,
             payload={"kind": "text", "tender_cards": cards or []},
+            usage=usage or None,
         )
         if conversation:
             conversation.save(update_fields=["updated_at"])

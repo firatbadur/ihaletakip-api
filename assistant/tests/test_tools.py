@@ -536,6 +536,25 @@ class SoruOnerisiTests(TestCase):
         self.assertLessEqual(len(oneriler), AZAMI_ONERI)
         self.assertEqual(len(set(oneriler)), len(oneriler), "öneriler tekrarlanmış")
 
+    def test_kullanici_verisi_turune_gore_oneri_degisir(self):
+        """
+        ⚠️ Bu iki soru bir zamanlar BAŞLANGIÇ çipiydi ve sıfır bağlamda anlamsızdı
+        ("bu hafta neyin son günü geliyor?" kayıtlı ihalesi olmayana boş döner,
+        "bunları neden önerdin?" henüz öneri yokken saçmadır). Yerleri burası.
+        """
+        from assistant.tools.oneri import soru_onerileri
+
+        iz = [{"arac": "kullanicinin_verisi", "ok": True, "param": {"tur": "kayitli_ihaleler"}}]
+        self.assertIn("Teklif tarihi yaklaşan ihalelerimi göster", soru_onerileri(_ctx(), iz))
+
+        iz = [{"arac": "kullanicinin_verisi", "ok": True, "param": {"tur": "yaklasan"}}]
+        oneriler = soru_onerileri(_ctx(), iz)
+        self.assertIn("Bunlara alarm kur", oneriler)
+        self.assertNotIn("Teklif tarihi yaklaşan ihalelerimi göster", oneriler)
+
+        iz = [{"arac": "kullanicinin_verisi", "ok": True, "param": {"tur": "onerilerim"}}]
+        self.assertIn("Bunları neden önerdin?", soru_onerileri(_ctx(), iz))
+
     def test_basarisiz_arac_oneri_uretmez(self):
         from assistant.tools.oneri import soru_onerileri
 

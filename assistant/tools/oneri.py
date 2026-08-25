@@ -27,6 +27,15 @@ def _tek_ihale_odagi(ctx):
     return ctx.son_grup[0] if len(ctx.son_grup) == 1 else None
 
 
+def _kullanici_verisi_turleri(arac_izi):
+    """Bu turda `kullanicinin_verisi` hangi türlerle çağrıldı."""
+    return {
+        (a.get("param") or {}).get("tur")
+        for a in (arac_izi or [])
+        if a.get("ok") and a.get("arac") == "kullanicinin_verisi"
+    }
+
+
 def soru_onerileri(ctx, arac_izi):
     """Bu turda çalışan araçlara bakarak sıradaki soruları önerir (en çok 3)."""
     calisan = {a.get("arac") for a in (arac_izi or []) if a.get("ok")}
@@ -78,8 +87,18 @@ def soru_onerileri(ctx, arac_izi):
         ekle("Bunlardan hangisi firmama daha uygun?")
 
     # ── Kullanıcının kendi verisi ──
+    # ⚠️ Bu iki soru BAŞLANGIÇ çipi olamaz: "Teklif tarihi yaklaşan ihalelerim"
+    # kayıtlı ihalesi olmayanda boş döner, "bunları neden önerdin" ise henüz öneri
+    # yokken anlamsızdır. Yerleri tam olarak burası — kullanıcı kendi verisine
+    # baktıktan SONRA.
     if "kullanicinin_verisi" in calisan:
-        ekle("Yaklaşan ihalelerime alarm kur")
+        turler = _kullanici_verisi_turleri(arac_izi)
+        if "yaklasan" in turler:
+            ekle("Bunlara alarm kur")
+        else:
+            ekle("Teklif tarihi yaklaşan ihalelerimi göster")
+        if "onerilerim" in turler:
+            ekle("Bunları neden önerdin?")
 
     return oneriler[:AZAMI_ONERI]
 

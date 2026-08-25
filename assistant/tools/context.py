@@ -37,6 +37,11 @@ class ToolContext:
     # yalnızca buraya öneri koyar; gerçek yazma kullanıcının onayıyla HTTP'de olur.
     oneriler: list = field(default_factory=list)
 
+    # Görsel bloklar (grafik vb.) — araçlar DETERMİNİSTİK olarak doldurur, model
+    # karışmaz. Modele "grafik göster" dedirtmek bir halüsinasyon yüzeyi açardı;
+    # burada blok, veriyi gerçekten döndüren aracın kendisi tarafından üretilir.
+    gorsel_bloklar: list = field(default_factory=list)
+
     def kart_ekle(self, tender) -> dict:
         """Tender'ı karta çevirip havuza yazar ve kartı döner."""
         from assistant.services.matching import tender_card

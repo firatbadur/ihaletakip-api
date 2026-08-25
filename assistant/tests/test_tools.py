@@ -439,3 +439,37 @@ class YaklasanVeOnerilerTests(TestCase):
         sonuc = read.kullanicinin_verisi(_ctx(user=self.user), tur="onerilerim")
         self.assertTrue(sonuc["ok"])
         self.assertEqual(sonuc["liste"][0]["gerekce"], ["Şehir: ANKARA", "Anahtar kelime: asfalt"])
+
+
+class GrafikBlokTests(TestCase):
+    """Grafik blokları DETERMİNİSTİK üretilir — model karışmaz, uydurma yüzeyi yok."""
+
+    def test_yil_grafigi_kronolojik_ve_bicimli(self):
+        from assistant.tools.trim import yil_grafigi
+
+        blok = yil_grafigi("Test", [
+            {"yil": 2024, "medyan": "1500000", "adet": 12},
+            {"yil": 2025, "medyan": "2400000", "adet": 2},
+        ], "medyan")
+        self.assertEqual(blok["type"], "bar_chart")
+        self.assertEqual([d["label"] for d in blok["veri"]], ["2024", "2025"])
+        self.assertEqual(blok["veri"][0]["valueText"], "1,5 M ₺")
+        # Örneklemi 3'ten küçük yıl soluk çizilir: grafik yanlış kesinlik vermemeli.
+        self.assertTrue(blok["veri"][1]["dim"])
+        self.assertFalse(blok["veri"][0]["dim"])
+
+    def test_tek_sutunluk_seri_grafik_uretmez(self):
+        from assistant.tools.trim import yil_grafigi
+
+        self.assertIsNone(yil_grafigi("Test", [{"yil": 2025, "medyan": "1"}], "medyan"))
+
+    def test_bos_ve_bozuk_degerler_atlanir(self):
+        from assistant.tools.trim import yil_grafigi
+
+        blok = yil_grafigi("Test", [
+            {"yil": 2023, "medyan": None},
+            {"yil": 2024, "medyan": "abc"},
+            {"yil": 2025, "medyan": "1000"},
+            {"yil": 2026, "medyan": "2000"},
+        ], "medyan")
+        self.assertEqual([d["label"] for d in blok["veri"]], ["2025", "2026"])

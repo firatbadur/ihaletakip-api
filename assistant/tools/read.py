@@ -13,7 +13,7 @@ import logging
 
 from django.db.models import F
 
-from .trim import butceye_sigdir, kes, para
+from .trim import butceye_sigdir, kes, para, yil_grafigi
 
 logger = logging.getLogger("ihaletakip")
 
@@ -580,6 +580,19 @@ def ihale_benchmark(ctx, key=None, yil_geri=None, kapsam=None, **_):
             for b in (veri.get("benzer_ihaleler") or [])
         ],
     }
+    # Grafik bloğu: kullanıcı tek medyan yerine SEYRİ görsün. Model karışmaz —
+    # blok, veriyi döndüren aracın kendisi tarafından üretilir.
+    grafik = yil_grafigi(
+        "Yıllara göre medyan sözleşme bedeli", sonuc["yillara_gore"], "medyan",
+        not_metni="Yıllar arası tutar karşılaştırması TL enflasyonundan etkilenir.",
+    )
+    if grafik:
+        ctx.gorsel_bloklar.append(grafik)
+        sonuc["grafik_gosterildi"] = True
+        sonuc.setdefault("not", "")
+        sonuc["not"] += (" Yıllık seri kullanıcıya GRAFİK olarak gösterilecek; "
+                         "yılları tek tek metinde sıralama, yorumla.")
+
     if veri.get("uyari"):
         sonuc["uyari"] = veri["uyari"]
     if ornek.get("yeterli_veri") is False:
@@ -713,6 +726,15 @@ def pazar_panosu(ctx, okas_bucket=None, yil=None, limit=None):
     for anahtar in ("iller", "firmalar", "gruplar"):
         if isinstance(sonuc.get(anahtar), list):
             sonuc[anahtar] = sonuc[anahtar][:n]
+    grafik = yil_grafigi(
+        f"{sonuc.get('ad') or 'İş grubu'} — yıllara göre toplam bedel",
+        sonuc.get("yillara_gore"), "toplam_bedel",
+        not_metni="Yıllar arası tutar karşılaştırması TL enflasyonundan etkilenir.",
+    )
+    if grafik:
+        ctx.gorsel_bloklar.append(grafik)
+        sonuc["grafik_gosterildi"] = True
+
     sonuc["not"] = (
         "hhi 0–1 aralığındadır, YÜZDE DEĞİLDİR (0,25 = orta yoğunlaşma). "
         "okas_bucket='' 'Sınıflandırılmamış' gerçek veridir, listeden düşürme. "

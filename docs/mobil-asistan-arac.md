@@ -238,3 +238,70 @@ Bu uçlar **henüz yayında değildir**; şema Faz 2 çıkınca bu dokümanda g�
 
 Her yanıtta kontrol edin: **markdown karakteri yok**, uygulamada var olmayan bir ekran/
 buton adı geçmiyor, "kazanma oranı" gibi hesaplanamayan bir metrik uydurulmamış.
+
+---
+
+# Faz 3 — güncel sözleşme (bu bölüm yukarıdakileri GÜNCELLER)
+
+Yukarıdaki "yakında eklenecek" ve "önizleme" bölümleri artık **canlıdır**. Mobil
+taraf da bu depoda değil, `~/Desktop/IhaleTakip` içinde uygulanmıştır.
+
+## Araç sayısı: 12 → 21
+
+Yeni okuma araçları: `ihale_benchmark` (fiyat/indirim dağılımı, rekabet),
+`tekrar_eden_ihaleler` (seri + beklenen ilan tarihi), `pazar_panosu` (iş grubu
+pazarı, HHI), `dokuman_analizi` (hazır şartname analizi).
+`kullanicinin_verisi` iki tür kazandı: `yaklasan`, `onerilerim`.
+
+Yeni eylem araçları: `toplu_ihale_kaydet_oner`, `ihale_tasi_oner`,
+`firma_takip_oner`, `idare_favori_oner`, `kayit_sil_oner`.
+
+## `payload.blocks` — desteklenen tipler
+
+| `type` | İçerik | Mobil karşılığı |
+|---|---|---|
+| `action` | `action_id`, `tur`, `ozet`, `durum`, `expires_at`, `sonuc` | `ActionCard` |
+| `notice` | `metin`, `seviye` (`kilit` \| `uyari`) | `NoticeBlock` |
+| `bar_chart` | `baslik`, `not`, `veri: [{key,label,value,valueText,dim}]` | `MiniBarChart` |
+
+⚠️ **Bilinmeyen tip sessizce atlanır** — kural değişmedi. Sunucu, mobil sürüm
+güncellenmeden yeni blok yayınlayabilir.
+
+⚠️ `bar_chart.veri` doğrudan `MiniBarChart`'ın beklediği şekildedir; mobilde
+**dönüşüm yapılmaz**. İki tarafta ayrışacak bir eşleme katmanı oluşmasın diye
+biçimlendirme (`valueText`, `dim`) sunucuda yapılır.
+
+⚠️ Grafik bloğunu **model üretmez**; veriyi döndüren aracın kendisi
+(`assistant/tools/trim.py::yil_grafigi`) üretir. Model "grafik göster" diyemediği
+için uydurma bir seri gösterilmesi mümkün değildir.
+
+## Eylem türleri ve yıkıcı kart
+
+`ActionCard` sekiz `tur` tanır. `kayit_sil` **yıkıcıdır**: onay butonu kırmızı
+(`#DC2626`) ve metni "Sil"dir. Kaydetme ile silmeyi aynı mavi "Evet" butonuyla
+göstermek, kullanıcının alışkanlıkla onaylamasına ve kalıcı veri kaybına yol açar.
+
+`execute` ucu yeni bir durum kullanabilir: iş kuralı reddinde (klasör limiti,
+kayıt bulunamadı) **400** döner ve eylem `hata` durumuna geçer — kart pasifleşmeli.
+`403 premium_required` hâlâ eylemi `bekliyor` bırakır (Pro alınıp tekrar basılabilir).
+
+## Takip soruları — `ChatConversation.son_arama`
+
+Sohbet geçmişi yalnızca **metin** tutar; modelin önceki araç çağrıları bir sonraki
+turda görünmez. Bu yüzden "peki İstanbul'dakiler?" dendiğinde model aramayı
+sıfırdan kuruyor, konu filtresi sessizce düşüyordu — cevap doğru görünüyor, veri
+yanlış geliyordu.
+
+Son başarılı `ihale_ara` parametreleri artık `ChatConversation.son_arama` alanına
+yazılır ve bir sonraki turun bağlamına enjekte edilir. **Arama yapılmayan turda
+silinmez** (kullanıcı araya alakasız bir soru sıkıştırabilir).
+
+Mobil tarafta yapılacak bir şey yok; alan sunucu içidir. Ancak sohbeti sıfırlamak
+(yeni oturum) bu hafızayı da sıfırlar — ürün davranışı olarak beklenen budur.
+
+## Pro maskelemesi yeni araçlarda YOK
+
+Asistan sohbeti ucu `require_premium(MSG_CHAT)` ile korunuyor; buraya yalnızca Pro
+üye ulaşıyor. `TenderBenchmarkView._KILITLI` ve `_market_maskele` maskeleri **HTTP
+uçlarına** aittir, araç katmanında tekrarlanmaz — tekrarlansaydı Pro kullanıcıya
+boş veri gösterirdik.

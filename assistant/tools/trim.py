@@ -48,3 +48,55 @@ def butceye_sigdir(sonuc: dict, liste_anahtari: str = "liste") -> dict:
         sonuc[liste_anahtari] = liste
         sonuc["kirpildi"] = True
     return sonuc
+
+
+def kisa_para(v):
+    """
+    Grafik etiketleri için kısa Türkçe para biçimi: 1.234.567 → "1,2 M".
+
+    ⚠️ Yalnızca GÖRSEL etiket içindir. Metinde ve hesapta tam değer kullanılır;
+    burada yuvarlama yapmak sütun etiketini okunur kılmak içindir.
+    """
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return ""
+    for esik, ek in ((1e9, " Mr"), (1e6, " M"), (1e3, " B")):
+        if abs(n) >= esik:
+            return f"{n / esik:.1f}".replace(".", ",") + ek
+    return f"{n:.0f}"
+
+
+def yil_grafigi(baslik, satirlar, deger_alani, *, not_metni=None, birim="₺"):
+    """
+    Yıl serisinden `bar_chart` bloğu üretir (mobil `MiniBarChart` veri şekli).
+
+    ⚠️ `satirlar` KRONOLOJİK (eskiden yeniye) verilmelidir — çağıran taraf sıralamayı
+    kendi kaynağına göre düzeltmelidir: `benchmark._yillara_gore` AZALAN,
+    `market.grup_detayi.yillara_gore` ARTAN üretir.
+    """
+    veri = []
+    for r in satirlar or []:
+        ham = r.get(deger_alani)
+        if ham in (None, ""):
+            continue
+        try:
+            deger = float(ham)
+        except (TypeError, ValueError):
+            continue
+        yil = str(r.get("yil") or "")
+        adet = r.get("adet") or r.get("sozlesme_sayisi")
+        veri.append({
+            "key": yil,
+            "label": yil,
+            "value": deger,
+            "valueText": kisa_para(deger) + (f" {birim}" if birim else ""),
+            # Örneklemi çok küçük yıl soluk çizilir — grafik yanlış kesinlik vermesin.
+            "dim": bool(adet is not None and adet < 3),
+        })
+    if len(veri) < 2:
+        return None  # tek sütunluk "grafik" bilgi vermez, gürültü yapar
+    blok = {"type": "bar_chart", "baslik": baslik, "veri": veri}
+    if not_metni:
+        blok["not"] = not_metni
+    return blok

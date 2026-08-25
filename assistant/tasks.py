@@ -256,7 +256,9 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     # Onay kartları (kaydet / alarm / filtre önerileri) — mobil `payload.blocks`'tan okur.
     from assistant.views import _eylem_karti
 
-    bloklar = [_eylem_karti(e) for e in ctx.oneriler[:3]]
+    # Sıra ÖNEMLİ: önce görsel bloklar (grafik), sonra onay kartları — kullanıcı
+    # önce veriyi görüp sonra kararı verir.
+    bloklar = ctx.gorsel_bloklar[:2] + [_eylem_karti(e) for e in ctx.oneriler[:3]]
 
     # Bu turdaki SON başarılı ihale aramasını konuşmaya yaz → sonraki tur daraltabilsin.
     # Arama yapılmadıysa öncekini SİLME: kullanıcı araya "geçici teminat nedir?" gibi

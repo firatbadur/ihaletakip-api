@@ -507,6 +507,18 @@ def sync_contractors(
             except Exception as e:
                 errors += 1
                 logger.warning("yüklenici çözümü atlandı ikn=%s: %s", tender.ikn, e)
+                # ⚠️ **Artımlı modda imleç yok** → hata alan kayıt `contractors_synced_at`
+                # güncellenmediği için sorguya HER turda geri gelir ve kalıcı bir bozukluk
+                # görevi sonsuza dek meşgul eder. Üretimde yaşandı (2026-08-27): tek bir
+                # 2019 ihalesi her turda `errors=1` üretiyordu. Süpürme modunda aynı
+                # koruma PK imlecinin `try`'dan önce ilerletilmesiyle zaten var.
+                # ⚠️ Damgayı ilerletmek kaydı **atlar**, düzeltmez: hata `SyncRun.errors`'a
+                # sayılır ve log'a yazılır — sessizce yutulmaz. Detay bir sonraki
+                # `refresh_stale` turunda tazelenince kayıt yeniden denenir.
+                if not sweeping:
+                    Tender.objects.filter(pk=tender.pk).update(
+                        contractors_synced_at=timezone.now()
+                    )
             # Süre bütçesi dolduysa temiz çık — imleç kaydedilecek, sonraki tur devam eder
             if time.monotonic() >= deadline:
                 timed_out = True

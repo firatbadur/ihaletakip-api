@@ -8,6 +8,7 @@ ile okunur ve tam ham JSON `detail_raw`/`list_raw`'da saklanır.
 import logging
 from datetime import timedelta
 
+from django.db import models as dj_models
 from django.utils import timezone
 
 from . import contractors as contractors_mod
@@ -416,6 +417,26 @@ def _dedupe_by_key(rows, key_of):
     return out
 
 
+def _kirp_alanlar(model, objs):
+    """Model CharField sınırlarını aşan string değerleri kırpar (uyarı loglar)."""
+    if not objs:
+        return
+    limitler = {
+        f.attname: f.max_length
+        for f in model._meta.concrete_fields
+        if isinstance(f, dj_models.CharField) and f.max_length
+    }
+    for obj in objs:
+        for attname, limit in limitler.items():
+            deger = getattr(obj, attname, None)
+            if isinstance(deger, str) and len(deger) > limit:
+                logger.warning(
+                    "%s.%s %s karakter, %s'e kırpıldı: %r",
+                    model.__name__, attname, len(deger), limit, deger[:120],
+                )
+                setattr(obj, attname, deger[:limit])
+
+
 def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
     """
     Kararlı anahtarla toplu upsert + budama — **satır sayısından bağımsız ~4 sorgu**.
@@ -454,6 +475,19 @@ def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
         if changed:
             to_update.append(obj)
         out[key] = obj
+
+    # ⚠️ **EKAP string alanları kolon sınırını aşabilir → yazmadan önce kırp.**
+    # Üretimde yaşandı (2026-08-27): İKN 2019/430389'da bir ham tutar alanı
+    # `varchar(100)`'e sığmadı, `bulk_create` `DataError: value too long` attı ve
+    # `sync_contractors` **her turda** aynı ihalede `errors=1` verdi (artımlı mod
+    # hatada `contractors_synced_at`'i ilerletmediği için kayıt sonsuza dek geri
+    # geliyordu). Tek kolonu genişletmek yerine sınıfın tamamına koruma konuldu:
+    # ham string alanları izlenebilirlik içindir, sayısal karşılıkları ayrı
+    # kolonlarda durur (`sozlesme_bedeli_num` vb.) → kırpmak veri kaybı değildir.
+    # ⚠️ Kırpma **sessiz olmamalı**: ne kırpıldığı log'a yazılır, yoksa EKAP'ın
+    # beklenmedik bir alan formatına geçtiğini fark edemeyiz.
+    _kirp_alanlar(model, to_create)
+    _kirp_alanlar(model, to_update)
 
     if to_create:
         model.objects.bulk_create(to_create, batch_size=500)

@@ -1104,6 +1104,21 @@ değişiyordu — firma bağlantısı kurulacaksa kabul edilemez. Artık kararl�
 upsert + budama yapılır: `Announcement.ekap_ilan_id`, `Contract.ekap_sozlesme_id`
 (`sozlesmeBilgiList[].id`), `ContractSection.ekap_kisim_id` (`kisimList[].id`).
 Anahtarsız satıra sentetik `noid:{i}` verilir (koşulsuz unique constraint'e hazırlık).
+- ⚠️ **EKAP string alanları kolon sınırını aşabilir** → `_bulk_upsert_children`
+  yazmadan önce CharField sınırlarını aşan değerleri **kırpar ve loglar**
+  (`_kirp_alanlar`). Üretimde yaşandı (2026-08-27): İKN 2019/430389'da bir ham tutar
+  `varchar(100)`'e sığmadı, `bulk_create` `DataError: value too long` attı.
+  Ham string alanları izlenebilirlik içindir (sayısal karşılıkları `*_num`
+  kolonlarında durur) → kırpmak veri kaybı değildir; tek kolonu genişletmek yerine
+  sınıfın tamamı korundu. ⚠️ Kırpma **sessiz değildir**: ne kırpıldığı log'a yazılır,
+  yoksa EKAP'ın beklenmedik bir alan formatına geçtiği fark edilmez.
+- ⚠️ **`sync_contractors` ARTIMLI modunda imleç yoktur** → hata alan kayıt
+  `contractors_synced_at` güncellenmediği için sorguya **her turda** geri gelir ve
+  kalıcı bir bozukluk görevi sonsuza dek meşgul eder (belirti: her `SyncRun`'da
+  `errors=1`, `sözleşme=0`). Artık hata dalında damga ilerletilir — kayıt **atlanır**,
+  hata yine `SyncRun.errors`'a sayılır ve loglanır, `refresh_stale` detayı tazeleyince
+  yeniden denenir. Süpürme modunda aynı koruma PK imlecinin `try`'dan önce
+  ilerletilmesiyle zaten vardı.
 - **Toplu yazma şart**: `_bulk_upsert_children` satır sayısından bağımsız ~4 sorgu yapar.
   Satır başına `update_or_create` döngüsü 69 kısımlı ihalede **315 sorguya** çıkıyordu;
   şimdi **16**. (13 sözleşmeli ihale: 368 → 39.)

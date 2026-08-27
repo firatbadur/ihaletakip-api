@@ -58,9 +58,21 @@ app.conf.beat_schedule = {
     },
     # ── EKAP veri toplama ──────────────────────────────
     # Güncel ihaleler — her gece 02:00
+    # ⚠️ **Günde tek tur YETMEZ — ölçüldü (2026-08-27).** Eskiden `hour=2` idi.
+    # EKAP gün içinde ilan eklemeye devam ediyor: 02:00 turunda o güne ait 0 kayıt
+    # varken saat 11:22'de EKAP'ta 95 ihale vardı. Sonuç: "bugün yayınlananlar"a
+    # bakan filtre/idare bildirimleri **yapısal olarak** boş küme üzerinde koşuyordu
+    # — günün ihaleleri DB'ye ancak ertesi gece giriyor, o zaman da "bugün" değil
+    # "dün" oluyorlar. Belirti aldatıcıydı: `SyncRun` her gece `ok`, `items=719`.
+    # ⚠️ **TEK sayılı saatler** (1,3,…,23): bildirim görevleri 10:00 (filtre) ve
+    # 11:00'de (idare) koşuyor; 09:00 turu onlara taze veri bırakır. Çift saatlerde
+    # 10:00 turu bildirimle **aynı anda** başlar ve yarışırdı.
+    # ⚠️ Maliyet önemsiz: pencere ~700 kayıt = 15 liste isteği (50/istek), 12 tur =
+    # 180 istek/gün. Asıl pahalı olan detay istekleridir; onlar da `only_if_missing`
+    # sayesinde yalnızca **yeni** ihaleler için atılıyor (bkz. sync_recent).
     "ekap-sync-recent": {
         "task": "ekap.tasks.sync_recent",
-        "schedule": crontab(hour=2, minute=0),
+        "schedule": crontab(minute=0, hour="1-23/2"),
     },
     # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
     "ekap-refresh-stale": {

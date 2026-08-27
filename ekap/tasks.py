@@ -192,8 +192,14 @@ def sync_recent(days=None, max_pages=40, page_size=50, defer_detail=True):
                     # giriş anına göredir. Sonuç: günün ihalelerinin detayı (dolayısıyla
                     # `ilan_tarihi`) günlerce gelmiyor, "bugün yayınlananlar" bildirimleri
                     # boş küme üzerinde çalışıyordu.
+                    # ⚠️ `only_if_missing` ŞART. Görev artık günde 12 kez koşuyor;
+                    # bayrak olmadan pencerede duran ~700 ihalenin detayı her turda
+                    # yeniden istenirdi (12 × 700 ≈ 8.400 istek/gün) — 1 istek/sn
+                    # bütçesinin onda biri, tamamı mükerrer. Yeni ihalenin detayı
+                    # ilk turda gelir; tazelik `refresh_stale`'in işidir.
                     _enqueue_detail(
-                        tender.ekap_id, defer=defer_detail, queue="ekap_oncelik"
+                        tender.ekap_id, defer=defer_detail, queue="ekap_oncelik",
+                        only_if_missing=True,
                     )
             if (page + 1) * page_size >= (total_count or 0):
                 break

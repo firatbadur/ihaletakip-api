@@ -202,7 +202,24 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   olmuyor; `max(ilan_tarihi)` günlerce geride kalıyor). Canlı doğrulama 2026-08-11:
   filtresiz `totalCount=1.964.677`, `ilanTarihSaatBaslangic=<3 gün önce>` → **537**.
   Sıralama `ihaleTarihi` **asc** (dolu alan) — sayfalama kararlılığı için şart.
-- **Toplama (Celery Beat)**: `sync_recent` (gece 02:00, `ekap_oncelik` kuyruğu; son
+- ⚠️ **`sync_recent` GÜN İÇİNDE koşmalı — günde tek tur yapısal olarak bozuktur.**
+  Ölçüldü (2026-08-27): 02:00 turunda o güne ait **0** ihale varken saat 11:22'de
+  EKAP'ta **95** vardı. Günün ihaleleri DB'ye ancak ertesi gece giriyor, o zaman da
+  `ilan_tarihi` "bugün" değil "dün" oluyor → "bugün yayınlananlar"a bakan **filtre,
+  favori idare ve OKAS bildirimlerinin tamamı** hiç eşleşme bulamıyordu.
+  ⚠️ **Belirti aldatıcı**: `SyncRun` her gece `ok` + `items=719` yazıyor (pencerede
+  duran kayıtların upsert'i), `errors=0`. Teşhis `items`'a değil **`created_at`'i
+  bugün olan Tender sayısına** bakarak yapılır (`manage.py ingest_saglik`).
+  ⚠️ **EKAP'ın yayım saati BİLİNMİYOR ve veriden okunamaz**: `ilan_tarihi` damgası
+  gün başıdır (00:00), yani kaydın EKAP'a ne zaman düştüğünü göstermez. Saat tahmin
+  edip tek tura dönmeyin — sık tarayın; liste taraması ucuzdur (50 kayıt/istek).
+  ⚠️ **TEK sayılı saatler** (`hour="1-23/2"`): bildirimler 10:00/11:00'de koşuyor,
+  09:00 turu onlara taze veri bırakır. Çift saatlerde 10:00 turu bildirimle aynı
+  anda başlayıp yarışırdı.
+  ⚠️ Sıklaşan tur **`only_if_missing=True` ile birlikte** gelmeli: bayraksız hâlde
+  pencerede duran ~700 ihalenin detayı her turda yeniden istenir (12 × 700 ≈ 8.400
+  mükerrer istek/gün, 1 istek/sn bütçesinin onda biri).
+- **Toplama (Celery Beat)**: `sync_recent` (**2 saatte bir, tek saatlerde**, `ekap_oncelik` kuyruğu; son
   `EKAP_RECENT_DAYS`=3 günde **yayınlanan** ihaleler, `ilanTarihSaatBaslangic` ile
   EKAP tarafında filtreli), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
   yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da

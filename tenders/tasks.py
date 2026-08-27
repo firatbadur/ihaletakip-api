@@ -26,6 +26,46 @@ logger = logging.getLogger("ihaletakip")
 # aşması yeter; ~1.5 gün.
 _ROW_DEDUP_TTL = 36 * 3600
 
+# ⚠️ **Bildirim penceresi neden "bugün" DEĞİL, dedup neden zamana bağlı DEĞİL.**
+# Görevler eskiden `ilan_tarihi` BUGÜN olanları arıyor ve filtre/idare başına bir
+# **gün-kilidi** ile günde tek tura zorlanıyordu. İkisi birlikte iki arıza üretti:
+#   1. EKAP'ın yayım saati **bilinmiyor ve veriden okunamıyor** (`ilan_tarihi`
+#      damgası gün başıdır). Sabit saatte tek tur, o saatten sonra yayımlanan her
+#      ihaleyi kaçırıyordu — ertesi gün de "bugün" olmadıkları için hiç bildirilmiyorlardı.
+#   2. "Son bildirimden beri" (`last_notified_at`) tabanlı bir pencere de ÇÖZMEZ:
+#      öğlen DB'ye giren ihale de `00:00` damgası taşır, yani sabahki watermark'ın
+#      **altında** kalır ve yine kaçardı.
+# Çözüm: pencereyi genişlet (son `NOTIF_LOOKBACK_DAYS` gün) ve mükerrerliği zamana
+# değil **ihaleye** bağla — abonelik başına "bu ihaleyi bildirdim" işareti.
+# ⚠️ İşaret Redis'te (cache) durur; Redis sıfırlanırsa nadiren mükerrer bildirim
+# gidebilir. Bilinçli tercih: **kaçan bildirim, mükerrer bildirimden kötüdür.**
+_TENDER_DEDUP_TTL = 7 * 24 * 3600
+# Tur kilidi: yalnızca **eşzamanlı** tetiklemeye karşı (yinelenmiş beat girdisi,
+# elle tetikleme). Beat aralığından KISA olmalı, yoksa sonraki turu da yutar.
+_TUR_KILIDI_TTL = 20 * 60
+
+
+def _yeni_ihaleler(prefix, sahip_id, tenders):
+    """Bu abonelik için daha önce bildirilmemiş ihaleleri süzer ve işaretler.
+
+    `cache.add` atomiktir → aynı görev iki kez tetiklense de bir ihale bir kez geçer.
+    """
+    yeni = []
+    for tender in tenders:
+        if cache.add(f"{prefix}:{sahip_id}:{tender.pk}", 1, _TENDER_DEDUP_TTL):
+            yeni.append(tender)
+    return yeni
+
+
+def _bildirim_taban():
+    """Bildirim penceresinin alt sınırı: son `NOTIF_LOOKBACK_DAYS` günün başı.
+
+    ⚠️ Pencere yalnızca **arşiv gürültüsüne** karşıdır (backfill 2019 ihalesini bugün
+    ekleyebilir); mükerrerliği `_yeni_ihaleler` engeller. Bu yüzden geniş tutulabilir.
+    """
+    gun = timezone.localdate() - timedelta(days=getattr(settings, "NOTIF_LOOKBACK_DAYS", 1))
+    return local_day_range(gun)[0]
+
 # Rakip alarmı: `ilk_gorulme` bugün OLSA BİLE sözleşme bundan eskiyse bildirim gitmez.
 # Gerekçe: arşiv süpürmesi daha önce bağlanmamış eski sözleşmeleri bugün "ilk kez"
 # görüyor; 2021 tarihli bir sözleşme rakip takibi haberi değildir.
@@ -186,12 +226,14 @@ def _alarm_enabled(alarm) -> bool:
 @shared_task(name="tenders.tasks.check_saved_filter_matches")
 def check_saved_filter_matches():
     """
-    Alarmı açık kayıtlı filtreler için, filtreye uyan ve **yalnızca ilan_tarihi BUGÜN olan**
-    açık ihaleleri bulur (eski/dün yayınlananlar DEĞİL). **Her filtre için AYRI** uygulama-içi
+    Alarmı açık kayıtlı filtreler için, filtreye uyan ve **son `NOTIF_LOOKBACK_DAYS`
+    günde yayımlanmış, bu abonelik için daha önce bildirilmemiş** açık ihaleleri bulur.
+    ⚠️ Görev gün içinde birkaç kez koşar (EKAP'ın yayım saati bilinmiyor); mükerrerliği
+    zaman penceresi değil **ihale bazlı dedup** (`_yeni_ihaleler`) engeller. **Her filtre için AYRI** uygulama-içi
     satır + push atılır (kullanıcı başına birleşik özet DEĞİL): 10 filtreden 8'i eşleşirse 8 ayrı
     bildirim gider. Başlık = filtre adı, gövde = "{filtre} filtrenize uygun N adet ihale bulundu.";
     tıklanınca tek ihale DEĞİL, `filter_id` ile o filtrenin sonuç listesi açılır. Filtre başına
-    atomik gün-kilidi (aynı gün çoğalma yok; "bugün" filtresi cross-day dedup'ı zaten sağlar).
+    kısa tur kilidi (eşzamanlı tetiklemeye karşı) + ihale bazlı dedup.
     **Filtre alarmı Pro'ya özeldir.**
     """
     from ekap.models import Tender
@@ -202,14 +244,12 @@ def check_saved_filter_matches():
 
     OPEN_STATUSES = [2, 3]
     now = timezone.now()
-    today = timezone.localdate()
 
     processed = 0
     notified = 0
     pushed = 0
 
-    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
-    gun_bas, gun_bit = local_day_range(today)
+    taban = _bildirim_taban()
 
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
@@ -218,9 +258,10 @@ def check_saved_filter_matches():
         # kullanıcıya bildirim gitmesin (is_premium property → Python'da eleriz).
         if not sf.user.is_premium:
             continue
-        # Filtre başına atomik gün-kilidi: bu filtre bugün zaten işlendiyse (yinelenmiş/interval
-        # beat) atla → satır/push çoğalmaz (race-safe).
-        if not cache.add(f"filter:{sf.user_id}:{sf.id}:{today.isoformat()}", 1, _ROW_DEDUP_TTL):
+        # ⚠️ Gün-kilidi KALDIRILDI: görev artık gün içinde birkaç kez koşuyor ve
+        # gün-kilidi ikinci/üçüncü turu tümüyle atlardı. Yerine kısa **tur kilidi**
+        # (yalnızca eşzamanlı tetiklemeye karşı) + ihale bazlı dedup geçti.
+        if not cache.add(f"filter:tur:{sf.user_id}:{sf.id}", 1, _TUR_KILIDI_TTL):
             continue
         processed += 1
         try:
@@ -233,15 +274,16 @@ def check_saved_filter_matches():
                 base = base.filter(ihale_durum__in=OPEN_STATUSES)
             # Teklifi geçmemiş (biddable).
             base = base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-            # YALNIZCA ilan_tarihi BUGÜN olan ihaleler bildirilir (kullanıcı isteği): dün/eski/
-            # backfill yayınlananlar bildirilmez. ilan_tarihi detay senkronundan dolar; bugün
-            # yayınlanan bir ihale ancak detayı gelip ilan_tarihi=bugün olduğunda eşleşir.
-            base = base.filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
+            # Pencere arşiv gürültüsüne karşıdır (backfill eski ihaleyi bugün ekleyebilir);
+            # mükerrerliği `_yeni_ihaleler` engeller. ⚠️ `ilan_tarihi` detay senkronundan
+            # dolar → detayı henüz gelmemiş ihale bu turda değil, sonraki turda yakalanır
+            # (dedup ihaleye bağlı olduğu için kaçmaz — zamana bağlı olsaydı kaçardı).
+            base = base.filter(ilan_tarihi__gte=taban)
 
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
 
-            new_list = list(base.order_by("-ilan_tarihi")[:20])
+            new_list = _yeni_ihaleler("nf", sf.id, base.order_by("-ilan_tarihi")[:50])[:20]
             if not new_list:
                 continue
 
@@ -292,21 +334,19 @@ def check_favorite_authority_matches():
 
     OPEN_STATUSES = [2, 3]
     now = timezone.now()
-    today = timezone.localdate()
 
     processed = 0
     notified = 0
     pushed = 0
 
-    # ⚠️ `ilan_tarihi__date=today` DEĞİL aralık — bkz. ekap.utils.local_day_range.
-    gun_bas, gun_bit = local_day_range(today)
+    taban = _bildirim_taban()
 
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
         # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
         if not fav.user.is_premium:
             continue
-        # İdare başına atomik gün-kilidi (yinelenmiş/interval beat'e karşı; satır/push çoğalmaz).
-        if not cache.add(f"authority:{fav.user_id}:{fav.detsis_no}:{today.isoformat()}", 1, _ROW_DEDUP_TTL):
+        # Gün-kilidi yerine kısa tur kilidi — bkz. check_saved_filter_matches.
+        if not cache.add(f"authority:tur:{fav.user_id}:{fav.detsis_no}", 1, _TUR_KILIDI_TTL):
             continue
         processed += 1
         try:
@@ -316,18 +356,17 @@ def check_favorite_authority_matches():
                 expanded &= tender_idare_id_set()
             if not expanded:
                 continue
-            # YALNIZCA ilan_tarihi BUGÜN olan açık + teklifi geçmemiş ihaleler.
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__gte=gun_bas, ilan_tarihi__lt=gun_bit)
+                .filter(ilan_tarihi__gte=taban)
                 .order_by("-ilan_tarihi")
             )
 
             fav.last_notified_at = now
             fav.save(update_fields=["last_notified_at"])
 
-            new_list = list(base[:20])
+            new_list = _yeni_ihaleler("na", fav.id, base[:50])[:20]
             if not new_list:
                 continue
 

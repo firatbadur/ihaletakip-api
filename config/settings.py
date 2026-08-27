@@ -267,6 +267,11 @@ REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 # Sessiz saatler: bu aralıkta (yerel saat) push atılmaz; uygulama-içi satır yine yazılır.
 # Varsayılan 22:00–07:00. Zamanlanmış görevler 07/09/10'da çalıştığı için normal akışı
 # etkilemez → bu bir güvenlik ağıdır (elle/kaza tetiklemelere karşı).
+# Bildirim penceresi (gün): görevler son N günün başından itibaren yayımlanmış
+# ihalelere bakar. ⚠️ Pencere **arşiv gürültüsüne** karşıdır (backfill eski bir
+# ihaleyi bugün ekleyebilir); mükerrerliği ihale bazlı dedup engeller, bu yüzden
+# pencereyi daraltmak "az bildirim" değil yalnızca "kaçan bildirim" üretir.
+NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=1)
 NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
 NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 # Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).

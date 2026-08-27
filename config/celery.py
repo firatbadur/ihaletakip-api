@@ -41,14 +41,24 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=9, minute=0),
     },
     # Kayıtlı filtre eşleşmesi: filtreye uyan yeni ihaleler (her gün 10:00)
+    # ⚠️ **Günde tek tur YETMEZ** — EKAP'ın yayım saati bilinmiyor ve `ilan_tarihi`
+    # damgası gün başı olduğu için veriden de okunamıyor. Sabit tek saatte koşan bir
+    # bildirim, o saatten sonra yayımlanan her ihaleyi kaçırır ve ertesi gün "bugün"
+    # olmadıkları için hiç bildirmez. Gün içine yayıldı; mükerrerliği zaman değil
+    # ihale bazlı dedup engelliyor (`tenders.tasks._yeni_ihaleler`).
+    # ⚠️ Saatler `sync_recent`'in (tek saatler) **bir saat sonrasına** konumlandı:
+    # 09:00 turu → 10:00 bildirimi. Aynı saatte başlasalardı bildirim, o turun
+    # yazdığı ihaleleri göremeden koşardı.
     "check-saved-filter-matches": {
         "task": "tenders.tasks.check_saved_filter_matches",
-        "schedule": crontab(hour=10, minute=0),
+        "schedule": crontab(minute=0, hour="10,14,18"),
     },
     # Favori idare eşleşmesi: favori idarelerin yeni yayınladığı ihaleler (her gün 11:00)
+    # Filtre turundan bir saat sonra — kategori başına staggered saat, aynı anda
+    # iki kategoriden push yağmasın (bkz. "Bildirim Servisi" pacing kuralları).
     "check-favorite-authority-matches": {
         "task": "tenders.tasks.check_favorite_authority_matches",
-        "schedule": crontab(hour=11, minute=0),
+        "schedule": crontab(minute=0, hour="11,15,19"),
     },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {

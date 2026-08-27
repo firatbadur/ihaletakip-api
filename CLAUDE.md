@@ -1480,8 +1480,8 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `recommend_by_saved_okas` — kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan
   ihale önerisi + push (günlük 08:00, **Free/Pro herkese**)
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
-- `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (günlük 10:00)
-- `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (günlük 11:00)
+- `check_saved_filter_matches` — kayıtlı filtre yeni-ihale bildirimi + push (**10:00/14:00/18:00**)
+- `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (**11:00/15:00/19:00**)
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
 - `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
 - `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (Pazar 02:30; EKAP'a
@@ -1520,6 +1520,32 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   (`check_tender_alarms`), 10:00 filtre eşleşmeleri (`check_saved_filter_matches`), 11:00
   favori idare eşleşmeleri (`check_favorite_authority_matches`). Alarm/filtre/idare kategorileri
   **abonelik-başına ayrı push** atar (o kategorinin görev turunda arka arkaya).
+- ⚠️⚠️ **Bildirim penceresi "bugün" DEĞİL; dedup zamana DEĞİL İHALEYE bağlı.**
+  Filtre ve favori idare görevleri eskiden `ilan_tarihi` **bugün** olanları arıyor ve
+  abonelik başına **gün-kilidiyle** günde tek tura zorlanıyordu. İkisi birlikte iki
+  arıza üretiyordu:
+  1. **EKAP'ın yayım saati bilinmiyor ve veriden okunamıyor** — `ilan_tarihi` damgası
+     **gün başıdır** (00:00), kaydın EKAP'a ne zaman düştüğünü göstermez. Sabit saatte
+     tek tur, o saatten sonra yayımlanan her ihaleyi kaçırıyordu; ertesi gün de "bugün"
+     olmadıkları için **hiç** bildirilmiyorlardı.
+  2. ⚠️ **"Son bildirimden beri" (`last_notified_at`) tabanlı pencere de ÇÖZMEZ** —
+     öğlen DB'ye giren ihale de `00:00` damgası taşır, yani sabahki watermark'ın
+     **altında** kalır ve yine kaçar. Bu yüzden watermark'a dönmeyin.
+  Çözüm: pencere **son `NOTIF_LOOKBACK_DAYS` gün** (vars. 1) + mükerrerliği
+  **abonelik-başına ihale işareti** engeller (`_yeni_ihaleler`, `cache.add`, TTL 7 gün).
+  Pencere yalnızca **arşiv gürültüsüne** karşıdır (backfill 2019 ihalesini bugün
+  ekleyebilir) → daraltmak "az bildirim" değil **kaçan bildirim** üretir.
+  - **Gün-kilidi → tur kilidi** (`_TUR_KILIDI_TTL`=20 dk): görev artık gün içinde
+    birkaç kez koştuğu için gün-kilidi ikinci/üçüncü turu tümüyle yutardı. Tur kilidi
+    yalnızca **eşzamanlı** tetiklemeye karşıdır ve **beat aralığından KISA olmalı**.
+  - ⚠️ Bildirim saatleri `sync_recent`'in (tek saatler) **bir saat sonrasındadır**:
+    09:00 senkron → 10:00 bildirim. Aynı saatte başlasalardı bildirim, o turun yazdığı
+    ihaleleri göremeden koşardı.
+  - ⚠️ İşaret Redis'te durur; Redis sıfırlanırsa nadiren mükerrer bildirim gidebilir.
+    Bilinçli tercih: **kaçan bildirim, mükerrer bildirimden kötüdür.**
+  - ⚠️ `ilan_tarihi` detay senkronundan dolar → detayı henüz gelmemiş ihale o turda
+    değil **sonraki turda** yakalanır. Dedup ihaleye bağlı olduğu için kaçmaz; zamana
+    bağlı olsaydı kaçardı.
 - **Çoğalma önleme = abonelik-başına ATOMİK gün-kilidi** (`cache.add`, race-safe): her filtre/
   idare/alarm için `{"filter"|"authority"|"alarm"|"okasrec"}:{uid}:{item_id}:{date}` anahtarı
   öğe işlenmeden **atomik** rezerve edilir. Görev yinelenmiş/interval beat ile aynı gün çok kez

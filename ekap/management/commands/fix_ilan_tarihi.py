@@ -23,7 +23,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from ekap.models import Tender
-from ekap.sync import _publish_date_from_ilanlar
+from ekap.sync import _publish_date_from_ilanlar, detay_govdesi
 
 
 class Command(BaseCommand):
@@ -79,7 +79,10 @@ class Command(BaseCommand):
             for tender in parti:
                 son_pk = tender.pk  # imleç try'dan ÖNCE ilerler (bozuk satır kilitlemesin)
                 bakilan += 1
-                ham = tender.detail_raw or {}
+                # ⚠️ Sarmalı AÇ — `detail_raw` ham EKAP yanıtıdır (`{"item": {...}}`).
+                # Açmadan `ilanList` aranınca komut her satırı işleyip hiçbirini
+                # onaramıyordu (ölçüldü: bakılan=465, onarılan=0).
+                ham = detay_govdesi(tender.detail_raw)
                 if not ham:
                     continue
                 try:

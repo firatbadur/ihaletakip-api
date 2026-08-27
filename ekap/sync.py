@@ -145,6 +145,22 @@ def _as_int(value):
 
 
 # ── Detay upsert ───────────────────────────────────────
+def detay_govdesi(raw):
+    """Ham detay yanıtından gövdeyi çıkarır.
+
+    ⚠️ `Tender.detail_raw` **ham EKAP yanıtını** saklar; EKAP gövdeyi çoğu zaman
+    `{"item": {...}}` içine sarar (bazen sarmadan döner). `detail_raw`'ı doğrudan
+    `data` gibi kullanan kod `ilanList`/`ihaleBilgi` gibi anahtarları **bulamaz ve
+    sessizce boş döner** — üretimde yaşandı (2026-08-27): `fix_ilan_tarihi` 465
+    kaydın hepsini işledi, hiçbirini onaramadı (`onarılan=0`), çünkü sarmalı açmıyordu.
+    `detail_raw`'dan türetme yapan HER yer bu yardımcıdan geçmeli.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    govde = raw.get("item", raw)
+    return govde if isinstance(govde, dict) else {}
+
+
 def _publish_date_from_ilanlar(data, announcements):
     """
     Detay `ilanList`'inden ihalenin **yayın (ilan) tarihini** çıkarır.
@@ -274,7 +290,7 @@ def apply_pro_fields(tender: Tender, data: dict) -> None:
 
 def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     """Detay response'unu Tender + çocuk tablolara yazar."""
-    data = detail.get("item", detail) if isinstance(detail, dict) else {}
+    data = detay_govdesi(detail)
     bilgi = data.get("ihaleBilgi", {}) or {}
     idare = data.get("idare", {}) or {}
 
@@ -534,8 +550,8 @@ def sync_contracts_from_raw(
     raw = detail if detail is not None else tender.detail_raw
     if not raw:
         return {"contracts": 0, "contractors": set(), "alias_cakismasi": 0}
-    data = raw.get("item", raw) if isinstance(raw, dict) else {}
-    if not isinstance(data, dict):
+    data = detay_govdesi(raw)
+    if not data:
         return {"contracts": 0, "contractors": set(), "alias_cakismasi": 0}
 
     # 1) İlanlar önce — sözleşmeler sonuç ilanına bağlanacak

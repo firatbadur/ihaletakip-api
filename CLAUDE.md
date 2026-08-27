@@ -303,6 +303,11 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   `detail_synced_at`'e bakmadan EKAP'a gittiği için bu, kurtarmaya çalıştığımız throttle
   slotlarını mükerrer istekle harcardı. TTL bir beat aralığından uzun (yeniden atılmasın)
   ama kalıcı değil (worker çökerse satır sonunda yeniden denensin).
+- ⚠️ **`detail_raw` HAM EKAP yanıtıdır — gövde `{"item": {...}}` içinde sarılıdır.**
+  `detail_raw`'dan türetme yapan her yer `sync.detay_govdesi(raw)`'dan geçmeli.
+  Sarmalı açmayan kod `ilanList`/`ihaleBilgi` gibi anahtarları **bulamaz ve sessizce
+  boş döner** — hata vermez. Üretimde yaşandı (2026-08-27): `fix_ilan_tarihi` 465
+  kaydın hepsini işleyip hiçbirini onaramadı (`bakılan=465 onarılan=0`).
 - ⚠️⚠️ **Liste upsert'i DETAYDAN dolan alanları NULL ile EZMEMELİ** (`sync._LISTE_EZMEZ`).
   `upsert_tender_from_list` uzun süre `ilan_tarihi`/`il_id`'yi koşulsuz yazıyordu; EKAP
   liste yanıtında `ilanTarihi` **%100 boş** geldiği için her liste turu detay senkronunun

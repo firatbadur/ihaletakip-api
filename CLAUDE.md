@@ -303,6 +303,22 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
   `detail_synced_at`'e bakmadan EKAP'a gittiği için bu, kurtarmaya çalıştığımız throttle
   slotlarını mükerrer istekle harcardı. TTL bir beat aralığından uzun (yeniden atılmasın)
   ama kalıcı değil (worker çökerse satır sonunda yeniden denensin).
+- ⚠️⚠️ **Liste upsert'i DETAYDAN dolan alanları NULL ile EZMEMELİ** (`sync._LISTE_EZMEZ`).
+  `upsert_tender_from_list` uzun süre `ilan_tarihi`/`il_id`'yi koşulsuz yazıyordu; EKAP
+  liste yanıtında `ilanTarihi` **%100 boş** geldiği için her liste turu detay senkronunun
+  doldurduğu değeri **siliyordu**. Ölçüm (2026-08-27): tek bir `sync_recent` turundan
+  sonra 25 ve 26 Ağustos'un `ilan_tarihi` dolu kayıt sayısı **157/213 → 0**.
+  ⚠️ **Etkisi bildirimlere kadar uzanır**: filtre/idare/OKAS görevlerinin tamamı
+  `ilan_tarihi` üzerinden çalışır → alan NULL'lanınca hiçbiri eşleşme bulamaz, üstelik
+  **hata da üretmez**. `sync_recent` günde 12 kez, `backfill` tüm gün aynı fonksiyonu
+  çağırdığı için silinme arşiv genelindeydi.
+  ⚠️ **Genel kural**: EKAP'ın bir alanı **boş döndürmesi** "değer yok" demektir,
+  "değeri sil" demek DEĞİL. `defaults`'a yeni alan eklerken, alan detay senkronunda
+  doluyorsa `_LISTE_EZMEZ`'e de ekleyin.
+  ⚠️ **Belirti**: `ingest_saglik` çıktısında geçmiş günlerin "ilan_tarihi bu güne ait"
+  sayısı turdan tura **düşüyorsa** bu arızadır. Geçmiş satırlar
+  `python manage.py fix_ilan_tarihi [--gun N|--tumu] [--dry-run]` ile `detail_raw`'dan
+  onarılır (saf DB işi, EKAP'a gitmez; zaman bütçeli + PK imleçli).
 - **Dedup anahtarı = İKN**: `upsert_tender_from_list` satırı **`ikn`'ye göre** upsert eder
   (`ekap_id` değil), `ekap_id`'yi son değere günceller. Çünkü EKAP aynı İKN'yi farklı iç
   `id` ile döndürebilir (yeniden yayım); `ekap_id` ile upsert edilirse aynı İKN farklı

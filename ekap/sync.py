@@ -60,6 +60,11 @@ def extract_list(resp):
     return [], 0
 
 
+# Liste yanıtında boş gelebilen ama DETAY senkronunda dolan alanlar. Değer `None`
+# ise liste upsert'i bu alanlara **dokunmaz** (bkz. upsert_tender_from_list).
+_LISTE_EZMEZ = ("ilan_tarihi", "il_id", "ihale_tarihi")
+
+
 def _resolve_il_id(item):
     il_id = item.get("ihaleIlId") or item.get("ilId")
     if il_id:
@@ -104,6 +109,22 @@ def upsert_tender_from_list(item) -> Tender | None:
         "list_raw": item,
         "list_synced_at": timezone.now(),
     }
+    # ⚠️⚠️ **Liste upsert'i, DETAYDAN dolan alanları NULL ile EZMEMELİ.**
+    # `ilanTarihi` liste yanıtında **%100 boş** gelir (belgeli); `ihaleIlId` de sık
+    # sık boştur. Bu alanlar `update_or_create(defaults=...)` ile koşulsuz yazılınca
+    # her liste turu, detay senkronunun doldurduğu değeri **siliyordu**.
+    # Üretimde ölçüldü (2026-08-27): `sync_recent` turundan sonra 25 ve 26 Ağustos'un
+    # `ilan_tarihi` dolu kayıt sayısı 157/213 → **0**. `sync_recent` günde 12 kez ve
+    # `backfill` tüm gün aynı fonksiyonu çağırdığı için arşiv genelinde siliniyordu.
+    # Etkisi bildirimlere kadar uzanıyor: filtre/idare/OKAS görevlerinin tamamı
+    # `ilan_tarihi` üzerinden çalışır, alan NULL'lanınca **hiçbiri eşleşme bulamaz**.
+    # ⚠️ Genel kural: EKAP'ın bir alanı **boş döndürmesi** "değer yok" demektir,
+    # "değeri sil" demek DEĞİL. Buraya yeni alan eklerken, alan detay senkronunda
+    # doluyorsa `_LISTE_EZMEZ`'e de ekleyin.
+    for alan in _LISTE_EZMEZ:
+        if defaults.get(alan) is None:
+            defaults.pop(alan, None)
+
     # İKN kanonik ihale kimliğidir (bir ihale = bir İKN). EKAP'ın iç `id`'si aynı
     # İKN için değişebildiğinden (yeniden yayım vb.) upsert İKN'ye göre yapılır;
     # ekap_id son gelen değere güncellenir. (ekap_id ile upsert edilirse aynı İKN

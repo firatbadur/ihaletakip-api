@@ -24,6 +24,18 @@ from django.db.models import Count, Max
 from django.utils import timezone
 
 
+def _yas(now, an):
+    """İnsan okunur yaş. Negatif fark (gelecekteki zaman damgası) "az önce" olur."""
+    if not an:
+        return "HİÇ"
+    sn = (now - an).total_seconds()
+    if sn < 60:
+        return "az önce"
+    if sn < 3600:
+        return f"{int(sn // 60)} dk önce"
+    return f"{int(sn // 3600)} saat önce"
+
+
 class Command(BaseCommand):
     help = "EKAP toplama + bildirim zincirinin sağlık raporu."
 
@@ -47,11 +59,10 @@ class Command(BaseCommand):
             if not run:
                 self.stdout.write(f"  {task:20s} — hiç çalışmamış")
                 continue
-            yas = now - run.started_at
             sure = (run.finished_at - run.started_at) if run.finished_at else None
             self.stdout.write(
                 f"  {task:20s} {run.status:6s} items={run.items or 0:<6d} "
-                f"errors={run.errors or 0:<4d} {int(yas.total_seconds() // 3600)} saat önce"
+                f"errors={run.errors or 0:<4d} {_yas(now, run.started_at)}"
                 + (f" ({int(sure.total_seconds())} sn)" if sure else " (BİTMEDİ)")
             )
             if run.note:
@@ -99,8 +110,9 @@ class Command(BaseCommand):
             for pt in PeriodicTask.objects.filter(enabled=True).order_by("name"):
                 if not any(k in pt.task for k in ("ekap", "tenders", "assistant")):
                     continue
-                son = pt.last_run_at
-                yas = f"{int((now - son).total_seconds() // 3600)} saat önce" if son else "HİÇ"
+                # ⚠️ `last_run_at` gelecekte olabilir (beat yeniden başladığında ilk
+                # zamanlamayı ileriye yazar) → çıplak çıkarma "-1 saat önce" basardı.
+                yas = _yas(now, pt.last_run_at)
                 self.stdout.write(f"  {pt.name:38s} {yas}")
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"  okunamadı: {e}"))

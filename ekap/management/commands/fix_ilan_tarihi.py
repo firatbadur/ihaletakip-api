@@ -19,7 +19,6 @@ Saf DB işidir (EKAP'a gitmez) ama `detail_raw` TOAST'ını okur → varsayılan
 import time
 
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
@@ -31,27 +30,41 @@ class Command(BaseCommand):
     help = "ilan_tarihi NULL olan ihaleleri detail_raw'dan onarır."
 
     def add_arguments(self, parser):
-        parser.add_argument("--gun", type=int, default=30,
-                            help="son N günde detayı senkronlanmış kayıtlar (vars. 30)")
+        # ⚠️ Seçim `created_at` (DB'ye ne zaman girdi) üzerindendir, `detail_synced_at`
+        # DEĞİL: backfill/refresh arşivin detayını sürekli tazelediği için
+        # `detail_synced_at` neredeyse tüm tabloda "yakın" görünür ve filtre hiçbir
+        # şey elemez (ölçüldü: `--gun 60` → 507.640 aday, yani tablonun tamamı).
+        # Bildirimler için önemli olan **yeni eklenen** ihalelerdir.
+        parser.add_argument("--gun", type=int, default=7,
+                            help="son N günde DB'ye eklenmiş kayıtlar (vars. 7)")
         parser.add_argument("--tumu", action="store_true", help="tüm arşivi tara")
+        parser.add_argument("--sayim", action="store_true",
+                            help="önce toplam adayı say (BÜYÜK tabloda pahalı)")
         parser.add_argument("--limit", type=int, default=0, help="en fazla N satır")
         parser.add_argument("--saniye", type=int, default=600, help="süre bütçesi")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **o):
         basla = time.monotonic()
-        qs = Tender.objects.filter(ilan_tarihi__isnull=True).exclude(
-            Q(detail_raw__isnull=True) | Q(detail_raw={})
+        # ⚠️ **`detail_raw={}` ile karşılaştırma YAPMAYIN.** JSONB eşitliği indekssizdir
+        # ve `detail_raw` TOAST'tadır (~40 KB/satır) → planlayıcı 500k satırın tamamını
+        # diskten açar. Ölçüldü: tek `.count()` **621 sn** sürüp süre bütçesini yedi ve
+        # komut hiçbir satır işleyemeden bitti (`bakılan=0`). Detayın gelip gelmediğini
+        # **indeksli** `detail_synced_at` söyler; gövde boşluğu satır satır kontrol edilir.
+        qs = Tender.objects.filter(
+            ilan_tarihi__isnull=True, detail_synced_at__isnull=False
         )
         if not o["tumu"]:
-            qs = qs.filter(detail_synced_at__gte=timezone.now() - timedelta(days=o["gun"]))
+            qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=o["gun"]))
         # ⚠️ PK imleci: `ORDER BY <tarih> DESC LIMIT N` + seyrek filtre planlayıcıyı
         # tarih indeksini geriye taratmaya iter (bkz. CLAUDE.md plan tuzağı).
         qs = qs.only("pk", "detail_raw").order_by("pk")
 
-        toplam = qs.count()
-        self.stdout.write(f"onarılacak aday: {toplam}"
-                          + ("  [DRY-RUN]" if o["dry_run"] else ""))
+        # ⚠️ `count()` bu tabloda pahalıdır ve süre bütçesinden yer. Varsayılan olarak
+        # yapılmaz — komut zaten imleçle ilerleyip ne kadar işlediğini raporluyor.
+        if o["sayim"]:
+            self.stdout.write(f"onarılacak aday: {qs.count()}")
+        self.stdout.write("onarım başlıyor" + ("  [DRY-RUN]" if o["dry_run"] else ""))
 
         son_pk = 0
         onarilan = bakilan = 0
@@ -66,8 +79,11 @@ class Command(BaseCommand):
             for tender in parti:
                 son_pk = tender.pk  # imleç try'dan ÖNCE ilerler (bozuk satır kilitlemesin)
                 bakilan += 1
+                ham = tender.detail_raw or {}
+                if not ham:
+                    continue
                 try:
-                    pub = _publish_date_from_ilanlar(tender.detail_raw or {}, None)
+                    pub = _publish_date_from_ilanlar(ham, None)
                 except Exception:
                     continue
                 if pub:

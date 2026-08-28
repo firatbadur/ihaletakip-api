@@ -41,7 +41,7 @@ from ekap.models import Tender
 
 # İstek başına kalıp. Toplu boru hattıyla aynı tutulmalı — pilot orada olmayan bir
 # koşulu ölçerse sonucu taşımaz (25'te disiplinli olan model 50'de bozulabilir).
-GRUP = 25
+VARSAYILAN_GRUP = 25
 # Kalıp başına azami keyword. ⚠️ JSON şemasında `maxItems` ile zorlanamıyor (API 400
 # veriyor), o yüzden prompt söyler + burada kırpılır.
 AZAMI_KEYWORD = 8
@@ -57,6 +57,12 @@ class Command(BaseCommand):
         parser.add_argument("--ciftler", type=int, default=60,
                             help="Ayırt etme ölçümü için seri kardeşi çift sayısı (0=atla)")
         parser.add_argument("--model", default=VARSAYILAN_MODEL)
+        parser.add_argument("--grup", type=int, default=VARSAYILAN_GRUP,
+                            help="İstek başına kalıp. ⚠️ Girdi token'ının ~%75'i "
+                                 "system prompt + şemanın her istekte tekrarı; grubu "
+                                 "büyütmek girdiyi düşürür ama modelin geç kalıplarda "
+                                 "kural disiplinini kaybetme riskini artırır — kapılara "
+                                 "bakarak karar verin")
         parser.add_argument("--csv", default="/tmp/keyword_pilot.csv",
                             help="Çıktının yazılacağı CSV (elle inceleme için)")
         parser.add_argument("--dry-run", action="store_true",
@@ -164,9 +170,10 @@ class Command(BaseCommand):
     def handle(self, *args, **o):
         rastgele = random.Random(o["seed"])
         model = o["model"]
+        self.grup = max(1, o["grup"])
 
         self.stdout.write(self.style.MIGRATE_HEADING("\n═══ KEYWORD PİLOTU ═══"))
-        self.stdout.write(f"model={model}  n={o['n']}  ciftler={o['ciftler']}\n")
+        self.stdout.write(f"model={model}  n={o['n']}  ciftler={o['ciftler']}  grup={self.grup}\n")
 
         # ---- örneklem + kalıp ----
         ihaleler = self._rastgele_ihaleler(o["n"], rastgele)
@@ -213,8 +220,8 @@ class Command(BaseCommand):
         # ---- BÖLÜM A/B: biçim + patlama ----
         liste = [(i, k) for i, k in enumerate(kaliplar, 1)]
         sonuclar = {}
-        for i in range(0, len(liste), GRUP):
-            grup = liste[i:i + GRUP]
+        for i in range(0, len(liste), self.grup):
+            grup = liste[i:i + self.grup]
             veri, usage = self._sor(client, model, grup)
             sonuclar.update(veri)
             toplam_in += usage.input_tokens
@@ -330,8 +337,8 @@ class Command(BaseCommand):
             i += 2
 
         sonuc, t_in, t_out = {}, 0, 0
-        for j in range(0, len(birimler), GRUP):
-            veri, usage = self._sor(client, model, birimler[j:j + GRUP])
+        for j in range(0, len(birimler), self.grup):
+            veri, usage = self._sor(client, model, birimler[j:j + self.grup])
             sonuc.update(veri)
             t_in += usage.input_tokens
             t_out += usage.output_tokens
@@ -443,11 +450,13 @@ class Command(BaseCommand):
         yaz(f"  bu koşu: {t_in:,} girdi + {t_out:,} çıktı token, {gecen:.0f} sn")
         if n_kalip:
             in_kalip, out_kalip = t_in / n_kalip, t_out / n_kalip
-            for hedef in (250_000, 300_000, 400_000):
+            for hedef in (669_463,):     # üretimde ölçülen gerçek tekil kalıp sayısı
                 # batch %50 indirim + Haiku 4.5 ($1/$5 per 1M)
                 usd = (in_kalip * hedef * 0.5 + out_kalip * hedef * 2.5) / 1_000_000
                 yaz(f"  {hedef:>7,} kalıp → ~${usd:,.0f}  (batch %50 indirimli, {model})")
-            yaz("  ⚠ Gerçek kalıp sayısı `keyword_pattern_stats` ile ölçülmeli.")
+            yaz(f"  girdi {in_kalip:.0f} tok/kalıp · çıktı {out_kalip:.0f} tok/kalıp")
+            yaz("  ⚠ Girdinin çoğu system prompt'un her istekte tekrarı → toplu boru "
+                "hattında\n    prompt cache devreye girince bu rakam DÜŞER (üst sınır).")
 
         if not satirlar:
             yaz(self.style.ERROR("\nHiç sonuç üretilemedi — CSV yazılmadı.\n"))

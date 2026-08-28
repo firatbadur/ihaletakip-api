@@ -55,20 +55,24 @@ _KALIP_GURULTU = frozenset({
     "adet", "kalem", "kalemi", "kalemlik",
 })
 
-# ⚠️ Coğrafi token'lar kalıptan ATILIR — dedup'ın en büyük tek kaldıracı.
+# Coğrafi token'lar kalıptan atılır.
 #
-# Üretimde ölçüldü (2026-08-28, 1.047.976 ihale): kalıpların **%85'i benzersiz** ve
-# benzersizliğin başlıca sebebi ad içindeki yer adları — "hakkari semdinli ilcesi
-# karsiyaka mahallesi istinat duvari yapim isi". Aynı iş her ilde ayrı kalıp üretiyor,
-# yani aynı soru AI'ya defalarca soruluyor.
+# ⚠️ **BU BİR DEDUP ÇÖZÜMÜ DEĞİL — denendi ve neredeyse hiçbir şey kazandırmadı.**
+# Hipotez şuydu: kalıpların %85'i benzersiz, sebebi ad içindeki yer adları ("hakkari
+# semdinli ilcesi karsiyaka mahallesi istinat duvari yapim isi"), yani aynı iş her
+# ilde ayrı kalıp üretiyor. Üretimde ölçüldü (2026-08-28, 1.047.976 ihale):
 #
-# Bunları atmanın keyword kalitesine maliyeti YOK: yer adı zaten yasak keyword
-# (bir işin nerede yapıldığı, ona benzeyen işleri bulmaya yaramaz). Yani atmak hem
-# maliyeti düşürür hem prompt'u temizler.
+#     temizlemeden önce : 676.384 tekil kalıp  (dedup 1,50×)
+#     temizlemeden sonra: 669.463 tekil kalıp  (dedup 1,52×)   → kazanç %1
 #
-# ⚠️ İlçe/mahalle adlarının listesi elimizde yok — yalnızca 81 il adı ve coğrafi ek
-# token'ları atılabiliyor. Kalan yer adları benzersizlik üretmeye devam eder; bu bir
-# eksiklik değil, veri sınırı.
+# Yani benzersizliğin kaynağı il adı DEĞİL; ilçe/mahalle/mevkii adları (listesi
+# elimizde yok) ve işin kendine özgü tanımı. Kalıbı daha agresif budayarak dedup
+# aramak bu veride çıkmaz sokak — bu ölçüm tekrarlanmasın diye buraya yazıldı.
+#
+# Temizlik yine de KORUNUYOR, ama gerekçesi maliyet değil: yer adı zaten yasak
+# keyword (bir işin nerede yapıldığı, ona benzeyen işleri bulmaya yaramaz), o yüzden
+# prompt'a hiç gitmemesi modelin dikkatini dağıtmaz ve istek başına birkaç token
+# kazandırır.
 _COGRAFI = frozenset(
     [normalize_tr(ad) for _, _, ad, _ in CITIES] + [
         "ili", "ilce", "ilcesi", "mahalle", "mahallesi", "mah", "koyu", "koy",

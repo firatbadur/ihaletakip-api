@@ -42,6 +42,7 @@ Yani "alımı" AI'nın *üretmemesi* gereken bir şeydir, *görmemesi* gereken d
 import hashlib
 import re
 
+from .constants import CITIES
 from .series import _HAS_DIGIT, _NON_WORD
 from .utils import normalize_tr
 
@@ -53,6 +54,29 @@ _KALIP_GURULTU = frozenset({
     "yili", "yil", "yillik", "aylik", "ay", "gun", "gunluk", "donem", "donemi",
     "adet", "kalem", "kalemi", "kalemlik",
 })
+
+# ⚠️ Coğrafi token'lar kalıptan ATILIR — dedup'ın en büyük tek kaldıracı.
+#
+# Üretimde ölçüldü (2026-08-28, 1.047.976 ihale): kalıpların **%85'i benzersiz** ve
+# benzersizliğin başlıca sebebi ad içindeki yer adları — "hakkari semdinli ilcesi
+# karsiyaka mahallesi istinat duvari yapim isi". Aynı iş her ilde ayrı kalıp üretiyor,
+# yani aynı soru AI'ya defalarca soruluyor.
+#
+# Bunları atmanın keyword kalitesine maliyeti YOK: yer adı zaten yasak keyword
+# (bir işin nerede yapıldığı, ona benzeyen işleri bulmaya yaramaz). Yani atmak hem
+# maliyeti düşürür hem prompt'u temizler.
+#
+# ⚠️ İlçe/mahalle adlarının listesi elimizde yok — yalnızca 81 il adı ve coğrafi ek
+# token'ları atılabiliyor. Kalan yer adları benzersizlik üretmeye devam eder; bu bir
+# eksiklik değil, veri sınırı.
+_COGRAFI = frozenset(
+    [normalize_tr(ad) for _, _, ad, _ in CITIES] + [
+        "ili", "ilce", "ilcesi", "mahalle", "mahallesi", "mah", "koyu", "koy",
+        "beldesi", "belde", "mevkii", "mevki", "buyuksehir", "bolge", "bolgesi",
+        "cadde", "caddesi", "sokak", "sokagi", "bulvari", "kume", "evleri",
+        "ada", "parsel", "pafta", "nolu",
+    ]
+)
 
 # Kalıp uzunluk tavanı. Bazı ihale adları kalem listesinin tamamını içeriyor (2000+
 # karakter); prompt'u şişirir ve dedup değeri sıfırdır (öyle bir ad zaten benzersizdir).
@@ -121,6 +145,17 @@ _TEK_BASINA_JENERIK = frozenset(_JENERIK_KANONIK.values())
 _COGUL_EKLERI = ("lerinin", "larinin", "lerini", "larini", "lerine", "larina",
                  "lerde", "larda", "leri", "lari", "ler", "lar")
 
+# ⚠️ 3. tekil iyelik eki — **keyword patlamasının ana kaynağı** (üretimde ölçüldü:
+# 1,70 tekil/kalıp; model "elbisesi" ve "elbise"yi, "projesi" ve "proje"yi ayrı ayrı
+# üretiyordu ve ikisi ayrı `Keyword` satırına düşüyordu).
+#
+# ⚠️ Yalnızca `-si/-sı/-su/-sü` atılır, çıplak `-i/-ı/-u/-ü` ATILMAZ. Sebep: `-si`
+# eki sesli harfle biten köke gelir, yani kırpınca geriye anlamlı bir kök kalır
+# ("elbisesi"→elbise, "projesi"→proje, "makinesi"→makine, "tesisi"→tesis). Çıplak
+# `-i` ise sıfat ve kök son harfiyle karışır ("tıbbi"→"tıbb", "sanayi"→"sanay") —
+# yanlış birleştirme kaçırılandan kötüdür (aynı değer `contractors.py`/`series.py`).
+_IYELIK_EKLERI = ("si", "su")   # normalize_tr sonrası "sı/sü" da bu biçime düşer
+
 # Ek atıldıktan sonra kökte kalması gereken en az harf. 3 seçildi: "hatlarinin" → "hat"
 # geçerli bir köktür. 4'te bu kelime hiç sadeleşmiyordu (ölçüldü).
 _KOK_MIN = 3
@@ -134,11 +169,14 @@ def kalip_norm(ihale_adi: str) -> str:
     'tekstil malzemeleri alimi'
     >>> kalip_norm("2024 YILI TEKSTİL MALZEMELERİ ALIM İŞİ")
     'tekstil malzemeleri alim isi'
+    >>> kalip_norm("Hakkari Şemdinli İlçesi Karşıyaka Mahallesi İstinat Duvarı Yapım İşi")
+    'semdinli karsiyaka istinat duvari yapim isi'
     """
     metin = _NON_WORD.sub(" ", normalize_tr(ihale_adi or ""))
     tokenlar = [
         t for t in metin.split()
-        if t and not _HAS_DIGIT.search(t) and t not in _KALIP_GURULTU
+        if t and not _HAS_DIGIT.search(t)
+        and t not in _KALIP_GURULTU and t not in _COGRAFI
     ]
     return " ".join(tokenlar)[:KALIP_AZAMI_KARAKTER].strip()
 
@@ -160,6 +198,14 @@ def _cogul_kok(token: str) -> str:
     """Sondaki çokluk/iyelik ekini atar — yalnızca kökte `_KOK_MIN` harf kalıyorsa."""
     for ek in _COGUL_EKLERI:
         if token.endswith(ek) and len(token) - len(ek) >= _KOK_MIN:
+            return token[: -len(ek)]
+    for ek in _IYELIK_EKLERI:
+        # ⚠️ Kök 5+ harf olmalı. 4'te ölçülen bozulma: "tesisi" → "tesi" (doğrusu
+        # "tesis" — o kelime `tesis`+`i` alır, `tesi`+`si` değil; ikisini ayırt
+        # edecek bir sinyal yok). 5'te "tesisi" hiç kırpılmaz: "tesisi"/"tesis"
+        # ayrı keyword kalır (KAÇIRMA), ama uydurma bir kök üretilmez (YANLIŞ
+        # BİRLEŞTİRME). Bu projede tercih hep bu yönde — bkz. contractors.py.
+        if token.endswith(ek) and len(token) - len(ek) >= 5:
             return token[: -len(ek)]
     return token
 
@@ -212,8 +258,13 @@ def derece(kanonik: str) -> int:
 _YASAK_DESEN = re.compile(
     r"\b(?:"
     r"\d{4}"                                        # yıl
-    r"|mudurlu\w*|baskanl\w*|bakanl\w*|belediye\w*|valili\w*"
-    r"|hastane\w*|universite\w*|rektorlu\w*|kaymakaml\w*"
+    # ⚠️ Yalnızca KESİN idare ekleri. Bina/kurum TÜRÜ ("hastane", "okul",
+    # "universite") bilerek dışarıda: "hastane binası yapımı" işinde "hastane"
+    # ayırt edici bilgidir (hastane inşaatı ≠ okul inşaatı). Önceki sürüm
+    # `hastane\w*` ile bunu da yasak sayıyor ve A kapısını sahte ihlallerle
+    # şişiriyordu (ölçüldü: %2,7'nin büyük kısmı bu).
+    r"|mudurlu\w*|baskanli\w*|bakanli\w*|belediyes\w*|valili\w*"
+    r"|hastanesi|universitesi|rektorlu\w*|kaymakaml\w*"
     r"|mal\s+alim\w*|hizmet\s+alim\w*|yapim\s+is\w*|satin\s+alma"
     r"|^alim\w*$|^temin\w*$|^is\w*$|^hizmet\w*$"
     r")\b"
@@ -223,3 +274,22 @@ _YASAK_DESEN = re.compile(
 def yasak_ihlali(metin: str) -> bool:
     """Keyword yasak kalıplardan birini içeriyor mu (pilot metriği)."""
     return bool(_YASAK_DESEN.search(normalize_tr(metin or "")))
+
+
+def kanonik_liste(hamlar, azami=8):
+    """
+    Ham keyword listesini kanonikleştirir; **sırayı koruyarak** tekilleştirir.
+
+    Model aynı keyword'ü iki kez üretebiliyor (üretimde görüldü: "arac kiralama |
+    arac kiralama") ve iki farklı yazım aynı kanonik biçime düşebiliyor
+    ("elbisesi" + "elbise" → "elbise"). İkisi de burada tek satıra iner.
+    """
+    gorulen, sonuc = set(), []
+    for ham in hamlar or []:
+        k = kanonik_keyword(ham)
+        if k and k not in gorulen:
+            gorulen.add(k)
+            sonuc.append(k)
+        if len(sonuc) >= azami:
+            break
+    return sonuc

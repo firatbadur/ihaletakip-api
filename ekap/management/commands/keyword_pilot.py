@@ -223,6 +223,7 @@ class Command(BaseCommand):
 
         eksik = [i for i, _ in liste if i not in sonuclar]
         satirlar, ham_ihlal, kanonik_ihlal = [], 0, 0
+        kume_map = {}                      # kalip → kanonik keyword kümesi
         ham_toplam = 0
         tekil_kanonik = set()
         sektor_dagilim = defaultdict(int)
@@ -235,17 +236,16 @@ class Command(BaseCommand):
             hams = (s.get("keywords") or [])[:AZAMI_KEYWORD]
             if not hams:
                 bos_sonuc += 1
-            kanonikler = []
             for h in hams:
                 ham_toplam += 1
                 if kw.yasak_ihlali(h):
                     ham_ihlal += 1
-                k = kw.kanonik_keyword(h)
-                if k:
-                    kanonikler.append(k)
-                    tekil_kanonik.add(k)
-                    if kw.yasak_ihlali(k):
-                        kanonik_ihlal += 1
+            kanonikler = kw.kanonik_liste(hams, azami=AZAMI_KEYWORD)
+            for k in kanonikler:
+                tekil_kanonik.add(k)
+                if kw.yasak_ihlali(k):
+                    kanonik_ihlal += 1
+            kume_map[kalip] = set(kanonikler)
             sektor_dagilim[s.get("sektor", "?")] += 1
             satirlar.append({
                 "kalip": kalip,
@@ -266,10 +266,41 @@ class Command(BaseCommand):
 
         gecen = time.monotonic() - basla
 
+        # ⚠️ En zorlu kontrol, insan gözü için: keyword örtüşmesi en yüksek çıkan
+        # FARKLI kalıp çiftleri. Seri kardeşi testi (C) kolaydır — kardeşlerin
+        # metinleri zaten neredeyse aynıdır. Asıl risk, birbirine benzemeyen işlerin
+        # aynı keyword kümesine düşmesi (yanlış pozitif); benchmark'a o çiftler
+        # sızarsa kullanıcı yine alakasız fiyat görür. Ek AI çağrısı gerektirmez.
+        eslesmeler = self._yakin_ciftler(kume_map)
+
         # ---- rapor ----
         self._rapor(satirlar, liste, eksik, ham_toplam, ham_ihlal, kanonik_ihlal,
-                    tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt,
+                    tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt, eslesmeler,
                     toplam_in, toplam_out, gecen, model, o["csv"])
+
+    def _yakin_ciftler(self, kume_map, kac=12):
+        """Keyword örtüşmesi en yüksek kalıp çiftleri (yanlış pozitif denetimi)."""
+        ogeler = [(k, v) for k, v in kume_map.items() if v]
+        # Ters indeks: yalnızca ortak keyword'ü olan çiftler karşılaştırılır
+        # (285 kalıpta kaba kuvvet de olurdu ama --n büyütülünce O(n²) patlardı).
+        ters = defaultdict(list)
+        for i, (_, kume) in enumerate(ogeler):
+            for k in kume:
+                ters[k].append(i)
+        aday = set()
+        for idler in ters.values():
+            if len(idler) > 30:            # çok yaygın keyword — gürültü
+                continue
+            for a in range(len(idler)):
+                for b in range(a + 1, len(idler)):
+                    aday.add((idler[a], idler[b]))
+        skorlu = []
+        for a, b in aday:
+            ka, kb = ogeler[a][1], ogeler[b][1]
+            j = len(ka & kb) / len(ka | kb)
+            skorlu.append((j, ogeler[a][0], ogeler[b][0], sorted(ka & kb)))
+        skorlu.sort(reverse=True)
+        return skorlu[:kac]
 
     def _client(self):
         import anthropic                                    # lazy — proje kuralı
@@ -309,8 +340,7 @@ class Command(BaseCommand):
             s = sonuc.get(i)
             if not s:
                 return set()
-            hams = (s.get("keywords") or [])[:AZAMI_KEYWORD]
-            return {k for k in (kw.kanonik_keyword(x) for x in hams) if k}
+            return set(kw.kanonik_liste(s.get("keywords"), azami=AZAMI_KEYWORD))
 
         def jaccard(x, y):
             if not x or not y:
@@ -343,7 +373,7 @@ class Command(BaseCommand):
 
     # ── rapor ───────────────────────────────────────────
     def _rapor(self, satirlar, liste, eksik, ham_toplam, ham_ihlal, kanonik_ihlal,
-               tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt,
+               tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt, eslesmeler,
                t_in, t_out, gecen, model, csv_yolu):
         yaz = self.stdout.write
         n_kalip = len(liste)
@@ -394,6 +424,15 @@ class Command(BaseCommand):
             yaz(f"       ayrışma oranı              : {oran:.1f}×  "
                 f"— kapı: kardeş≥0.30 ve ≥3×   [{durum}]")
             yaz(f"       ({ayirt['cift_sayisi']} çift üzerinden)")
+
+        yaz(self.style.MIGRATE_HEADING(
+            "\n── En yakın bulunan çiftler (YANLIŞ POZİTİF denetimi — göz gerekir) ──"))
+        yaz("  Bunlar benchmark'ta birbirinin 'benzer işi' sayılacak. Alakasız bir çift"
+            "\n  görüyorsan keyword katmanı o iş için gürültü üretiyor demektir.\n")
+        for j, a, b, ortak in eslesmeler:
+            yaz(f"  {j:.2f}  {a[:66]}")
+            yaz(f"        {b[:66]}")
+            yaz(f"        ortak: {', '.join(ortak)}")
 
         yaz(self.style.MIGRATE_HEADING("\n── Sektör dağılımı (ilk 12) ──"))
         for kod, adet in sorted(sektor_dagilim.items(), key=lambda x: -x[1])[:12]:

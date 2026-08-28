@@ -41,9 +41,11 @@ FIYAT = {
     "claude-sonnet-5": (1.00, 5.00),
     "claude-opus-5": (2.50, 12.50),
 }
-# Pilotta ölçülen kalıp başına token maliyeti (girdi, çıktı). `--in-tok`/`--out-tok`
-# ile geçersiz kılınır — pilot çıktısındaki gerçek sayıları kullanmak en doğrusu.
-VARSAYILAN_TOKEN = (32.0, 110.0)
+# Kalıp başına token — **üretim pilotunda ölçüldü** (2026-08-28, 285 kalıp,
+# 25'erli gruplar, Haiku 4.5): 44.615 girdi / 17.857 çıktı token.
+# ⚠️ Girdinin büyük kısmı system prompt'un her istekte tekrarı; toplu boru hattında
+# prompt cache devreye girince bu rakam düşer, yani tahmin ÜST sınırdır.
+VARSAYILAN_TOKEN = (156.5, 62.7)
 
 
 class Command(BaseCommand):

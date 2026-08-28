@@ -128,6 +128,69 @@ OZELLIK_MAP = {
     "ekonomikVeMaliYeterlilikBelgeleriIsteniyorMu": "EKONOMIK_MALI_YETERLIK",
 }
 
+# ── Sektör taksonomisi (AI keyword katmanı) ─────────────
+# ⚠️ **KAPALI liste.** AI'ya JSON şemasında `enum` olarak verilir → geçersiz değer
+# üretmesi imkânsız. Serbest etiket üç şeyi bozardı: (a) aynı sektör için onlarca
+# varyant ("bilişim"/"yazılım"/"IT") → gruplama anlamsızlaşır, (b) `Contract.sektor`
+# indekslenemez hâle gelir, (c) her batch farklı isimlendirme üretir.
+#
+# ⚠️ **Etiket EKLEMEK geriye dönük iş demektir**: yeni etiket eskiden işlenmiş
+# kalıplarda kullanılmaz (onlar mevcut listeden bir değer aldı) → tutarsız kırılım.
+# Eklemeden önce `TenderNamePattern` durumlarını `pending`'e alıp yeniden işlemeyi
+# planlayın. Etiket **SİLMEK** ise doğrudan yasak: DB'de o değere sahip satırlar kalır.
+#
+# `diger` bilinçli olarak listede: AI "hiçbirine uymuyor" diyebilmeli. Zorlanmış bir
+# etiket, dürüst bir "diger"den kötüdür (bkz. benchmark.py dürüstlük kuralları).
+SEKTORLER = {
+    # sağlık
+    "saglik_tibbi_malzeme": "Tıbbi Sarf Malzeme",
+    "saglik_cihaz": "Tıbbi Cihaz ve Görüntüleme",
+    "ilac": "İlaç ve Serum",
+    "laboratuvar": "Laboratuvar ve Kit",
+    # gıda / destek hizmetleri
+    "gida_catering": "Gıda ve Yemek Hizmeti",
+    "temizlik_hizmeti": "Temizlik Hizmeti",
+    "guvenlik_hizmeti": "Özel Güvenlik Hizmeti",
+    "personel_tasima": "Personel ve Öğrenci Taşıma",
+    "arac_kiralama": "Araç Kiralama ve Filo",
+    # bilişim
+    "bilisim_donanim": "Bilişim Donanım",
+    "bilisim_yazilim": "Yazılım ve Lisans",
+    "haberlesme": "Haberleşme ve Ağ",
+    # yapı / altyapı
+    "insaat_yapim": "İnşaat ve Yapım İşi",
+    "yol_altyapi": "Yol, Asfalt ve Altyapı",
+    "su_kanalizasyon": "İçme Suyu ve Kanalizasyon",
+    "elektrik_tesisat": "Elektrik ve Tesisat",
+    "mekanik_tesisat": "Mekanik Tesisat ve İklimlendirme",
+    "park_bahce": "Park, Bahçe ve Peyzaj",
+    "bakim_onarim": "Bakım Onarım Hizmeti",
+    # enerji / yakıt
+    "akaryakit_enerji": "Akaryakıt ve Enerji",
+    "dogalgaz_isinma": "Doğalgaz ve Isınma",
+    # malzeme / tedarik
+    "makine_ekipman": "Makine ve Ekipman",
+    "mobilya_buro": "Mobilya ve Büro Donanımı",
+    "tekstil_giyim": "Tekstil ve Giyim",
+    "kirtasiye_matbaa": "Kırtasiye ve Matbaa",
+    "insaat_malzeme": "İnşaat Malzemesi",
+    "yedek_parca": "Yedek Parça ve Lastik",
+    "kimyasal": "Kimyasal ve Endüstriyel Ürün",
+    # hizmet / danışmanlık
+    "danismanlik_muhendislik": "Danışmanlık ve Mühendislik",
+    "harita_kadastro": "Harita, Kadastro ve Etüt",
+    "egitim": "Eğitim ve Kurs Hizmeti",
+    "organizasyon_tanitim": "Organizasyon, Tanıtım ve Reklam",
+    "sigorta": "Sigorta Hizmeti",
+    "atik_yonetimi": "Atık Yönetimi ve Çevre",
+    "tarim_hayvancilik": "Tarım, Hayvancılık ve Orman",
+    "madencilik": "Madencilik ve Hafriyat",
+    "diger": "Diğer",
+}
+
+# JSON şemasına giden `enum` dizisi — sıra deterministik olmalı (prompt cache).
+SEKTOR_KODLARI = sorted(SEKTORLER)
+
 # ── Şehirler (filterData.js CITIES — 81 il) ─────────────
 # (ekap_il_id, plaka, ad, is_big_city)
 CITIES = [

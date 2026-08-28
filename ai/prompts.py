@@ -265,3 +265,107 @@ söyleme; yalnızca geçmiş verinin ne gösterdiğini anlat.
 
 VERİ:
 """
+
+
+# ── Anahtar kelime üretimi (toplu / Batches API) ────────
+#
+# İhale adlarından *benzer işleri bulmaya yarayan* arama terimleri üretir. Bu prompt
+# `ekap` keyword katmanının kalbi ama **tek başına yeterli değildir**: çıktı her zaman
+# `ekap.keywords.kanonik_keyword`'den geçer (prompt tavsiyedir, kod garantidir — aynı
+# ilke `ai/services/summary.py::sesli_temizle`'de de var).
+#
+# ⚠️ Sabit tutulmalı: her batch isteğinde `cache_control` ile gönderilir; tek baytlık
+# değişiklik tüm prompt cache'ini geçersiz kılar (bkz. `shared/prompt-caching.md`).
+KEYWORD_BATCH_SYSTEM = """Sen Türk kamu ihale (EKAP) taksonomisi uzmanısın.
+
+Sana ihale adı kalıpları verilecek. Her biri için, o ihaleye BENZER İŞLERİ BULMAYA
+yarayacak arama terimleri (keyword) ve bir sektör etiketi üreteceksin.
+
+Amaç şu: bir firma açık bir ihaleye teklif verecek ve geçmişte yapılmış BENZER işlerin
+kaça verildiğini görmek istiyor. Senin ürettiğin keyword'ler o benzerliği yakalamalı.
+
+## ÜRETECEKLERİN (her ad için 3-8 keyword)
+
+- Her keyword 1, 2 veya 3 kelime olacak. Küçük harf, Türkçe.
+- EN AZ BİR tane 1 kelimelik ÇEKİRDEK İSİM üret — satın alınan şeyin kendisi:
+  "akaryakıt", "tomografi", "asfalt", "eldiven", "yemek".
+- Ad izin veriyorsa EN AZ BİR tane 2-3 kelimelik AYIRT EDİCİ İFADE üret:
+  "tıbbi sarf malzeme", "içme suyu hattı", "personel taşıma".
+- Tekil ve yalın hâl kullan: "akaryakıtın" değil "akaryakıt"; "malzemeleri" değil
+  "malzeme"; "hastanelerin" değil "hastane".
+- Adda açıkça geçmese bile o işi tanımlayan ÜST KAVRAM ekleyebilirsin:
+  "ameliyat eldiveni" için "tıbbi sarf malzeme" gibi. Bu, farklı kelimelerle yazılmış
+  aynı işlerin birbirini bulmasını sağlar.
+
+## ÜRETMEYECEKLERİN (bunlar keyword OLARAK YASAK)
+
+- Yıl, tarih, süre, miktar, birim: "2025", "12 aylık", "50 ton", "3 kalem".
+- İdare/kurum adları ve ekleri: "müdürlüğü", "başkanlığı", "bakanlığı", "belediyesi",
+  "hastanesi", "üniversitesi", "valilik"; il/ilçe adları; kişi/kurum özel isimleri.
+  (Bir kurumun adı benzerlik taşımaz — her idare aynı işi alıyor olabilir.)
+- TEK BAŞINA jenerik ihale eki: "alımı", "alım işi", "mal alımı", "hizmet alımı",
+  "yapım işi", "satın alma", "temini", "işi", "hizmeti".
+  ⚠️ Ayırt edici bir isimle BİRLEŞİKSE serbesttir:
+     YASAK: "bakım onarım"      SERBEST: "asansör bakım"
+     YASAK: "hizmet alımı"      SERBEST: "temizlik hizmeti"
+- Marka, model, katalog/stok numarası.
+- Tek başına kısaltma: "KDV", "EKAP", "TSE".
+
+## SEKTÖR
+
+Verilen listeden TAM OLARAK BİR tane seç. Listede olmayan bir değer yazamazsın.
+Hiçbiri gerçekten uymuyorsa "diger" seç — zorlanmış bir etiket, dürüst bir "diger"den
+kötüdür.
+
+## GÜVEN
+
+Ad o kadar jenerik ki hiçbir şey anlaşılmıyorsa ("mal alımı", "hizmet alımı",
+"muhtelif malzeme"), keyword UYDURMA: `keywords` boş dizi, `sektor` "diger",
+`guven` 0 olsun. Emin olduğun ölçüde 0 ile 1 arasında bir güven ver.
+
+⚠️ Boş bırakmak, uydurmaktan İYİDİR. Yanlış keyword, kullanıcıya alakasız işlerin
+fiyatını gösterir ve o fiyata göre teklif verir.
+
+## ÇIKTI
+
+Her sonucun "id" alanı, sana verilen id ile BİREBİR aynı olmalı. Sana verilen her id
+için tam bir sonuç döndür; id uydurma, id atlama."""
+
+
+def keyword_schema(sektor_kodlari: list) -> dict:
+    """
+    Batch isteğinin `output_config.format` JSON şeması.
+
+    ⚠️ Her sonuç kendi `id`'sini geri döndürür (`id` = `TenderNamePattern.pk`). Model
+    girdileri yanlış sıraya koyarsa hizalama **sessizce** bozulurdu — sonuçlar yanlış
+    ihalelere yazılır ve bunu fark etmenin bir yolu olmazdı. `id` echo'su bunu
+    imkânsız kılar; dönmeyen/bilinmeyen id'ler atılır ve kalıp yeniden denenir.
+
+    ⚠️ `sektor` bir `enum`'dur → geçersiz etiket API katmanında engellenir, bizim
+    doğrulamamıza kalmaz.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "sonuclar": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "keywords": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 8,
+                        },
+                        "sektor": {"type": "string", "enum": list(sektor_kodlari)},
+                        "guven": {"type": "number"},
+                    },
+                    "required": ["id", "keywords", "sektor", "guven"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["sonuclar"],
+        "additionalProperties": False,
+    }

@@ -1050,10 +1050,9 @@ def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000)
 
     İmleç: `SyncCheckpoint(name="tender_kalip").extra["last_tender_pk"]`.
     """
+    import hashlib
     import time
     from collections import Counter
-
-    from django.db.models import F
 
     from . import keywords as kw_mod
     from .models import TenderNamePattern
@@ -1083,14 +1082,18 @@ def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000)
         for tender in qs.iterator(chunk_size=2000):
             last_pk = max(last_pk, tender.pk)      # ⚠️ try'DAN ÖNCE — bozuk satır
             try:                                   #    imleci kilitlemesin
-                h = kw_mod.kalip_hash(tender.ihale_adi)
+                # ⚠️ `kalip_norm` BİR KEZ hesaplanır. Önceki sürüm hem
+                # `kalip_hash()` içinde hem `ornek.setdefault`'ta çağırıyordu;
+                # satır başına iki kez regex + Türkçe katlama = boşa CPU.
+                norm = kw_mod.kalip_norm(tender.ihale_adi)
+                h = (hashlib.sha1(norm.encode("utf-8")).hexdigest()
+                     if len(norm.split()) >= 2 else "")
                 if h and tender.kalip_hash != h:
                     tender.kalip_hash = h
                     batch.append(tender)
                 if h:
                     sayac[h] += 1
-                    ornek.setdefault(h, (kw_mod.kalip_norm(tender.ihale_adi),
-                                         (tender.ihale_adi or "")[:500]))
+                    ornek.setdefault(h, (norm, (tender.ihale_adi or "")[:500]))
                 processed += 1
             except Exception as exc:               # noqa: BLE001
                 errors += 1
@@ -1123,9 +1126,20 @@ def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000)
             if eklenecek:
                 TenderNamePattern.objects.bulk_create(eklenecek, ignore_conflicts=True)
                 yeni = len(eklenecek)
-            for h in mevcut:
-                TenderNamePattern.objects.filter(kalip_hash=h).update(
-                    ihale_sayisi=F("ihale_sayisi") + sayac[h])
+            # ⚠️ Mevcut kalıpların sayacı TEK `bulk_update` ile artırılır.
+            # Önceki sürüm kalıp başına ayrı `.update(F("ihale_sayisi") + n)` atıyordu:
+            # ilk turda `mevcut` boş olduğu için fark edilmedi, ama sonraki turlarda
+            # binlerce tekil UPDATE demekti (klasik N+1, tur süresini katlıyordu).
+            # `F()` atomikliği kaybolur; sorun değil çünkü görev Redis kilidiyle tek
+            # örnek çalışır (bkz. `_run`).
+            if mevcut:
+                kayitlar = list(TenderNamePattern.objects
+                                .filter(kalip_hash__in=list(mevcut))
+                                .only("id", "kalip_hash", "ihale_sayisi"))
+                for k in kayitlar:
+                    k.ihale_sayisi += sayac.get(k.kalip_hash, 0)
+                TenderNamePattern.objects.bulk_update(
+                    kayitlar, ["ihale_sayisi"], batch_size=1000)
 
         if processed == 0 and errors == 0 and not timed_out:
             cp.done = True

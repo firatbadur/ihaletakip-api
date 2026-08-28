@@ -801,6 +801,98 @@ alıcının davranışı teklif verecek firma için en az ihale kadar önemli. M
   (500 bayt × 1,4M satır); ad çözümü ilk 20 kod için **ayrı ve küçük** bir sorgudur —
   adı GROUP BY'a koymak grubu yeniden `ekap_tender` JOIN'ine bağlardı.
 
+#### Anahtar kelime (keyword) katmanı — `ekap/keywords.py`
+
+"Benzer iş" seçimi eskiden **yalnızca OKAS + idare/il** üzerindendi; OKAS ana kodu kaba
+ve **ihalelerin ~%19'unda OKAS kalemi yok** → kullanıcı alakasız işlerin medyanını
+görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benzerlik ekseni açar.
+
+- **Boru hattı**: `backfill_tender_kalip` (kalıp çıkar) → `dispatch_keyword_batches`
+  (AI'ya toplu sor) → `poll_keyword_batches` → `process_keyword_results` (yaz) →
+  `propagate_tender_keywords` (ihalelere yay) → `refresh_keyword_df` (df + `pasif`).
+  Altısı da `celery` kuyruğunda (**EKAP'a hiç gitmez**), `ekap.tasks.*` joker'inden ÖNCE
+  listelenmiş. Elle: `python manage.py run_keywords --job kalip|dispatch|…|durum`.
+- **Dedup = ad kalıbı** (`kalip_norm`): yıl/miktar arındırılmış normalize ad. Aynı işin
+  yıldan yıla tekrarı tek kalıba düşer → AI'ya **bir kez** sorulur, sonuç kalıbı
+  paylaşan tüm ihalelere yayılır. **Ölçüm (2026-08-28, 1.047.976 ihale): 669.463 tekil
+  kalıp, dedup 1,52×.**
+  ⚠️ **Coğrafi temizlik dedup çözümü DEĞİL** — denendi, kazanç %1 (676.384→669.463).
+  Benzersizliğin kaynağı il adı değil, ilçe/mahalle adları ve işin kendine özgü tanımı.
+  Kalıbı daha agresif budayarak dedup aramak bu veride çıkmaz sokak.
+  ⚠️ **Örneklemden dedup oranı ÇIKARILAMAZ** (bir kez yanlış okundu): 1M kayıttan 2000
+  örneklerken çakışma beklentisi zaten binde birkaçtır — doğum günü paradoksu. Ölçüm
+  `keyword_pattern_stats` ile **tam tarama** yapar.
+- ⚠️ **`series._STOPWORDS` BURADA KULLANILAMAZ.** Seri eşleştirme iş türünü ("bakım",
+  "onarım") atar çünkü ayırt etmiyor; keyword katmanında iş türü **bilginin ta
+  kendisidir** ("asansör alımı" ≠ "asansör bakımı", fiyatları karşılaştırılamaz).
+  Ayrı ve dar bir liste + "tamamı jenerikse düşür" kapısı (YASAK "bakım onarım",
+  SERBEST "asansör bakım").
+- ⚠️ **Kanonikleştirme kalite güvencesidir** (`kanonik_keyword`) — *prompt tavsiyedir,
+  kod garantidir* (aynı ilke `summary.sesli_temizle`'de). Türkçe iyelik eki (`-si/-su`)
+  kırpılır: model "elbisesi" ve "elbise"yi ayrı üretiyordu, ikisi ayrı `Keyword`
+  satırına düşüyordu (patlamanın sessiz kaynağı). Çıplak `-i` KIRPILMAZ ("tıbbi"→"tıbb").
+  Kök eşiği 5: 4'te "tesisi"→"tesi" üretiliyordu → kaçırma yeğlenir, uydurma kök asla.
+- **AI'nın parasını hak ettiği ÖLÇÜLDÜ.** Deterministik bir taban çizgisi (IDF + PMI
+  kolokasyon + 330 anahtarlık sektör sözlüğü) yazılıp aynı kalıplarla karşılaştırıldı:
+  yakın-eşleşme listesindeki 12 çiftin **10'unu AI kuruyor, deterministik kuramıyor** —
+  çünkü o çiftlerin **ortak hiçbir kelimesi yok** ("mm ebatlı kcal/kg tolerans taş
+  kömürü" ↔ "ısıl değeri kcal/kg yıkanmış elenmiş"; köprü `tas komur`+`yakit`).
+  Kelime örtüşmesine dayanan eşleşmelerin çoğu ise AI'sız da kuruluyor.
+  → Deterministik yöntem **silinmedi**: sektör fallback'i (AI "diger" derse), batch
+  hatası yedeği ve ölçüm aracı olarak duruyor.
+- **Model = `claude-haiku-4-5`, Batches API (%50 indirim).** ⚠️ İstek başına kalıp **25**
+  — 50 denendi, maliyeti $156→$134 düşürdü ama **kalite bozuldu** (model geç kalıplarda
+  uydurmaya başladı: "lens alımı"→"goz protezi", "taş fırın makinesi"→"makas ekipmani")
+  ve ilk gerçek yanlış pozitif orada çıktı. $22 için doğruluk feda edilmez.
+- ⚠️ **Sonuçlar SIRASIZ gelir** → her sonuç kendi `id`'sini (`TenderNamePattern.pk`)
+  geri döndürür; konuma göre eşleme yapılsaydı model sırayı bozduğunda sonuçlar
+  **sessizce** yanlış ihalelere yazılırdı.
+- ⚠️ **`output_config.format.schema` içinde `maxItems` YAZILAMAZ** (API 400 döner);
+  üst sınır prompt'ta söylenir + kodda kırpılır.
+- **Mevcut keyword'ler AI'ya öneri olarak gider** (`oneri_keywordleri`, user mesajında —
+  system prompt'a konsaydı prompt cache her istekte geçersiz olurdu). ⚠️ Yalnızca
+  `kullanim_sayisi >= 2` olanlar: tek kullanımlık keyword doğrulanmamıştır, önerilirse
+  model onu tekrar seçer ve hatalı keyword arşive yayılır (kendini besleyen döngü).
+- **İngest hızlı yolu**: `upsert_tender_detail` → `keywords.uygula(tender)`. Kalıp
+  sözlüğünde `durum="ok"` varsa keyword'ler AI'ya **hiç gidilmeden** kopyalanır.
+- **Model tasarımı**: `Keyword` (tekil) + `TenderKeyword` (dar M2M, ~6M satır) +
+  `TenderNamePattern` (kalıp sözlüğü, kalıcı) + `KeywordBatch` (izleme/maliyet).
+  ⚠️ **`int[] + GIN` REDDEDİLDİ**: aday satırları 11 GB'lık `ekap_tender` heap'inden
+  okurdu → `sync_contractors` süpürmesindeki "%53 heap cache isabeti" arızasının aynısı.
+  Dar tabloda benzerlik sorgusu `(keyword, tender)` indeksinde **index-only scan** yapar.
+  ⚠️ `TenderKeyword.id` **AutoField** (BigAuto değil) ve FK'larda `db_index=False` —
+  otomatik indeksler elle tanımlananların kopyası olurdu (0017'deki ölü indeks hatası).
+  ⚠️ Satırda **ağırlık kolonu YOK**: ağırlık keyword'e bağlıdır, çifte değil; yazılsaydı
+  6M kez tekrarlanır ve index-only scan'i bozardı.
+- ⚠️ **`Keyword.pasif` bir PERFORMANS regülatörüdür**, kalite değil: sorgunun maliyeti
+  probe'a giren keyword'lerin **df toplamıyla** orantılı. `df==1` (kesişim üretemez) ve
+  `df > KEYWORD_MAX_DF` (ayırt etmiyor ama on binlerce tuple taratır) elenir; kalanlardan
+  **en düşük df'li 5 tanesi** seçilir (`KEYWORD_PROBE_LIMIT`).
+- **Benchmark kademesi** (`_keyword_kademesi`): merdivenin **başında**, iki fazlı —
+  (1) `ekap_tenderkeyword` index-only scan → id listesi, (2) `Contract.tender_id IN`.
+  ⚠️ `ekap_tender`'a **hiç dokunulmaz** (0014'ün kazanımı korunur). Aday **2000**, 300
+  değil: `_temel_qs` ayrıca tarih + "bedeli dolu" süzüyor. En az **2 keyword** şart —
+  tek keyword benzerlik değil tesadüftür. **Geri alma: `KEYWORD_BENCHMARK_ENABLED=False`,
+  deploy'suz.**
+- **Sektör** (`Contract.sektor` ingest-kopyası + `Tender.sektor`): tek değerli ~36
+  kardinalite → kopya DOĞRU tercih (0014'ün `okas_bucket`'i gibi). Keyword'ler
+  çok-değerli olduğu için onlara aynısı yapılamaz. `grup` kademesinden önce gelir ve
+  **OKAS'ı olmayan %19 için** `idare_tur`'den çok daha iyi bir geniş kademedir.
+  ⚠️ AI "diger" derse `sektor_tahmin` sözlüğü devreye girer — ölçümde bazı örneklerde
+  deterministik daha isabetliydi ("istinat duvarı" → AI *İnşaat*, sözlük *Yol/Altyapı*).
+- **Bütçe korumaları**: `KEYWORD_AI_ENABLED` (kill switch, **varsayılan False**),
+  `KEYWORD_MAX_INFLIGHT_BATCHES`, kümülatif `KEYWORD_MAX_TOTAL_USD`, `KEYWORD_MAX_UNIQUE`.
+  `dispatch` kalıpları **`-ihale_sayisi` sırasıyla** gönderir → bütçe kesilse bile
+  kapsamın çoğu alınır (en sık %1 kalıp ihalelerin %19'unu, %20 kalıp %47'sini kapsıyor).
+- ⚠️ **`propagate` tek yazma-ağır aşamadır** (~5M INSERT) → gece penceresi + yüklenici
+  süpürmesi/pro-backfill önceliği. Gündüz koşarsa buffer cache'i kirletip aramayı
+  yavaşlatır. Kaçış: `KEYWORD_PROPAGATE_IGNORE_SWEEP`.
+  ⚠️ Diğer görevler `detail_raw`'a **dokunmaz** (kaynak `ihale_adi`, satır içi) → gece
+  penceresi gerekmez.
+- **Ölçüm araçları**: `keyword_pattern_stats` (tam tarama, dedup + kapsam eğrisi +
+  maliyet), `keyword_pilot [--yontem ai|det|ikisi] [--grup N]` (kalite kapıları,
+  yanlış-pozitif denetimi, AI↔deterministik karşılaştırma).
+
 #### Fiyat istihbaratı — `GET /ekap/tenders/<key>/benchmark/`
 
 "Kaça verilir?" — açık bir ihaleye benzer, **sonuçlanmış** işlerin kazanan bedel/indirim

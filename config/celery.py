@@ -164,6 +164,43 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.sync_authorities",
         "schedule": crontab(hour=5, minute=30, day_of_week=1),
     },
+
+    # ── Anahtar kelime boru hattı ───────────────────────
+    # Hiçbiri EKAP'a gitmez → `celery` kuyruğu (bkz. settings.CELERY_TASK_ROUTES).
+    # ⚠️ `KEYWORD_AI_ENABLED=False` iken dispatch hiçbir şey göndermez; beat
+    # girdilerinin açık olması harcama BAŞLATMAZ.
+
+    # Kalıp çıkarma — `detail_raw`'a dokunmaz (kaynak `ihale_adi`, satır içi), bu
+    # yüzden gündüz de koşabilir ve süpürmeyle cache yarışına girmez.
+    "ekap-backfill-tender-kalip": {
+        "task": "ekap.tasks.backfill_tender_kalip",
+        "schedule": crontab(minute="*/10"),
+    },
+    # ⚠️ 6 saatte bir: eşzamanlı batch tavanı 2 ve bir batch 24 saate kadar
+    # sürebiliyor; daha sık tetiklemek yalnızca "inflight_limit" ile geri döner.
+    "ekap-dispatch-keyword-batches": {
+        "task": "ekap.tasks.dispatch_keyword_batches",
+        "schedule": crontab(minute=5, hour="*/6"),
+    },
+    "ekap-poll-keyword-batches": {
+        "task": "ekap.tasks.poll_keyword_batches",
+        "schedule": crontab(minute="*/15"),
+    },
+    "ekap-process-keyword-results": {
+        "task": "ekap.tasks.process_keyword_results",
+        "schedule": crontab(minute="7,22,37,52"),
+    },
+    # ⚠️ Tek yazma-ağır aşama → gece penceresi görevin kendi içinde uygulanır
+    # (`KEYWORD_PROPAGATE_START/END`); beat sık tetikler, görev kendini eler.
+    "ekap-propagate-tender-keywords": {
+        "task": "ekap.tasks.propagate_tender_keywords",
+        "schedule": crontab(minute="*/10"),
+    },
+    # df + `pasif` bayrağı = benzerlik sorgusunun performans regülatörü.
+    "ekap-refresh-keyword-df": {
+        "task": "ekap.tasks.refresh_keyword_df",
+        "schedule": crontab(hour=4, minute=30),
+    },
 }
 
 

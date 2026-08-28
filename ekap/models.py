@@ -231,6 +231,14 @@ class Tender(models.Model):
     # 40 GB TOAST üzerinde ikinci bir haftalar süren gece taraması demektir.
     seri_anahtar = models.CharField(max_length=40, blank=True)
 
+    # Anahtar kelime katmanı (bkz. ekap/keywords.py). ⚠️ İkisinde de `db_index`
+    # BİLEREK yok: kolonlar önce 1M satırda doldurulur, indeks SONRA
+    # `PgAddIndexConcurrently` ile kurulur. Ters sırada indeks doldurma sırasında
+    # şişer ve `AddField`'ın düz `CREATE INDEX`'i ACCESS EXCLUSIVE kilidi alırdı
+    # (`seri_anahtar` ile birebir aynı gerekçe).
+    kalip_hash = models.CharField(max_length=40, blank=True)
+    sektor = models.CharField(max_length=32, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -251,6 +259,12 @@ class Tender(models.Model):
             # Haftalık seri tespiti `GROUP BY seri_anahtar, idare_id` yapıyor; sıralı
             # indeks taraması diske taşan external merge sort'u (3×20 MB) kaldırır.
             models.Index(fields=["seri_anahtar", "idare_id"], name="ekap_tender_seri_idare_idx"),
+            # Keyword katmanı — ⚠️ ikisi de 0022'de CONCURRENTLY kuruldu (kolonlar
+            # doldurulduktan SONRA; ters sırada 1M satırlık UPDATE indeksi şişirirdi).
+            models.Index(fields=["kalip_hash"], name="ekap_tender_kalip_idx"),
+            # ⚠️ Sıralama kolonu bileşiğin İKİNCİ elemanı: baş kolon yapılsaydı
+            # "ORDER BY tarih DESC LIMIT N + seçici filtre" tuzağı olurdu.
+            models.Index(fields=["sektor", "-ihale_tarihi"], name="ekap_tender_sektor_tarih_idx"),
             # NOT: `Index(fields=["-ilan_tarihi"])` KALDIRILDI — `ilan_tarihi` zaten
             # `db_index=True` (yukarıda) ve Postgres btree'yi geriye doğru tarayabildiği
             # için birebir kopyaydı. Backfill sürekli INSERT/UPDATE attığından iki kat
@@ -610,6 +624,11 @@ class Contract(models.Model):
     # (1 GB) içinde kalır. `db_index` YOK: aşağıdaki bileşik indeksler (kod + tarih)
     # zaten baş kolonu kapsıyor, tek kolonluk btree fazladan yazma maliyeti olurdu.
     okas_ana_kod = models.CharField(max_length=16, blank=True)
+    # Sektör — aynı gerekçe. ⚠️ Burada ingest-kopyası DOĞRU tercihtir çünkü `sektor`
+    # TEK DEĞERLİdir (~36 kardinalite). Keyword'ler ise çok-değerlidir; onlar için
+    # kopya, 6M satırlık ikinci bir M2M demek olurdu — benchmark'ın keyword kademesi
+    # bu yüzden iki fazlı çalışır (önce id listesi, sonra `tender_id IN`).
+    sektor = models.CharField(max_length=32, blank=True)
     okas_bucket = models.CharField(max_length=4, blank=True)
     en_ust_idare_kod = models.CharField(max_length=16, blank=True)
 
@@ -626,6 +645,8 @@ class Contract(models.Model):
             # Kademe 4: OKAS grubu + ihale türü. (Kademe 4b — OKAS'ı olmayan %19 —
             # mevcut `idare_id` indeksini kullanır, ek indeks gerekmez.)
             models.Index(fields=["okas_bucket", "ihale_tip", "-sozlesme_tarihi"], name="ekap_contract_bucket_tip_idx"),
+            # Benchmark'ın sektör kademesi — JOIN'siz, `ekap_contract` içinde kalır.
+            models.Index(fields=["sektor", "-sozlesme_tarihi"], name="ekap_contract_sektor_tarih_idx"),
             # İdare profilinin bakanlık kapsamı — artık `tender__` JOIN'i yapmadan.
             models.Index(fields=["en_ust_idare_kod", "-sozlesme_tarihi"], name="ekap_contract_bakanlik_idx"),
             # İhale listesindeki `yuklenici` metin filtresi (Exists alt sorgusu) bu
@@ -872,3 +893,165 @@ class MarketYearStat(models.Model):
 
     def __str__(self):
         return f"{self.yil} — {self.sozlesme_sayisi} sözleşme"
+
+
+# ── Anahtar kelime (keyword) katmanı ────────────────────
+#
+# Fiyat/rakip analizindeki "benzer iş" seçimi OKAS + idare/il üzerinden yapılıyordu;
+# OKAS ana kodu çok kaba ve ihalelerin ~%19'unda OKAS kalemi hiç yok. Bu katman ihale
+# adından AI ile üretilen keyword'lerle üçüncü bir benzerlik ekseni açar.
+#
+# ⚠️ AI'nın parasını hak ettiği ölçümle doğrulandı (2026-08-28, 285 kalıplık pilot):
+# yakın-eşleşme listesindeki 12 çiftin 10'unu AI kuruyor, deterministik yöntem
+# kuramıyor — çünkü o çiftlerin ORTAK HİÇBİR KELİMESİ yok ("mm ebatlı kcal/kg
+# tolerans taş kömürü" ↔ "ısıl değeri kcal/kg yıkanmış elenmiş"). Köprüyü adda
+# geçmeyen üst kavram kuruyor (`tas komur`, `yakit`).
+
+class Keyword(models.Model):
+    """
+    Tekil anahtar kelime. `metin` kanoniktir (`keywords.kanonik_keyword` çıktısı).
+
+    ⚠️ Ağırlık kolonu BİLİNÇLİ olarak yok: ağırlık `(derece, idf)`'in fonksiyonudur,
+    yani keyword'e bağlıdır, ihale-keyword çiftine değil. `TenderKeyword` satırına
+    yazılsaydı 6M kez tekrarlanır **ve o tablodaki index-only scan'i bozardı**.
+    """
+
+    metin = models.CharField(max_length=64, unique=True)
+    metin_ham = models.CharField(max_length=64, blank=True)   # gösterim (Türkçe harfli)
+    derece = models.SmallIntegerField(default=1)              # 1|2|3 — n-gram uzunluğu
+    # Doküman frekansı. `refresh_keyword_df` günceller; benzerlik sorgusunun IDF
+    # ağırlığı ve `pasif` kararı buna dayanır.
+    kullanim_sayisi = models.IntegerField(default=0, db_index=True)
+    # ⚠️ Probe dışı bırakma bayrağı — PERFORMANS kontrolüdür, kalite değil.
+    # df==1 → tanımı gereği hiçbir kesişim üretemez (tek ihalede var).
+    # df > KEYWORD_MAX_DF → o kadar yaygın ki ayırt etmiyor, ama taranacak tuple
+    # sayısını doğrudan şişirir (benzerlik sorgusunun maliyeti Σdf ile orantılı).
+    pasif = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Anahtar Kelime"
+        verbose_name_plural = "Anahtar Kelimeler"
+        ordering = ["-kullanim_sayisi"]
+
+    def __str__(self):
+        return f"{self.metin} ({self.kullanim_sayisi})"
+
+
+class TenderKeyword(models.Model):
+    """
+    İhale ↔ keyword bağı (~6M satır).
+
+    ⚠️ `int[] + GIN` yerine dar tablo seçildi: GIN yolu aday satırları 11 GB'lık
+    `ekap_tender` heap'inden okumak zorunda kalır ve `sync_contractors` süpürmesinde
+    ölçülen "%53 heap cache isabeti" arızasını yeniden üretirdi. Bu tabloda benzerlik
+    sorgusu `(keyword, tender)` indeksinde **index-only scan** yapar, heap'e hiç gitmez.
+
+    ⚠️ `db_index=False` + iki elle tanımlı indeks: Django'nun otomatik FK indeksleri
+    bunların birebir kopyası olurdu (0017'de düşürülen ölü indekslerle aynı hata).
+    Erişim yollarının ikisi de kapalı — "bu ihalenin keyword'leri" unique kısıtının
+    önekinden, "bu keyword'ün ihaleleri" ikinci indeksten.
+    """
+
+    # ⚠️ BigAutoField DEĞİL: 6M satırda int8 PK gereksiz. `DEFAULT_AUTO_FIELD`
+    # BigAutoField olduğu için açıkça yazılmak zorunda.
+    id = models.AutoField(primary_key=True)
+    tender = models.ForeignKey(
+        Tender, on_delete=models.CASCADE, related_name="keyword_baglari", db_index=False
+    )
+    keyword = models.ForeignKey(
+        Keyword, on_delete=models.CASCADE, related_name="ihale_baglari", db_index=False
+    )
+
+    class Meta:
+        verbose_name = "İhale Anahtar Kelimesi"
+        verbose_name_plural = "İhale Anahtar Kelimeleri"
+        constraints = [
+            models.UniqueConstraint(fields=["tender", "keyword"], name="ekap_tk_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["keyword", "tender"], name="ekap_tk_kw_tender_idx"),
+        ]
+
+
+class KeywordBatch(models.Model):
+    """Anthropic Message Batches API çalışması — izleme ve maliyet muhasebesi."""
+
+    DURUMLAR = [
+        ("created", "Oluşturuldu"), ("in_progress", "İşleniyor"),
+        ("ended", "Tamamlandı"), ("processed", "Sonuçlar İşlendi"),
+        ("expired", "Süresi Doldu"), ("error", "Hata"),
+    ]
+
+    batch_id = models.CharField(max_length=80, unique=True)   # msgbatch_...
+    durum = models.CharField(max_length=16, default="created", db_index=True,
+                             choices=DURUMLAR)
+    model = models.CharField(max_length=40, blank=True)
+    istek_sayisi = models.IntegerField(default=0)
+    kalip_sayisi = models.IntegerField(default=0)
+    basarili = models.IntegerField(default=0)
+    hatali = models.IntegerField(default=0)
+    expired = models.IntegerField(default=0)
+    # Maliyet takibi — `KEYWORD_MAX_TOTAL_USD` tavanı bu sayaçlardan hesaplanır.
+    input_tokens = models.BigIntegerField(default=0)
+    output_tokens = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    islendi_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Keyword Batch"
+        verbose_name_plural = "Keyword Batch'leri"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.batch_id} — {self.durum} ({self.kalip_sayisi} kalıp)"
+
+
+class TenderNamePattern(models.Model):
+    """
+    Ad kalıbı → keyword sözlüğü. **Kalıcıdır** ve boru hattının kalbidir.
+
+    Aynı işin yıldan yıla tekrarı tek kalıba düşer ("2024 YILI AKARYAKIT ALIMI" ≡
+    "2025 YILI AKARYAKIT ALIMI (12 AYLIK)"), yani AI'ya **bir kez** sorulur ve sonuç
+    kalıbı paylaşan tüm ihalelere yayılır. Üretimde ölçülen dedup: 1,52× (1.016.899
+    ihale → 669.463 tekil kalıp).
+
+    ⚠️ Tablo aynı zamanda **ingest hızlı yoludur**: yeni gelen bir ihalenin kalıbı
+    burada `durum="ok"` ile varsa keyword'leri AI'ya hiç gitmeden, tek indeksli bir
+    SELECT ile kopyalanır.
+    """
+
+    DURUMLAR = [
+        ("pending", "Bekliyor"), ("queued", "Batch'te"), ("ok", "Tamam"),
+        ("skipped", "Atlandı"), ("error", "Hata"),
+    ]
+
+    kalip_hash = models.CharField(max_length=40, unique=True)
+    kalip_norm = models.TextField()
+    ornek_ad = models.TextField(blank=True)
+    # ⚠️ `dispatch` sırasının anahtarı: kalıplar kapsama göre gönderilir, böylece
+    # bütçe yarıda kesilse bile ihalelerin büyük kısmı keyword almış olur
+    # (ölçüm: en sık %20 kalıp, ihalelerin %47'sini kapsıyor).
+    ihale_sayisi = models.IntegerField(default=0, db_index=True)
+    durum = models.CharField(max_length=12, default="pending", db_index=True,
+                             choices=DURUMLAR)
+    deneme = models.SmallIntegerField(default=0)
+    sektor = models.CharField(max_length=32, blank=True)
+    # Yayma adımı bunu tek okumada alır — keyword'leri yeniden çözmeye gerek kalmaz.
+    keyword_ids = models.JSONField(default=list, blank=True)
+    guven = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
+    batch = models.ForeignKey(KeywordBatch, null=True, blank=True,
+                              on_delete=models.SET_NULL, related_name="kaliplar")
+    model = models.CharField(max_length=40, blank=True)
+    hata = models.TextField(blank=True)
+    islendi_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "İhale Adı Kalıbı"
+        verbose_name_plural = "İhale Adı Kalıpları"
+        ordering = ["-ihale_sayisi"]
+
+    def __str__(self):
+        return f"{self.kalip_norm[:60]} ({self.ihale_sayisi} ihale, {self.durum})"

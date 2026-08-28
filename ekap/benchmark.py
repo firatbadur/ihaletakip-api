@@ -30,6 +30,7 @@ merdiven doğrudan 4b'den başlar.
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import Avg, Count, Q
 from django.db.models.functions import ExtractYear
 from django.utils import timezone
@@ -65,9 +66,49 @@ class Kademe:
         self.ad, self.aciklama, self.kosul = ad, aciklama, kosul
 
 
+def _keyword_kademesi(tender):
+    """
+    Anahtar kelime örtüşmesine dayalı kademe — merdivenin EN ALAKALI basamağı.
+
+    OKAS kademeleri "aynı iş kalemi" der ama OKAS ana kodu kabadır ve ihalelerin
+    ~%19'unda hiç yoktur. Keyword katmanı bu boşluğu doldurur ve OKAS'ın kuramadığı
+    köprüleri kurar — üretim pilotunda ölçüldü (2026-08-28): "mm ebatlı kcal/kg
+    tolerans taş kömürü" ile "ısıl değeri kcal/kg yıkanmış elenmiş" ihalelerinin
+    ORTAK HİÇBİR KELİMESİ yok, ama ikisi de `tas komur` + `yakit` keyword'lerini
+    aldığı için birbirini buluyor.
+
+    İki fazlı, bilinçli olarak:
+      1. `ekap_tenderkeyword` üzerinde index-only scan → en benzer ihale id'leri.
+      2. `Contract.tender_id IN (...)` → mevcut FK indeksi.
+    ⚠️ `ekap_tender`'a HİÇ dokunulmaz; 0014'te kazanılan "tüm kademeler tek tablo"
+    özelliği korunur (o JOIN uç başına 4,5 sn maliyet çıkarmıştı).
+
+    ⚠️ Aday sayısı 2000 (300 değil): `_temel_qs` ayrıca tarih ve "bedeli dolu"
+    süzgecinden geçiriyor; en benzer 300 ihalenin çoğu sonuçlanmamış olabilir ve
+    örneklem `MIN_SOZLESME_ORNEK`in altına düşer.
+
+    Kapalıysa ya da kanıt zayıfsa `None` döner → merdiven eskisi gibi çalışır.
+    """
+    if not getattr(settings, "KEYWORD_BENCHMARK_ENABLED", False):
+        return None
+    from . import keywords as kw_mod
+
+    agirliklar = kw_mod.probe_keywordleri(tender.pk)
+    # ⚠️ Tek keyword benzerlik değil tesadüftür ("malzeme" ortak olabilir); en az iki
+    # bağımsız kanıt aranır.
+    if len(agirliklar) < 2:
+        return None
+    ids = list(kw_mod.benzer_ihale_idleri(
+        tender.pk, agirliklar, settings.KEYWORD_BENCHMARK_ADAY))
+    if not ids:
+        return None
+    return Kademe("anahtar", "Benzer işler (ihale adı benzerliği)",
+                  Q(tender_id__in=ids))
+
+
 def _merdiven(tender):
     """
-    İhaleye göre benzerlik kademeleri (dardan geniçe).
+    İhaleye göre benzerlik kademeleri (en alakalıdan en genele).
 
     ⚠️ `okas_ana_kod` boşsa (ihalelerin ~%19'u) OKAS'lı kademeler hiç üretilmez —
     boş string'le eşleşme "OKAS'ı olmayan tüm ihaleler" demek olurdu, tam bir gürültü.
@@ -75,6 +116,14 @@ def _merdiven(tender):
     okas = tender.okas_ana_kod or ""
     bucket = tender.okas_bucket or ""
     kademeler = []
+
+    # ⚠️ EN BAŞTA: merdiven "dardan geniçe" değil "en alakalıdan en genele" ilerler.
+    # Keyword kademesi kapsam olarak `il`'den geniş ama alaka olarak `idare`'den
+    # yüksektir. Yeterli örnek bulursa döngü orada durur; bulamazsa OKAS merdiveni
+    # HİÇ DEĞİŞMEDEN devreye girer (geri alma: KEYWORD_BENCHMARK_ENABLED=False).
+    anahtar = _keyword_kademesi(tender)
+    if anahtar is not None:
+        kademeler.append(anahtar)
 
     if okas:
         if tender.idare_id:
@@ -90,6 +139,13 @@ def _merdiven(tender):
         kademeler.append(Kademe(
             "ulke", "Türkiye geneli, aynı iş kalemi",
             Q(okas_ana_kod=okas),
+        ))
+    # Sektör — OKAS'ı olmayan %19 için `idare_tur`'den çok daha iyi bir geniş kademe.
+    # ⚠️ `Contract.sektor` ingest-kopyasıdır (tek değerli, ~36 kardinalite) → JOIN yok.
+    if getattr(tender, "sektor", "") and tender.sektor != "diger":
+        kademeler.append(Kademe(
+            "sektor", "Aynı sektör",
+            Q(sektor=tender.sektor),
         ))
     if bucket:
         kademeler.append(Kademe(

@@ -508,3 +508,176 @@ def sektor_tahmin(kalip: str, keywords=None):
     # sonra sektör kodu (tekrarlanabilirlik için).
     sektor = max(sorted(puanlar), key=lambda k: puanlar[k])
     return sektor, puanlar[sektor]
+
+
+# ── DB katmanı ──────────────────────────────────────────
+# ⚠️ Model importları fonksiyon içinde (proje kuralı): bu modül `sync.py` ve
+# `tasks.py` tarafından import ediliyor, modül seviyesinde model çekmek app-loading
+# sırasına bağımlılık yaratır.
+
+def keyword_upsert(metinler):
+    """
+    Kanonik keyword metinlerini `Keyword` tablosuna yazar → `{metin: id}`.
+
+    ⚠️ `get_or_create` DÖNGÜSÜ KULLANILMAZ: 669k kalıp × ~4 keyword'de bu, milyonlarca
+    sorgu demektir (sessiz N+1). `bulk_create(ignore_conflicts=True)` + tek `filter`
+    ile toplam **iki** sorgu yapılır.
+    """
+    from .models import Keyword
+
+    metinler = [m for m in dict.fromkeys(metinler) if m]
+    if not metinler:
+        return {}
+    Keyword.objects.bulk_create(
+        [Keyword(metin=m, metin_ham=m, derece=derece(m)) for m in metinler],
+        ignore_conflicts=True,
+    )
+    return dict(Keyword.objects.filter(metin__in=metinler).values_list("metin", "id"))
+
+
+def oneri_keywordleri(kaliplar, limit=80):
+    """
+    Verilen kalıplarla kesişen, KULLANIMDA olan keyword'ler — AI'ya bağlam olarak gider.
+
+    Amaç tutarlılık: aynı iş her seferinde aynı kelimeyle etiketlenmezse ("elbise" bir
+    yerde, "elbisesi" başka yerde) benzer işler birbirini bulamaz. Model listeden
+    seçince varyant üretimi düşer.
+
+    ⚠️ **`kullanim_sayisi >= 2` şartı kritik.** Tek kullanımlık bir keyword henüz
+    doğrulanmamıştır; öneri listesine girerse model onu tekrar seçer, seçim sayacı
+    artırır, o da onu daha güçlü bir öneri yapar — hatalı bir keyword'ü arşive yayan
+    kendi kendini besleyen döngü. Eşik, keyword'ün en az iki bağımsız kalıpta
+    doğrulanmış olmasını şart koşar.
+    """
+    from django.db.models import Q
+
+    from .models import Keyword
+
+    tokenlar = set()
+    for kalip in kaliplar:
+        tokenlar.update(t for t in (kalip or "").split() if len(t) > 2)
+    if not tokenlar:
+        return []
+
+    # Tek kelimelik keyword'ler doğrudan eşleşir; çok kelimeliler için "token ile
+    # başlayan" yeterli bir yaklaşım (tam kesişim sorgusu ters indeks isterdi ve
+    # bu listenin mükemmel olması gerekmiyor — yalnızca bir öneri).
+    kosul = Q(metin__in=tokenlar)
+    for t in list(tokenlar)[:40]:              # sorguyu şişirmemek için tavan
+        kosul |= Q(metin__startswith=f"{t} ")
+    return list(
+        Keyword.objects.filter(kosul, pasif=False, kullanim_sayisi__gte=2)
+        .order_by("-kullanim_sayisi")
+        .values_list("metin", flat=True)[:limit]
+    )
+
+
+def probe_keywordleri(tender_pk, limit=None):
+    """
+    Bir ihalenin benzerlik sorgusunda kullanılacak keyword'leri `[(id, ağırlık), ...]`.
+
+    ⚠️ **df filtresi PERFORMANS kontrolüdür.** Benzerlik sorgusunun maliyeti taranan
+    index tuple sayısıyla, o da seçilen keyword'lerin df toplamıyla doğru orantılıdır.
+    Bu yüzden `pasif` olanlar atılır ve kalanlardan **en düşük df'li** birkaç tanesi
+    seçilir: hem en ayırt edici olanlar bunlardır (IDF), hem de en ucuz olanlar.
+
+    Ağırlık `derece × log(N/df)`: 3 kelimelik bir ifade 1 kelimelikten daha güçlü
+    kanıttır.
+    """
+    import math
+
+    from django.conf import settings
+
+    from .models import Keyword, TenderKeyword
+
+    limit = limit or getattr(settings, "KEYWORD_PROBE_LIMIT", 5)
+    satirlar = list(
+        TenderKeyword.objects.filter(tender_id=tender_pk, keyword__pasif=False)
+        .values_list("keyword_id", "keyword__derece", "keyword__kullanim_sayisi")
+    )
+    if not satirlar:
+        return []
+    toplam = Keyword.objects.filter(pasif=False).count() or 1
+    skorlu = [
+        (kid, d * math.log(toplam / max(df, 1)))
+        for kid, d, df in satirlar
+        if df >= 1
+    ]
+    skorlu.sort(key=lambda x: -x[1])
+    return skorlu[:limit]
+
+
+def benzer_ihale_idleri(tender_pk, keyword_agirliklari, limit):
+    """
+    Keyword örtüşmesine göre en benzer ihalelerin id'leri.
+
+    Beklenen plan: `Limit → Sort → HashAggregate → Index Only Scan
+    (ekap_tk_kw_tender_idx)`. Heap'e hiç gidilmez — `ekap_tender` 11 GB olduğu için
+    bu tasarımın tek sebebi budur (bkz. `TenderKeyword` docstring'i).
+    """
+    from django.conf import settings
+    from django.db.models import Case, FloatField, Sum, Value, When
+
+    from .models import TenderKeyword
+
+    if not keyword_agirliklari:
+        return []
+    when = [When(keyword_id=k, then=Value(w)) for k, w in keyword_agirliklari]
+    esik = getattr(settings, "KEYWORD_SIMILAR_MIN_SKOR", 0.0)
+    return (
+        TenderKeyword.objects
+        .filter(keyword_id__in=[k for k, _ in keyword_agirliklari])
+        .exclude(tender_id=tender_pk)
+        .values("tender_id")
+        .annotate(skor=Sum(Case(*when, default=Value(0.0), output_field=FloatField())))
+        .filter(skor__gte=esik)
+        .order_by("-skor")
+        .values_list("tender_id", flat=True)[:limit]
+    )
+
+
+def uygula(tender, kalip=None):
+    """
+    İhaleye kalıp sözlüğünden keyword + sektör uygular — **ingest hızlı yolu**.
+
+    Yeni gelen bir ihalenin kalıbı sözlükte `durum="ok"` ile varsa AI'ya HİÇ gidilmez:
+    tek indeksli bir SELECT + birkaç INSERT. Günde ~700 yeni ihalenin maliyeti budur.
+
+    Kalıp sözlükte yoksa `pending` olarak açılır ve bir sonraki `dispatch` turunda
+    AI'ya gider. Dönüş: uygulandı mı (bool).
+    """
+    from django.db.models import F
+    from django.utils import timezone
+
+    from .models import TenderKeyword, TenderNamePattern
+
+    h = kalip_hash(tender.ihale_adi)
+    if not h:
+        return False
+    norm = kalip_norm(tender.ihale_adi)
+
+    kayit = (TenderNamePattern.objects
+             .filter(kalip_hash=h)
+             .only("id", "durum", "keyword_ids", "sektor")
+             .first())
+    if kayit is None:
+        TenderNamePattern.objects.get_or_create(
+            kalip_hash=h,
+            defaults={"kalip_norm": norm, "ornek_ad": (tender.ihale_adi or "")[:500],
+                      "ihale_sayisi": 1, "durum": "pending"},
+        )
+        return False
+
+    TenderNamePattern.objects.filter(pk=kayit.pk).update(
+        ihale_sayisi=F("ihale_sayisi") + 1)
+    if kayit.durum != "ok" or not kayit.keyword_ids:
+        return False
+
+    TenderKeyword.objects.bulk_create(
+        [TenderKeyword(tender_id=tender.pk, keyword_id=k) for k in kayit.keyword_ids],
+        ignore_conflicts=True,
+    )
+    if kayit.sektor and tender.sektor != kayit.sektor:
+        tender.sektor = kayit.sektor
+    tender.kalip_hash = h
+    return True

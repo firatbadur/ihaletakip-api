@@ -326,10 +326,55 @@ Ad o kadar jenerik ki hiçbir şey anlaşılmıyorsa ("mal alımı", "hizmet al�
 ⚠️ Boş bırakmak, uydurmaktan İYİDİR. Yanlış keyword, kullanıcıya alakasız işlerin
 fiyatını gösterir ve o fiyata göre teklif verir.
 
+## MEVCUT KEYWORD LİSTESİ (verilirse)
+
+İstekte "MEVCUT KEYWORD'LER" başlıklı bir liste görebilirsin. Bunlar daha önce başka
+ihaleler için üretilmiş, kullanımda olan keyword'lerdir.
+
+- Bir ihaleye UYAN keyword listede VARSA, yenisini uydurma — listedeki yazımı AYNEN kullan.
+- Listede uygun bir şey yoksa serbestçe yeni keyword üret. Liste bir zorunluluk değil,
+  tutarlılık içindir.
+- Uymayan bir keyword'ü SIRF listede var diye kullanma. Yanlış keyword, eksik
+  keyword'den kötüdür.
+
+Bunun sebebi şu: aynı iş her seferinde aynı kelimeyle etiketlenmezse ("elbise" bir
+yerde, "elbisesi" başka yerde) benzer işler birbirini bulamaz.
+
 ## ÇIKTI
 
 Her sonucun "id" alanı, sana verilen id ile BİREBİR aynı olmalı. Sana verilen her id
 için tam bir sonuç döndür; id uydurma, id atlama."""
+
+
+def keyword_user_mesaji(kalip_listesi, oneriler=None):
+    """
+    Batch isteğinin kullanıcı mesajı.
+
+    `kalip_listesi`: [(id, kalip_norm), ...]
+    `oneriler`: bu istekteki kalıplarla kesişen, KULLANIMDA olan keyword'ler.
+
+    ⚠️ Öneri listesi system prompt'a DEĞİL buraya konur: system prompt her istekte
+    aynıdır ve `cache_control` ile önbelleklenir; içine değişken bir liste koymak
+    prompt cache'ini her istekte geçersiz kılar (girdi maliyeti ~10 katına çıkardı).
+
+    ⚠️ Öneriye yalnızca **doğrulanmış** keyword'ler girmelidir (`kullanim_sayisi >= 2`).
+    Tek kullanımlık bir keyword henüz kanıtlanmamıştır; önerilirse model onu tekrar
+    seçer ve hatalı bir keyword arşive yayılır — kendi kuyruğunu yiyen bir döngü.
+    """
+    satirlar = "\n".join(f"id={i} | {k}" for i, k in kalip_listesi)
+    parcalar = [
+        "Aşağıdaki ihale adı kalıplarının her biri için keyword ve sektör üret.",
+        'Her sonucun "id" alanı, verilen id ile birebir aynı olmalı.',
+        "",
+    ]
+    if oneriler:
+        parcalar += [
+            "MEVCUT KEYWORD'LER (uyan varsa aynen kullan, yoksa yeni üret):",
+            ", ".join(oneriler),
+            "",
+        ]
+    parcalar.append(satirlar)
+    return "\n".join(parcalar)
 
 
 def keyword_schema(sektor_kodlari: list) -> dict:

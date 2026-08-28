@@ -1014,3 +1014,574 @@ def refresh_idare_id_set():
     ids = refresh_tender_idare_id_set()
     logger.info("refresh_idare_id_set: %s idare_id cache'lendi", len(ids))
     return {"idare_ids": len(ids)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Anahtar kelime (keyword) boru hattı
+#
+# Akış:  backfill_tender_kalip → dispatch → poll → process → propagate
+#         (kalıp çıkar)        (AI'ya sor) (bekle) (yaz)    (ihalelere yay)
+#
+# ⚠️ Hiçbiri EKAP'a gitmez; hepsi `celery` kuyruğunda (settings CELERY_TASK_ROUTES).
+# ⚠️ Hepsi `backfill_tender_fields` iskeletini kullanır: ucuz ön kontroller `_run`'DAN
+# ÖNCE (iş yapılmayan turda boş `SyncRun` yazmamak için), süre bütçesi
+# `CELERY_TASK_TIME_LIMIT`(300) altında, PK imleci `SyncCheckpoint`'te.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _keyword_harcama():
+    """Şimdiye kadarki toplam AI maliyeti ($) — bütçe tavanı kontrolü için."""
+    from django.db.models import Sum
+
+    from .models import KeywordBatch
+
+    agg = KeywordBatch.objects.aggregate(i=Sum("input_tokens"), o=Sum("output_tokens"))
+    return ((agg["i"] or 0) * settings.KEYWORD_FIYAT_IN
+            + (agg["o"] or 0) * settings.KEYWORD_FIYAT_OUT) / 1_000_000
+
+
+@shared_task(name="ekap.tasks.backfill_tender_kalip")
+def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000):
+    """
+    `Tender.kalip_hash` doldurur ve `TenderNamePattern` sözlüğünü kurar.
+
+    ⚠️ Bu görev `detail_raw`'a **hiç dokunmaz** — kaynak yalnızca `ihale_adi` (satır
+    içi, TOAST dışı). Bu yüzden `sync_contractors` süpürmesiyle buffer cache yarışına
+    girmez ve gece penceresi kısıtı GEREKMEZ; gündüz de koşabilir.
+
+    İmleç: `SyncCheckpoint(name="tender_kalip").extra["last_tender_pk"]`.
+    """
+    import time
+    from collections import Counter
+
+    from django.db.models import F
+
+    from . import keywords as kw_mod
+    from .models import TenderNamePattern
+
+    cp = SyncCheckpoint.objects.filter(name="tender_kalip").first()
+    if cp is not None and cp.done:
+        return {"skipped": "tamamlandi"}
+
+    with _run("backfill_tender_kalip", lock_ttl=600) as run:
+        if run is None:
+            return
+        cp, _ = SyncCheckpoint.objects.get_or_create(name="tender_kalip")
+        if cp.done:
+            return {"skipped": "tamamlandi"}
+        if max_seconds is None:
+            max_seconds = settings.KEYWORD_KALIP_MAX_SECONDS
+
+        last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
+        qs = (Tender.objects.filter(pk__gt=last_pk).exclude(ihale_adi="")
+              .only("pk", "ihale_adi", "kalip_hash").order_by("pk")[:max_tenders])
+
+        processed = errors = 0
+        batch, sayac, ornek = [], Counter(), {}
+        deadline = time.monotonic() + max_seconds
+        timed_out = False
+
+        for tender in qs.iterator(chunk_size=2000):
+            last_pk = max(last_pk, tender.pk)      # ⚠️ try'DAN ÖNCE — bozuk satır
+            try:                                   #    imleci kilitlemesin
+                h = kw_mod.kalip_hash(tender.ihale_adi)
+                if h and tender.kalip_hash != h:
+                    tender.kalip_hash = h
+                    batch.append(tender)
+                if h:
+                    sayac[h] += 1
+                    ornek.setdefault(h, (kw_mod.kalip_norm(tender.ihale_adi),
+                                         (tender.ihale_adi or "")[:500]))
+                processed += 1
+            except Exception as exc:               # noqa: BLE001
+                errors += 1
+                logger.warning("kalip_hash hatası (pk=%s): %s", tender.pk, exc)
+
+            if len(batch) >= batch_size:
+                Tender.objects.bulk_update(batch, ["kalip_hash"])
+                batch = []
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+
+        if batch:
+            Tender.objects.bulk_update(batch, ["kalip_hash"])
+
+        # Kalıp sözlüğü: yeni kalıplar açılır, mevcutların sayacı artar.
+        # ⚠️ `ihale_sayisi` toplamı `dispatch` sırasını belirler; F() ile artırılır ki
+        # tur tekrarında sıfırlanmasın.
+        yeni = 0
+        if sayac:
+            mevcut = set(TenderNamePattern.objects
+                         .filter(kalip_hash__in=list(sayac))
+                         .values_list("kalip_hash", flat=True))
+            eklenecek = [
+                TenderNamePattern(kalip_hash=h, kalip_norm=ornek[h][0],
+                                  ornek_ad=ornek[h][1], ihale_sayisi=adet,
+                                  durum="pending")
+                for h, adet in sayac.items() if h not in mevcut
+            ]
+            if eklenecek:
+                TenderNamePattern.objects.bulk_create(eklenecek, ignore_conflicts=True)
+                yeni = len(eklenecek)
+            for h in mevcut:
+                TenderNamePattern.objects.filter(kalip_hash=h).update(
+                    ihale_sayisi=F("ihale_sayisi") + sayac[h])
+
+        if processed == 0 and errors == 0 and not timed_out:
+            cp.done = True
+        cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
+        cp.save()
+
+        run.items = processed
+        run.errors = errors
+        run.note = (f"kalıp={len(sayac)} yeni={yeni} imleç={last_pk} "
+                    f"{'süre doldu' if timed_out else ''}")[:1000]
+        return {"tenders": processed, "yeni_kalip": yeni, "cursor": last_pk,
+                "timed_out": timed_out, "done": cp.done}
+
+
+@shared_task(name="ekap.tasks.dispatch_keyword_batches")
+def dispatch_keyword_batches(max_batches=1):
+    """
+    `pending` kalıpları Anthropic Message Batches API'ye gönderir.
+
+    ⚠️ Kalıplar **`-ihale_sayisi` sırasıyla** gönderilir. Bu, bütçe yarıda kesilse bile
+    ihalelerin büyük kısmının keyword almış olmasını sağlar (üretim ölçümü: en sık %1
+    kalıp ihalelerin %19'unu, %20 kalıp %47'sini kapsıyor).
+
+    ⚠️ Üç sert kapı: kill switch, eşzamanlı batch tavanı, kümülatif $ tavanı.
+    """
+    from ai.prompts import KEYWORD_BATCH_SYSTEM, keyword_schema, keyword_user_mesaji
+    from ai.services.claude import batch_olustur, get_api_key
+
+    from . import keywords as kw_mod
+    from .constants import SEKTOR_KODLARI
+    from .models import KeywordBatch, TenderNamePattern
+
+    if not settings.KEYWORD_AI_ENABLED:
+        return {"skipped": "kill_switch"}
+
+    ucus_halinde = KeywordBatch.objects.filter(
+        durum__in=["created", "in_progress", "ended"]).count()
+    if ucus_halinde >= settings.KEYWORD_MAX_INFLIGHT_BATCHES:
+        return {"skipped": "inflight_limit", "aktif": ucus_halinde}
+
+    harcama = _keyword_harcama()
+    if harcama >= settings.KEYWORD_MAX_TOTAL_USD:
+        logger.error("keyword: BÜTÇE TAVANI aşıldı (%.2f$ / %.2f$) — dispatch durdu",
+                     harcama, settings.KEYWORD_MAX_TOTAL_USD)
+        return {"skipped": "budget", "harcama": round(harcama, 2)}
+
+    from .models import Keyword
+    if Keyword.objects.count() >= settings.KEYWORD_MAX_UNIQUE:
+        logger.error("keyword: tekil keyword tavanı aşıldı — dispatch durdu")
+        return {"skipped": "keyword_limit"}
+
+    with _run("dispatch_keyword_batches", lock_ttl=900) as run:
+        if run is None:
+            return
+        per_req = settings.KEYWORD_PATTERNS_PER_REQUEST
+        kalip_tavan = per_req * settings.KEYWORD_REQUESTS_PER_BATCH
+
+        kaliplar = list(
+            TenderNamePattern.objects.filter(durum="pending")
+            .order_by("-ihale_sayisi", "pk")
+            .only("id", "kalip_norm")[:kalip_tavan]
+        )
+        if not kaliplar:
+            run.note = "gönderilecek kalıp yok"
+            return {"kaliplar": 0}
+
+        api_key = get_api_key()
+        sema = keyword_schema(SEKTOR_KODLARI)
+        istekler = []
+        for i in range(0, len(kaliplar), per_req):
+            grup = kaliplar[i:i + per_req]
+            metinler = [k.kalip_norm for k in grup]
+            oneriler = kw_mod.oneri_keywordleri(
+                metinler, limit=settings.KEYWORD_ONERI_LIMIT)
+            istekler.append({
+                "custom_id": f"kw-{i // per_req}",
+                "params": {
+                    "model": settings.KEYWORD_AI_MODEL,
+                    "max_tokens": settings.KEYWORD_MAX_TOKENS,
+                    # ⚠️ System prompt SABİT + `cache_control` → prompt cache tutar.
+                    # Öneri listesi (değişken) bilerek user mesajında; system'e
+                    # konsaydı cache her istekte geçersiz olur, girdi maliyeti ~10×
+                    # artardı.
+                    "system": [{"type": "text", "text": KEYWORD_BATCH_SYSTEM,
+                                "cache_control": {"type": "ephemeral"}}],
+                    "messages": [{
+                        "role": "user",
+                        "content": keyword_user_mesaji(
+                            [(k.id, k.kalip_norm) for k in grup], oneriler),
+                    }],
+                    "output_config": {"format": {"type": "json_schema", "schema": sema}},
+                },
+            })
+
+        sonuc = batch_olustur(api_key, istekler)
+        kayit = KeywordBatch.objects.create(
+            batch_id=sonuc.id, durum="created", model=settings.KEYWORD_AI_MODEL,
+            istek_sayisi=len(istekler), kalip_sayisi=len(kaliplar),
+        )
+        TenderNamePattern.objects.filter(pk__in=[k.pk for k in kaliplar]).update(
+            durum="queued", batch=kayit)
+
+        run.items = len(kaliplar)
+        run.note = f"batch={sonuc.id} istek={len(istekler)} harcama=${harcama:.2f}"
+        logger.info("keyword batch gönderildi: %s (%s kalıp)", sonuc.id, len(kaliplar))
+        return {"batch_id": sonuc.id, "kaliplar": len(kaliplar),
+                "istekler": len(istekler)}
+
+
+@shared_task(name="ekap.tasks.poll_keyword_batches")
+def poll_keyword_batches():
+    """
+    Açık batch'lerin durumunu yoklar; süresi dolanları `pending`'e iade eder.
+
+    ⚠️ Anthropic batch'leri 24 saatte sona erer. Süresi dolan bir batch'in kalıpları
+    `queued`'da bırakılırsa **sonsuza dek orada kalır** ve o kalıplar hiç keyword
+    almaz — sessiz veri kaybı. Bu yüzden `KEYWORD_BATCH_MAX_HOURS` geçince kalıplar
+    iade edilir ve `deneme` artırılır (2 denemeden sonra `error`).
+    """
+    from ai.services.claude import batch_durum, get_api_key
+
+    from .models import KeywordBatch, TenderNamePattern
+
+    aktif = list(KeywordBatch.objects.filter(durum__in=["created", "in_progress"]))
+    if not aktif:
+        return {"aktif": 0}
+
+    with _run("poll_keyword_batches", lock_ttl=300) as run:
+        if run is None:
+            return
+        api_key = get_api_key()
+        biten = suresi_dolan = 0
+        for kayit in aktif:
+            yas = timezone.now() - kayit.created_at
+            if yas > timedelta(hours=settings.KEYWORD_BATCH_MAX_HOURS):
+                kayit.durum = "expired"
+                kayit.note = f"{yas.total_seconds() / 3600:.0f} saat sonra süresi doldu"
+                kayit.save(update_fields=["durum", "note"])
+                # ⚠️ `deneme` artışı ile birlikte iade: kalıcı olarak bozuk bir kalıp
+                # sonsuz döngüye girmesin.
+                TenderNamePattern.objects.filter(batch=kayit, durum="queued").update(
+                    durum="pending", batch=None, deneme=models_F_deneme())
+                TenderNamePattern.objects.filter(
+                    batch=kayit, durum="pending", deneme__gte=2).update(
+                    durum="error", hata="batch iki kez süresi doldu")
+                suresi_dolan += 1
+                continue
+            try:
+                uzak = batch_durum(api_key, kayit.batch_id)
+            except Exception as exc:               # noqa: BLE001
+                logger.warning("batch durumu alınamadı (%s): %s", kayit.batch_id, exc)
+                continue
+            durum = getattr(uzak, "processing_status", "")
+            if durum == "ended":
+                kayit.durum = "ended"
+                kayit.ended_at = timezone.now()
+                kayit.save(update_fields=["durum", "ended_at"])
+                biten += 1
+            elif durum and kayit.durum != "in_progress":
+                kayit.durum = "in_progress"
+                kayit.save(update_fields=["durum"])
+
+        run.items = len(aktif)
+        run.note = f"biten={biten} expired={suresi_dolan}"
+        return {"aktif": len(aktif), "biten": biten, "expired": suresi_dolan}
+
+
+def models_F_deneme():
+    """`deneme = deneme + 1` — `poll_keyword_batches` içinde okunabilirlik için."""
+    from django.db.models import F
+
+    return F("deneme") + 1
+
+
+@shared_task(name="ekap.tasks.process_keyword_results")
+def process_keyword_results(max_seconds=None):
+    """
+    Tamamlanmış batch'lerin sonuçlarını `Keyword` + `TenderNamePattern`'e yazar.
+
+    ⚠️ **Yeniden akıtılabilir olmak zorunda.** Sonuç akışı baştan okunur (API kısmi
+    okuma sunmuyor); süre bütçesi dolarsa görev kesilir ve bir sonraki tur akışı
+    BAŞTAN okur. Bu yüzden `durum="ok"` kalıplar atlanır — aksi hâlde her tur aynı
+    ilk N kalıbı yeniden işler ve batch hiç bitmez.
+
+    ⚠️ Her sonuç kendi `id`'sini taşır (`TenderNamePattern.pk`). Konuma göre eşleme
+    YAPILMAZ: model 25 kalıbı yanlış sıraya koyarsa sonuçlar sessizce yanlış ihalelere
+    yazılırdı ve bunu fark etmenin yolu olmazdı.
+    """
+    import json
+    import time
+
+    from django.utils import timezone as tz
+
+    from ai.services.claude import batch_sonuclari, get_api_key
+
+    from . import keywords as kw_mod
+    from .models import KeywordBatch, TenderNamePattern
+
+    bitenler = list(KeywordBatch.objects.filter(durum="ended"))
+    if not bitenler:
+        return {"batch": 0}
+
+    with _run("process_keyword_results", lock_ttl=600) as run:
+        if run is None:
+            return
+        if max_seconds is None:
+            max_seconds = settings.KEYWORD_PROCESS_MAX_SECONDS
+        deadline = time.monotonic() + max_seconds
+        api_key = get_api_key()
+        toplam_ok = toplam_hata = 0
+        timed_out = False
+
+        for kayit in bitenler:
+            in_tok = out_tok = 0
+            try:
+                akis = batch_sonuclari(api_key, kayit.batch_id)
+            except Exception as exc:               # noqa: BLE001
+                logger.warning("batch sonucu alınamadı (%s): %s", kayit.batch_id, exc)
+                continue
+
+            for oge in akis:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                tip = getattr(oge.result, "type", "")
+                if tip != "succeeded":
+                    toplam_hata += 1
+                    continue
+                mesaj = oge.result.message
+                in_tok += getattr(mesaj.usage, "input_tokens", 0)
+                out_tok += getattr(mesaj.usage, "output_tokens", 0)
+                ham = "".join(b.text for b in mesaj.content
+                              if getattr(b, "type", "") == "text")
+                try:
+                    veri = json.loads(ham)
+                except json.JSONDecodeError:
+                    toplam_hata += 1
+                    logger.warning("batch %s: JSON parse edilemedi", kayit.batch_id)
+                    continue
+                toplam_ok += _kalip_sonuclarini_yaz(veri.get("sonuclar") or [], kayit)
+
+            KeywordBatch.objects.filter(pk=kayit.pk).update(
+                input_tokens=kayit.input_tokens + in_tok,
+                output_tokens=kayit.output_tokens + out_tok,
+            )
+            if timed_out:
+                break
+            # Batch bitti: kalan `queued` kalıplar sonuç dönmemiş demektir → iade.
+            TenderNamePattern.objects.filter(batch=kayit, durum="queued").update(
+                durum="pending", deneme=models_F_deneme())
+            KeywordBatch.objects.filter(pk=kayit.pk).update(
+                durum="processed", islendi_at=tz.now(),
+                basarili=toplam_ok, hatali=toplam_hata)
+
+        run.items = toplam_ok
+        run.errors = toplam_hata
+        run.note = f"batch={len(bitenler)} {'süre doldu' if timed_out else ''}"[:1000]
+        return {"islenen": toplam_ok, "hata": toplam_hata, "timed_out": timed_out}
+
+
+def _kalip_sonuclarini_yaz(sonuclar, kayit):
+    """Bir isteğin sonuçlarını kalıplara yazar → yazılan kalıp sayısı."""
+    from django.utils import timezone as tz
+
+    from . import keywords as kw_mod
+    from .constants import SEKTORLER
+    from .models import TenderNamePattern
+
+    idler = [s.get("id") for s in sonuclar if isinstance(s.get("id"), int)]
+    if not idler:
+        return 0
+    # ⚠️ Yalnızca BU batch'in kalıpları — model uydurma/başka bir id döndürürse
+    # sonuç sessizce yanlış kalıba yazılırdı.
+    mevcut = {k.pk: k for k in TenderNamePattern.objects.filter(
+        pk__in=idler, batch=kayit).only("id", "durum")}
+
+    yazilan = 0
+    for s in sonuclar:
+        kalip = mevcut.get(s.get("id"))
+        if kalip is None or kalip.durum == "ok":       # bilinmeyen id ya da yeniden akış
+            continue
+        kanonikler = kw_mod.kanonik_liste(s.get("keywords"), azami=8)
+        guven = s.get("guven")
+        try:
+            guven = float(guven)
+        except (TypeError, ValueError):
+            guven = 0.0
+        sektor = s.get("sektor") or ""
+        if sektor not in SEKTORLER:
+            sektor = ""
+        # ⚠️ Sektör fallback: AI "diger" derse ya da geçersiz değer dönerse
+        # deterministik sözlük denenir. Ölçümde bazı örneklerde deterministik daha
+        # isabetliydi ("istinat duvarı" → AI İnşaat, sözlük Yol/Altyapı).
+        if sektor in ("", "diger"):
+            det_s, puan = kw_mod.sektor_tahmin(kalip.kalip_norm, kanonikler)
+            if puan:
+                sektor = det_s
+
+        if guven < settings.KEYWORD_MIN_GUVEN or not kanonikler:
+            TenderNamePattern.objects.filter(pk=kalip.pk).update(
+                durum="skipped", guven=guven, sektor=sektor,
+                islendi_at=tz.now(), model=kayit.model)
+            continue
+
+        eslesme = kw_mod.keyword_upsert(kanonikler)
+        TenderNamePattern.objects.filter(pk=kalip.pk).update(
+            durum="ok", keyword_ids=[eslesme[m] for m in kanonikler if m in eslesme],
+            sektor=sektor, guven=guven, islendi_at=tz.now(), model=kayit.model)
+        yazilan += 1
+    return yazilan
+
+
+@shared_task(name="ekap.tasks.propagate_tender_keywords")
+def propagate_tender_keywords(max_tenders=200000, max_seconds=None, batch_size=2000):
+    """
+    Kalıp sözlüğündeki keyword'leri ihalelere yayar (~5M `TenderKeyword` satırı).
+
+    ⚠️ Boru hattının **tek yazma-ağır aşaması** → gece penceresi
+    (`KEYWORD_PROPAGATE_START/END`). Gündüz koşarsa Postgres buffer cache'ini kirletip
+    ihale aramasını diske düşürür; `sync_contractors` süpürmesinde ölçülmüş bir arıza
+    (heap cache isabeti %53, olması gereken >%99).
+
+    ⚠️ Yüklenici süpürmesi ve pro-kolon doldurma bitmeden başlamaz — üçü aynı gecede
+    koşarsa üçü de yavaşlar. `KEYWORD_PROPAGATE_IGNORE_SWEEP=True` acil kaçıştır.
+
+    ⚠️ "İşlendi" işareti için yeni kolon YOK: `Tender.sektor != ""` yeterli. Şema
+    sektörü zorunlu kılıyor (en kötü `"diger"`), imleç de zaten var. `ignore_conflicts`
+    sayesinde tur tekrarı zararsızdır.
+    """
+    import time
+
+    from .models import TenderKeyword, TenderNamePattern
+
+    cp = SyncCheckpoint.objects.filter(name="tender_keywords").first()
+    if cp is not None and cp.done:
+        return {"skipped": "tamamlandi"}
+
+    if not settings.KEYWORD_PROPAGATE_IGNORE_SWEEP:
+        for ad in ("contractors", "tender_fields"):
+            onceki = SyncCheckpoint.objects.filter(name=ad).first()
+            if onceki is not None and not onceki.done:
+                logger.info("propagate_tender_keywords: %s sürüyor, sıra bekleniyor", ad)
+                return {"skipped": f"{ad}_active"}
+
+    hour = timezone.localtime().hour
+    if not (settings.KEYWORD_PROPAGATE_START <= hour < settings.KEYWORD_PROPAGATE_END):
+        return {"skipped": "peak_hours", "hour": hour}
+
+    with _run("propagate_tender_keywords", lock_ttl=600) as run:
+        if run is None:
+            return
+        cp, _ = SyncCheckpoint.objects.get_or_create(name="tender_keywords")
+        if cp.done:
+            return {"skipped": "tamamlandi"}
+        if max_seconds is None:
+            max_seconds = settings.KEYWORD_PROPAGATE_MAX_SECONDS
+
+        last_pk = int((cp.extra or {}).get("last_tender_pk") or 0)
+        qs = (Tender.objects.filter(pk__gt=last_pk).exclude(kalip_hash="")
+              .only("pk", "kalip_hash", "sektor").order_by("pk")[:max_tenders])
+
+        # Kalıp sözlüğü tur boyunca bellekte tutulur — ihale başına SELECT atmak
+        # 1M satırda sessiz N+1 olurdu.
+        sozluk = {}
+        processed = baglanan = errors = 0
+        baglar, sektorlu = [], []
+        deadline = time.monotonic() + max_seconds
+        timed_out = False
+
+        for tender in qs.iterator(chunk_size=2000):
+            last_pk = max(last_pk, tender.pk)
+            processed += 1
+            try:
+                kayit = sozluk.get(tender.kalip_hash, False)
+                if kayit is False:
+                    kayit = (TenderNamePattern.objects
+                             .filter(kalip_hash=tender.kalip_hash, durum="ok")
+                             .only("keyword_ids", "sektor").first())
+                    sozluk[tender.kalip_hash] = kayit
+                if kayit is None:
+                    continue
+                for kid in kayit.keyword_ids or []:
+                    baglar.append(TenderKeyword(tender_id=tender.pk, keyword_id=kid))
+                if kayit.sektor and tender.sektor != kayit.sektor:
+                    tender.sektor = kayit.sektor
+                    sektorlu.append(tender)
+                baglanan += 1
+            except Exception as exc:               # noqa: BLE001
+                errors += 1
+                logger.warning("propagate hatası (pk=%s): %s", tender.pk, exc)
+
+            if len(baglar) >= batch_size:
+                TenderKeyword.objects.bulk_create(baglar, ignore_conflicts=True)
+                baglar = []
+            if len(sektorlu) >= batch_size:
+                Tender.objects.bulk_update(sektorlu, ["sektor"])
+                sektorlu = []
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+
+        if baglar:
+            TenderKeyword.objects.bulk_create(baglar, ignore_conflicts=True)
+        if sektorlu:
+            Tender.objects.bulk_update(sektorlu, ["sektor"])
+
+        if processed == 0 and errors == 0 and not timed_out:
+            cp.done = True
+        cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
+        cp.save()
+
+        run.items = baglanan
+        run.errors = errors
+        run.note = (f"taranan={processed} bağlanan={baglanan} imleç={last_pk} "
+                    f"{'süre doldu' if timed_out else ''}")[:1000]
+        return {"taranan": processed, "baglanan": baglanan, "cursor": last_pk,
+                "timed_out": timed_out, "done": cp.done}
+
+
+@shared_task(name="ekap.tasks.refresh_keyword_df")
+def refresh_keyword_df():
+    """
+    `Keyword.kullanim_sayisi` (df) ve `pasif` bayrağını yeniden hesaplar.
+
+    ⚠️ Bu görev benzerlik sorgusunun **performans regülatörüdür**, kozmetik değil.
+    Sorgunun maliyeti taranan index tuple sayısıyla, o da probe'a giren keyword'lerin
+    df toplamıyla orantılı. İki uçtaki keyword'ler `pasif` işaretlenir:
+
+      * `df == 1` → tanımı gereği hiçbir kesişim üretemez (tek ihalede var).
+      * `df > KEYWORD_MAX_DF` → o kadar yaygın ki ayırt etmiyor, ama probe'a girerse
+        on binlerce tuple taratır.
+
+    Ayrıca öneri listesinin eşiği (`kullanim_sayisi >= 2`) bu sayaca dayanır.
+    """
+    from django.db.models import Count
+
+    from .models import Keyword
+
+    with _run("refresh_keyword_df", lock_ttl=1800) as run:
+        if run is None:
+            return
+        sayimlar = (Keyword.objects.annotate(n=Count("ihale_baglari"))
+                    .values_list("id", "n", "kullanim_sayisi", "pasif"))
+        guncel, pasif_sayi = [], 0
+        for kid, n, eski, eski_pasif in sayimlar.iterator(chunk_size=5000):
+            pasif = (n <= 1) or (n > settings.KEYWORD_MAX_DF)
+            if n != eski or pasif != eski_pasif:
+                guncel.append(Keyword(id=kid, kullanim_sayisi=n, pasif=pasif))
+            pasif_sayi += bool(pasif)
+            if len(guncel) >= 5000:
+                Keyword.objects.bulk_update(guncel, ["kullanim_sayisi", "pasif"])
+                guncel = []
+        if guncel:
+            Keyword.objects.bulk_update(guncel, ["kullanim_sayisi", "pasif"])
+
+        toplam = Keyword.objects.count()
+        run.items = toplam
+        run.note = f"toplam={toplam} pasif={pasif_sayi}"
+        return {"keyword": toplam, "pasif": pasif_sayi}

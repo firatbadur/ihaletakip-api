@@ -10,11 +10,14 @@ from .models import (
     ContractorAlias,
     ContractorMembership,
     ContractSection,
+    Keyword,
+    KeywordBatch,
     OkasCode,
     OkasItem,
     SyncCheckpoint,
     SyncRun,
     Tender,
+    TenderNamePattern,
     TenderDate,
 )
 
@@ -156,3 +159,56 @@ class SyncRunAdmin(admin.ModelAdmin):
 
 
 admin.site.register(ContractSection)
+
+
+# ── Anahtar kelime katmanı ──────────────────────────────
+
+@admin.register(Keyword)
+class KeywordAdmin(admin.ModelAdmin):
+    list_display = ["metin", "derece", "kullanim_sayisi", "pasif"]
+    list_filter = ["derece", "pasif"]
+    search_fields = ["metin"]
+    readonly_fields = ["kullanim_sayisi", "pasif", "created_at"]
+    ordering = ["-kullanim_sayisi"]
+
+
+@admin.register(KeywordBatch)
+class KeywordBatchAdmin(admin.ModelAdmin):
+    """Batch izleme — ⚠️ maliyet takibinin tek yeri."""
+
+    list_display = ["batch_id", "durum", "kalip_sayisi", "basarili", "hatali",
+                    "maliyet", "created_at", "islendi_at"]
+    list_filter = ["durum", "model"]
+    search_fields = ["batch_id"]
+    readonly_fields = [f.name for f in KeywordBatch._meta.fields]
+
+    @admin.display(description="Maliyet ($)")
+    def maliyet(self, obj):
+        from django.conf import settings
+        return round((obj.input_tokens * settings.KEYWORD_FIYAT_IN
+                      + obj.output_tokens * settings.KEYWORD_FIYAT_OUT) / 1_000_000, 2)
+
+
+@admin.register(TenderNamePattern)
+class TenderNamePatternAdmin(admin.ModelAdmin):
+    """
+    Kalıp sözlüğü. ⚠️ `durum` filtresi teşhisin ana aracı:
+    `pending` birikiyorsa dispatch çalışmıyor, `queued` birikiyorsa batch takılmış,
+    `skipped` çoksa model "bu ad hiçbir şey söylemiyor" diyor (jenerik adlar).
+    """
+
+    list_display = ["kalip_kisa", "ihale_sayisi", "durum", "sektor", "guven",
+                    "keyword_adet", "islendi_at"]
+    list_filter = ["durum", "sektor", "model"]
+    search_fields = ["kalip_norm", "ornek_ad", "kalip_hash"]
+    readonly_fields = ["kalip_hash", "kalip_norm", "ornek_ad", "ihale_sayisi",
+                       "keyword_ids", "guven", "batch", "model", "islendi_at"]
+    ordering = ["-ihale_sayisi"]
+
+    @admin.display(description="Kalıp")
+    def kalip_kisa(self, obj):
+        return obj.kalip_norm[:70]
+
+    @admin.display(description="Keyword")
+    def keyword_adet(self, obj):
+        return len(obj.keyword_ids or [])

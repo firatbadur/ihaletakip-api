@@ -161,6 +161,75 @@ def call_claude(api_key: str, content_blocks: list, prompt: str, max_tokens: int
     }
 
 
+# ── Message Batches API ────────────────────────────────
+#
+# Toplu keyword üretimi için (bkz. `ekap/tasks.py`). Senkron `call_claude`'dan üç
+# farkı var ve üçü de bu iş için şart:
+#
+#   1. **%50 ucuz.** 669.463 kalıplık arşiv taraması senkron API'de iki katına çıkardı.
+#   2. **Asenkron.** İstekler kuyruğa alınır, 24 saat içinde tamamlanır; web/worker
+#      süreçlerini bloklamaz ve `CELERY_TASK_TIME_LIMIT`'e takılmaz.
+#   3. **Kısmi başarı normaldir.** Her isteğin kendi sonucu ve kendi hatası vardır;
+#      biri patlarsa diğerleri etkilenmez.
+#
+# ⚠️ **Sonuçlar SIRASIZ gelir** — `custom_id` ile eşlenmeli, konumla asla.
+
+def batch_olustur(api_key: str, requests: list):
+    """
+    Message batch yaratır. `requests`: `{"custom_id": str, "params": {...}}` listesi.
+
+    Dönen nesnenin `.id`'si (msgbatch_...) kalıcı olarak saklanmalı — sonuçlar yalnızca
+    onunla okunabilir ve kaybedilirse o batch'in parası boşa gider.
+    """
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        return client.messages.batches.create(requests=requests)
+    except anthropic.APIError as e:
+        code = getattr(e, "status_code", None) or "bağlantı"
+        logger.warning("Batch oluşturulamadı (%s): %s", code, e)
+        raise AnalysisError(f"Batch oluşturulamadı ({code}).", status=502) from e
+
+
+def batch_durum(api_key: str, batch_id: str):
+    """Batch'in güncel durumu. `.processing_status`: in_progress | canceling | ended."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        return client.messages.batches.retrieve(batch_id)
+    except anthropic.APIError as e:
+        code = getattr(e, "status_code", None) or "bağlantı"
+        raise AnalysisError(f"Batch durumu alınamadı ({code}).", status=502) from e
+
+
+def batch_sonuclari(api_key: str, batch_id: str):
+    """
+    Sonuçları **akış hâlinde** verir (tümünü belleğe almaz).
+
+    Her öğe: `.custom_id` + `.result.type` (succeeded|errored|canceled|expired).
+    ⚠️ Akış tekrar okunabilir — sonuç işleme görevi süre bütçesini aşarsa kaldığı
+    yerden değil BAŞTAN okur, bu yüzden işlenmiş kalıpları atlaması gerekir.
+    """
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        return client.messages.batches.results(batch_id)
+    except anthropic.APIError as e:
+        code = getattr(e, "status_code", None) or "bağlantı"
+        raise AnalysisError(f"Batch sonuçları alınamadı ({code}).", status=502) from e
+
+
+def batch_iptal(api_key: str, batch_id: str):
+    """Devam eden bir batch'i iptal eder (bütçe kaçağına acil müdahale)."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    return client.messages.batches.cancel(batch_id)
+
+
 # ── Prompt oluşturucular ───────────────────────────────
 def _keywords_meta_text(tender_meta: dict) -> str:
     t = tender_meta or {}

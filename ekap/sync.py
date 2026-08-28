@@ -12,6 +12,7 @@ from django.db import models as dj_models
 from django.utils import timezone
 
 from . import contractors as contractors_mod
+from . import keywords as keywords_mod
 from .constants import DURUM_SONUCLANMIS
 from .models import (
     Announcement,
@@ -370,6 +371,16 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     # Pro sinyal kolonları — `idare_id`/`ihale_adi` set edildikten SONRA (seri anahtarı
     # ikisini de kullanıyor), `save()`'den önce.
     apply_pro_fields(tender, data)
+    # Anahtar kelime katmanı — **ingest hızlı yolu**. Kalıp sözlüğünde `durum="ok"`
+    # bir kayıt varsa keyword'ler AI'ya HİÇ gidilmeden kopyalanır (tek indeksli
+    # SELECT + birkaç INSERT); yoksa kalıp `pending` açılır ve bir sonraki
+    # `dispatch` turunda modele sorulur. Günde ~700 yeni ihalenin AI maliyeti bu
+    # sayede sıfıra yakındır.
+    # ⚠️ Hata YUTULUR: keyword bir zenginleştirmedir, detay senkronunu düşürmemeli.
+    try:
+        keywords_mod.uygula(tender)
+    except Exception as exc:                       # noqa: BLE001
+        logger.warning("keyword uygulanamadı (%s): %s", tender.ekap_id, exc)
     tender.save()
 
     # ── Çocuk tablolar (tam yenile) ────────────────────
@@ -554,7 +565,7 @@ _CONTRACT_FIELDS = [
     "dokuman_indiren_sayisi", "indirim_orani", "ekap_ilan_id",
     "fesih_string", "tasfiye_transfer_string",
     "idare_id", "il_id", "ihale_tip",
-    "okas_ana_kod", "okas_bucket", "en_ust_idare_kod",
+    "okas_ana_kod", "okas_bucket", "en_ust_idare_kod", "sektor",
     # ⚠️ `ilk_gorulme` BİLEREK YOK: yalnızca yaratma yolunda yazılır. Buraya eklenirse
     # her detay tazelemesinde güncellenir ve rakip alarmının dayandığı "yeni keşfedilen
     # sözleşme" sinyali anlamını yitirir.
@@ -677,6 +688,7 @@ def sync_contracts_from_raw(
             "okas_ana_kod": tender.okas_ana_kod or "",
             "okas_bucket": tender.okas_bucket or "",
             "en_ust_idare_kod": tender.en_ust_idare_kod or "",
+            "sektor": getattr(tender, "sektor", "") or "",
         }
 
         # 3) Sonuç İlanı — yaklaşık maliyetin TEK doğru kaynağı

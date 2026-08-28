@@ -357,6 +357,68 @@ PRO_BACKFILL_START = env.int("PRO_BACKFILL_START", default=0)
 PRO_BACKFILL_END = env.int("PRO_BACKFILL_END", default=7)
 PRO_BACKFILL_MAX_SECONDS = env.int("PRO_BACKFILL_MAX_SECONDS", default=270)
 
+# ── Anahtar kelime (keyword) katmanı ────────────────────
+# Fiyat/rakip analizindeki "benzer iş" seçimini keyword örtüşmesiyle güçlendirir.
+# Boru hattı: kalıp doldur → AI'ya toplu sor → sonuçları işle → ihalelere yay.
+
+# ⚠️ KILL SWITCH. False → hiçbir batch gönderilmez (harcama durur). Mevcut keyword'ler
+# ve benchmark kademesi çalışmaya devam eder.
+KEYWORD_AI_ENABLED = env.bool("KEYWORD_AI_ENABLED", default=False)
+# ⚠️ Model ölçümle seçildi (2026-08-28 pilotu): Haiku 4.5 kalite kapılarını geçti ve
+# 669.463 kalıp için ~$156 (batch %50 indirimli). Sonnet iki katı, ölçülen fark yok.
+KEYWORD_AI_MODEL = env("KEYWORD_AI_MODEL", default="claude-haiku-4-5")
+KEYWORD_MAX_TOKENS = env.int("KEYWORD_MAX_TOKENS", default=8000)
+
+# ⚠️ İstek başına kalıp sayısı 25'te SABİT — 50 denendi ve kalite bozuldu (ölçüm
+# 2026-08-28): model geç kalıplarda uydurmaya başladı ("lens alımı" → "goz protezi",
+# "taş fırın makinesi" → "makas ekipmani") ve ilk gerçek yanlış pozitif orada çıktı.
+# Maliyeti $156→$134 düşürüyordu; $22 için doğruluk feda edilmez.
+KEYWORD_PATTERNS_PER_REQUEST = env.int("KEYWORD_PATTERNS_PER_REQUEST", default=25)
+# API tavanı 100k istek; kasıtla çok altında tutulur → hata yarıçapı küçük kalır,
+# değer kademeli akar ve sonuç işleme tek turda süre bütçesine sığar.
+KEYWORD_REQUESTS_PER_BATCH = env.int("KEYWORD_REQUESTS_PER_BATCH", default=2000)
+KEYWORD_MAX_INFLIGHT_BATCHES = env.int("KEYWORD_MAX_INFLIGHT_BATCHES", default=2)
+KEYWORD_BATCH_MAX_HOURS = env.int("KEYWORD_BATCH_MAX_HOURS", default=26)
+
+# `guven` bunun altındaysa kalıp `skipped` — model "bu ad hiçbir şey söylemiyor"
+# diyebilmeli. Uydurulmuş keyword, eksik keyword'den kötüdür.
+KEYWORD_MIN_GUVEN = env.float("KEYWORD_MIN_GUVEN", default=0.4)
+# AI'ya bağlam olarak gönderilen mevcut keyword sayısı (tutarlılık için).
+KEYWORD_ONERI_LIMIT = env.int("KEYWORD_ONERI_LIMIT", default=80)
+
+# ⚠️ Bütçe tavanları. Aşılırsa `dispatch` yeni batch AÇMAZ ve log'a alarm düşer.
+KEYWORD_MAX_TOTAL_USD = env.float("KEYWORD_MAX_TOTAL_USD", default=250.0)
+KEYWORD_MAX_UNIQUE = env.int("KEYWORD_MAX_UNIQUE", default=750_000)
+# Batch (%50 indirimli) birim fiyatlar — $/1M token, maliyet sayacı için.
+KEYWORD_FIYAT_IN = env.float("KEYWORD_FIYAT_IN", default=0.50)
+KEYWORD_FIYAT_OUT = env.float("KEYWORD_FIYAT_OUT", default=2.50)
+
+# ⚠️ Benzerlik sorgusunun PERFORMANS düğmeleri. Taranan index tuple sayısı seçilen
+# keyword'lerin df toplamıyla orantılıdır; bu yüzden probe en düşük df'li birkaç
+# keyword'le sınırlanır ve çok yaygın olanlar `pasif` işaretlenip hiç kullanılmaz.
+KEYWORD_PROBE_LIMIT = env.int("KEYWORD_PROBE_LIMIT", default=5)
+KEYWORD_MAX_DF = env.int("KEYWORD_MAX_DF", default=20_000)
+KEYWORD_SIMILAR_MIN_SKOR = env.float("KEYWORD_SIMILAR_MIN_SKOR", default=0.0)
+
+# Benchmark kademesi — ⚠️ tek env değişkeniyle deploy'suz geri alınabilir.
+KEYWORD_BENCHMARK_ENABLED = env.bool("KEYWORD_BENCHMARK_ENABLED", default=False)
+# Aday sayısı 2000: `_temel_qs` ayrıca tarih ve "bedeli dolu" süzgecinden geçiriyor,
+# en benzer 300 ihalenin çoğu sonuçlanmamış olabilir ve örneklem eşiğin altına düşer.
+KEYWORD_BENCHMARK_ADAY = env.int("KEYWORD_BENCHMARK_ADAY", default=2000)
+
+# Süre bütçeleri — hepsi `CELERY_TASK_TIME_LIMIT`(300) ALTINDA olmalı; aşan görev
+# öldürülür, `finally` çalışmaz ve Redis kilidi TTL dolana kadar kalır (yaşanmış arıza).
+KEYWORD_KALIP_MAX_SECONDS = env.int("KEYWORD_KALIP_MAX_SECONDS", default=240)
+KEYWORD_PROCESS_MAX_SECONDS = env.int("KEYWORD_PROCESS_MAX_SECONDS", default=240)
+KEYWORD_PROPAGATE_MAX_SECONDS = env.int("KEYWORD_PROPAGATE_MAX_SECONDS", default=240)
+# ⚠️ Yayma tek yazma-ağır aşamadır (~5M INSERT) → gece penceresi. Gündüz koşarsa
+# Postgres buffer cache'ini kirletip ihale aramasını yavaşlatır (`sync_contractors`
+# süpürmesinde ölçülmüş arıza: heap cache isabeti %53).
+KEYWORD_PROPAGATE_START = env.int("KEYWORD_PROPAGATE_START", default=0)
+KEYWORD_PROPAGATE_END = env.int("KEYWORD_PROPAGATE_END", default=7)
+# Acil kaçış: süpürme/pro-backfill bitmesini bekleme (ilk yüklemeyi hızlandırmak için).
+KEYWORD_PROPAGATE_IGNORE_SWEEP = env.bool("KEYWORD_PROPAGATE_IGNORE_SWEEP", default=False)
+
 # EKAP görevleri ayrı, tek-concurrency'li kuyrukta serileştirilir (EKAP ~1 istek/sn).
 # ⚠️ Sıra önemli: Celery ilk eşleşen deseni kullanır, bu yüzden istisnalar `ekap.tasks.*`
 # joker'inden ÖNCE gelmelidir.
@@ -374,6 +436,15 @@ CELERY_TASK_ROUTES = {
     "ekap.tasks.refresh_idare_id_set": {"queue": "celery"},
     # backfill_tender_fields de EKAP'a gitmez (detail_raw arşivinden türetir).
     "ekap.tasks.backfill_tender_fields": {"queue": "celery"},
+    # Keyword boru hattı — EKAP'a HİÇ gitmez (kaynak `ihale_adi` + Anthropic API),
+    # o yüzden tek-concurrency'li `ekap` kuyruğunda yer tutup `sync_recent`'i
+    # bloklamamalı. ⚠️ `ekap.tasks.*` joker'inden ÖNCE gelmek zorunda.
+    "ekap.tasks.backfill_tender_kalip": {"queue": "celery"},
+    "ekap.tasks.dispatch_keyword_batches": {"queue": "celery"},
+    "ekap.tasks.poll_keyword_batches": {"queue": "celery"},
+    "ekap.tasks.process_keyword_results": {"queue": "celery"},
+    "ekap.tasks.propagate_tender_keywords": {"queue": "celery"},
+    "ekap.tasks.refresh_keyword_df": {"queue": "celery"},
     "ekap.tasks.detect_recurring_series": {"queue": "celery"},
     "ekap.tasks.refresh_market_stats": {"queue": "celery"},
     # ⚠️ **Zamana duyarlı EKAP görevleri AYRI kuyrukta** (`ekap_oncelik`).

@@ -42,7 +42,7 @@ Yani "alımı" AI'nın *üretmemesi* gereken bir şeydir, *görmemesi* gereken d
 import hashlib
 import re
 
-from .constants import CITIES
+from .constants import CITIES, SEKTOR_ANAHTARLARI
 from .series import _HAS_DIGIT, _NON_WORD
 from .utils import normalize_tr
 
@@ -255,6 +255,148 @@ def derece(kanonik: str) -> int:
     return min(len(kanonik.split()), KEYWORD_AZAMI_TOKEN)
 
 
+# ── AI'siz taban çizgisi (baseline) ─────────────────────
+#
+# AI'nın parasını hak edip etmediğini ölçmek için gereken karşılaştırma noktası.
+# Aynı kalıptan, model kullanmadan, yalnızca kelime istatistiğiyle keyword üretir.
+#
+# ⚠️ Bu bir "ucuz alternatif" değil, bir **kontrol grubu**. Pilotta gözlendi ki
+# eşleşmelerin çoğunu ihale adında ZATEN GEÇEN kelimeler kuruyor ("arac kiralama",
+# "insaat malzeme", "akaryakit") — bunlar için modele ihtiyaç yok. AI'nın ölçülmesi
+# gereken katkısı, adda GEÇMEYEN üst kavramı ekleyip farklı kelimelerle yazılmış aynı
+# işleri köprülemesi ("ameliyat eldiveni" → "tıbbi sarf malzeme"). Fark buradan çıkar.
+
+# Bir token'ın keyword olmaya değmesi için gereken en az doküman frekansı. df==1 olan
+# token hiçbir kesişim üretemez (tanım gereği tek ihalede var) — depolar ama işe yaramaz.
+DF_MIN = 2
+# Bu orandan fazla kalıpta geçen token ayırt etmez ("hizmet", "malzeme" gibi kalanlar).
+DF_MAX_ORAN = 0.02
+
+
+def ngram_adaylari(kalip: str, azami_n: int = KEYWORD_AZAMI_TOKEN):
+    """
+    Kalıptan bitişik n-gram adayları (1..azami_n), **sıra korunmuş**.
+
+    >>> ngram_adaylari("tibbi sarf malzeme alimi", azami_n=2)
+    ['tibbi', 'sarf', 'malzeme', 'alimi', 'tibbi sarf', 'sarf malzeme', 'malzeme alimi']
+    """
+    tokenlar = (kalip or "").split()
+    adaylar = []
+    for n in range(1, azami_n + 1):
+        for i in range(len(tokenlar) - n + 1):
+            adaylar.append(" ".join(tokenlar[i:i + n]))
+    return adaylar
+
+
+# Bir bileşiğin "gerçek terim" sayılması için gereken en az PMI. 0 = kelimeler
+# birbirinden bağımsız geçiyor (tesadüfi komşuluk); yüksek = birlikte anılan bir terim.
+PMI_MIN = 2.0
+# PMI'nin güvenilir olması için bileşiğin en az kaç kalıpta geçmesi gerektiği. Nadir
+# bir bigram matematiksel olarak çok yüksek PMI verir ama kanıt tek gözlemdir.
+PMI_MIN_GOZLEM = 5
+
+
+def deterministik_keywords(kalip, df=None, bigram_df=None, kalip_sayisi=0, azami=8):
+    """
+    Kalıptan **AI kullanmadan** keyword üretir — taban çizgisi.
+
+    İki istatistik kullanır ve ikisi de gereklidir:
+
+    * **IDF** (`df`) — hangi kelime ayırt edici? "akaryakit" nadir ve anlamlı;
+      "malzeme" her yerde, tek başına hiçbir şey söylemiyor.
+    * **PMI** (`bigram_df`) — hangi bitişik kelime çifti *gerçek bir terim*?
+      Ham n-gram üretmek gürültü doğurur ("suyu hatti yapim"); ama "icme suyu"
+      kelimelerinin birlikte geçme oranı tesadüfen beklenenden çok yüksekse bu
+      dilde yerleşmiş bir terimdir. PMI tam olarak bu oranı ölçer.
+
+    ⚠️ İkisi de verilmezse fonksiyon çalışır ama **taban çizgisi haksız yere kötü
+    çıkar** ve AI olduğundan iyi görünür. Karşılaştırma yapıyorsanız ikisini de verin.
+
+    ⚠️ Tasarım gereği yapamadığı şey: adda GEÇMEYEN hiçbir kavramı üretemez —
+    "ameliyat eldiveni" için "tıbbi sarf malzeme" yazamaz. AI ile arasındaki fark
+    tam olarak burada aranmalı, kelime örtüşmesinde değil.
+    """
+    import math
+
+    n_dok = max(kalip_sayisi or 0, 1)
+    adaylar = ngram_adaylari(kalip)
+    tavan = max(DF_MIN, int(n_dok * DF_MAX_ORAN)) if kalip_sayisi else None
+
+    def _pmi(tokenlar):
+        """Bileşiğin bağlılık ölçüsü; bilinmiyorsa None (ceza da ödül de yok)."""
+        if not bigram_df or len(tokenlar) < 2:
+            return None
+        skorlar = []
+        for a, b in zip(tokenlar, tokenlar[1:]):
+            ortak = bigram_df.get(f"{a} {b}", 0)
+            if ortak < PMI_MIN_GOZLEM:
+                return None
+            pa, pb = df.get(a, 0) / n_dok, df.get(b, 0) / n_dok
+            if pa <= 0 or pb <= 0:
+                return None
+            skorlar.append(math.log((ortak / n_dok) / (pa * pb)))
+        return min(skorlar)          # en zayıf halka bileşiği belirler
+
+    skorlu, gorulen = [], set()
+    for i, ham in enumerate(adaylar):
+        k = kanonik_keyword(ham)
+        if not k or k in gorulen:
+            continue
+        gorulen.add(k)
+        tokenlar = k.split()
+
+        if df is None:
+            skorlu.append((len(k) * len(tokenlar), i, k))    # df yoksa kaba vekil
+            continue
+
+        frekanslar = [df.get(t, 0) for t in tokenlar]
+        en_sik = max(frekanslar) if frekanslar else 0
+        if en_sik < DF_MIN:
+            continue                     # tek ihalede geçiyor → kesişim üretemez
+        if tavan and en_sik > tavan and len(tokenlar) == 1:
+            continue                     # tek başına çok yaygın → gürültü
+
+        idf = sum(math.log(n_dok / max(f, 1)) for f in frekanslar)
+        pmi = _pmi(tokenlar)
+        if len(tokenlar) > 1:
+            if pmi is None:
+                # Bileşik hakkında kanıt yok → 1-gram'lara göre hafif dezavantajlı
+                # bırakılır; atılmaz, çünkü "kanıt yok" ≠ "kötü".
+                agirlik = 0.8
+            elif pmi < PMI_MIN:
+                continue                 # kelimeler tesadüfen yan yana → terim değil
+            else:
+                agirlik = 1.0 + min(pmi, 8.0) / 4.0
+        else:
+            agirlik = 1.0
+        skorlu.append((idf * agirlik, i, k))
+
+    # Skora göre seç, sonra ORİJİNAL sırayı geri getir — okunabilirlik ve AI
+    # çıktısıyla yan yana konduğunda karşılaştırılabilirlik için.
+    skorlu.sort(key=lambda x: (-x[0], x[1]))
+    return [k for _, _, k in sorted(skorlu[:azami], key=lambda x: x[1])]
+
+
+def df_topla(kaliplar, bigram=True):
+    """
+    Kalıp akışından `(token_df, bigram_df, kalip_sayisi)` çıkarır.
+
+    ⚠️ Bigram sözlüğü büyür (1M kalıpta milyonlarca farklı çift). Çağıran, dönen
+    `bigram_df`'yi düşük frekanslılardan **budamalıdır** — PMI zaten `PMI_MIN_GOZLEM`
+    altını kullanmıyor, yani budama bilgi kaybettirmez, yalnızca bellek kazandırır.
+    """
+    from collections import Counter
+
+    token_df, bigram_df, toplam = Counter(), Counter(), 0
+    for kalip in kaliplar:
+        toplam += 1
+        tokenlar = kalip.split()
+        token_df.update(set(tokenlar))
+        if bigram and len(tokenlar) > 1:
+            bigram_df.update({f"{a} {b}" for a, b in zip(tokenlar, tokenlar[1:])})
+    return token_df, bigram_df, toplam
+
+
 # ── Kalite ölçümü (pilot) ───────────────────────────────
 # Pilot bu regex'le "modelin yasak kuralı çiğneme oranını" ölçer. ⚠️ Kanonikleştirme
 # ÖNCESİ ve SONRASI ayrı ölçülür: öncesi prompt kalitesini, sonrası gerçek sızıntıyı
@@ -297,3 +439,72 @@ def kanonik_liste(hamlar, azami=8):
         if len(sonuc) >= azami:
             break
     return sonuc
+
+
+# ── Deterministik sektör sınıflandırma ──────────────────
+#
+# AI'nın en net üstünlüğü keyword üretmek değil, adda GEÇMEYEN bir kategoriye
+# sınıflandırmaktı. Bu fonksiyon o üstünlüğü elle yazılmış bir anahtar kelime
+# tablosuyla (`constants.SEKTOR_ANAHTARLARI`) kapatmayı dener — maliyeti sıfır.
+#
+# ⚠️ Skor **kelime sayısının karesi**: "elektrik" (1 kelime, puan 1) birçok sektörde
+# geçer ve tek başına hiçbir şey söylemez; "elektrik enerjisi" (2 kelime, puan 4)
+# spesifiktir. Düz sayım yapılsaydı, tek kelimelik anahtarı çok olan sektör her
+# ihaleyi kendine çekerdi.
+#
+# ⚠️ Eşleşme yoksa "diger" döner ve bu bir başarısızlık DEĞİLDİR — zorlanmış bir
+# etiket, dürüst bir "diger"den kötüdür (`benchmark.py` dürüstlük kuralıyla aynı).
+
+def sektor_tahmin(kalip: str, keywords=None):
+    """
+    Kalıptan (ve varsa keyword'lerden) sektör etiketi tahmin eder — AI kullanmadan.
+
+    Dönüş: `(sektor_kodu, skor)`. Skor 0 ise hiçbir kanıt yok, kod `"diger"`dir.
+
+    >>> sektor_tahmin("akaryakit alimi")[0]
+    'akaryakit_enerji'
+    >>> sektor_tahmin("tibbi sarf malzeme alimi")[0]
+    'saglik_tibbi_malzeme'
+    >>> sektor_tahmin("ogrenci tasima hizmet alimi")[0]
+    'personel_tasima'
+    >>> sektor_tahmin("zzz qqq")[0]
+    'diger'
+    """
+    ham = (kalip or "") + (" " + " ".join(keywords) if keywords else "")
+    tokenlar = ham.split()
+    # ⚠️ Türkçe ek çeşitliliği yüzünden TAM TOKEN eşleşmesi yetmez: kalıpta
+    # "elbiseleri" yazar, anahtarda "elbise". Ölçüldü — düz eşleşmeyle "Kışlık İş
+    # Elbiseleri" ve "Üretim Serası" `diger`e düşüyordu. Bu yüzden token'lar önce
+    # kök kırpmasından geçirilir, sonra ayrıca önek eşleşmesine bakılır.
+    kokler = {_cogul_kok(t) for t in tokenlar} | set(tokenlar)
+    metin = " " + " ".join(tokenlar) + " "
+
+    def _var(anahtar, n):
+        if n > 1:
+            return f" {anahtar} " in metin
+        if anahtar in kokler:
+            return True
+        # Önek eşleşmesi — yalnızca yeterince uzun ve yakın anahtarlar için.
+        # ⚠️ Sınırlar dar tutuldu: "sera" (4 harf) serbest bırakılsaydı "seramik"e
+        # de eşleşirdi. Kısa anahtarlar tam eşleşmeye mahkûm; sözlükte onların
+        # çekimli hâlleri ("serasi") ayrıca yazılır.
+        if len(anahtar) < 5:
+            return False
+        return any(t.startswith(anahtar) and len(t) - len(anahtar) <= 4
+                   for t in tokenlar)
+
+    puanlar = {}
+    for sektor, anahtarlar in SEKTOR_ANAHTARLARI.items():
+        puan = 0
+        for anahtar in anahtarlar:
+            n = anahtar.count(" ") + 1
+            if _var(anahtar, n):
+                puan += n * n
+        if puan:
+            puanlar[sektor] = puan
+    if not puanlar:
+        return "diger", 0
+    # Eşitlikte alfabetik değil, deterministik ve kararlı bir sıra: en yüksek puan,
+    # sonra sektör kodu (tekrarlanabilirlik için).
+    sektor = max(sorted(puanlar), key=lambda k: puanlar[k])
+    return sektor, puanlar[sektor]

@@ -67,6 +67,14 @@ class Command(BaseCommand):
                             help="Çıktının yazılacağı CSV (elle inceleme için)")
         parser.add_argument("--dry-run", action="store_true",
                             help="AI'ya gitme; yalnızca kalıp/dedup istatistiği bas")
+        parser.add_argument("--yontem", choices=["ai", "det", "ikisi"], default="ai",
+                            help="ai = model · det = AI'siz taban çizgisi · "
+                                 "ikisi = ikisini yan yana ölç (AI'nın parasını hak "
+                                 "edip etmediğini gösteren karşılaştırma)")
+        parser.add_argument("--df-tara", type=int, default=0,
+                            help="Deterministik IDF/PMI için taranacak ihale sayısı "
+                                 "(0 = tüm arşiv). ⚠️ Az taramak taban çizgisini haksız "
+                                 "yere zayıflatır ve AI'yı olduğundan iyi gösterir")
         parser.add_argument("--seed", type=int, default=20260828,
                             help="Örneklem tekrar üretilebilir olsun diye")
 
@@ -174,6 +182,9 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.MIGRATE_HEADING("\n═══ KEYWORD PİLOTU ═══"))
         self.stdout.write(f"model={model}  n={o['n']}  ciftler={o['ciftler']}  grup={self.grup}\n")
+
+        if o["yontem"] == "ikisi":
+            return self._kiyasla(o, rastgele, model)
 
         # ---- örneklem + kalıp ----
         ihaleler = self._rastgele_ihaleler(o["n"], rastgele)
@@ -337,6 +348,232 @@ class Command(BaseCommand):
             skorlu.append((j, ogeler[a][0], ogeler[b][0], sorted(ka & kb)))
         skorlu.sort(reverse=True)
         return skorlu[:kac]
+
+    # ── AI vs deterministik karşılaştırması ─────────────
+    def _kume_metrikleri(self, kume_map):
+        """Bir keyword kümesi haritasının kalite göstergeleri (yöntemden bağımsız)."""
+        tekil = set()
+        ihlal = 0
+        for kume in kume_map.values():
+            for k in kume:
+                tekil.add(k)
+                if kw.yasak_ihlali(k):
+                    ihlal += 1
+        dolu = [k for k, v in kume_map.items() if v]
+        return {
+            "tekil": len(tekil),
+            "ihlal_oran": (100 * ihlal / max(len(tekil), 1)),
+            "kapsam": len(dolu),
+            "ort_keyword": sum(len(v) for v in kume_map.values()) / max(len(kume_map), 1),
+            "varyant": len(self._varyant_ciftleri(tekil)),
+            "yakin": self._yakin_ciftler(kume_map),
+        }
+
+    def _jaccard(self, a, b):
+        return len(a & b) / len(a | b) if (a and b) else 0.0
+
+    def _ayirt_skoru(self, kume_a, kume_b, rastgele, tur=400):
+        """(kardeş ort. Jaccard, rastgele ort. Jaccard) — çift listesi dışarıdan gelir."""
+        kardes = [self._jaccard(a, b) for a, b in zip(kume_a, kume_b) if a and b]
+        havuz = [k for k in list(kume_a) + list(kume_b) if k]
+        rast = []
+        for _ in range(tur):
+            if len(havuz) < 2:
+                break
+            x, y = rastgele.sample(havuz, 2)
+            rast.append(self._jaccard(x, y))
+        return (sum(kardes) / len(kardes) if kardes else 0.0,
+                sum(rast) / len(rast) if rast else 0.0,
+                len(kardes))
+
+    def _kiyasla(self, o, rastgele, model):
+        """
+        Aynı kalıplar için AI ve deterministik keyword'leri yan yana ölçer.
+
+        ⚠️ Asıl soru "hangisi daha çok keyword üretiyor" DEĞİL. Pilotta gözlendi ki
+        eşleşmelerin çoğunu ihale adında zaten geçen kelimeler kuruyor — onlar için
+        modele gerek yok. AI'nın ölçülmesi gereken katkısı, adda GEÇMEYEN üst kavramı
+        ekleyip farklı kelimelerle yazılmış aynı işleri köprülemesi. Bu yüzden rapor
+        "AI'nın kurduğu ama deterministiğin kuramadığı eşleşmeler" ile bitiyor —
+        parayı hak eden şey varsa orada görünür.
+        """
+        yaz = self.stdout.write
+        yaz(self.style.MIGRATE_HEADING("\n═══ KARŞILAŞTIRMA: AI vs DETERMİNİSTİK ═══\n"))
+
+        token_df, bigram_df, n_kalip = self._istatistik_topla(o["df_tara"])
+
+        ihaleler = self._rastgele_ihaleler(o["n"], rastgele)
+        kaliplar = {}
+        for t in ihaleler:
+            if kw.kalip_hash(t.ihale_adi):
+                kaliplar.setdefault(kw.kalip_norm(t.ihale_adi), t)
+        liste = [(i, k) for i, k in enumerate(kaliplar, 1)]
+        yaz(f"\n  {len(liste)} tekil kalıp ölçülüyor…\n")
+
+        # --- deterministik (bedava, anında) ---
+        det_map = {
+            k: set(kw.deterministik_keywords(k, token_df, bigram_df, n_kalip,
+                                             azami=AZAMI_KEYWORD))
+            for _, k in liste
+        }
+        # --- AI ---
+        client = self._client()
+        sonuclar, t_in, t_out = {}, 0, 0
+        for i in range(0, len(liste), self.grup):
+            veri, usage = self._sor(client, model, liste[i:i + self.grup])
+            sonuclar.update(veri)
+            t_in += usage.input_tokens
+            t_out += usage.output_tokens
+            yaz(f"  …AI {len(sonuclar)}/{len(liste)}")
+        ai_map, ai_sektor = {}, {}
+        for i, kalip in liste:
+            sn = sonuclar.get(i) or {}
+            ai_map[kalip] = set(kw.kanonik_liste(sn.get("keywords"), azami=AZAMI_KEYWORD))
+            ai_sektor[kalip] = sn.get("sektor", "")
+
+        m_ai, m_det = self._kume_metrikleri(ai_map), self._kume_metrikleri(det_map)
+
+        # --- yan yana tablo ---
+        yaz(self.style.MIGRATE_HEADING("\n── Yan yana ──"))
+        yaz(f"  {'ölçüt':<34}{'AI':>12}{'deterministik':>16}")
+        satir = lambda ad, a, d: yaz(f"  {ad:<34}{a:>12}{d:>16}")
+        satir("kapsam (keyword alan kalıp)", f"{m_ai['kapsam']}/{len(liste)}",
+              f"{m_det['kapsam']}/{len(liste)}")
+        satir("kalıp başına keyword", f"{m_ai['ort_keyword']:.2f}", f"{m_det['ort_keyword']:.2f}")
+        satir("tekil keyword", m_ai["tekil"], m_det["tekil"])
+        satir("yasak token ihlali", f"%{m_ai['ihlal_oran']:.1f}", f"%{m_det['ihlal_oran']:.1f}")
+        satir("şüpheli varyant çifti", m_ai["varyant"], m_det["varyant"])
+
+        # --- ayırt etme, iki yöntem için ---
+        ciftler = self._kardes_ciftleri(o["ciftler"], rastgele)
+        if len(ciftler) >= 10:
+            ck = [(kw.kalip_norm(a.ihale_adi), kw.kalip_norm(b.ihale_adi))
+                  for a, b in ciftler]
+            det_a = [set(kw.deterministik_keywords(x, token_df, bigram_df, n_kalip)) for x, _ in ck]
+            det_b = [set(kw.deterministik_keywords(y, token_df, bigram_df, n_kalip)) for _, y in ck]
+            dk, dr, dn = self._ayirt_skoru(det_a, det_b, rastgele)
+            # AI tarafı için kardeş kalıpları da modele sorulur
+            birimler, idx = [], 1
+            for x, y in ck:
+                birimler += [(idx, x), (idx + 1, y)]
+                idx += 2
+            ai_kardes = {}
+            for j in range(0, len(birimler), self.grup):
+                veri, usage = self._sor(client, model, birimler[j:j + self.grup])
+                ai_kardes.update(veri)
+                t_in += usage.input_tokens
+                t_out += usage.output_tokens
+            ku = lambda i: set(kw.kanonik_liste((ai_kardes.get(i) or {}).get("keywords")))
+            ai_a = [ku(i) for i, _ in birimler[::2]]
+            ai_b = [ku(i) for i, _ in birimler[1::2]]
+            ak, ar, an = self._ayirt_skoru(ai_a, ai_b, rastgele)
+            yaz("")
+            satir("kardeş çift Jaccard", f"{ak:.3f}", f"{dk:.3f}")
+            satir("rastgele çift Jaccard", f"{ar:.3f}", f"{dr:.3f}")
+            satir("ayrışma oranı",
+                  f"{(ak / ar if ar > 0.001 else 999):.0f}×",
+                  f"{(dk / dr if dr > 0.001 else 999):.0f}×")
+
+        # --- ASIL SORU: AI'nın kazandırdığı köprüler ---
+        yaz(self.style.MIGRATE_HEADING(
+            "\n── AI'nın KURDUĞU, deterministiğin kuramadığı eşleşmeler ──"))
+        yaz("  AI'nın parasını hak ettiği yer burasıdır: adda geçmeyen üst kavram\n"
+            "  sayesinde birbirini bulan işler. Liste boşsa AI'ya gerek yok.\n")
+        ai_yakin = {(a, b): j for j, a, b, _ in m_ai["yakin"]}
+        det_j = {}
+        for j, a, b, _ in m_det["yakin"]:
+            det_j[(a, b)] = j
+        kazanc = []
+        for (a, b), j in ai_yakin.items():
+            dj = self._jaccard(det_map.get(a, set()), det_map.get(b, set()))
+            if j >= 0.5 and dj < 0.2:
+                kazanc.append((j, dj, a, b, sorted(ai_map[a] & ai_map[b])))
+        if not kazanc:
+            yaz(self.style.WARNING(
+                "  (yok) — AI'nın kurduğu yakın eşleşmelerin hepsini deterministik de "
+                "kuruyor.\n  Bu durumda keyword üretimi için AI'ya ödeme yapmanın "
+                "gerekçesi kalmaz;\n  geriye yalnızca sektör etiketi kalır."))
+        for j, dj, a, b, ortak in sorted(kazanc, reverse=True)[:12]:
+            yaz(f"  AI {j:.2f} / det {dj:.2f}  {a[:60]}")
+            yaz(f"                     {b[:60]}")
+            yaz(f"        AI'nın ortak keyword'leri: {', '.join(ortak)}")
+
+        # --- tersi: deterministiğin kurup AI'nın kuramadıkları ---
+        kayip = []
+        for (a, b), dj in det_j.items():
+            aj = self._jaccard(ai_map.get(a, set()), ai_map.get(b, set()))
+            if dj >= 0.5 and aj < 0.2:
+                kayip.append((dj, aj, a, b))
+        if kayip:
+            yaz(self.style.MIGRATE_HEADING(
+                "\n── Deterministiğin kurduğu, AI'nın kuramadığı eşleşmeler ──"))
+            for dj, aj, a, b in sorted(kayip, reverse=True)[:8]:
+                yaz(f"  det {dj:.2f} / AI {aj:.2f}  {a[:58]}")
+                yaz(f"                      {b[:58]}")
+
+        # --- sektör: deterministik tahmin AI ile ne kadar uyuşuyor ---
+        yaz(self.style.MIGRATE_HEADING("\n── Sektör: deterministik tahmin vs AI ──"))
+        uyum = kanit = 0
+        sapma = []
+        for _, kalip in liste:
+            det_s, puan = kw.sektor_tahmin(kalip, det_map.get(kalip))
+            ai_s = ai_sektor.get(kalip, "")
+            if puan:
+                kanit += 1
+            if ai_s and det_s == ai_s:
+                uyum += 1
+            elif ai_s and len(sapma) < 12:
+                sapma.append((kalip, ai_s, det_s))
+        yaz(f"  AI ile aynı etiket : {uyum}/{len(liste)} (%{100 * uyum / max(len(liste), 1):.0f})")
+        yaz(f"  kanıt bulunan      : {kanit}/{len(liste)} "
+            f"(kalanı 'diger' — kural sözlüğü eksik)")
+        yaz("  örnek ayrışmalar (AI → deterministik):")
+        for kalip, a, d in sapma:
+            yaz(f"    {kalip[:52]:<52} {SEKTORLER.get(a, a)[:22]:<22} → "
+                f"{SEKTORLER.get(d, d)}")
+
+        yaz(self.style.MIGRATE_HEADING("\n── Maliyet ──"))
+        yaz(f"  AI            : {t_in:,} girdi + {t_out:,} çıktı token")
+        if liste:
+            usd = ((t_in / len(liste)) * 669_463 * 0.5
+                   + (t_out / len(liste)) * 669_463 * 2.5) / 1_000_000
+            yaz(f"                  669.463 kalıp → ~${usd:,.0f}")
+        yaz("  deterministik : $0 · tüm arşiv için ~2 dk CPU\n")
+
+    def _istatistik_topla(self, limit):
+        """
+        Tüm arşivden `(token_df, bigram_df, kalip_sayisi)` — deterministik yöntemin
+        IDF ve PMI kaynağı.
+
+        ⚠️ Bigram sözlüğü 1M kalıpta milyonlarca girdiye çıkabilir; bellek sabit
+        kalsın diye periyodik olarak tek gözlemli çiftler budanır. Bilgi kaybı yok:
+        PMI zaten `PMI_MIN_GOZLEM` altını kullanmıyor.
+        """
+        from collections import Counter
+
+        qs = Tender.objects.exclude(ihale_adi="").only("pk", "ihale_adi").order_by("pk")
+        if limit:
+            qs = qs[:limit]
+        token_df, bigram_df, toplam = Counter(), Counter(), 0
+        self.stdout.write("  IDF/PMI istatistiği toplanıyor (deterministik yöntem için)…")
+        for t in qs.iterator(chunk_size=5000):
+            norm = kw.kalip_norm(t.ihale_adi)
+            tokenlar = norm.split()
+            if len(tokenlar) < 2:
+                continue
+            toplam += 1
+            token_df.update(set(tokenlar))
+            bigram_df.update({f"{a} {b}" for a, b in zip(tokenlar, tokenlar[1:])})
+            if toplam % 250_000 == 0:
+                onceki = len(bigram_df)
+                for anahtar, adet in list(bigram_df.items()):
+                    if adet < 2:
+                        del bigram_df[anahtar]
+                self.stdout.write(f"    …{toplam:,} kalıp · {len(token_df):,} token · "
+                                  f"{len(bigram_df):,} bigram (budandı: {onceki:,})")
+        self.stdout.write(f"  → {toplam:,} kalıp, {len(token_df):,} token, "
+                          f"{len(bigram_df):,} bigram")
+        return token_df, bigram_df, toplam
 
     def _client(self):
         import anthropic                                    # lazy — proje kuralı

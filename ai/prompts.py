@@ -353,11 +353,10 @@ def keyword_schema(sektor_kodlari: list) -> dict:
                     "type": "object",
                     "properties": {
                         "id": {"type": "integer"},
-                        "keywords": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 8,
-                        },
+                        # ⚠️ `maxItems` YAZILAMAZ — API 400 döner ("For 'array'
+                        # type, property 'maxItems' is not supported"). Üst sınır
+                        # prompt'ta söylenir ve çağıran tarafta kırpılır.
+                        "keywords": {"type": "array", "items": {"type": "string"}},
                         "sektor": {"type": "string", "enum": list(sektor_kodlari)},
                         "guven": {"type": "number"},
                     },

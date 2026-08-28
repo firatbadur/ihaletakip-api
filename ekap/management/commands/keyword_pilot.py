@@ -42,6 +42,9 @@ from ekap.models import Tender
 # İstek başına kalıp. Toplu boru hattıyla aynı tutulmalı — pilot orada olmayan bir
 # koşulu ölçerse sonucu taşımaz (25'te disiplinli olan model 50'de bozulabilir).
 GRUP = 25
+# Kalıp başına azami keyword. ⚠️ JSON şemasında `maxItems` ile zorlanamıyor (API 400
+# veriyor), o yüzden prompt söyler + burada kırpılır.
+AZAMI_KEYWORD = 8
 VARSAYILAN_MODEL = "claude-haiku-4-5"
 
 
@@ -185,10 +188,17 @@ class Command(BaseCommand):
         self.stdout.write(f"  ayırt edici olmayan  : {kalipsiz} "
                           f"(%{100 * kalipsiz / len(ihaleler):.1f}) — AI'ya gitmez")
         self.stdout.write(f"  tekil kalıp          : {len(kaliplar)}")
-        if kaliplar:
-            self.stdout.write(f"  dedup oranı          : "
-                              f"{len(ihaleler) / len(kaliplar):.2f}× "
-                              f"(bu örneklemde; gerçek oran tüm arşivde ölçülmeli)")
+        # ⚠️ Buradan dedup ORANI ÇIKARILAMAZ — doğum günü paradoksu. 1M kayıttan
+        # 2000 örneklerken, popülasyonda 300k kalıp olsa bile aynı kalıptan iki
+        # tane denk gelme beklentisi düşüktür; örneklem tekil sayısı daima ~1'e
+        # yakın bir "oran" gösterir ve bu YANLIŞ okunur (bir kez okundu).
+        # Gerçek dedup yalnızca tüm arşiv taranarak ölçülür:
+        #     manage.py keyword_pattern_stats
+        cakisma = len(ihaleler) - kalipsiz - len(kaliplar)
+        self.stdout.write(f"  örneklem içi çakışma : {cakisma}")
+        self.stdout.write(self.style.WARNING(
+            "  ⚠ Bu örneklemden dedup ORANI çıkarılamaz (doğum günü paradoksu) — "
+            "gerçek oran için: manage.py keyword_pattern_stats"))
 
         if o["dry_run"]:
             self.stdout.write("\n--dry-run: AI'ya gidilmedi.\n")
@@ -222,7 +232,7 @@ class Command(BaseCommand):
             s = sonuclar.get(i)
             if not s:
                 continue
-            hams = s.get("keywords") or []
+            hams = (s.get("keywords") or [])[:AZAMI_KEYWORD]
             if not hams:
                 bos_sonuc += 1
             kanonikler = []
@@ -299,7 +309,8 @@ class Command(BaseCommand):
             s = sonuc.get(i)
             if not s:
                 return set()
-            return {k for k in (kw.kanonik_keyword(x) for x in s.get("keywords") or []) if k}
+            hams = (s.get("keywords") or [])[:AZAMI_KEYWORD]
+            return {k for k in (kw.kanonik_keyword(x) for x in hams) if k}
 
         def jaccard(x, y):
             if not x or not y:

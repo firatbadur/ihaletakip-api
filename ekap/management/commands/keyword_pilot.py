@@ -231,6 +231,7 @@ class Command(BaseCommand):
         eksik = [i for i, _ in liste if i not in sonuclar]
         satirlar, ham_ihlal, kanonik_ihlal = [], 0, 0
         kume_map = {}                      # kalip → kanonik keyword kümesi
+        ham_ornek, kanonik_ornek = [], set()
         ham_toplam = 0
         tekil_kanonik = set()
         sektor_dagilim = defaultdict(int)
@@ -247,11 +248,13 @@ class Command(BaseCommand):
                 ham_toplam += 1
                 if kw.yasak_ihlali(h):
                     ham_ihlal += 1
+                    ham_ornek.append(h)
             kanonikler = kw.kanonik_liste(hams, azami=AZAMI_KEYWORD)
             for k in kanonikler:
                 tekil_kanonik.add(k)
                 if kw.yasak_ihlali(k):
                     kanonik_ihlal += 1
+                    kanonik_ornek.add(k)
             kume_map[kalip] = set(kanonikler)
             sektor_dagilim[s.get("sektor", "?")] += 1
             satirlar.append({
@@ -283,7 +286,33 @@ class Command(BaseCommand):
         # ---- rapor ----
         self._rapor(satirlar, liste, eksik, ham_toplam, ham_ihlal, kanonik_ihlal,
                     tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt, eslesmeler,
+                    ham_ornek, kanonik_ornek,
                     toplam_in, toplam_out, gecen, model, o["csv"])
+
+    def _varyant_ciftleri(self, kanonikler):
+        """
+        Birbirinden yalnızca son ekle ayrılan kanonik keyword çiftleri.
+
+        Kanonikleştiricinin KAÇIRDIKLARINI gösterir ("dogalgaz donusum" ~
+        "dogalgaz donusumu" gibi). ⚠️ Alt küme ilişkisi ("elbise" ⊂ "kislik
+        elbise") varyant DEĞİLDİR — 1-gram ile 2-gram bilinçli olarak birlikte
+        üretiliyor; yalnızca aynı token sayısında ve son token'ı ek farkıyla
+        ayrışan çiftler işaretlenir.
+        """
+        by_len = defaultdict(list)
+        for k in kanonikler:
+            by_len[len(k.split())].append(k)
+        cift = []
+        for _, grup in by_len.items():
+            grup.sort()
+            for i in range(len(grup)):
+                for j in range(i + 1, len(grup)):
+                    a, b = grup[i], grup[j]
+                    if len(b) - len(a) > 3 or not b.startswith(a):
+                        continue
+                    if a.split()[:-1] == b.split()[:-1]:      # yalnızca son token farklı
+                        cift.append((a, b))
+        return cift
 
     def _yakin_ciftler(self, kume_map, kac=12):
         """Keyword örtüşmesi en yüksek kalıp çiftleri (yanlış pozitif denetimi)."""
@@ -381,6 +410,7 @@ class Command(BaseCommand):
     # ── rapor ───────────────────────────────────────────
     def _rapor(self, satirlar, liste, eksik, ham_toplam, ham_ihlal, kanonik_ihlal,
                tekil_kanonik, sektor_dagilim, bos_sonuc, ayirt, eslesmeler,
+               ham_ornek, kanonik_ornek,
                t_in, t_out, gecen, model, csv_yolu):
         yaz = self.stdout.write
         n_kalip = len(liste)
@@ -406,14 +436,32 @@ class Command(BaseCommand):
         yaz(f"       ham çıktıda      : %{ham_oran:.1f}  ({ham_ihlal}/{ham_toplam}) "
             f"— prompt kalitesi")
         yaz(f"       kanonik sonrası  : %{kan_oran:.1f}   — kapı: <%1   [{durum}]")
+        if kanonik_ornek:
+            yaz(f"       kanonik ihlaller : {', '.join(sorted(kanonik_ornek)[:20])}")
+        if ham_ornek:
+            yaz(f"       ham ihlaller     : {', '.join(ham_ornek[:15])}")
 
-        # B) patlama
+        # B) hacim — ⚠️ KAPI DEĞİL, bkz. aşağıdaki uyarı
         patlama = len(tekil_kanonik) / max(len(satirlar), 1)
-        durum = self.style.SUCCESS("GEÇTİ") if patlama < 1.5 else self.style.ERROR("KALDI")
-        yaz(f"  B) Keyword patlaması : {patlama:.2f} tekil/kalıp  "
-            f"— kapı: <1.5   [{durum}]")
-        yaz(f"       tekil kanonik keyword: {len(tekil_kanonik)}")
+        yaz(f"  B) Keyword hacmi     : {patlama:.2f} tekil/kalıp "
+            f"({len(tekil_kanonik)} tekil, {len(satirlar)} kalıp)")
         yaz(f"       boş sonuç (dürüst red): {bos_sonuc}/{len(satirlar)}")
+        yaz(self.style.WARNING(
+            "       ⚠ Bu oran KAPI DEĞİLDİR ve popülasyona ekstrapole EDİLEMEZ."))
+        yaz("         Küçük örneklemde her yeni kalıp neredeyse hep yeni keyword "
+            "getirir;\n         669k kalıpta oran doygunluğa girer (Heaps yasası) — "
+            "dedup'taki doğum\n         günü paradoksuyla aynı hata sınıfı. Gerçek "
+            "tekil keyword sayısı ancak\n         toplu işlemede bilinir; koruma "
+            "orada: KEYWORD_MAX_UNIQUE + refresh_keyword_df.")
+        # Varyant denetimi — patlamanın ölçülebilir kısmı budur.
+        varyantlar = self._varyant_ciftleri(tekil_kanonik)
+        if varyantlar:
+            yaz(f"       şüpheli varyant çifti ({len(varyantlar)}): kanonikleştirici "
+                "bunları\n         birleştirmeliydi — çoksa kural eksik demektir")
+            for a, b in varyantlar[:12]:
+                yaz(f"         {a}  ~  {b}")
+        else:
+            yaz("       şüpheli varyant çifti: yok")
 
         # C) ayırt etme
         yaz(f"  C) Ayırt etme (seri kardeşleri vs rastgele)")

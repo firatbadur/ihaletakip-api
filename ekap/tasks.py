@@ -1109,40 +1109,36 @@ def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000)
         if batch:
             Tender.objects.bulk_update(batch, ["kalip_hash"])
 
-        # Kalıp sözlüğü: yeni kalıplar açılır, mevcutların sayacı artar.
-        # ⚠️ `ihale_sayisi` toplamı `dispatch` sırasını belirler; F() ile artırılır ki
-        # tur tekrarında sıfırlanmasın.
+        # Kalıp sözlüğü: yalnızca YENİ kalıplar açılır.
+        #
+        # ⚠️ `ihale_sayisi` BU GÖREVDE GÜNCELLENMEZ ve bu bilinçli. İki sürüm denendi
+        # ve ikisi de turu yavaşlattı (üretim ölçümü, 240 sn'lik turda):
+        #   • kalıp başına `.update(F(...)+n)`  → N+1, tur süresi kalıp sayısıyla katlanıyor
+        #   • `IN` ile çek + `bulk_update`      → tur 1: 22.077 ihale → tur 2: 12.109 (%45 düşüş)
+        # Sebep aynı: her tur, o turda görülen ON BİNLERCE kalıbı DB'den çekip geri
+        # yazmak zorunda kalıyor. Oysa `ihale_sayisi` yalnızca `dispatch` sırasını
+        # belirliyor — gerçek zamanlı olması hiç gerekmiyor. Tek bir GROUP BY ile
+        # sonradan kesin olarak hesaplanır (`refresh_kalip_sayaclari`), o da arşiv
+        # taraması bittiğinde otomatik çağrılır.
+        #
+        # `ignore_conflicts=True` mevcut kalıpları zaten atlar → mevcut/yeni ayrımı
+        # için ek SELECT'e de gerek kalmaz.
         yeni = 0
         if sayac:
-            mevcut = set(TenderNamePattern.objects
-                         .filter(kalip_hash__in=list(sayac))
-                         .values_list("kalip_hash", flat=True))
-            eklenecek = [
-                TenderNamePattern(kalip_hash=h, kalip_norm=ornek[h][0],
-                                  ornek_ad=ornek[h][1], ihale_sayisi=adet,
-                                  durum="pending")
-                for h, adet in sayac.items() if h not in mevcut
-            ]
-            if eklenecek:
-                TenderNamePattern.objects.bulk_create(eklenecek, ignore_conflicts=True)
-                yeni = len(eklenecek)
-            # ⚠️ Mevcut kalıpların sayacı TEK `bulk_update` ile artırılır.
-            # Önceki sürüm kalıp başına ayrı `.update(F("ihale_sayisi") + n)` atıyordu:
-            # ilk turda `mevcut` boş olduğu için fark edilmedi, ama sonraki turlarda
-            # binlerce tekil UPDATE demekti (klasik N+1, tur süresini katlıyordu).
-            # `F()` atomikliği kaybolur; sorun değil çünkü görev Redis kilidiyle tek
-            # örnek çalışır (bkz. `_run`).
-            if mevcut:
-                kayitlar = list(TenderNamePattern.objects
-                                .filter(kalip_hash__in=list(mevcut))
-                                .only("id", "kalip_hash", "ihale_sayisi"))
-                for k in kayitlar:
-                    k.ihale_sayisi += sayac.get(k.kalip_hash, 0)
-                TenderNamePattern.objects.bulk_update(
-                    kayitlar, ["ihale_sayisi"], batch_size=1000)
+            TenderNamePattern.objects.bulk_create(
+                [TenderNamePattern(kalip_hash=h, kalip_norm=ornek[h][0],
+                                   ornek_ad=ornek[h][1], ihale_sayisi=adet,
+                                   durum="pending")
+                 for h, adet in sayac.items()],
+                ignore_conflicts=True, batch_size=2000,
+            )
+            yeni = len(sayac)
 
         if processed == 0 and errors == 0 and not timed_out:
             cp.done = True
+            # Arşiv bitti → sayaçları tek GROUP BY ile kesinleştir (dispatch sırası
+            # bundan sonra doğru olur).
+            refresh_kalip_sayaclari()
         cp.extra = {**(cp.extra or {}), "last_tender_pk": last_pk}
         cp.save()
 
@@ -1152,6 +1148,65 @@ def backfill_tender_kalip(max_tenders=200000, max_seconds=None, batch_size=1000)
                     f"{'süre doldu' if timed_out else ''}")[:1000]
         return {"tenders": processed, "yeni_kalip": yeni, "cursor": last_pk,
                 "timed_out": timed_out, "done": cp.done}
+
+
+@shared_task(name="ekap.tasks.refresh_kalip_sayaclari")
+def refresh_kalip_sayaclari():
+    """
+    `TenderNamePattern.ihale_sayisi`'ni tek GROUP BY ile kesinleştirir.
+
+    ⚠️ Bu sayaç `dispatch` sırasını belirler (en çok ihaleyi kapsayan kalıp önce
+    gider), yani AI bütçesi yarıda kesilse bile kapsamın çoğunun alınmasını sağlayan
+    şeydir — ama gerçek zamanlı olması gerekmez. Doldurma turlarının içinde artırmak
+    turu %45 yavaşlatıyordu (ölçüldü); burada tek sorguyla, kesin olarak hesaplanır.
+
+    Doldurma tamamlandığında otomatik çağrılır; elle: `run_keywords --job sayac`.
+    """
+    from django.db import connection
+
+    with _run("refresh_kalip_sayaclari", lock_ttl=1800) as run:
+        if run is None:
+            return
+        if connection.vendor == "postgresql":
+            with connection.cursor() as cur:
+                cur.execute("""
+                    UPDATE ekap_tendernamepattern p
+                       SET ihale_sayisi = c.n
+                      FROM (SELECT kalip_hash, count(*) AS n
+                              FROM ekap_tender
+                             WHERE kalip_hash <> ''
+                             GROUP BY kalip_hash) c
+                     WHERE p.kalip_hash = c.kalip_hash
+                       AND p.ihale_sayisi IS DISTINCT FROM c.n
+                """)
+                guncellenen = cur.rowcount
+        else:
+            # ⚠️ `UPDATE ... FROM` Postgres'e özel; yerel geliştirme SQLite'a düşüyor
+            # (bkz. settings: DATABASE_URL yoksa SQLite). ORM karşılığı yavaştır ama
+            # yerel veri küçüktür — üretim yolu her zaman yukarıdaki tek sorgudur.
+            from django.db.models import Count
+
+            from .models import TenderNamePattern
+            sayimlar = dict(
+                Tender.objects.exclude(kalip_hash="")
+                .values_list("kalip_hash")
+                .annotate(n=Count("pk"))
+                .values_list("kalip_hash", "n")
+            )
+            kayitlar = list(TenderNamePattern.objects.only("id", "kalip_hash",
+                                                           "ihale_sayisi"))
+            degisen = []
+            for k in kayitlar:
+                yeni_n = sayimlar.get(k.kalip_hash, 0)
+                if k.ihale_sayisi != yeni_n:
+                    k.ihale_sayisi = yeni_n
+                    degisen.append(k)
+            TenderNamePattern.objects.bulk_update(degisen, ["ihale_sayisi"],
+                                                  batch_size=1000)
+            guncellenen = len(degisen)
+        run.items = guncellenen
+        run.note = f"sayaç güncellenen kalıp={guncellenen}"
+        return {"guncellenen": guncellenen}
 
 
 @shared_task(name="ekap.tasks.dispatch_keyword_batches")

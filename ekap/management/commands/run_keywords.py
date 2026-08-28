@@ -6,6 +6,7 @@ ayrıca ilk yüklemede 6 saatlik `dispatch` aralığını beklemek anlamsızdır
 görevleri **senkron** çalıştırır (Celery'ye atmaz), yani çıktıyı doğrudan görürsün.
 
     python manage.py run_keywords --job kalip       # Tender.kalip_hash + kalıp sözlüğü
+    python manage.py run_keywords --job sayac       # kalıp başına ihale sayısı (dispatch sırası)
     python manage.py run_keywords --job dispatch    # AI'ya batch gönder
     python manage.py run_keywords --job poll        # batch durumu
     python manage.py run_keywords --job process     # sonuçları yaz
@@ -28,6 +29,7 @@ class Command(BaseCommand):
 
     ISLER = {
         "kalip": tasks.backfill_tender_kalip,
+        "sayac": tasks.refresh_kalip_sayaclari,
         "dispatch": tasks.dispatch_keyword_batches,
         "poll": tasks.poll_keyword_batches,
         "process": tasks.process_keyword_results,

@@ -1891,6 +1891,25 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   proxy'lemeye devam eder. Belirti: `docker compose ps` web'i `healthy` gösterir ama
   `curl /health/` **502** döner — yani "web sağlıklı ama site kapalı".
   `install.sh` bunu artık otomatik yapar; elle `up -d` çalıştırırsan sen ekle.
+- ⚠️⚠️ **MODEL KOLONU EKLERKEN: TÜM SERVİSLERİ GÜNCELLE + DB DEFAULT VER.**
+  Yaşanmış arıza (2026-08-28 → 08-31, **3 gün veri kaybı**): keyword katmanının
+  `Tender.kalip_hash`/`sektor` kolonları `NOT NULL` eklendi (Django `AddField`'ın normal
+  davranışı: default yalnızca mevcut satırları doldurmak için geçici kullanılır, sonra
+  düşürülür) ve deploy'da **yalnızca `web`** yeni imaja geçirildi. Eski worker'ların
+  `Tender` modeli o kolonları tanımadığı için `INSERT` deyimine hiç koymadı → DB'de de
+  default olmadığından NULL gitti → her satır
+  `null value in column "kalip_hash" violates not-null constraint` ile düştü.
+  **Sonuç: `sync_recent` üç gün boyunca 225 ihalenin HEPSİNİ düşürdü, tek yeni ihale
+  girmedi, bildirimler de sustu** (filtre/idare alarmları "bugün yayınlanan ihale" arıyor).
+  ⚠️ **Belirti parmak izi**: `SyncRun.status='ok'` ama `items=0, errors=<sayfa dolusu>`.
+  `status` 'ok' olduğu için admin listesinde arıza GÖRÜNMEZ; gerçek sebep `note` alanında
+  ve worker log'undaki `"ihale atlandı ikn=… : null value in column …"` satırındadır.
+  Teşhis: `docker compose logs ekap-priority-worker | grep atlandı`.
+  ⚠️ Kalıcı koruma `0023_keyword_column_defaults`: kolonlara **DB seviyesinde** default
+  verir, böylece eski kod yazmaya devam edebilir. Yeni kolon eklerken bunu tekrarlayın.
+  ⚠️ `docker compose start <servis>` mevcut konteyneri başlatır, **yeni imajı almaz**;
+  `docker compose build <servis> && docker compose up -d <servis>` gerekir. Paralel build
+  bu makinede (8 GB) `EOF` ile düşebiliyor → servisleri **tek tek** kurun.
 - **⚡ Güncelleme betiği `install.sh`** (repo kökü): tek komutla `git pull --ff-only` +
   `docker compose up -d --build` + servis durumu + `/health/` doğrulaması yapar → her
   seferinde elle uğraşmaya gerek yok. `./install.sh` (normal), `./install.sh --logs`

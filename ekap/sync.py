@@ -131,6 +131,17 @@ def upsert_tender_from_list(item) -> Tender | None:
     # İKN için değişebildiğinden (yeniden yayım vb.) upsert İKN'ye göre yapılır;
     # ekap_id son gelen değere güncellenir. (ekap_id ile upsert edilirse aynı İKN
     # farklı id'yle geldiğinde ikn unique kısıtını ihlal edip insert patlardı.)
+    # Anahtar kelime kalıbı LİSTE aşamasında hesaplanır — ihale adı burada zaten var,
+    # detayın gelmesini beklemeye gerek yok. Böylece yeni ihale kaydedildiği anda
+    # kalıbı belli olur ve `backfill_tender_kalip`'in arşiv taramasına iş kalmaz.
+    # ⚠️ Hata YUTULUR: keyword bir zenginleştirmedir, ihalenin kaydedilmesini
+    # engellememelidir (aynı gerekçe `upsert_tender_detail`'deki `uygula()` çağrısında).
+    try:
+        defaults["kalip_hash"] = keywords_mod.kalip_hash(defaults.get("ihale_adi") or "")
+    except Exception as exc:                       # noqa: BLE001
+        logger.warning("kalip_hash hesaplanamadı ikn=%s: %s", ikn, exc)
+        defaults["kalip_hash"] = ""
+
     tender, _ = Tender.objects.update_or_create(
         ikn=str(ikn), defaults=defaults
     )

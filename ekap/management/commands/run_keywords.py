@@ -85,6 +85,29 @@ class Command(BaseCommand):
         yaz(f"  ihale bağı    : {TenderKeyword.objects.count():,}")
         yaz(f"  sektörlü ihale: {Tender.objects.exclude(sektor='').count():,}")
 
+        # ── üretilen keyword örnekleri ──
+        # ⚠️ Raporun asıl işi bu: sayılar boru hattının çalıştığını gösterir ama
+        # kaliteyi yalnızca çıktının kendisi gösterir. En çok ihale kapsayan
+        # kalıplar önce işlendiği için buradaki örnekler aynı zamanda en etkili
+        # keyword'lerdir.
+        islenmis = (TenderNamePattern.objects.filter(durum="ok")
+                    .order_by("-ihale_sayisi")[:12])
+        if islenmis:
+            from ekap.constants import SEKTORLER
+            from ekap.models import Keyword as KW
+            yaz(self.style.MIGRATE_HEADING("\n── Üretilen keyword örnekleri ──"))
+            for p in islenmis:
+                metinler = list(KW.objects.filter(id__in=p.keyword_ids or [])
+                                .values_list("metin", flat=True))
+                yaz(f"\n  {p.ihale_sayisi:>5} ihale · {p.kalip_norm[:62]}")
+                yaz(f"        → {' | '.join(metinler)}")
+                yaz(f"        → {SEKTORLER.get(p.sektor, p.sektor)} (güven {p.guven})")
+
+            atlanan = TenderNamePattern.objects.filter(durum="skipped").count()
+            if atlanan:
+                yaz(f"\n  ({atlanan:,} kalıp 'skipped' — model bu adlardan anlamlı "
+                    "keyword çıkaramadı,\n   uydurmak yerine boş bırakıldı)")
+
         yaz(self.style.MIGRATE_HEADING("\n── İmleçler ──"))
         for ad in ("tender_kalip", "tender_keywords", "contractors", "tender_fields"):
             cp = SyncCheckpoint.objects.filter(name=ad).first()

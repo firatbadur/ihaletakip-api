@@ -53,13 +53,26 @@ from .utils import normalize_tr
 _KALIP_GURULTU = frozenset({
     "yili", "yil", "yillik", "aylik", "ay", "gun", "gunluk", "donem", "donemi",
     "adet", "kalem", "kalemi", "kalemlik",
-    # ⚠️ AY ADLARI — üretimde görüldü: "tibbi sarf malzeme alimi OCAK alimi" ile
-    # "... ARALIK alimi" ayrı kalıplara düşüyordu, yani aynı iş AI'ya 12 kez
-    # sorulabiliyordu. Ay adı bir işi diğerinden ayırmaz; yıl/miktar ile aynı
-    # kategoride gürültüdür.
-    "ocak", "subat", "mart", "nisan", "mayis", "haziran",
-    "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik",
 })
+
+# ⚠️ AY ADLARI BİLEREK LİSTEDE DEĞİL — denendi, ölçüldü, GERİ ALINDI (2026-08-31).
+#
+# Hipotez makuldü: "tibbi sarf malzeme alimi OCAK alimi" ile "... ARALIK alimi" ayrı
+# kalıplara düşüyor, yani aynı iş AI'ya 12 kez sorulabiliyor. Üretimde ölçüm:
+#
+#     ay adı içeren kalıp : 7.857 / 669.602  (%1,17)
+#     kural uygulanınca   : 13.189 kalıp değişiyor, ama yalnızca 1.091'i BİRLEŞİYOR
+#     net kazanç          : ~$0,25
+#
+# 16.761 ihale satırını güncellemek ve arşivi yeniden hesaplamak bu kazanca değmiyor.
+# ⚠️ Ayrıca kuralın kör noktası var: ay adı sık sık ÖZEL İSMİN parçası —
+# "Iğdır-ARALIK Gökay Taburu" (Aralık = Iğdır'ın ilçesi), "29 EKİM Cumhuriyet",
+# "15 TEMMUZ Demokrasi Meydanı". Bunları gürültü sayıp atmak bilgi kaybettirir.
+#
+# Aynı gerekçe ardışık tekrar sadeleştirmesi için de geçerliydi ("ALIMI OCAK 2025
+# ALIMI" → "alimi alimi"): tek başına kazancı yok, yalnızca ay temizliğinin yan
+# ürünüydü. Kalıp kuralını değiştirmek arşivi yeniden hesaplamayı gerektirir
+# (`fix_kalip_kural`); bunu ancak ölçülmüş ve KAYDA DEĞER bir kazanç için yapın.
 
 # Coğrafi token'lar kalıptan atılır.
 #
@@ -181,8 +194,6 @@ def kalip_norm(ihale_adi: str) -> str:
     'tekstil malzemeleri alim isi'
     >>> kalip_norm("Hakkari Şemdinli İlçesi Karşıyaka Mahallesi İstinat Duvarı Yapım İşi")
     'semdinli karsiyaka istinat duvari yapim isi'
-    >>> kalip_norm("TIBBİ SARF MALZEME ALIMI OCAK 2025 ALIMI")   # ay + yıl + tekrar
-    'tibbi sarf malzeme alimi'
     """
     metin = _NON_WORD.sub(" ", normalize_tr(ihale_adi or ""))
     tokenlar = [
@@ -190,11 +201,7 @@ def kalip_norm(ihale_adi: str) -> str:
         if t and not _HAS_DIGIT.search(t)
         and t not in _KALIP_GURULTU and t not in _COGRAFI
     ]
-    # ⚠️ Ardışık tekrarlar temizlenir. Gürültü token'ları atılınca ortaya çıkıyorlar:
-    # "ALIMI OCAK 2025 ALIMI" → (ay ve yıl atılır) → "alimi alimi". Yalnızca ARDIŞIK
-    # olanlar atılır; uzaktaki tekrar anlamlı olabilir ("kum cakil kum").
-    sade = [t for i, t in enumerate(tokenlar) if i == 0 or t != tokenlar[i - 1]]
-    return " ".join(sade)[:KALIP_AZAMI_KARAKTER].strip()
+    return " ".join(tokenlar)[:KALIP_AZAMI_KARAKTER].strip()
 
 
 def kalip_hash(ihale_adi: str) -> str:

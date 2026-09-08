@@ -77,7 +77,12 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        # ⚠️ DIRS, APP_DIRS'ten ÖNCE aranır. `jazzmin` INSTALLED_APPS'te ilk sırada
+        # olduğu için admin şablonlarını app-dir sırasıyla ezmek MÜMKÜN DEĞİL;
+        # `admin/index.html`'i (istatistik panosu) ezmenin tek yolu budur.
+        # Buraya yalnızca panoya ait şablonlar konur — jazzmin sürüm yükseltmelerinde
+        # kırılma yüzeyi dar kalsın.
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -150,7 +155,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ── DRF ────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # Düz JWTAuthentication'ın alt sınıfı; ek olarak `User.last_seen_at`'i
+        # kullanıcı başına günde bir kez damgalar (MAU/DAU ölçümü — bkz.
+        # accounts/authentication.py, core/dashboard.py).
+        "accounts.authentication.SonGorulmeJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (

@@ -36,6 +36,20 @@ class User(AbstractUser):
     fcm_token = models.CharField("FCM token", max_length=500, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
+    # ── Etkinlik izi (MAU/DAU ölçümü) ──────────────────────
+    # ⚠️ `last_login` bu projede İŞE YARAMAZ: JWT uçları (`serializers.issue_tokens`)
+    # `django.contrib.auth.login()` çağırmaz ve `SIMPLE_JWT["UPDATE_LAST_LOGIN"]`
+    # tanımlı değil → alan yalnızca admin paneline girenlerde dolar. Mobil kullanıcı
+    # sayısı ondan okunamaz. Bu alan `accounts.authentication` tarafından, JWT ile
+    # kimliği doğrulanan her istekte (kullanıcı başına GÜNDE BİR KEZ) yazılır.
+    last_seen_at = models.DateTimeField(
+        "son görülme",
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Uygulamayı en son ne zaman kullandı (kimliği doğrulanan istek).",
+    )
+
     # ── Abonelik ───────────────────────────────────────────
     # Premium (Pro) özellikler `is_premium` üzerinden kapılanır (bkz. accounts.premium).
     # Katman yalnızca admin/ödeme entegrasyonu tarafından değiştirilir; API'de read-only.

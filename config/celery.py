@@ -188,7 +188,12 @@ app.conf.beat_schedule = {
     },
     "ekap-process-keyword-results": {
         "task": "ekap.tasks.process_keyword_results",
-        "schedule": crontab(minute="7,22,37,52"),
+        # ⚠️ Tur bütçesi 240 sn ve tur başına yalnızca BİR batch ilerler (bkz.
+        # `process_keyword_results`). 50.000 kalıplık batch ~10 tur ister; 15 dakikalık
+        # aralıkta bu 2,5 saat sürer ve altı batch birikince kuyruk günlere yayılır.
+        # 5 dakikada bir tetikleme aynı işi ~3 kat hızlı bitirir; görev tamamen DB-içi
+        # olduğu için EKAP'a yük binmez, `celery` kuyruğunda koşar.
+        "schedule": crontab(minute="*/5"),
     },
     # ⚠️ Tek yazma-ağır aşama → gece penceresi görevin kendi içinde uygulanır
     # (`KEYWORD_PROPAGATE_START/END`); beat sık tetikler, görev kendini eler.

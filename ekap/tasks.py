@@ -1397,7 +1397,13 @@ def process_keyword_results(max_seconds=None):
     from . import keywords as kw_mod
     from .models import KeywordBatch, TenderNamePattern
 
-    bitenler = list(KeywordBatch.objects.filter(durum="ended"))
+    # ⚠️ **FIFO ŞART — `Meta.ordering` LIFO'dur** (`-created_at`). Süre bütçesi dolunca
+    # döngü `break` ettiği için turda yalnızca LİSTENİN İLK batch'i ilerler; varsayılan
+    # sıralamayla bu hep **en yeni** batch olur ve eskiler açlığa düşer. Üretimde
+    # ölçüldü (2026-09-08): 23 saatlik bir batch iki ardışık turda hiç ilerlemedi
+    # (yazılan 15.539'da sabit) çünkü 10 saatlik batch sürekli önüne geçiyordu. Yeni
+    # batch'ler indikçe eski kalıcı olarak beklerdi.
+    bitenler = list(KeywordBatch.objects.filter(durum="ended").order_by("created_at"))
     if not bitenler:
         return {"batch": 0}
 

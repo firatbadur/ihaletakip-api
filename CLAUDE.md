@@ -884,6 +884,32 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   `KEYWORD_MAX_INFLIGHT_BATCHES`, kümülatif `KEYWORD_MAX_TOTAL_USD`, `KEYWORD_MAX_UNIQUE`.
   `dispatch` kalıpları **`-ihale_sayisi` sırasıyla** gönderir → bütçe kesilse bile
   kapsamın çoğu alınır (en sık %1 kalıp ihalelerin %19'unu, %20 kalıp %47'sini kapsıyor).
+  ⚠️⚠️ **Token sayacı YARIM geçişte yazılmaz** (`process_keyword_results`). Sonuç akışı
+  kısmi okuma sunmuyor: süre bütçesi (240 sn) dolunca batch `ended` kalır ve sonraki tur
+  akışı **baştan** okur. Sayaç eskiden `input_tokens = kayit.input_tokens + in_tok` diye
+  **topluyordu** → aynı mesajların token'ı her geçişte yeniden eklendi.
+  Üretimde yaşandı (2026-09-08): 2.000 istekli (50.000 kalıplık) batch'ler 240 sn'ye
+  sığmayıp ~3 geçişte bitti, sayaç **2,8× şişti**, ~$50'lik gerçek harcama **$120**
+  göründü ve `KEYWORD_MAX_TOTAL_USD` tavanı iş yarıdayken tetiklendi.
+  ⚠️ **Veri doğruydu** — kalıp yazımı idempotent (`ok` olanlar atlanır); bozuk olan
+  yalnızca maliyet muhasebesiydi. Teşhisi zorlaştıran da buydu: şişme girdi ve çıktıya
+  **aynı** katsayıyla vurduğu için "kalıplar uzadı, model daha çok keyword üretiyor"
+  gibi görünür. Sahte açıklama ölçümle çürütüldü: `ok` kalıpların ortalama uzunluğu 71,
+  `pending` olanların 75 karakter (%6 fark) — 2,8 katı açıklayamaz.
+  ⚠️ **Parmak izi**: `in/kalıp` ve `out/kalıp` oranlarının birebir aynı katsayıyla
+  artması (385/136 = 2,83 · 125/45 = 2,78). İçerik değişimi bu iki oranı bu hassasiyetle
+  birlikte hareket ettirmez; sayaç şişmesi ettirir.
+  Doğrusu: tam geçişte **ATA** (`input_tokens=in_tok`), yarım geçişte **hiç yazma**.
+  `hatali` de her geçişte yeniden sayıldığı için atanır; `basarili` ise **toplanır**
+  (her geçiş yalnızca yeni yazılan kalıbı sayar).
+  Geçmiş şişmiş sayaçlar: `python manage.py run_keywords --job maliyet --tur N`
+  (`recalc_keyword_costs`) — akışı yeniden okuyup gerçek toplamı **atar**. Sonuç
+  indirmek **ücretsizdir** (Anthropic sonuçları 29 gün saklar), onarım para harcamaz.
+  ⚠️ **Genel kural**: yeniden akıtılabilir bir görevde **birikimli sayaç tutmayın**.
+  İdempotenslik yalnızca yazdığınız satırlar için düşünülür ama sayaçlar da durumdur.
+  ⚠️ **Tavan gerçek bakiyenin ALTINDA olmalı.** `KEYWORD_MAX_TOTAL_USD=200` bir kez
+  $13'lük bakiyede tutuldu ve hiçbir koruma sağlamadı; beat 6 saatte bir dispatch edip
+  krediyi tüketti. Tavan, bakiyeyi bilerek konur.
 - ⚠️ **`propagate` tek yazma-ağır aşamadır** (~5M INSERT) → gece penceresi + yüklenici
   süpürmesi/pro-backfill önceliği. Gündüz koşarsa buffer cache'i kirletip aramayı
   yavaşlatır. Kaçış: `KEYWORD_PROPAGATE_IGNORE_SWEEP`.

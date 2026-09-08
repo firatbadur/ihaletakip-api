@@ -445,6 +445,7 @@ CELERY_TASK_ROUTES = {
     "ekap.tasks.process_keyword_results": {"queue": "celery"},
     "ekap.tasks.propagate_tender_keywords": {"queue": "celery"},
     "ekap.tasks.refresh_keyword_df": {"queue": "celery"},
+    "ekap.tasks.recalc_keyword_costs": {"queue": "celery"},
     "ekap.tasks.detect_recurring_series": {"queue": "celery"},
     "ekap.tasks.refresh_market_stats": {"queue": "celery"},
     # ⚠️ **Zamana duyarlı EKAP görevleri AYRI kuyrukta** (`ekap_oncelik`).

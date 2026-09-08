@@ -1369,6 +1369,10 @@ def models_F_deneme():
     return F("deneme") + 1
 
 
+# `recalc_keyword_costs` düzelttiği batch'i bu izle işaretler (tekrar işlemesin).
+_MALIYET_ISARETI = "[maliyet_duzeltildi]"
+
+
 @shared_task(name="ekap.tasks.process_keyword_results")
 def process_keyword_results(max_seconds=None):
     """
@@ -1409,6 +1413,7 @@ def process_keyword_results(max_seconds=None):
 
         for kayit in bitenler:
             in_tok = out_tok = 0
+            batch_ok = batch_hata = 0
             try:
                 akis = batch_sonuclari(api_key, kayit.batch_id)
             except Exception as exc:               # noqa: BLE001
@@ -1421,7 +1426,7 @@ def process_keyword_results(max_seconds=None):
                     break
                 tip = getattr(oge.result, "type", "")
                 if tip != "succeeded":
-                    toplam_hata += 1
+                    batch_hata += 1
                     continue
                 mesaj = oge.result.message
                 in_tok += getattr(mesaj.usage, "input_tokens", 0)
@@ -1431,28 +1436,102 @@ def process_keyword_results(max_seconds=None):
                 try:
                     veri = json.loads(ham)
                 except json.JSONDecodeError:
-                    toplam_hata += 1
+                    batch_hata += 1
                     logger.warning("batch %s: JSON parse edilemedi", kayit.batch_id)
                     continue
-                toplam_ok += _kalip_sonuclarini_yaz(veri.get("sonuclar") or [], kayit)
+                batch_ok += _kalip_sonuclarini_yaz(veri.get("sonuclar") or [], kayit)
 
-            KeywordBatch.objects.filter(pk=kayit.pk).update(
-                input_tokens=kayit.input_tokens + in_tok,
-                output_tokens=kayit.output_tokens + out_tok,
-            )
+            toplam_ok += batch_ok
+            toplam_hata += batch_hata
             if timed_out:
+                # ⚠️⚠️ Yarım geçişte token sayacı YAZILMAZ. Akış kısmi okuma sunmuyor;
+                # bir sonraki tur BAŞTAN okuyacak, dolayısıyla toplama yapmak aynı
+                # mesajların token'ını her geçişte yeniden eklemek demektir.
+                # Üretimde yaşandı (2026-09-08): 2.000 istekli batch'ler 240 sn'ye
+                # sığmayıp ~3 geçişte bitti, sayaç **2,8× şişti**, ~$50'lik gerçek
+                # harcama $120 göründü ve `KEYWORD_MAX_TOTAL_USD` tavanı iş yarıdayken
+                # tetiklendi. Kalıp yazımı idempotent olduğu için VERİ doğruydu;
+                # yalnızca maliyet muhasebesi yanlıştı — teşhisi zorlaştıran şey de
+                # buydu (girdi ve çıktı **aynı** oranda şişer, içerik değişimi gibi
+                # görünür). Parmak izi: in/kalıp ve out/kalıp oranlarının birebir
+                # aynı katsayıyla artması.
                 break
+            # Tam geçiş: akış baştan sona okundu → `in_tok`/`out_tok` GERÇEK toplamdır,
+            # bu yüzden toplanmaz, ATANIR. `hatali` de her geçişte yeniden sayıldığı
+            # için atanır; `basarili` ise ATANMAZ, TOPLANIR — `_kalip_sonuclarini_yaz`
+            # zaten `ok` olan kalıpları atladığından her geçiş yalnızca yeni yazılanı
+            # sayar.
+            KeywordBatch.objects.filter(pk=kayit.pk).update(
+                input_tokens=in_tok, output_tokens=out_tok,
+                durum="processed", islendi_at=tz.now(),
+                basarili=kayit.basarili + batch_ok, hatali=batch_hata)
             # Batch bitti: kalan `queued` kalıplar sonuç dönmemiş demektir → iade.
             TenderNamePattern.objects.filter(batch=kayit, durum="queued").update(
                 durum="pending", deneme=models_F_deneme())
-            KeywordBatch.objects.filter(pk=kayit.pk).update(
-                durum="processed", islendi_at=tz.now(),
-                basarili=toplam_ok, hatali=toplam_hata)
 
         run.items = toplam_ok
         run.errors = toplam_hata
         run.note = f"batch={len(bitenler)} {'süre doldu' if timed_out else ''}"[:1000]
         return {"islenen": toplam_ok, "hata": toplam_hata, "timed_out": timed_out}
+
+
+@shared_task(name="ekap.tasks.recalc_keyword_costs")
+def recalc_keyword_costs(limit=1):
+    """
+    Şişmiş token sayaçlarını gerçek değerleriyle DÜZELTİR (tek seferlik onarım).
+
+    ⚠️ Neden gerekli: `process_keyword_results` eskiden yarım geçişlerde token'ları
+    **topluyordu**; akış kısmi okuma sunmadığı için her tur baştan okunuyor ve aynı
+    mesajlar tekrar tekrar sayılıyordu (bkz. oradaki not). Sonuç: `KEYWORD_MAX_TOTAL_USD`
+    tavanı gerçek harcamanın ~2,8 katına göre tetikleniyordu.
+
+    ⚠️ Sonuç akışını yeniden indirmek **ücretsizdir** (Anthropic sonuçları 29 gün saklar,
+    okuma faturalanmaz) — bu onarım para harcamaz.
+
+    ⚠️ Batch başına akış **baştan sona** okunmalı, yoksa toplam yine eksik olur; bu
+    yüzden süre bütçesi mesaj döngüsünün İÇİNE konmaz. Bunun yerine çağrı başına
+    `limit` kadar batch işlenir (`--tur N` ile tekrarlanır).
+    """
+    from ai.services.claude import batch_sonuclari, get_api_key
+
+    from .models import KeywordBatch
+
+    hedefler = list(
+        KeywordBatch.objects.filter(durum="processed")
+        .exclude(note__contains=_MALIYET_ISARETI)
+        .order_by("-kalip_sayisi")[:limit]
+    )
+    if not hedefler:
+        return {"done": True, "duzeltilen": 0}
+
+    api_key = get_api_key()
+    sonuc = []
+    for kayit in hedefler:
+        in_tok = out_tok = mesaj_sayisi = 0
+        try:
+            for oge in batch_sonuclari(api_key, kayit.batch_id):
+                if getattr(oge.result, "type", "") != "succeeded":
+                    continue
+                mesaj_sayisi += 1
+                in_tok += getattr(oge.result.message.usage, "input_tokens", 0)
+                out_tok += getattr(oge.result.message.usage, "output_tokens", 0)
+        except Exception as exc:                   # noqa: BLE001
+            logger.warning("maliyet düzeltme başarısız (%s): %s", kayit.batch_id, exc)
+            continue
+
+        eski = ((kayit.input_tokens * settings.KEYWORD_FIYAT_IN
+                 + kayit.output_tokens * settings.KEYWORD_FIYAT_OUT) / 1_000_000)
+        gercek = ((in_tok * settings.KEYWORD_FIYAT_IN
+                   + out_tok * settings.KEYWORD_FIYAT_OUT) / 1_000_000)
+        KeywordBatch.objects.filter(pk=kayit.pk).update(
+            input_tokens=in_tok, output_tokens=out_tok,
+            note=f"{kayit.note} {_MALIYET_ISARETI}".strip()[:2000])
+        logger.info("maliyet düzeltildi %s: $%.2f → $%.2f (%s mesaj)",
+                    kayit.batch_id, eski, gercek, mesaj_sayisi)
+        sonuc.append({"batch": kayit.batch_id, "mesaj": mesaj_sayisi,
+                      "eski_usd": round(eski, 2), "gercek_usd": round(gercek, 2)})
+
+    return {"duzeltilen": len(sonuc), "batchler": sonuc}
 
 
 def _kalip_sonuclarini_yaz(sonuclar, kayit):

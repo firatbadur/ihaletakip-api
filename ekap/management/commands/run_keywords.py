@@ -12,6 +12,7 @@ görevleri **senkron** çalıştırır (Celery'ye atmaz), yani çıktıyı doğr
     python manage.py run_keywords --job process     # sonuçları yaz
     python manage.py run_keywords --job propagate   # ihalelere yay
     python manage.py run_keywords --job df          # kullanım sayacı + pasif bayrağı
+    python manage.py run_keywords --job maliyet     # şişmiş token sayaçlarını onar
     python manage.py run_keywords --job durum       # özet rapor (hiçbir şey çalıştırmaz)
 
 ⚠️ `--job kalip` ve `--job propagate` süre bütçeli tek TUR çalışır; arşivi bitirmek
@@ -35,6 +36,7 @@ class Command(BaseCommand):
         "process": tasks.process_keyword_results,
         "propagate": tasks.propagate_tender_keywords,
         "df": tasks.refresh_keyword_df,
+        "maliyet": tasks.recalc_keyword_costs,
     }
 
     def add_arguments(self, parser):

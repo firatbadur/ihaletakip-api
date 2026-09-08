@@ -1,0 +1,16 @@
+{% comment %}
+  Grafik kartı sarmalayıcısı.
+  Parametreler: baslik, canvas_id, alt (küçük açıklama), kisa (True → düşük yükseklik).
+  ⚠️ Chart.js `maintainAspectRatio:false` ile çalışır → yüksekliği .it-chart CSS'i verir.
+{% endcomment %}
+<div class="card h-100">
+  <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-1">
+    <h5 class="card-title mb-0">{{ baslik }}</h5>
+    {% if alt %}<span class="it-card__alt">{{ alt }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+    <div class="it-chart{% if kisa %} it-chart--kisa{% endif %}">
+      <canvas id="{{ canvas_id }}"></canvas>
+    </div>
+  </div>
+</div>

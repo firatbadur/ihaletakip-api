@@ -1,0 +1,42 @@
+{% load dashboard_tags %}
+{% comment %}
+  Tek KPI kartı.
+  Parametreler: baslik, deger, ikon (Font Awesome sınıfı), renk (marka|koyu|basari|uyari|tehlike),
+  alt (küçük açıklama), delta (% değişim, None olabilir), spark (sayı listesi),
+  yaklasik (True ise "≈" işareti — gerekçe core/dashboard.py docstring'i), url.
+  Responsive: mobilde 2 sütun (col-6), tablette 4 (col-md-4), masaüstünde 4'lü şerit.
+{% endcomment %}
+<div class="col-6 col-md-4 col-xl-3">
+  <div class="card it-kpi it-kpi--{{ renk|default:'marka' }} h-100">
+    {% if url %}<a href="{{ url }}" class="it-kpi__link" aria-label="{{ baslik }}"></a>{% endif %}
+    <div class="card-body">
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        <div class="min-w-0">
+          <div class="it-kpi__label" {% if ipucu %}title="{{ ipucu }}"{% endif %}>{{ baslik }}</div>
+          <div class="it-kpi__value">
+            {% if yaklasik %}<span class="it-kpi__approx" title="Yaklaşık değer">≈</span>{% endif %}{{ deger|tr_sayi }}
+          </div>
+          {% if delta is not None %}
+            <span class="it-kpi__delta {% if delta > 0 %}up{% elif delta < 0 %}down{% else %}flat{% endif %}">
+              {% if delta > 0 %}▲{% elif delta < 0 %}▼{% else %}▬{% endif %} %{{ delta|floatformat:"-1" }}
+              <span class="it-kpi__delta-note">düne göre</span>
+            </span>
+          {% endif %}
+          {% if alt %}<div class="it-kpi__alt">{{ alt }}</div>{% endif %}
+        </div>
+        {% if ikon %}<span class="it-kpi__icon"><i class="fas {{ ikon }}"></i></span>{% endif %}
+      </div>
+    </div>
+    {% if spark %}
+      {% sparkline spark as d %}
+      {% if d %}
+        <div class="it-kpi__spark" aria-hidden="true">
+          <svg viewBox="0 0 100 28" preserveAspectRatio="none" role="presentation">
+            <path d="{{ d }}" fill="none" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+          </svg>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

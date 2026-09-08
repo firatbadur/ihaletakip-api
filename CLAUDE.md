@@ -101,7 +101,14 @@ core/              # Ortak altyapı
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
 ├── response.py    # api_response() yardımcısı
 ├── storage.py     # JazzminManifestStaticFilesStorage (statik dosya storage)
+├── dashboard.py   # admin anasayfa panosu — metrik/sorgu katmanı (bkz. Admin Panosu)
+├── templatetags/  # dashboard_tags.py ({% dashboard_metrics %}, tr_sayi, sparkline)
 └── views.py       # health, support
+
+templates/admin/   # ⚠️ jazzmin'in admin/index.html'ini EZEN pano şablonları
+├── index.html     # pano (KPI kartları + Chart.js grafikleri + son işlemler)
+├── _kpi_card.html
+└── _chart_card.html
 ```
 
 ## EKAP Entegrasyonu (kritik)
@@ -1490,6 +1497,24 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
   key'leriyle doğrular (audience = `com.envisoft.ihaletakip`).
 - **Çıkış**: `POST /api/v1/auth/logout` body `{refresh}` → token kara listeye alınır.
 
+### `last_seen_at` — etkinlik izi (MAU/DAU)
+
+⚠️ **`last_login` bu projede İŞE YARAMAZ**: JWT uçları (`serializers.issue_tokens`)
+`django.contrib.auth.login()` çağırmaz ve `SIMPLE_JWT["UPDATE_LAST_LOGIN"]` tanımlı değil
+→ alan yalnızca **admin paneline girenlerde** dolar. Mobil kullanıcı etkinliği ondan
+okunamaz (pano MAU'su bir dönem bu yüzden ölçülemiyordu).
+
+- `accounts.authentication.SonGorulmeJWTAuthentication` (DRF
+  `DEFAULT_AUTHENTICATION_CLASSES`'ın ilk sırası) düz `JWTAuthentication`'ın alt sınıfıdır:
+  doğrulama başarılıysa `User.last_seen_at`'i damgalar. **Mobilde değişiklik gerekmez** —
+  mevcut `Authorization: Bearer` başlığıyla kendiliğinden çalışır.
+- ⚠️ Damga **kullanıcı başına GÜNDE BİR KEZ** yazılır: Redis'te `seen:{uid}:{tarih}`
+  anahtarı `cache.add` (SETNX) ile **atomik** rezerve edilir. Her istekte UPDATE atmak
+  `accounts_user` üzerinde ciddi yazma yükü olurdu (mobil dakikada onlarca istek atar).
+- ⚠️ `save()` değil `queryset.update()` kullanılır (tam satır yazımı ve sinyaller olmasın).
+- ⚠️ Damga hatası **kimlik doğrulamasını asla düşürmez**: Redis/DB kaynaklı her istisna
+  yutulur ve loglanır. Etkinlik ölçümü uğruna API kırılmaz.
+
 ### `created` bayrağı (analitik — kayıt mı, giriş mi?)
 
 Token dönen **tüm** uçların yanıtı (`register`, `login`, `social/google`,
@@ -1520,6 +1545,60 @@ Admin girişi `username` iledir (varsayılan admin: `firat`).
 - Tema deneyip seçmek için geçici olarak `"show_ui_builder": True` yap.
 - `dark_mode_theme` ayarı jazzmin 3.x'te **kaldırıldı**; `default_theme_mode`
   (`light|dark|auto`) kullanılır.
+
+### Anasayfa panosu (`templates/admin/index.html`)
+
+Admin anasayfası jazzmin'in **app-link kartlarını göstermez** (aynı linkler sol menüde
+zaten var); yerine ürün ve operasyon göstergeleri basar: kullanıcı KPI'ları (bugün kayıt,
+MAU/DAU, Pro üye, push açık), ürün kullanımı (kayıtlı ihale, favori, firma profili, filtre,
+alarm), asistan/bildirim, EKAP veri hacmi ve son senkron durumu + Chart.js grafikleri
+(30 günlük kayıt trendi, 12 aylık büyüme, abonelik/sağlayıcı donut'ları, etkileşim,
+bildirim türleri).
+
+- **Mimari**: `TEMPLATES[0]["DIRS"] = [BASE_DIR / "templates"]` + `templates/admin/index.html`.
+  ⚠️ Jazzmin `INSTALLED_APPS`'te ilk olduğu için app-dir sırasıyla ezmek **mümkün değil**;
+  proje düzeyinde `DIRS` girdisi tek yoldur. ⚠️ Jazzmin'in şablonu `{% extends %}` ile
+  ezilemez (aynı ad → sonsuz özyineleme) ve tek bir `{% block content %}` içinde her şeyi
+  bastığı için ezilecek alt blok yoktur → blok tamamen yeniden yazıldı.
+- **Veri**: `core/dashboard.py` (HTTP'den bağımsız, `ekap/market.py` deseni) →
+  `{% dashboard_metrics as pano %}` template tag'i. ⚠️ **Context processor DEĞİL**: o,
+  projedeki her `render()`'da (DRF BrowsableAPI dahil) çalışır ve metrikleri staff olmayan
+  bağlamlara taşırdı. Yetki kontrolü gerekmez — `AdminSite.index` zaten `admin_view()`
+  ile sarılı. ⚠️ Metrik hatası **admin'i düşürmez**: tag `try/except` ile sarılı, şablon
+  uyarı basıp sayfayı yine de açar.
+- ⚠️ **`ekap_tender`/`ekap_contract`'ta `COUNT(*)` YASAK** → `pg_class.reltuples` yaklaşık
+  sayımı (TTL 1 sa) ve panoda **"≈" işareti**. Tam sayım soğuk buffer'da saniyeler sürer ve
+  `shared_buffers`'ı boşaltıp arama ucunu diske düşürür (ölçülmüş "%53 heap cache isabeti"
+  arızasının aynısı). `reltuples < 0` (hiç ANALYZE olmamış tablo) → "—" gösterilir;
+  uydurma sayı basılmaz. Küçük tablolar (kullanıcı/tenders/assistant) canlı sayılır.
+- **Cache üç dilim**: özet 60 sn · seriler 5 dk · EKAP 1 sa. `CACHE_VERSION` metrik şeması
+  değişince artırılır. `?refresh=1` **yalnızca superuser'a** (aksi halde her staff kullanıcı
+  cache-busting ile ağır sorgu tetikleyebilirdi).
+- ⚠️ **`pro_q()` ≡ `User.is_premium`**: property'nin SQL karşılığı. Ayrışırsa panodaki "Pro"
+  sayısı ile gerçek özellik kapısı çelişir → `core/tests/test_dashboard.py` eşdeğerlik
+  testi tutar (rastgele kullanıcı kümesinde iki tarafı karşılaştırır).
+- ⚠️ **Eksik günler 0 ile doldurulur** (`gunluk_seri`): DB yalnızca kayıt olan günü döndürür;
+  doldurulmazsa x ekseni yalan söyler. `TruncDate(..., tzinfo=)` açıkça geçilir.
+- ⚠️ **Ay aritmetiği gün çıkarmayla yapılmaz** (`aylik_seri`): `31*11` gün ~11,2 ay eder,
+  bazen 12 ay geriye düşer ve seri **bu aya ulaşmaz** (bugünkü kayıtlar hiç görünmez).
+- ⚠️ **Sayı biçimi `number_format(..., force_grouping=True)`** — `humanize.intcomma`
+  virgül basar, Türkçe'de virgül ondalık ayracıdır.
+- ⚠️ **Şablonda `"metin"|add:sayi` ÇALIŞMAZ**: `add` önce int toplamayı dener, `str+int`
+  TypeError'ında **boş** döner. Sayı önce `|tr_sayi` ile string'e çevrilir.
+- ⚠️ **`{# ... #}` TEK SATIRLIK yorumdur**: çok satırlısı parse edilir ve içindeki
+  `{% block %}` metni gerçek etiket sanılır (`'block' tag ... appears more than once`).
+  Çok satırlı yorum için `{% comment %}`.
+- **Grafikler**: Chart.js 4.5.1 cdnjs'ten (SRI hash'li), yalnızca anasayfaya
+  `{% block extrajs %}` ile yüklenir — `JAZZMIN_SETTINGS["custom_js"]` KULLANILMAZ, o dosya
+  *her* admin sayfasında yüklenirdi. ⚠️ Renkler **sabit hex yazılamaz**: jazzmin temayı
+  `<html data-bs-theme>` üzerinden çalışma anında değiştirir → palet `getComputedStyle` ile
+  CSS değişkenlerinden okunur ve `MutationObserver` tema değişiminde grafikleri yeniden
+  çizer. Koyu temada `--it-accent-2` açılır (lacivert koyu zeminde kayboluyordu).
+- **Responsive**: KPI kartları `col-6 col-md-4 col-xl-3` (mobilde 2 sütun), grafikler dar
+  ekranda tek sütun; `admin.css` `@media` blokları sayı/ikon boyutlarını küçültür.
+  375 px'te yatay taşma yoktur (ölçüldü: `scrollWidth == clientWidth`).
+- **MAU/DAU = `User.last_seen_at`** (bkz. Kimlik Doğrulama Akışı). ⚠️ Ölçüm alanın
+  eklendiği tarihten itibaren birikir; ilk haftalarda düşük görünmesi normaldir.
 
 ### Marka varlıkları
 

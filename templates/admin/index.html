@@ -1,0 +1,188 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static log dashboard_tags %}
+
+{% comment %}
+  İhaleTakip admin panosu — jazzmin'in varsayılan `admin/index.html`'ini EZER.
+
+  ⚠️ Bu dosya `TEMPLATES[0]["DIRS"] = [BASE_DIR / "templates"]` sayesinde bulunur;
+  jazzmin INSTALLED_APPS'te ilk sırada olduğu için app-dir sırasıyla ezmek mümkün değil.
+  ⚠️ Jazzmin'in şablonu tek bir {% block content %} içinde app link kartlarını basıyordu;
+  ezilecek alt blok olmadığı için blok tamamen yeniden yazıldı. Link kartları BİLEREK
+  kaldırıldı (aynı linkler sol menüde var); "Son İşlemler" bölümü korundu.
+  ⚠️ {% block content %} jazzmin base.html'de zaten <div class="row"> İÇİNDE →
+  kendi row/container sarmalımızı açmıyoruz, doğrudan col-* çocukları basıyoruz.
+{% endcomment %}
+
+{% block bodyclass %}{{ block.super }} dashboard it-dashboard{% endblock %}
+
+{% block content_title %}Genel Bakış{% endblock %}
+
+{% block breadcrumbs %}
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item active">Panel</li>
+  </ol>
+{% endblock %}
+
+{% block content %}
+  {% dashboard_metrics as pano %}
+
+  <div class="col-12">
+    {% if pano.hata %}
+      <div class="alert alert-warning">
+        <i class="fas fa-triangle-exclamation me-1"></i>
+        İstatistikler şu an hesaplanamıyor (önbellek veya veritabanı erişimi).
+        Panelin geri kalanı çalışıyor.
+      </div>
+    {% else %}
+
+    {# ── 1. Kullanıcı KPI şeridi ───────────────────────────── #}
+    <div class="it-section-title">
+      <h5>Kullanıcılar</h5>
+      <span class="it-updated">Güncellendi: {{ pano.uretildi|date:"d.m.Y H:i" }}
+        {% if user.is_superuser %}· <a href="?refresh=1">yenile</a>{% endif %}
+      </span>
+    </div>
+    <div class="row g-3 mb-4">
+      {% include "admin/_kpi_card.html" with baslik="Bugün Kayıt" deger=pano.ozet.kullanici.bugun delta=pano.ozet.kullanici.bugun_degisim ikon="fa-user-plus" renk="marka" spark=pano.seriler.kayit_7g url="/admin/accounts/user/" %}
+      {% include "admin/_kpi_card.html" with baslik="Aylık Etkin (MAU)" deger=pano.ozet.kullanici.mau alt="son 30 günde uygulamayı kullanan" ipucu="last_seen_at alanına dayanır; ölçüm bu özelliğin devreye girdiği tarihten itibaren birikir." ikon="fa-users" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Günlük Etkin (DAU)" deger=pano.ozet.kullanici.dau alt="bugün uygulamayı açan" ikon="fa-bolt" renk="basari" %}
+      {% include "admin/_kpi_card.html" with baslik="Toplam Kullanıcı" deger=pano.ozet.kullanici.toplam alt=pano.ozet.kullanici.aktif|tr_sayi|add:" aktif" ikon="fa-user-group" renk="marka" url="/admin/accounts/user/" %}
+      {% include "admin/_kpi_card.html" with baslik="Pro Üye" deger=pano.ozet.abonelik.pro alt=pano.ozet.abonelik.iptal_suren|tr_sayi|add:" iptal etti · erişimi sürüyor" ikon="fa-crown" renk="uyari" url="/admin/accounts/user/?subscription_tier__exact=pro" %}
+      {% include "admin/_kpi_card.html" with baslik="Son 7 Gün Kayıt" deger=pano.ozet.kullanici.son_7g alt=pano.ozet.kullanici.son_30g|tr_sayi|add:" (30 gün)" ikon="fa-chart-line" renk="marka" %}
+      {% include "admin/_kpi_card.html" with baslik="Push Açık" deger=pano.ozet.kullanici.push_acik alt="FCM token'ı olan kullanıcı" ikon="fa-bell" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Hiç Görülmedi" deger=pano.ozet.kullanici.hic_gorulmedi alt="kayıt oldu, ölçümden beri girmedi" ikon="fa-user-clock" renk="tehlike" %}
+    </div>
+
+    {# ── 2. Ana grafikler ───────────────────────────────────── #}
+    <div class="row g-3 mb-4">
+      <div class="col-12 col-xl-8">
+        {% include "admin/_chart_card.html" with baslik="Son 30 Gün — Yeni Kayıtlar" canvas_id="chart-kayit-30g" alt=pano.seriler.kayit_30g.toplam|tr_sayi|add:" kayıt" %}
+      </div>
+      <div class="col-12 col-md-6 col-xl-4">
+        {% include "admin/_chart_card.html" with baslik="Abonelik Dağılımı" canvas_id="chart-abonelik" kisa=True %}
+      </div>
+      <div class="col-12 col-xl-8">
+        {% include "admin/_chart_card.html" with baslik="12 Aylık Büyüme" canvas_id="chart-kayit-12ay" alt="aylık yeni kayıt + toplam kullanıcı" %}
+      </div>
+      <div class="col-12 col-md-6 col-xl-4">
+        {% include "admin/_chart_card.html" with baslik="Giriş Yöntemi" canvas_id="chart-saglayici" kisa=True %}
+      </div>
+    </div>
+
+    {# ── 3. Ürün kullanımı ──────────────────────────────────── #}
+    <div class="it-section-title"><h5>Ürün Kullanımı</h5></div>
+    <div class="row g-3 mb-4">
+      {% include "admin/_kpi_card.html" with baslik="Kaydedilen İhale" deger=pano.ozet.icerik.kayitli_ihale alt=pano.ozet.icerik.kayitli_ihale_bugun|tr_sayi|add:" bugün eklendi" ikon="fa-bookmark" renk="marka" spark=pano.seriler.kayitli_ihale_30g.degerler|slice:"-7:" url="/admin/tenders/savedtender/" %}
+      {% include "admin/_kpi_card.html" with baslik="Favori İhale" deger=pano.ozet.icerik.favori alt=pano.ozet.icerik.favori_bugun|tr_sayi|add:" bugün eklendi" ikon="fa-heart" renk="tehlike" spark=pano.seriler.favori_30g.degerler|slice:"-7:" %}
+      {% include "admin/_kpi_card.html" with baslik="Firma Profili" deger=pano.ozet.asistan.profil alt=pano.ozet.asistan.profil_aktif|tr_sayi|add:" aktif" ikon="fa-building" renk="koyu" url="/admin/assistant/companyprofile/" %}
+      {% include "admin/_kpi_card.html" with baslik="Kayıtlı Filtre" deger=pano.ozet.icerik.filtre alt=pano.ozet.icerik.filtre_alarmli|tr_sayi|add:" alarmlı" ikon="fa-filter" renk="marka" url="/admin/tenders/savedfilter/" %}
+      {% include "admin/_kpi_card.html" with baslik="Favori İdare" deger=pano.ozet.icerik.favori_idare ikon="fa-landmark" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Takip Edilen Firma" deger=pano.ozet.icerik.favori_firma ikon="fa-user-tie" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="İhale Alarmı" deger=pano.ozet.icerik.alarm alt=pano.ozet.icerik.alarm_bugun|tr_sayi|add:" bugün kuruldu" ikon="fa-clock" renk="uyari" %}
+      {% include "admin/_kpi_card.html" with baslik="Klasör" deger=pano.ozet.icerik.klasor alt="kayıtlı ihale klasörleri" ikon="fa-folder" renk="marka" %}
+    </div>
+
+    {# ── 4. Asistan / AI + bildirim ─────────────────────────── #}
+    <div class="it-section-title"><h5>Asistan &amp; Bildirimler</h5></div>
+    <div class="row g-3 mb-4">
+      {% include "admin/_kpi_card.html" with baslik="Sohbet (24s)" deger=pano.ozet.asistan.sohbet_24s alt=pano.ozet.asistan.mesaj_24s|tr_sayi|add:" mesaj" ikon="fa-comments" renk="marka" %}
+      {% include "admin/_kpi_card.html" with baslik="Toplam Sohbet" deger=pano.ozet.asistan.sohbet ikon="fa-comment-dots" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Bugünkü Öneri" deger=pano.ozet.asistan.oneri_bugun alt=pano.ozet.asistan.oneri_kullanici|tr_sayi|add:" kullanıcıya" ikon="fa-wand-magic-sparkles" renk="basari" %}
+      {% include "admin/_kpi_card.html" with baslik="AI Analizi" deger=pano.ozet.asistan.analiz alt=pano.ozet.asistan.analiz_bugun|tr_sayi|add:" bugün" ikon="fa-file-lines" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Bildirim (24s)" deger=pano.ozet.bildirim.son_24s ikon="fa-paper-plane" renk="marka" url="/admin/tenders/notification/" %}
+      {% include "admin/_kpi_card.html" with baslik="Okunmamış Bildirim" deger=pano.ozet.bildirim.okunmamis ikon="fa-envelope" renk="uyari" %}
+      {% include "admin/_kpi_card.html" with baslik="Açık Destek Talebi" deger=pano.ozet.operasyon.destek_acik alt=pano.ozet.operasyon.destek_bugun|tr_sayi|add:" bugün geldi" ikon="fa-life-ring" renk="tehlike" url="/admin/core/supportticket/" %}
+      {% include "admin/_kpi_card.html" with baslik="Bugün İlan Edilen İhale" deger=pano.ozet.operasyon.bugun_ilan alt="EKAP'ta bugün yayınlanan" ikon="fa-gavel" renk="basari" %}
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-12 col-xl-8">
+        {% include "admin/_chart_card.html" with baslik="Son 30 Gün — Etkileşim" canvas_id="chart-etkilesim" alt="kaydedilen ihale · favori · yeni sohbet" %}
+      </div>
+      <div class="col-12 col-xl-4">
+        {% include "admin/_chart_card.html" with baslik="Bildirim Türleri (30 gün)" canvas_id="chart-bildirim" %}
+      </div>
+    </div>
+
+    {# ── 5. Veri toplama (EKAP) ─────────────────────────────── #}
+    <div class="it-section-title">
+      <h5>Veri Toplama</h5>
+      <span class="it-updated">≈ işaretli sayılar yaklaşıktır (tablo istatistiğinden)</span>
+    </div>
+    <div class="row g-3 mb-4">
+      {% include "admin/_kpi_card.html" with baslik="Toplam İhale" deger=pano.ekap.ihale yaklasik=pano.ekap.ihale_yaklasik ikon="fa-gavel" renk="marka" url="/admin/ekap/tender/" %}
+      {% include "admin/_kpi_card.html" with baslik="Toplam Sözleşme" deger=pano.ekap.sozlesme yaklasik=pano.ekap.sozlesme_yaklasik ikon="fa-file-signature" renk="koyu" %}
+      {% include "admin/_kpi_card.html" with baslik="Yüklenici Firma" deger=pano.ekap.firma yaklasik=pano.ekap.firma_yaklasik ikon="fa-industry" renk="koyu" url="/admin/ekap/contractor/" %}
+      {% if pano.ozet.operasyon.sync_hata_24s %}
+        {% include "admin/_kpi_card.html" with baslik="Senkron Hatası (24s)" deger=pano.ozet.operasyon.sync_hata_24s alt="SyncRun status=error" ikon="fa-circle-exclamation" renk="tehlike" url="/admin/ekap/syncrun/?status=error" %}
+      {% else %}
+        {% include "admin/_kpi_card.html" with baslik="Senkron Hatası (24s)" deger=0 alt="son 24 saatte hata yok" ikon="fa-circle-check" renk="basari" url="/admin/ekap/syncrun/" %}
+      {% endif %}
+    </div>
+
+    {% if pano.ozet.operasyon.son_sync %}
+      <div class="alert it-sync {% if pano.ozet.operasyon.son_sync.status == 'error' %}alert-danger{% elif pano.ozet.operasyon.son_sync.status == 'running' %}alert-info{% else %}alert-secondary{% endif %} mb-4">
+        <strong>Son senkron:</strong>
+        <code>{{ pano.ozet.operasyon.son_sync.task }}</code>
+        · {{ pano.ozet.operasyon.son_sync.zaman|date:"d.m.Y H:i" }}
+        · durum <strong>{{ pano.ozet.operasyon.son_sync.status }}</strong>
+        · {{ pano.ozet.operasyon.son_sync.items|tr_sayi }} kayıt
+        {% if pano.ozet.operasyon.son_sync.errors %}
+          · <span class="text-danger">{{ pano.ozet.operasyon.son_sync.errors|tr_sayi }} hata</span>
+        {% endif %}
+        <a href="/admin/ekap/syncrun/" class="ms-2">tümü →</a>
+      </div>
+    {% endif %}
+
+    {# ── 6. Son işlemler (jazzmin index.html'den korunan bölüm) ── #}
+    <div class="card mb-3">
+      <div class="card-header"><h5 class="card-title mb-0">Son İşlemler</h5></div>
+      <div class="card-body p-0">
+        {% get_admin_log 10 as admin_log for_user user %}
+        {% if not admin_log %}
+          <p class="text-muted p-3 mb-0">Henüz işlem kaydı yok.</p>
+        {% else %}
+          <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle">
+              <tbody>
+                {% for entry in admin_log %}
+                  <tr>
+                    <td class="text-nowrap text-muted small">{{ entry.action_time|date:"d.m.Y H:i" }}</td>
+                    <td>
+                      {% if entry.is_deletion or not entry.get_admin_url %}
+                        {{ entry.object_repr }}
+                      {% else %}
+                        <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+                      {% endif %}
+                      <span class="text-muted small">— {{ entry.content_type.name|default:"bilinmeyen" }}</span>
+                    </td>
+                    <td class="text-nowrap small">
+                      {% if entry.is_addition %}<span class="badge bg-success">eklendi</span>
+                      {% elif entry.is_change %}<span class="badge bg-primary">değiştirildi</span>
+                      {% elif entry.is_deletion %}<span class="badge bg-danger">silindi</span>{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Grafik verisi — JS'e string enterpolasyonu YOK (XSS-güvenli, ek uç gerekmez). #}
+    {{ pano.grafik|json_script:"dashboard-data" }}
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block extrajs %}
+  {{ block.super }}
+  {% comment %} ⚠️ `pano` burada GÖRÜNMEZ: her {% block %} kendi context push'unda render edilir,
+     content bloğundaki `{% ... as pano %}` dışarı sızmaz. Script koşulsuz yüklenir;
+     dashboard.js veri düğümünü bulamazsa sessizce çıkar. {% endcomment %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"
+          integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="{% static 'ihaletakip/dashboard.js' %}"></script>
+{% endblock %}

@@ -102,3 +102,149 @@
     width: 100%;
     height: auto;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Anasayfa panosu (templates/admin/index.html)
+
+   ⚠️ Renkler --it-* / --bs-* değişkenleri üzerinden verilir; sabit hex
+   yazılırsa koyu temada (html[data-bs-theme="dark"]) kırılır.
+   ⚠️ Grafik yüksekliği BURADAN gelir: Chart.js maintainAspectRatio:false
+   ile çalışıyor, canvas kendi yüksekliğini bilmiyor.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+    --it-accent-2: #003ea1;      /* marka koyu — ikincil seri */
+    --it-kpi-radius: .75rem;
+}
+
+/* ── Bölüm başlığı ── */
+.it-section-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 0 0 .75rem;
+}
+.it-section-title h5 {
+    margin: 0;
+    font-weight: 700;
+    font-size: 1.02rem;
+    letter-spacing: .01em;
+}
+.it-updated,
+.it-card__alt {
+    font-size: .78rem;
+    color: var(--bs-secondary-color);
+}
+
+/* ── KPI kartı ── */
+.it-kpi {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--it-kpi-radius);
+    border: 1px solid var(--bs-border-color);
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+.it-kpi:hover { transform: translateY(-2px); box-shadow: 0 .35rem .9rem rgba(0, 0, 0, .09); }
+.it-kpi .card-body { padding: .85rem .95rem; }
+
+/* Kartın tamamını tıklanabilir yapan görünmez katman (ikon/metin seçimini bozmaz) */
+.it-kpi__link { position: absolute; inset: 0; z-index: 1; }
+
+.it-kpi__label {
+    font-size: .74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--bs-secondary-color);
+    line-height: 1.25;
+}
+.it-kpi__value {
+    font-size: 1.85rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-top: .15rem;
+    /* Rakamlar eşit genişlikte olsun ki sayı değişince kart zıplamasın */
+    font-variant-numeric: tabular-nums;
+}
+.it-kpi__approx { font-size: 1rem; opacity: .5; margin-right: .1rem; }
+.it-kpi__alt {
+    font-size: .74rem;
+    color: var(--bs-secondary-color);
+    margin-top: .15rem;
+    line-height: 1.3;
+}
+.it-kpi__delta { display: inline-block; font-size: .74rem; font-weight: 600; margin-top: .15rem; }
+.it-kpi__delta.up { color: var(--bs-success); }
+.it-kpi__delta.down { color: var(--bs-danger); }
+.it-kpi__delta.flat { color: var(--bs-secondary-color); }
+.it-kpi__delta-note { font-weight: 400; color: var(--bs-secondary-color); }
+
+.it-kpi__icon {
+    flex: 0 0 auto;
+    width: 2.4rem;
+    height: 2.4rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: .95rem;
+    background: rgba(0, 116, 203, .12);          /* color-mix desteklenmeyen tarayıcı yedeği */
+    background: color-mix(in srgb, var(--it-kpi-color, var(--it-blue)) 14%, transparent);
+    color: var(--it-kpi-color, var(--it-blue));
+}
+
+/* Sol kenar aksan şeridi + ikon rengi — tek değişkenden sürülür */
+.it-kpi--marka   { --it-kpi-color: var(--it-blue); }
+.it-kpi--koyu    { --it-kpi-color: var(--it-accent-2); }
+.it-kpi--basari  { --it-kpi-color: var(--bs-success); }
+.it-kpi--uyari   { --it-kpi-color: #d68910; }
+.it-kpi--tehlike { --it-kpi-color: var(--bs-danger); }
+.it-kpi { border-left: 3px solid var(--it-kpi-color, var(--it-blue)); }
+
+/* Sparkline: currentColor sayesinde temayla birlikte döner */
+.it-kpi__spark { padding: 0 .3rem .3rem; color: var(--it-kpi-color, var(--it-blue)); opacity: .55; }
+.it-kpi__spark svg { display: block; width: 100%; height: 30px; }
+
+/* ── Grafik kabı ── */
+.it-chart { position: relative; height: 300px; }
+.it-chart--kisa { height: 250px; }
+
+.it-sync code { font-size: .85em; }
+
+/* ── Koyu tema düzeltmeleri (yalnızca gerekenler) ── */
+/* ⚠️ Lacivert (#003ea1) koyu zeminde arka planla karışıyor — ikincil marka tonu
+   koyu temada AÇILIR. dashboard.js paleti bu değişkeni runtime'da okuduğu için
+   grafiklerdeki kümülatif çizgi de birlikte düzelir. */
+[data-bs-theme="dark"] { --it-accent-2: #6ea8fe; }
+[data-bs-theme="dark"] .it-kpi { background-color: var(--bs-body-bg); }
+[data-bs-theme="dark"] .it-kpi:hover { box-shadow: 0 .35rem .9rem rgba(0, 0, 0, .45); }
+[data-bs-theme="dark"] .it-kpi__icon {
+    background: color-mix(in srgb, var(--it-kpi-color, var(--it-blue)) 26%, transparent);
+}
+
+/* ── Responsive ──
+   Kartlar mobilde 2 sütun (col-6), tablette 3 (col-md-4), masaüstünde 4 (col-xl-3).
+   Aşağıdaki ayarlar dar ekranda sayının taşmasını ve grafiklerin ezilmesini önler. */
+@media (max-width: 767.98px) {
+    .it-kpi .card-body { padding: .7rem .75rem; }
+    .it-kpi__value { font-size: 1.45rem; }
+    .it-kpi__label { font-size: .68rem; letter-spacing: .02em; }
+    .it-kpi__icon { width: 1.9rem; height: 1.9rem; font-size: .8rem; }
+    .it-kpi__alt, .it-kpi__delta { font-size: .68rem; }
+    /* Dar ekranda "düne göre" notu satırı taşırıyor — sayı yeter */
+    .it-kpi__delta-note { display: none; }
+    .it-chart { height: 240px; }
+    .it-chart--kisa { height: 220px; }
+    .it-section-title h5 { font-size: .95rem; }
+    /* Başlık + açıklama dar ekranda yan yana sıkışıyordu → açıklama alt satıra */
+    .card-header .it-card__alt { flex-basis: 100%; }
+}
+
+@media (max-width: 400px) {
+    /* Çok dar telefonlarda 4 haneli sayılar iki satıra kırılıyordu */
+    .it-kpi__value { font-size: 1.25rem; }
+    .it-kpi__icon { display: none; }
+}
+
+/* Uzun tabloların (Son İşlemler) yatay kaydırması — sayfa gövdesi asla kaymasın */
+.it-dashboard .table-responsive { overflow-x: auto; }

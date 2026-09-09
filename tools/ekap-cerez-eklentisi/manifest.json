@@ -3,7 +3,7 @@
   "name": "IhaleTakip — EKAP Oturum Köprüsü",
   "version": "1.0.0",
   "description": "Doğrulanmış EKAP oturumunun çerezini IhaleTakip sunucusuna iletir.",
-  "permissions": ["cookies", "storage", "alarms"],
+  "permissions": ["cookies", "storage", "alarms", "notifications"],
   "host_permissions": [
     "https://ekapv2.kik.gov.tr/*",
     "https://ihale-takip.envisoft.com.tr/*"

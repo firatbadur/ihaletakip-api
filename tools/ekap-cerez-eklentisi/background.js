@@ -11,6 +11,7 @@
 const ALARM = "ekap-cerez";
 const PERIYOT_DK = 2;      // doğrulama ~8 dk yaşıyor → 2 dk güvenli aralık
 const EKAP = "ekapv2.kik.gov.tr";
+const DURUM_URL = `https://${EKAP}/b_han/api/human-verification/status`;
 
 async function ayarlar() {
   const { apiUrl, token } = await chrome.storage.local.get(["apiUrl", "token"]);
@@ -80,7 +81,53 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(ALARM, { periodInMinutes: PERIYOT_DK });
 });
-chrome.alarms.onAlarm.addListener(a => { if (a.name === ALARM) gonder(); });
+// ⚠️ EKAP doğrulaması ~8 dk yaşıyor ve arayüz onu kendi tazeliyor; ama bir yerden
+// sonra Cloudflare yeniden "gerçek kişi" kutusu gösteriyor. O an fark edilmezse
+// toplama sessizce durur. Bu yüzden her turda durum yoklanır ve düştüğü anda
+// kullanıcı BİLDİRİMLE uyarılır — kesinti dakikalar değil saniyeler sürsün.
+//
+// ⚠️ GET'e Content-Type EKLENMEZ: EKAP'ın önündeki WAF bunu protokol ihlali
+// sayıp 406 döndürüyor ve "doğrulama düştü" sanılıyor.
+async function dogrulamaDurumu() {
+  try {
+    const r = await fetch(DURUM_URL, {
+      headers: { Accept: "application/json", "api-version": "v1" },
+      credentials: "include",
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+async function durumBildir() {
+  const d = await dogrulamaDurumu();
+  if (d === null) return;
+  const gecerli = d.enabled === false || d.verified === true;
+  chrome.action.setBadgeText({ text: gecerli ? "" : "!" });
+  chrome.action.setBadgeBackgroundColor({ color: "#c0392b" });
+
+  const { uyarildi } = await chrome.storage.local.get("uyarildi");
+  if (!gecerli && !uyarildi) {
+    // ⚠️ Tek bildirim: her 2 dakikada bir uyarmak kullanıcıyı bildirimlere
+    // kör eder, sonra gerçekten önemli olanı da kaçırır.
+    chrome.notifications.create("ekap-dogrulama", {
+      type: "basic",
+      iconUrl: "icon.png",
+      title: "EKAP doğrulaması gerekiyor",
+      message: "İhale toplama durdu. EKAP sekmesini açıp 'Gerçek kişi olduğunuzu doğrulayın' kutusunu tıklayın.",
+      priority: 2,
+    });
+    await chrome.storage.local.set({ uyarildi: true });
+  } else if (gecerli && uyarildi) {
+    await chrome.storage.local.set({ uyarildi: false });
+  }
+}
+
+chrome.alarms.onAlarm.addListener(a => {
+  if (a.name === ALARM) { gonder(); durumBildir(); }
+});
 chrome.runtime.onMessage.addListener((msg, _s, cevapla) => {
   if (msg?.tip === "gonder") { gonder(true).then(cevapla); return true; }
 });

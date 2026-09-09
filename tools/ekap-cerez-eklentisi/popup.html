@@ -9,9 +9,10 @@
 </style>
 <h3 style="margin:0 0 6px">EKAP Oturum Köprüsü</h3>
 <label>Sunucu adresi</label>
-<input id="apiUrl" placeholder="https://ihale-takip.envisoft.com.tr">
+<input id="apiUrl" autocomplete="off" placeholder="https://ihale-takip.envisoft.com.tr">
 <label>Paylaşılan sır</label>
-<input id="token" type="password" placeholder="EKAP_COOKIE_PUSH_TOKEN">
+<input id="token" type="text" spellcheck="false" autocomplete="off" placeholder="EKAP_COOKIE_PUSH_TOKEN">
+<div id="sirBilgi" style="font-size:11px;color:#666;margin-top:3px">—</div>
 <button id="kaydet">Kaydet</button>
 <button id="simdi">Şimdi gönder</button>
 <div id="durum">—</div>

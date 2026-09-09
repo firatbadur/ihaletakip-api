@@ -28,7 +28,14 @@ açmak her turda etkileşimli kutu demek olurdu.
 Tek seferlik deneme için: `--tek-tur`.
 """
 import logging
+import os
 import time
+
+# ⚠️ Playwright'ın **sync** API'si komutu bir event loop'un içinden çalıştırır;
+# Django ORM bunu "async bağlam" sayıp `SynchronousOnlyOperation` fırlatır.
+# Bu süreç tek iş parçacıklı ve ORM çağrıları (AppSetting okuma/yazma) çok
+# kısa olduğu için belgelenmiş kaçış kapısı burada doğru araç.
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "1")
 
 from django.conf import settings
 from django.core.management.base import BaseCommand

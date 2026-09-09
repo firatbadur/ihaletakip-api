@@ -29,7 +29,11 @@ async function cerezMetni() {
 
 async function gonder(zorla = false) {
   const { apiUrl, token } = await ayarlar();
-  if (!apiUrl || !token) return { ok: false, mesaj: "Ayarlar eksik" };
+  if (!apiUrl || !token) {
+    const eksik = [!apiUrl && "sunucu adresi", !token && "paylaşılan sır"]
+      .filter(Boolean).join(" ve ");
+    return { ok: false, mesaj: `Ayar eksik: ${eksik}` };
+  }
 
   const cookie = await cerezMetni();
   if (!cookie.includes("ekap.human-verification")) {

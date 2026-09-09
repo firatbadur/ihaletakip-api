@@ -18,9 +18,15 @@ $("kaydet").onclick = () => {
   );
 };
 
+// ⚠️ "Şimdi gönder" önce ekrandaki alanları KAYDEDER, sonra gönderir.
+// Aksi hâlde kullanıcı alanları doldurup Kaydet'e basmadan gönderdiğinde
+// "Ayarlar eksik" hatası alıyor ve sebebini göremiyordu.
 $("simdi").onclick = () => {
   $("durum").textContent = "Gönderiliyor...";
-  chrome.runtime.sendMessage({ tip: "gonder" }, r => {
-    $("durum").textContent = (r?.ok ? "✅ " : "❌ ") + (r?.mesaj || "yanıt yok");
-  });
+  chrome.storage.local.set(
+    { apiUrl: $("apiUrl").value.trim(), token: $("token").value.trim() },
+    () => chrome.runtime.sendMessage({ tip: "gonder" }, r => {
+      $("durum").textContent = (r?.ok ? "✅ " : "❌ ") + (r?.mesaj || "yanıt yok");
+    })
+  );
 };

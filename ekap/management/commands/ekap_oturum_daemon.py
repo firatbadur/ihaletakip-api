@@ -54,6 +54,8 @@ class Command(BaseCommand):
                             help="durum kontrol aralığı (vars. 60 sn)")
         parser.add_argument("--headless", default=None,
                             help="true/false — vars. EKAP_BROWSER_HEADLESS")
+        parser.add_argument("--tanila", action="store_true",
+                            help="tek tur + ayrıntılı teşhis (iframe/başlık/ekran görüntüsü)")
 
     def handle(self, *args, **o):
         from playwright.sync_api import sync_playwright
@@ -110,7 +112,9 @@ class Command(BaseCommand):
                         "❌ Doğrulanamadı. noVNC'den tarayıcıya bağlanıp "
                         "'robot değilim' kutusunu geçin."))
 
-                if o["tek_tur"]:
+                if o.get("tanila"):
+                    self._tanila(page, d)
+                if o["tek_tur"] or o.get("tanila"):
                     return
             except Exception as e:
                 logger.exception("ekap_oturum_daemon turu hatası: %s", e)
@@ -167,3 +171,38 @@ class Command(BaseCommand):
         yeni = ekap_session.temizle(ham)
         if yeni and yeni != ekap_session.cerez():
             ekap_session.kaydet(yeni)
+
+    # ── Teşhis ───────────────────────────────────────────
+    def _tanila(self, page, d):
+        """Doğrulama neden geçmiyor: kutu mu çıkıyor, sayfa mı yüklenmiyor?
+
+        Turnstile widget'ı `challenges.cloudflare.com` kaynaklı bir iframe olarak
+        gömülür. Iframe VARSA kutu gösteriliyor (etkileşim isteniyor olabilir);
+        YOKSA sorun doğrulama değil sayfanın kendisidir (yüklenmedi/engellendi).
+        """
+        self.stdout.write("\n── TEŞHİS ──────────────────────────────")
+        try:
+            self.stdout.write(f"  url      : {page.url}")
+            self.stdout.write(f"  başlık   : {page.title()}")
+        except Exception as e:
+            self.stdout.write(f"  sayfa okunamadı: {e}")
+        try:
+            cerceveler = [f.url for f in page.frames]
+            self.stdout.write(f"  iframe   : {len(cerceveler)}")
+            for u in cerceveler:
+                isaret = " ← TURNSTILE" if "challenges.cloudflare.com" in u else ""
+                self.stdout.write(f"    - {u[:110]}{isaret}")
+        except Exception as e:
+            self.stdout.write(f"  iframe okunamadı: {e}")
+        self.stdout.write(f"  durum    : {d}")
+        try:
+            govde = page.evaluate("() => document.body.innerText.slice(0, 400)")
+            self.stdout.write(f"  metin    : {' '.join(govde.split())[:300]}")
+        except Exception:
+            pass
+        try:
+            yol = "/app/.browser/tani.png"
+            page.screenshot(path=yol, full_page=False)
+            self.stdout.write(f"  ekran    : {yol}")
+        except Exception as e:
+            self.stdout.write(f"  ekran alınamadı: {e}")

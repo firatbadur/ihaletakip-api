@@ -54,6 +54,8 @@ class Command(BaseCommand):
                             help="durum kontrol aralığı (vars. 60 sn)")
         parser.add_argument("--headless", default=None,
                             help="true/false — vars. EKAP_BROWSER_HEADLESS")
+        parser.add_argument("--bekleme-sn", type=int, default=60,
+                            help="sayfa açıldıktan sonra doğrulama için beklenecek süre")
         parser.add_argument("--tanila", action="store_true",
                             help="tek tur + ayrıntılı teşhis (iframe/başlık/ekran görüntüsü)")
 
@@ -77,6 +79,10 @@ class Command(BaseCommand):
                       "--no-sandbox", "--disable-dev-shm-usage"],
             )
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            # ⚠️ Başarısız istekleri loglamak şart: uygulama açılmazsa sebebi
+            # (chunk indirilemedi / bağlantı sıfırlandı) yalnızca burada görünür.
+            page.on("requestfailed", lambda r: logger.warning(
+                "istek düştü: %s %s", r.failure, r.url[:120]))
             try:
                 self._dongu(ctx, page, base, o)
             finally:
@@ -94,8 +100,7 @@ class Command(BaseCommand):
                     ilk = False
                     self.stdout.write(
                         f"🔄 Tazeleniyor (verified={d.get('verified')}, kalan={kalan}sn)")
-                    self._tazele(page, arama_url)
-                    d = self._durum(ctx, base)
+                    d = self._tazele(page, ctx, base, arama_url, o["bekleme_sn"])
                     kalan = self._kalan_sn(d)
 
                 if d.get("verified"):
@@ -138,17 +143,27 @@ class Command(BaseCommand):
             logger.warning("durum sorgulanamadı: %s", e)
             return {"verified": False, "hata": str(e)[:120]}
 
-    def _tazele(self, page, url):
+    def _tazele(self, page, ctx, base, url, bekleme_sn):
         """Sayfayı yeniden yükler → uygulamanın kendi `ensureVerified()` yolu koşar.
 
         Bu, taklit değil uygulamanın normal açılışıdır; doğrulama kararını
         Turnstile/Cloudflare verir.
+
+        ⚠️ **Sabit bekleme YETMİYOR** (ölçüldü 2026-09-09): 8 sn sonra sayfanın
+        gövdesi boştu ve Turnstile iframe'i hiç oluşmamıştı — yani Angular
+        uygulaması henüz açılmamıştı ve `initialize()` çalışmamıştı. Teşhis
+        "Turnstile reddetti" sanılıyordu, oysa doğrulama hiç DENENMEMİŞTİ.
+        Bu yüzden sabit uyku yerine **doğrulanana kadar yoklama** yapılır.
         """
         page.goto(url, wait_until="domcontentloaded",
                   timeout=settings.EKAP_TIMEOUT * 1000)
-        # Turnstile + /verify turu için makul bekleme; networkidle bazı SPA'larda
-        # hiç gelmediği için sabit pencere kullanıyoruz.
-        page.wait_for_timeout(8000)
+        bitis = time.monotonic() + bekleme_sn
+        while time.monotonic() < bitis:
+            page.wait_for_timeout(3000)
+            d = self._durum(ctx, base)
+            if d.get("verified"):
+                return d
+        return self._durum(ctx, base)
 
     def _kalan_sn(self, d):
         from datetime import datetime

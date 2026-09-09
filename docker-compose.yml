@@ -249,6 +249,29 @@ services:
       - web
       - redis
 
+  # EKAP insan doğrulaması (Turnstile) oturumunu ayakta tutar — doğrulama ~8 dk
+  # yaşıyor, elle taşımak imkânsız. Gerçek Chromium'da EKAP arama sayfası açık
+  # durur, süresi dolmadan yeniden yüklenir (uygulamanın kendi `ensureVerified()`
+  # yolu) ve tazelenen çerez AppSetting'e yazılır.
+  # ⚠️ CAPTCHA çözülmez: karar Cloudflare'in; etkileşim istenirse daemon
+  # `insan_gerekli` işaretler ve bir kişinin bağlanmasını bekler.
+  ekap-browser:
+    build:
+      context: .
+      dockerfile: docker/browser.Dockerfile
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      RUN_MIGRATIONS: "false"
+    volumes:
+      - browser_profile:/app/.browser
+    depends_on:
+      - web
+      - redis
+    # Chromium bellek ister; 8 GB'lık makinede sınırlı tutulur.
+    mem_limit: 1g
+    shm_size: 512m
+
   beat:
     build: .
     restart: unless-stopped
@@ -261,6 +284,7 @@ services:
       - redis
 
 volumes:
+  browser_profile:
   pgdata:
   redisdata:
   static_volume:

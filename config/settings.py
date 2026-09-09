@@ -305,6 +305,12 @@ EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="pfS7Xdn3YVkOzs3V79XUc91SD47m
 # (bkz. ekap/session.py). İmza başlıkları varsayılan olarak GÖNDERİLMEZ; EKAP
 # geri getirirse bu bayrak deploy'suz açar.
 EKAP_IMZA_GONDER = env.bool("EKAP_IMZA_GONDER", default=False)
+
+# ── EKAP insan doğrulaması oturumu (ekap-browser servisi) ──
+# Doğrulama ~8 dk yaşıyor (ölçüldü 2026-09-09) → tarayıcı oturumu sürekli açık
+# tutulur ve çerez tazelendikçe AppSetting'e yazılır. Bkz. ekap/session.py.
+EKAP_BROWSER_PROFIL = env("EKAP_BROWSER_PROFIL", default="/app/.browser")
+EKAP_BROWSER_HEADLESS = env.bool("EKAP_BROWSER_HEADLESS", default=True)
 EKAP_MIN_INTERVAL_MS = env.int("EKAP_MIN_INTERVAL_MS", default=1000)  # ~1 istek/sn
 # TLS parmak izi engelini aşmak için curl_cffi tarayıcı taklidi
 EKAP_IMPERSONATE = env("EKAP_IMPERSONATE", default="chrome")

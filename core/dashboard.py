@@ -423,6 +423,34 @@ def _hesapla_ekap() -> dict:
     }
 
 
+def ekap_dogrulama_durumu() -> dict:
+    """EKAP insan doğrulamasının panodaki özeti.
+
+    ⚠️ **Canlı EKAP sorgusu YAPILMAZ** — her admin sayfası açılışında dışarıya
+    HTTP isteği atmak kabul edilemez (yavaşlık + gereksiz WAF trafiği).
+    Kaynak, `ekap-browser` daemon'ının ve istemcinin yazdığı durum kaydıdır;
+    çerezin gerçekten geçerli olup olmadığını daemon her dakika ölçüyor.
+    """
+    from core.models import AppSetting
+    from ekap import session as ekap_session
+
+    kayit = AppSetting.objects.filter(key=ekap_session.ANAHTAR_DURUM).first()
+    metin = kayit.value if kayit else ""
+    dustu = bool(cache.get("ekap:dogrulama:dustu"))
+    var = bool(ekap_session.cerez())
+    if dustu or metin.startswith("DÜŞTÜ"):
+        seviye = "hata"
+    elif var:
+        seviye = "ok"
+    else:
+        seviye = "yok"
+    return {
+        "seviye": seviye,
+        "metin": metin or "hiç yapılandırılmadı",
+        "guncelleme": timezone.localtime(kayit.updated_at) if kayit else None,
+    }
+
+
 # ── Giriş noktası ───────────────────────────────────────
 def panel_metrikleri(*, force_refresh: bool = False) -> dict:
     """
@@ -443,6 +471,9 @@ def panel_metrikleri(*, force_refresh: bool = False) -> dict:
         "ozet": ozet,
         "seriler": seriler,
         "ekap": ekap,
+        # ⚠️ Cache'lenmez: arıza anında panonun 60 sn eski bilgi göstermesi,
+        # "toplama duruyor mu" sorusunda kabul edilemez.
+        "dogrulama": ekap_dogrulama_durumu(),
         "uretildi": timezone.localtime(),
         # Grafiklere gidecek dilim (json_script ile şablondan JS'e aktarılır).
         "grafik": {

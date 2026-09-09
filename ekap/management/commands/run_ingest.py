@@ -12,6 +12,7 @@ Kullanım:
 from django.core.management.base import BaseCommand, CommandError
 
 from ekap import tasks
+from ekap.client import EkapDogrulamaError
 
 
 class Command(BaseCommand):
@@ -33,6 +34,20 @@ class Command(BaseCommand):
         parser.add_argument("--ekap-id", type=str)
 
     def handle(self, *args, **o):
+        try:
+            self._calistir(*args, **o)
+        except EkapDogrulamaError as e:
+            # ⚠️ Traceback basmak yanıltıcı: bu bir kod hatası değil, "insan
+            # doğrulaması yenilenmeli" durumu. Operatöre yapılacak işi söyle.
+            raise CommandError(
+                f"EKAP insan doğrulaması geçersiz ({e}).\n"
+                f"Çözüm: tarayıcıda ekapv2.kik.gov.tr/ekap/search açıp doğrulamayı "
+                f"geçin, F12 → Network → GetListByParameters → Request Headers → "
+                f"`Cookie:` satırını kopyalayıp:\n"
+                f"  python manage.py ekap_dogrula --stdin"
+            )
+
+    def _calistir(self, *args, **o):
         task = o["task"]
         # defer_detail=False → detaylar da senkron çekilsin (Celery gerekmez)
         if task == "recent":

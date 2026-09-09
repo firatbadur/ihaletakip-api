@@ -116,13 +116,21 @@ class Command(BaseCommand):
                         f"✅ {timezone.localtime():%H:%M:%S} doğrulama geçerli, "
                         f"kalan {kalan} sn"))
                 else:
-                    # ⚠️ Sahte tık YOK: Turnstile etkileşim istiyorsa bir insan
-                    # noVNC'den geçmeli. Durum kalıcı olarak işaretlenir.
+                    # ⚠️ Sahte tık YOK: Turnstile etkileşim istiyorsa kutuyu bir
+                    # İNSAN tıklar (noVNC). Otomatik tıklamak, kimse yokken
+                    # "gerçek kişiyim" beyanı vermek olurdu.
                     ekap_session.dustu("tarayıcı oturumu doğrulanamadı — "
-                                       "Turnstile etkileşim istiyor olabilir")
+                                       "Turnstile etkileşim istiyor")
                     self.stderr.write(self.style.ERROR(
-                        "❌ Doğrulanamadı. noVNC'den tarayıcıya bağlanıp "
-                        "'robot değilim' kutusunu geçin."))
+                        "❌ Doğrulanamadı — noVNC'den bağlanıp 'Gerçek kişi "
+                        "olduğunuzu doğrulayın' kutusunu tıklayın."))
+                    # ⚠️ Kutu ekrandayken sayfayı YENİDEN YÜKLEME: insan tam
+                    # tıklarken sayfa yenilenirse tık boşa gider ve doğrulama
+                    # hiçbir zaman tamamlanamaz. Widget duruyorsa bekle.
+                    if self._turnstile_var(page):
+                        self.stdout.write("⏳ Kutu ekranda — insan tıkı bekleniyor "
+                                          "(sayfa yenilenmeyecek).")
+                        self._insan_bekle(ctx, page, base, o["kontrol_sn"])
 
                 if o.get("tanila"):
                     self._tanila(page, d)
@@ -228,3 +236,27 @@ class Command(BaseCommand):
             self.stdout.write(f"  ekran    : {yol}")
         except Exception as e:
             self.stdout.write(f"  ekran alınamadı: {e}")
+
+    def _turnstile_var(self, page):
+        """Sayfada Turnstile widget'ı (challenges.cloudflare.com iframe) var mı?"""
+        try:
+            return any("challenges.cloudflare.com" in f.url for f in page.frames)
+        except Exception:
+            return False
+
+    def _insan_bekle(self, ctx, page, base, kontrol_sn):
+        """Kutu ekranda kaldığı sürece yoklar; tıklanınca çerezi hemen kaydeder.
+
+        Yenileme yapmaz — amaç insanın tıkını bozmamak. Kutu kaybolduğunda ya da
+        doğrulama geldiğinde döngü normale döner.
+        """
+        while True:
+            page.wait_for_timeout(kontrol_sn * 1000)
+            d = self._durum(ctx, base)
+            if d.get("verified"):
+                self._cerez_yaz(ctx, base)
+                self.stdout.write(self.style.SUCCESS(
+                    "✅ İnsan doğrulaması tamamlandı, çerez kaydedildi."))
+                return
+            if not self._turnstile_var(page):
+                return

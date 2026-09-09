@@ -15,10 +15,18 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir playwright==1.47.0
 
+# ⚠️ Turnstile bu tarayıcıya ETKİLEŞİMLİ kutu gösteriyor (ölçüldü, ekran
+# görüntüsüyle doğrulandı) → kutuyu bir insanın tıklayabilmesi için sanal ekran
+# + VNC + noVNC gerekir. Otomatik tıklama YAPILMAZ.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        xvfb x11vnc novnc websockify \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 # Kalıcı tarayıcı profili (Turnstile yerleşik oturumları sessiz geçiriyor →
 # her turda temiz profil açmak her turda etkileşimli kutu demek olurdu).
-RUN mkdir -p /app/.browser && chmod 777 /app/.browser
+RUN mkdir -p /app/.browser && chmod 777 /app/.browser \
+    && chmod +x /app/docker/browser-entrypoint.sh
 
-CMD ["python", "manage.py", "ekap_oturum_daemon"]
+ENTRYPOINT ["/app/docker/browser-entrypoint.sh"]

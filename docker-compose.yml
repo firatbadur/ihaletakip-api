@@ -265,6 +265,11 @@ services:
       RUN_MIGRATIONS: "false"
     volumes:
       - browser_profile:/app/.browser
+    # ⚠️ SADECE 127.0.0.1: noVNC parolasız bir masaüstü açar; dışarıya
+    # bağlanırsa internete açık uzak masaüstü olur. Erişim SSH tüneliyle:
+    #   ssh -L 6080:127.0.0.1:6080 ihale   →  http://localhost:6080/vnc.html
+    ports:
+      - "127.0.0.1:6080:6080"
     depends_on:
       - web
       - redis

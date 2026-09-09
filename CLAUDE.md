@@ -207,6 +207,33 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
     veya SSH'sız: admin → Uygulama Ayarları → `ekap_dogrulama_cerezi`. Argümansız
     `ekap_dogrula` canlı durumu (`expiresAtUtc`) basar; `ingest_saglik` raporunun
     **ilk bölümü** de bunu gösterir.
+  - ⚠️⚠️ **Doğrulamanın ömrü ~8 DAKİKA** (ölçüldü 2026-09-09: doğrulama 09:39:48
+    → yenileme 09:45:48 → bitiş 09:47:48). Elle çerez taşımak bu tempoda
+    imkânsızdır; `expiresAtUtc` her `ekap_dogrula` çıktısında görünür.
+  - ⚠️⚠️ **Sunucuda otomasyon tarayıcısı REDDEDİLİYOR.** Playwright/Chromium ile
+    (headless VE Xvfb altında başlı) denendi: Cloudflare etkileşimli
+    "Gerçek kişi olduğunuzu doğrulayın" kutusu gösteriyor ve bir insan noVNC'den
+    tıklasa bile "doğrulama başarısız" veriyor. `ekap-browser` servisi ve
+    `ekap_oturum_daemon` **kodda duruyor ama durdurulmuş durumda**; EKAP
+    tarafında bir şey değişirse yeniden denenebilir.
+    ⚠️ Bot tespitini gizleyen araçlar (stealth eklentisi, sahte parmak izi,
+    otomatik tık, CAPTCHA çözücü) **bilinçli olarak KULLANILMAZ** — reddin sebebi
+    zaten otomasyon tespitidir ve onu gizlemek kontrolü yanıltmak olur.
+  - ⚠️ Teşhis sırasında iki tuzak: (1) `xvfb-run` sarmalayıcısı sessizce asılıyor
+    → Xvfb elle başlatılmalı; (2) imaj build'i `DEBIAN_FRONTEND=noninteractive`
+    olmadan **tzdata sorusunda donuyor** (hata vermez, "derleme sürüyor" sanılır).
+  - ⚠️ `brunhild.challenges.cloudflare.com` **yalnızca IPv6** (hiçbir çözücüde A
+    kaydı yok) ve üretim sunucusunda global IPv6 adresi yok → Cloudflare telemetri
+    istekleri `ERR_NAME_NOT_RESOLVED` alıyor. Bunlar fire-and-forget beacon'lar
+    olduğu için asıl engel olduğu **doğrulanmadı**; IPv4-only kullanıcılar da
+    onlara ulaşamadan doğrulamayı geçiyor.
+  - **ÇALIŞAN ÇÖZÜM = gerçek tarayıcı köprüsü.** Doğrulamayı **kullanıcının kendi
+    tarayıcısı** geçer (EKAP arayüzü açık sekmede oturumu `scheduleRefresh` ile
+    kendi tazeler); `tools/ekap-cerez-eklentisi/` (MV3 Chrome eklentisi) çerezi
+    2 dk'da bir kontrol edip **değiştiyse** `POST /api/v1/ekap/verification-cookie/`
+    ucuna gönderir. Kimlik = `EKAP_COOKIE_PUSH_TOKEN` paylaşılan sırrı
+    (`X-Ekap-Token`, sabit zamanlı karşılaştırma); **sır boşsa uç KAPALIDIR**.
+    ⚠️ Sekme kapanırsa doğrulama ~8 dk içinde düşer → pano şeridi kırmızıya döner.
   - ⚠️ Çerez **sırdır** (EKAP oturumunun tamamını taşır) → loglara asla tam basılmaz
     (`session.maskele`), analitik çerezler kaydedilmeden ayıklanır (`session.temizle`).
 - **Rate limit**: `throttle.py` — **atomik** slot rezervasyonu (Redis `SETNX`, worker'lar

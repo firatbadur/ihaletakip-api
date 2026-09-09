@@ -49,11 +49,20 @@ async function gonder(zorla = false) {
       body: JSON.stringify({ cookie }),
     });
     const ok = r.ok;
+    // ⚠️ Sunucunun mesajını ve gönderilen sırrın uzunluğunu geri ver: 403'te
+    // "değer mi yanlış, uç mu kapalı" sorusunu tahminle değil ölçüyle ayırmak
+    // için. Sırrın kendisi ASLA yazılmaz, yalnızca uzunluğu.
+    let govde = "";
+    try { govde = (await r.json())?.message || ""; } catch (e) { govde = ""; }
     await chrome.storage.local.set({
       sonGonderilen: ok ? cookie : sonGonderilen,
-      sonDurum: { ok, kod: r.status, an: new Date().toISOString() },
+      sonDurum: { ok, kod: r.status, an: new Date().toISOString(), govde },
     });
-    return { ok, mesaj: ok ? "Gönderildi" : `Sunucu ${r.status}` };
+    return {
+      ok,
+      mesaj: ok ? "Gönderildi"
+                : `Sunucu ${r.status} — "${govde}" (gönderilen sır: ${token.length} karakter)`,
+    };
   } catch (e) {
     await chrome.storage.local.set({
       sonDurum: { ok: false, kod: 0, an: new Date().toISOString(), hata: String(e) },

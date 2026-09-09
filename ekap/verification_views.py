@@ -50,6 +50,12 @@ class DogrulamaCereziSerializer(serializers.Serializer):
 )
 class DogrulamaCereziView(APIView):
     permission_classes = [AllowAny]
+    # ⚠️ **Oturum kimliği KAPALI.** Bu uç paylaşılan sırla konuşur; varsayılan
+    # `SessionAuthentication` açık kalırsa istekle birlikte gelen admin oturum
+    # çerezi CSRF kontrolünü tetikler ve tarayıcı eklentisinden gelen istek
+    # `CSRF Failed: Origin checking failed - chrome-extension://…` ile 403 alır.
+    # Üretimde yaşandı (2026-09-09): sır doğruyken saatlerce 403 sanıldı.
+    authentication_classes = []
 
     def post(self, request):
         sir = getattr(settings, "EKAP_COOKIE_PUSH_TOKEN", "")

@@ -46,6 +46,9 @@ async function gonder(zorla = false) {
     const r = await fetch(`${apiUrl.replace(/\/+$/, "")}/api/v1/ekap/verification-cookie/`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Ekap-Token": token },
+      // ⚠️ Çerez GÖNDERME: kimlik paylaşılan sırla kuruluyor. Oturum çerezi
+      // giderse sunucuda CSRF kaynak kontrolü tetikleniyor ve istek reddediliyor.
+      credentials: "omit",
       body: JSON.stringify({ cookie }),
     });
     const ok = r.ok;

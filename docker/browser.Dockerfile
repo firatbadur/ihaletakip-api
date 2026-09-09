@@ -18,7 +18,13 @@ RUN pip install --no-cache-dir --upgrade pip \
 # ⚠️ Turnstile bu tarayıcıya ETKİLEŞİMLİ kutu gösteriyor (ölçüldü, ekran
 # görüntüsüyle doğrulandı) → kutuyu bir insanın tıklayabilmesi için sanal ekran
 # + VNC + noVNC gerekir. Otomatik tıklama YAPILMAZ.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# ⚠️ `DEBIAN_FRONTEND=noninteractive` ŞART: bu paketler tzdata'yı çekiyor ve
+# tzdata postinst'i coğrafi bölge soruyor → build sessizce ASILI KALIR
+# (`dpkg --configure --pending` bir terminale bağlı bekler, hata da vermez).
+# Üretimde yaşandı: 15 dk süren "derleme sürüyor" aslında cevap bekleyen bir
+# soruydu.
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         xvfb x11vnc novnc websockify \
     && rm -rf /var/lib/apt/lists/*
 

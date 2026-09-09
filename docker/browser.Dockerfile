@@ -8,7 +8,12 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
+# ⚠️ `playwright` Python paketi imajda KURULU DEĞİL (yalnızca tarayıcı ikilileri
+# /ms-playwright altında hazır gelir) → açıkça kurulur. Sürüm imaj etiketiyle
+# BİREBİR aynı olmalı, aksi hâlde paket indirilmemiş bir tarayıcı sürümü arar.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir playwright==1.47.0
 
 COPY . .
 

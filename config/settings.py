@@ -311,6 +311,11 @@ EKAP_IMZA_GONDER = env.bool("EKAP_IMZA_GONDER", default=False)
 # tutulur ve çerez tazelendikçe AppSetting'e yazılır. Bkz. ekap/session.py.
 EKAP_BROWSER_PROFIL = env("EKAP_BROWSER_PROFIL", default="/app/.browser")
 EKAP_BROWSER_HEADLESS = env.bool("EKAP_BROWSER_HEADLESS", default=True)
+
+# Doğrulama çerezini gönderen tarayıcı eklentisinin paylaşılan sırrı.
+# ⚠️ Boşsa uç KAPALIDIR (403) — varsayılan olarak açık bırakmak, çerez yazma
+# yetkisini internete açmak olurdu.
+EKAP_COOKIE_PUSH_TOKEN = env("EKAP_COOKIE_PUSH_TOKEN", default="")
 EKAP_MIN_INTERVAL_MS = env.int("EKAP_MIN_INTERVAL_MS", default=1000)  # ~1 istek/sn
 # TLS parmak izi engelini aşmak için curl_cffi tarayıcı taklidi
 EKAP_IMPERSONATE = env("EKAP_IMPERSONATE", default="chrome")

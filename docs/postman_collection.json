@@ -1545,6 +1545,48 @@
           }
         },
         {
+          "name": "EKAP doğrulama çerezini kaydet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/verification-cookie/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "verification-cookie",
+                ""
+              ]
+            },
+            "description": "Tarayıcı eklentisi, kullanıcının doğrulanmış EKAP oturumunun çerezini buraya gönderir. Kimlik doğrulama `X-Ekap-Token` başlığındaki paylaşılan sırla yapılır (JWT değil).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cookie\": \"ekap.human-verification=...; TS0...=...\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Pazar panosu — iş grubu detayı",
           "request": {
             "method": "GET",

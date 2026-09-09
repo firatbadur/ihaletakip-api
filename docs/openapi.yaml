@@ -2463,6 +2463,36 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/ekap/verification-cookie/:
+    post:
+      operationId: api_v1_ekap_verification_cookie_create
+      description: Tarayıcı eklentisi, kullanıcının doğrulanmış EKAP oturumunun çerezini
+        buraya gönderir. Kimlik doğrulama `X-Ekap-Token` başlığındaki paylaşılan sırla
+        yapılır (JWT değil).
+      summary: EKAP doğrulama çerezini kaydet
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DogrulamaCerezi'
+            examples:
+              Örnek:
+                value:
+                  cookie: ekap.human-verification=...; TS0...=...
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DogrulamaCerezi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DogrulamaCerezi'
+        required: true
+      responses:
+        '200':
+          description: No response body
+        '403':
+          description: No response body
   /api/v1/favorite-authorities/:
     get:
       operationId: api_v1_favorite_authorities_list
@@ -3976,6 +4006,14 @@ components:
           nullable: true
       required:
       - url
+    DogrulamaCerezi:
+      type: object
+      properties:
+        cookie:
+          type: string
+          description: ekapv2.kik.gov.tr için `Cookie` başlığı
+      required:
+      - cookie
     FCMToken:
       type: object
       properties:

@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { font: 13px system-ui, sans-serif; width: 300px; padding: 12px; }
+  label { display: block; margin: 8px 0 3px; font-weight: 600; }
+  input { width: 100%; padding: 6px; box-sizing: border-box; }
+  button { margin-top: 10px; padding: 7px 12px; width: 100%; cursor: pointer; }
+  #durum { margin-top: 10px; padding: 7px; background: #f2f2f2; border-radius: 4px; }
+</style>
+<h3 style="margin:0 0 6px">EKAP Oturum Köprüsü</h3>
+<label>Sunucu adresi</label>
+<input id="apiUrl" placeholder="https://ihale-takip.envisoft.com.tr">
+<label>Paylaşılan sır</label>
+<input id="token" type="password" placeholder="EKAP_COOKIE_PUSH_TOKEN">
+<button id="kaydet">Kaydet</button>
+<button id="simdi">Şimdi gönder</button>
+<div id="durum">—</div>
+<script src="popup.js"></script>

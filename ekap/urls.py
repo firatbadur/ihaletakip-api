@@ -1,6 +1,7 @@
 """ekap URL'leri — /api/v1/ekap/..."""
 from django.urls import path
 
+from .verification_views import DogrulamaCereziView
 from .views import (
     AuthorityProfileView,
     AuthoritySearchView,
@@ -45,4 +46,6 @@ urlpatterns = [
     path("market/", MarketOverviewView.as_view(), name="ekap-market"),
     path("market/<str:okas_bucket>/", MarketBucketView.as_view(), name="ekap-market-bucket"),
     path("cities/", CityListView.as_view(), name="ekap-cities"),
+    # İnsan doğrulaması çerezini tarayıcı eklentisinden alır (bkz. verification_views).
+    path("verification-cookie/", DogrulamaCereziView.as_view(), name="ekap-verification-cookie"),
 ]

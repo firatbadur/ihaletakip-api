@@ -197,9 +197,15 @@ app.conf.beat_schedule = {
     },
     # ⚠️ Tek yazma-ağır aşama → gece penceresi görevin kendi içinde uygulanır
     # (`KEYWORD_PROPAGATE_START/END`); beat sık tetikler, görev kendini eler.
+    # ⚠️ 10 dk aralık gece penceresinin **%60'ını boşa harcıyordu**: tur bütçesi 240 sn,
+    # aralık 600 sn → duty cycle %40. Ölçüm (2026-09-09): 7 saatlik pencerede imleç
+    # yalnızca 335k ihaleye ulaştı, kalan 761k için 2-3 gece daha gerekiyordu.
+    # 5 dk aralıkta duty cycle %80 → yaklaşık iki kat hız. Pencere kontrolü görevin
+    # İÇİNDE olduğu için (gündüz anında "peak_hours" dönüp bedava çıkar) sık tetikleme
+    # güvenli — `sync_contractors`'ta da aynı desen kullanılıyor.
     "ekap-propagate-tender-keywords": {
         "task": "ekap.tasks.propagate_tender_keywords",
-        "schedule": crontab(minute="*/10"),
+        "schedule": crontab(minute="*/5"),
     },
     # df + `pasif` bayrağı = benzerlik sorgusunun performans regülatörü.
     "ekap-refresh-keyword-df": {

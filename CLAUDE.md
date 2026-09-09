@@ -169,6 +169,46 @@ Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis eder
     kodunu döndürür, yani "imza yanlış" ile "imza yok" ayırt edilemez. Ayrım için
     istek **başka bir ağdan** tekrarlanır; oradan da 401 geliyorsa engel değil
     şema değişikliğidir.
+- ⚠️⚠️ **2026-09-08: İMZA KATMANI KALDIRILDI, YERİNE İNSAN DOĞRULAMASI GELDİ.**
+  EKAP o akşam (paket `Last-Modified` 17:14 UTC) yeni portalı yayımladı ve
+  `r8fact` + `generateSecurityHeaders` + `X-Ekap-Sec-*` **paketten tamamen çıktı**
+  (53 chunk tarandı, hiçbirinde yok). Yerine **Cloudflare Turnstile** kondu:
+  `GET /b_han/api/human-verification/status` → `verified:false` ise "robot değilim"
+  kutusu → `POST /b_han/api/human-verification/verify` + `X-Turnstile-Token`
+  (`withCredentials`) → **`ekap.human-verification` çerezi** doğrulanmış işaretlenir.
+  Sonraki API çağrıları ekstra başlık taşımaz; iş tamamen çerezdedir.
+  - ⚠️ **Belirti `401` DEĞİL `406` + HTML**: F5 BIG-IP ASM engel sayfası
+    ("Bu olay için referans numarası: …"). `keyfetch`'in 401/500 kurtarma yolu
+    burada **işe yaramaz**; `SyncRun.note` HTML ile başlıyorsa arıza budur.
+  - ⚠️ **`keyfetch` "r8fact bulunamadı" uyarısı sebep değil, aynı değişikliğin
+    belirtisidir.** Artık var olmayan bir şeyi arıyor ve env yedeğine düşüyor;
+    imza da gönderilmediği için zararsız. `EKAP_IMZA_GONDER` (vars. **False**)
+    EKAP imzayı geri getirirse deploy'suz açar.
+  - **Çerez IP'ye bağlı DEĞİL** (ölçüldü 2026-09-09): tarayıcıda üretilen çerez
+    sunucudan `200` döndürdü → doğrulamayı sunucuda yapmak gerekmiyor, bir kişinin
+    kendi tarayıcısında geçmesi yeter.
+  - ⚠️ **Turnstile token'ı üretilemez**: sunucu tarafında Cloudflare'e doğrulatılıyor
+    (token'sız `verify` → `400 HUMAN_VERIFICATION_INVALID_TOKEN`). Bu yüzden model
+    **insan-döngüde**: bir kişi doğrular, çerez `AppSetting`'e kaydedilir.
+  - ⚠️ **Çerez `ekap/session.py` üzerinden yönetilir**; `client._post` her isteğe
+    `Cookie` ekler, **406 görünce retry ETMEZ** (`EkapDogrulamaError`) ve
+    `session.dustu()` ile bayrak koyar. Retry, 1 istek/sn bütçesini WAF'a 406
+    yedirmek için harcardı.
+  - ⚠️ **Görev kapısı `_run`'DAN ÖNCE** (`_dogrulama_kapisi`): doğrulama yokken
+    `SyncRun` satırı **yazılmaz** — 15 dk'da bir tetiklenen görevler admin'i
+    binlerce `error/0/0` satırıyla doldururdu (`backfill_tender_fields`'teki
+    aynı gerekçe).
+  - ⚠️ **Durum sorgusunda GET'e `Content-Type` EKLEMEYİN**: F5 ASM protokol ihlali
+    sayıp `406` döner ve teşhis "doğrulama geçersiz" sanılır (bir kez yanılttı).
+  - **Çerez alma**: tarayıcıda `ekapv2.kik.gov.tr/ekap/search` → doğrulamayı geç →
+    F12 → **Network** → `GetListByParameters` → Request Headers → `Cookie:` satırı.
+    ⚠️ Application → Cookies **YETMEZ**: `ekap.human-verification` HttpOnly'dir.
+  - **Yenileme**: `python manage.py ekap_dogrula --cookie "…"` (ya da `--stdin`),
+    veya SSH'sız: admin → Uygulama Ayarları → `ekap_dogrulama_cerezi`. Argümansız
+    `ekap_dogrula` canlı durumu (`expiresAtUtc`) basar; `ingest_saglik` raporunun
+    **ilk bölümü** de bunu gösterir.
+  - ⚠️ Çerez **sırdır** (EKAP oturumunun tamamını taşır) → loglara asla tam basılmaz
+    (`session.maskele`), analitik çerezler kaydedilmeden ayıklanır (`session.temizle`).
 - **Rate limit**: `throttle.py` — **atomik** slot rezervasyonu (Redis `SETNX`, worker'lar
   arası koordineli): zaman `EKAP_MIN_INTERVAL_MS` pencerelerine bölünür, her pencereyi
   yalnızca bir çağrı alır. ⚠️ Eski sürüm `get`→`set` yapıyordu; atomik değildi ve

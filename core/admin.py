@@ -1,5 +1,5 @@
 """Core admin kayıtları."""
-from django.contrib import admin
+from django.contrib import admin, messages
 
 from .models import AppConfig, AppSetting, SupportTicket
 
@@ -55,6 +55,35 @@ class AppConfigAdmin(admin.ModelAdmin):
 class AppSettingAdmin(admin.ModelAdmin):
     list_display = ["key", "description", "updated_at"]
     search_fields = ["key", "description"]
+
+    def save_model(self, request, obj, form, change):
+        """EKAP doğrulama çerezi buradan da yenilenebilsin (SSH gerekmesin).
+
+        ⚠️ Ham `Cookie` başlığı doğrudan yazılamaz: analitik çerezlerin
+        ayıklanması (kaydeden kişinin izini saklamayalım) ve "doğrulama düştü"
+        bayrağının temizlenmesi gerekir. Bu yüzden yazma `ekap.session.kaydet`
+        üzerinden geçirilir — komut satırıyla **tek** kod yolu.
+        """
+        from ekap import session as ekap_session
+
+        if obj.key == ekap_session.ANAHTAR_CEREZ and obj.value:
+            try:
+                ekap_session.kaydet(obj.value)
+            except ValueError as e:
+                messages.error(request, f"Çerez kaydedilemedi: {e}")
+                return
+            # `kaydet` update_or_create ile yazdı; admin'in sonraki adımları
+            # (response_add/change) pk bekliyor → satırı geri okuyup bağla.
+            kayit = AppSetting.objects.filter(key=obj.key).first()
+            if kayit:
+                obj.pk = kayit.pk
+            messages.success(
+                request,
+                "EKAP doğrulama çerezi kaydedildi. Toplama görevleri bir sonraki "
+                "turda kendiliğinden devam edecek."
+            )
+            return
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(SupportTicket)

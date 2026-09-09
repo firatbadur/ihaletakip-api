@@ -12,7 +12,7 @@ import time
 from curl_cffi import requests as curl_requests
 from django.conf import settings
 
-from . import keyfetch
+from . import keyfetch, session as ekap_session
 from .constants import DEFAULT_SEARCH_BODY
 from .signing import generate_signing_headers
 from .throttle import wait_for_slot
@@ -35,6 +35,14 @@ USER_AGENT = (
 
 class EkapError(Exception):
     """EKAP isteği kalıcı olarak başarısız oldu."""
+
+
+class EkapDogrulamaError(EkapError):
+    """EKAP insan doğrulaması (Turnstile) geçersiz — HTTP 406.
+
+    ⚠️ Bu hata **retry edilmez**: çerezi bir insanın yenilemesi gerekiyor,
+    tekrar denemek yalnızca WAF'a yük bindirir ve logu doldurur.
+    """
 
 
 class EkapV2Client:
@@ -75,9 +83,20 @@ class EkapV2Client:
                 "Accept-Language": "tr-TR,tr;q=0.9",
                 "Content-Type": "application/json",
                 "api-version": "v1",
-                # ⚠️ İmzalanan yol istek yoluyla BİREBİR aynı olmalı.
-                **generate_signing_headers(method="POST", path=path),
+                # Portalın kendi isteklerinin şekli; ASM bunları bekliyor.
+                "Origin": self.base_url,
+                "Referer": f"{self.base_url}/ekap/search",
             }
+            # ⚠️ İnsan doğrulaması çerezi (bkz. ekap/session.py). Yoksa EKAP
+            # **406** + HTML engel sayfası döndürür; 401 DEĞİL.
+            cerez = ekap_session.cerez()
+            if cerez:
+                headers["Cookie"] = cerez
+            # ⚠️ İmza başlıkları 2026-09-08'de EKAP tarafından KALDIRILDI (portal
+            # artık göndermiyor). Varsayılan kapalı; EKAP geri getirirse
+            # `EKAP_IMZA_GONDER=True` ile deploy'suz açılır.
+            if getattr(settings, "EKAP_IMZA_GONDER", False):
+                headers.update(generate_signing_headers(method="POST", path=path))
             try:
                 resp = self.session.post(
                     url, json=payload, headers=headers, timeout=self.timeout
@@ -92,6 +111,16 @@ class EkapV2Client:
                     return resp.json()
                 except ValueError:
                     return resp.text
+
+            # ⚠️ **406 = insan doğrulaması geçersiz** (F5 ASM engel sayfası).
+            # Retry EDİLMEZ: çözümü bir insanın çerezi yenilemesi, tekrar
+            # denemek yalnızca WAF'a yük bindirir ve logu doldurur.
+            if resp.status_code == 406:
+                ekap_session.dustu(f"{path} → HTTP 406")
+                raise EkapDogrulamaError(
+                    f"EKAP {path} → HTTP 406: insan doğrulaması geçersiz. "
+                    f"`manage.py ekap_dogrula` ile çerezi yenileyin."
+                )
 
             if resp.status_code in (401, 403, 500) and not yenilendi:
                 yenilendi = True

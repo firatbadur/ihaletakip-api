@@ -52,6 +52,27 @@ class Command(BaseCommand):
         now = timezone.now()
         bugun_bas, bugun_bit = local_day_range(timezone.localdate())
 
+        # 0) EKAP insan doğrulaması — bu düşükse aşağıdaki her şey durur
+        self._baslik("EKAP insan doğrulaması")
+        from ekap import session as ekap_session
+        self.stdout.write(f"  çerez: {ekap_session.maskele(ekap_session.cerez())}")
+        try:
+            d = ekap_session.durum()
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"  durum sorgulanamadı: {e}"))
+        else:
+            if d.get("http") != 200:
+                self.stdout.write(self.style.ERROR(
+                    f"  HTTP {d.get('http')} — {d.get('hata', '')}"))
+            elif d.get("verified"):
+                self.stdout.write(self.style.SUCCESS(
+                    f"  ✅ GEÇERLİ — bitiş {d.get('expiresAtUtc')} "
+                    f"(yenileme {d.get('refreshAtUtc')})"))
+            else:
+                self.stdout.write(self.style.ERROR(
+                    "  ❌ DOĞRULAMA YOK → toplama durur. Çözüm: tarayıcıda "
+                    "doğrulayıp `manage.py ekap_dogrula --cookie …`"))
+
         # 1) Son çalışmalar — görev başına en son kayıt
         self._baslik("Son senkron çalışmaları")
         for task in ("sync_recent", "backfill", "refresh_stale", "sync_contractors"):

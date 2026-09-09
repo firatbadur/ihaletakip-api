@@ -15,9 +15,9 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from .client import EkapV2Client
+from .client import EkapDogrulamaError, EkapV2Client
 from .models import SyncCheckpoint, SyncRun, Tender
-from . import sync as sync_mod
+from . import session as ekap_session, sync as sync_mod
 from .series import series_skeleton
 
 logger = logging.getLogger("ihaletakip")
@@ -60,6 +60,24 @@ def _run(task_name, lock_ttl=3600):
         run.finished_at = timezone.now()
         run.save()
         cache.delete(lock_key)
+
+
+def _dogrulama_kapisi(task_name):
+    """EKAP'a çıkan görevlerin ortak ön koşulu: insan doğrulaması geçerli mi?
+
+    ⚠️ **Kontrol `_run`'DAN ÖNCE yapılır** → doğrulama yokken `SyncRun` satırı
+    **yazılmaz**. Görevler 2 saatte/15 dk'da bir tetiklendiği için aksi hâlde
+    admin binlerce `error / 0 / 0` satırıyla dolar ve gerçek çalışmalar kaybolur
+    (`backfill_tender_fields`'te belgelenen aynı gerekçe).
+
+    Doğrulama düştüğünde yapılacak tek şey bir insanın çerezi yenilemesidir;
+    EKAP'a istek atmak yalnızca WAF'a yük bindirir.
+    """
+    if ekap_session.gecerli():
+        return True
+    logger.warning("%s atlandı: EKAP insan doğrulaması yok/geçersiz "
+                   "(`manage.py ekap_dogrula` ile çerezi yenileyin)", task_name)
+    return False
 
 
 def _enqueue_detail(ekap_id, defer=True, queue=None, only_if_missing=False):
@@ -123,8 +141,17 @@ def sync_detail(self, ekap_id, only_if_missing=False):
     ).exists():
         cache.delete(mark)
         return {"ekap_id": ekap_id, "atlandi": "zaten_detayli"}
+    if not _dogrulama_kapisi("sync_detail"):
+        # ⚠️ İşaret SİLİNİR: doğrulama gelince satır yeniden kuyruğa girebilmeli.
+        cache.delete(mark)
+        return {"ekap_id": ekap_id, "atlandi": "dogrulama_yok"}
     try:
         sync_mod.sync_detail(ekap_id, EkapV2Client())
+    except EkapDogrulamaError:
+        # ⚠️ Retry ETME: çözümü bir insanın çerezi yenilemesi. Retry, 1 istek/sn
+        # bütçesini WAF'a 406 yedirmek için harcar ve logu doldurur.
+        cache.delete(mark)
+        return {"ekap_id": ekap_id, "atlandi": "dogrulama_dustu"}
     except Exception as e:
         raise self.retry(exc=e)
     # ⚠️ İşareti iş BİTİNCE sil. Yalnızca kuyruğa atarken koyup TTL'e bırakmak,
@@ -161,6 +188,8 @@ def sync_recent(days=None, max_pages=40, page_size=50, defer_detail=True):
     Sıralama `ihaleTarihi` (DOLU alan) — sayfalama kararlılığı için şart; boş bir
     alana göre sıralamada sayfa sınırları kayar ve satır kaçırılabilir.
     """
+    if not _dogrulama_kapisi("sync_recent"):
+        return {"status": "dogrulama_yok"}
     days = days or settings.EKAP_RECENT_DAYS
     with _run("sync_recent") as run:
         if run is None:
@@ -255,6 +284,8 @@ def backfill(max_pages=None, page_size=50, defer_detail=True):
     if max_pages is None:
         max_pages = settings.EKAP_BACKFILL_MAX_PAGES
     deadline = time.monotonic() + settings.EKAP_BACKFILL_MAX_SECONDS
+    if not _dogrulama_kapisi("backfill"):
+        return {"status": "dogrulama_yok"}
     with _run("backfill", lock_ttl=600) as run:
         if run is None:
             return
@@ -345,6 +376,8 @@ def refresh_stale(batch=50, years=None, defer_detail=True):
 
     Yalnızca son ``years`` yıl (ilan tarihine göre) içindeki ihaleler aday olur.
     """
+    if not _dogrulama_kapisi("refresh_stale"):
+        return {"status": "dogrulama_yok"}
     years = years or settings.EKAP_REFRESH_YEARS
     with _run("refresh_stale") as run:
         if run is None:
@@ -376,6 +409,8 @@ def refresh_stale(batch=50, years=None, defer_detail=True):
 # ── Lookup senkronları (haftalık) ──────────────────────
 @shared_task(name="ekap.tasks.sync_okas")
 def sync_okas():
+    if not _dogrulama_kapisi("sync_okas"):
+        return {"status": "dogrulama_yok"}
     with _run("sync_okas") as run:
         if run is None:
             return
@@ -386,6 +421,8 @@ def sync_okas():
 
 @shared_task(name="ekap.tasks.sync_authorities")
 def sync_authorities():
+    if not _dogrulama_kapisi("sync_authorities"):
+        return {"status": "dogrulama_yok"}
     with _run("sync_authorities") as run:
         if run is None:
             return

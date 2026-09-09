@@ -300,6 +300,11 @@ NOTIF_OKAS_PUBLISH_DAYS = env.int("NOTIF_OKAS_PUBLISH_DAYS", default=1)
 EKAP_BASE_URL = env("EKAP_BASE_URL", default="https://ekapv2.kik.gov.tr")
 # AES-192 imzalama anahtarı (mobil calls.js ile aynı olmalı)
 EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="pfS7Xdn3YVkOzs3V79XUc91SD47mQD0g")
+# ⚠️ EKAP 2026-09-08'de AES imza katmanını KALDIRDI (portal artık `X-Ekap-Sec-*`
+# göndermiyor); yerine Cloudflare Turnstile insan doğrulaması geldi
+# (bkz. ekap/session.py). İmza başlıkları varsayılan olarak GÖNDERİLMEZ; EKAP
+# geri getirirse bu bayrak deploy'suz açar.
+EKAP_IMZA_GONDER = env.bool("EKAP_IMZA_GONDER", default=False)
 EKAP_MIN_INTERVAL_MS = env.int("EKAP_MIN_INTERVAL_MS", default=1000)  # ~1 istek/sn
 # TLS parmak izi engelini aşmak için curl_cffi tarayıcı taklidi
 EKAP_IMPERSONATE = env("EKAP_IMPERSONATE", default="chrome")

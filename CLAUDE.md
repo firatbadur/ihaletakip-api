@@ -228,6 +228,7 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   ⚠️ Liste **24 sa önbelleklidir**: doküman ekranı her açıldığında sorulacak ama
   içerik gün içinde değişmiyor → aynı ihaleyi 50 kullanıcı açsa EKAP'a bir kez gidilir.
   ⚠️ Dosya adı `{GUID}_{2}_{}_ad.docx` kalıbında gelir → `_dosya_adi_temizle`.
+  Mobil entegrasyon talimatı: `docs/mobil-dokuman.md`.
   ⚠️ Var olan ucu bulma yöntemi: bilinmeyen yol `404`, var olan yol CAPTCHA duvarında
   **`300`** döner. ⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal id'si
   verilirse **400** — iki uç farklı kimlik uzayı kullanıyor (64 hex ↔ int).

@@ -383,8 +383,12 @@ EKAP_MOBIL_KULLANICI_REZERV = env.int("EKAP_MOBIL_KULLANICI_REZERV", default=100
 # ⚠️ Denge: 2,5 dk'lık arka plan penceresini bir belge indirme isteği için beklemek
 # pratikte "indirilemiyor" demektir. Rezerv (100/gün) bu yolun toplam tempoyu
 # ölçülen eşiğin üstüne çıkarmasını engeller.
-EKAP_MOBIL_KULLANICI_INTERVAL_MS = env.int("EKAP_MOBIL_KULLANICI_INTERVAL_MS", default=30000)
-EKAP_MOBIL_KULLANICI_BEKLEME = env.int("EKAP_MOBIL_KULLANICI_BEKLEME", default=20)
+# ⚠️ Kullanıcı penceresi KISA tutulur ve **isteği düşürmez**: dolduğunda yalnızca
+# kısa bir bekleme uygulanır, sonra istek yine gönderilir (bkz. client._ham_istek).
+# Kötüye kullanım koruması `EKAP_MOBIL_KULLANICI_REZERV`tir; gerçek sınır ise EKAP'ın
+# CAPTCHA duvarıdır ve ona çarpınca OCR devreye girer.
+EKAP_MOBIL_KULLANICI_INTERVAL_MS = env.int("EKAP_MOBIL_KULLANICI_INTERVAL_MS", default=5000)
+EKAP_MOBIL_KULLANICI_BEKLEME = env.int("EKAP_MOBIL_KULLANICI_BEKLEME", default=15)
 # ⚠️ Kurulum başına SABİT olmalı — her başlatmada değişen UUID bot imzasıdır.
 EKAP_MOBIL_CIHAZ_UUID = env("EKAP_MOBIL_CIHAZ_UUID", default="")
 EKAP_MOBIL_TIMEOUT = env.int("EKAP_MOBIL_TIMEOUT", default=60)

@@ -132,15 +132,24 @@ class EkapMobilClient:
             # ⚠️ Kullanıcı istekleri ayrı (daha dar) pencereyi ve sınırlı beklemeyi
             # kullanır: karşıda bekleyen bir insan var, arka plan turu ise bekleyebilir.
             if not pencere:
-                uygun = True
+                pass
             elif self.butce == "kullanici":
-                uygun = throttle.slot_al(
+                # ⚠️⚠️ **Kullanıcı yolunda slot alınamaması isteği DÜŞÜRMEZ.**
+                # Karşıda butona basmış bir insan var ve buradaki pencere EKAP'ın
+                # değil **bizim** koyduğumuz koruma; onu bir "indirilemiyor" hatasına
+                # çevirmek, hiç sorulmadan reddetmek demekti (üretimde yaşandı
+                # 2026-09-10: kullanıcı indirme butonuna basıyor, istek EKAP'a hiç
+                # gitmeden "hız sınırı" hatası alıyordu — üstelik EKAP hiçbir şey
+                # dememişti). Gerçek sınır EKAP'ın kendi CAPTCHA duvarıdır ve o
+                # duvara çarparsak OCR ile çözüp tekrar deniyoruz.
+                # Kötüye kullanım koruması **günlük rezervdir** (yukarıdaki
+                # `butce_harca`), pencere değil.
+                if not throttle.slot_al(
                     ad="kullanici", bekle=True,
-                    azami_bekleme=getattr(settings, "EKAP_MOBIL_KULLANICI_BEKLEME", 20),
-                )
-            else:
-                uygun = throttle.slot_al()
-            if not uygun:
+                    azami_bekleme=getattr(settings, "EKAP_MOBIL_KULLANICI_BEKLEME", 15),
+                ):
+                    logger.info("kullanıcı isteği pencere beklemeden geçiyor (%s)", path)
+            elif not throttle.slot_al():
                 raise MobilSlotError("EKAP mobil hız penceresi dolu (slot alınamadı).")
 
         url = f"{self.base_url}{path}"

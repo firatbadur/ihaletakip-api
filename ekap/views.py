@@ -1045,7 +1045,10 @@ class TenderDocumentView(APIView):
     def get(self, request, key):
         from django.http import StreamingHttpResponse
 
-        from .mobil.client import EkapMobilClient, MobilError, MobilSlotError
+        from .mobil.client import (
+            EkapMobilClient, MobilButceError, MobilCaptchaError, MobilError,
+            MobilSlotError,
+        )
 
         tender = _tender_by_key(key, defer_raw=True)
         if tender is None:
@@ -1070,10 +1073,23 @@ class TenderDocumentView(APIView):
                                     success=False, status=404)
             # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
             resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
+        except MobilButceError:
+            # ⚠️ Günlük kullanıcı rezervi doldu — bu bizim koruma tavanımızdır,
+            # EKAP'ın reddi değil. Mesaj bunu dürüstçe söyler.
+            return api_response(
+                message="Bugünkü belge indirme kotası doldu; yarın tekrar deneyin.",
+                success=False, status=503,
+            )
+        except MobilCaptchaError:
+            # ⚠️ CAPTCHA otomatik çözülemedi (OCR + operatör yolu devrede).
+            return api_response(
+                message="EKAP doğrulama istedi ve otomatik çözülemedi; "
+                        "lütfen birazdan tekrar deneyin.",
+                success=False, status=503,
+            )
         except MobilSlotError:
             return api_response(
-                message="EKAP hız sınırı nedeniyle şu an belge indirilemiyor; "
-                        "lütfen birazdan tekrar deneyin.",
+                message="EKAP şu an yanıt vermiyor; lütfen birazdan tekrar deneyin.",
                 success=False, status=503,
             )
         except MobilError as e:

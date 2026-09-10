@@ -234,6 +234,9 @@ POST /IhaleArama/IhaleDokumani/Indir?iknYili=&iknSayi=&dosyaId=<id>&api-version=
 POST /IhaleArama/TeknikSartname/Bilgiler?iknYili=&iknSayi=&api-version=1.0
 → [{"boyut": 2137543, "dosyaAdi": "...teknik şartname.pdf", "dosyaId": 30828013, "icerik": null}]
 
+POST /IhaleArama/TeknikSartname/Indir?iknYili=&iknSayi=&dosyaId=<dosyaId>&api-version=1.0
+→ application/octet-stream (gerçek PDF; doğrulandı 2026-09-10: `%PDF-1.6`)
+
 POST /IhaleArama/IdariSartname/Bilgiler?iknYili=&iknSayi=&api-version=1.0
 → {"mesaj": "", "resultCode": 0, "sonuc": true,
    "uniqueName": "{...}_{4}_{}_idari_sartname_2026_1690784.html"}
@@ -241,6 +244,19 @@ POST /IhaleArama/IdariSartname/Bilgiler?iknYili=&iknSayi=&api-version=1.0
 
 ⚠️ `IhaleDokumani/Liste` dönen `id` **her çağrıda değişiyor** (tek kullanımlık).
 Liste ve indirme **aynı istek zincirinde** yapılmalı; id önbelleklenemez.
+
+⚠️⚠️ **Teknik şartname ihale dokümanı ZIP'inin İÇİNDE DEĞİLDİR.** Ayrı dosya, ayrı
+uç (üretimde 15 MB'lık bir PDF ölçüldü). `Bilgiler` ucundaki `icerik` alanı **daima
+`null`** gelir — içerik inline dönmüyor, `dosyaId` ile `TeknikSartname/Indir`
+çağrılmalı. Kullanıcı "doküman indir" deyip teknik şartnameyi bulamayınca fark
+edildi (2026-09-10).
+
+⚠️ `TeknikSartname/Indir` keşif notlarının ilk sürümünde YOKTU. Bulma yöntemi:
+bilinmeyen yollar `404` dönerken var olan yollar CAPTCHA duvarında **`300`**
+döndürüyor → 300 alan yol vardır. (`TeknikSartname/Getir`, `.../Dokuman`,
+`Dokuman/Indir` → 404; `TeknikSartname/Indir` → 300, captcha çözülünce 200 + PDF.)
+⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal `dosyaId`si verilirse
+**HTTP 400** döner — iki uç farklı kimlik uzayı kullanıyor (biri 64 hex, diğeri int).
 
 ---
 

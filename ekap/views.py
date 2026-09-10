@@ -998,10 +998,16 @@ class DocumentUrlView(APIView):
         # istemciye kendi proxy ucumuzun adresi döner (sözleşme aynı: `data.url`).
         tender = _tender_by_key(ekap_id, defer_raw=True)
         if tender is not None:
+            temel = request.build_absolute_uri(
+                reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
+            )
+            # ⚠️ Teknik şartnamenin VARLIĞI burada sorgulanmaz: öğrenmek için mobil
+            # uca bir istek daha atmak gerekir ve bu uç her ihale açılışında
+            # çağrılıyor — hız bütçesini boşa yakardı. Bağlantı iyimser verilir;
+            # şartname yoksa indirme ucu **404** ve net bir mesaj döner.
             return api_response(data={
-                "url": request.build_absolute_uri(
-                    reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
-                ),
+                "url": temel,
+                "teknik_sartname_url": f"{temel}?tur=teknik",
                 "proxy": True,
             })
 
@@ -1059,20 +1065,37 @@ class TenderDocumentView(APIView):
 
         # ⚠️ `butce="kullanici"`: kullanıcı istekleri arka plan toplamasından **ayrı**
         # ve daha dar bir pencere + ayrı günlük rezerv kullanır (bkz. mobil/throttle).
+        # ⚠️ **Teknik şartname ihale dokümanı ZIP'inin İÇİNDE DEĞİLDİR** (üretimde
+        # ölçüldü: ayrı 15 MB PDF, ayrı uç). Kullanıcı "doküman indir" deyip teknik
+        # şartnameyi bulamıyordu → ayrı `?tur=teknik` yolu.
+        tur = (request.query_params.get("tur") or "ihale").lower()
         cli = EkapMobilClient(butce="kullanici")
         try:
-            liste = cli.dokuman_liste(yil, sayi)
-            dokumanlar = (liste or {}).get("dokumanlar") or []
-            istenen = request.query_params.get("dosyaId")
-            secilen = next(
-                (d for d in dokumanlar if not istenen or str(d.get("id")) == istenen),
-                None,
-            )
-            if not secilen:
-                return api_response(message="Bu ihalede indirilebilir doküman yok.",
-                                    success=False, status=404)
-            # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
-            resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
+            if tur == "teknik":
+                bilgiler = cli.teknik_sartname(yil, sayi)
+                kayitlar = bilgiler if isinstance(bilgiler, list) else []
+                if not kayitlar:
+                    return api_response(
+                        message="Bu ihalede ayrı bir teknik şartname yok.",
+                        success=False, status=404)
+                secilen = kayitlar[0]
+                # ⚠️ Aynı zincir: ikinci istek için pencere beklenmez.
+                resp = cli.teknik_sartname_indir(
+                    yil, sayi, secilen["dosyaId"], zincir=True)
+            else:
+                liste = cli.dokuman_liste(yil, sayi)
+                dokumanlar = (liste or {}).get("dokumanlar") or []
+                istenen = request.query_params.get("dosyaId")
+                secilen = next(
+                    (d for d in dokumanlar
+                     if not istenen or str(d.get("id")) == istenen),
+                    None,
+                )
+                if not secilen:
+                    return api_response(message="Bu ihalede indirilebilir doküman yok.",
+                                        success=False, status=404)
+                # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
+                resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
         except MobilButceError:
             # ⚠️ Günlük kullanıcı rezervi doldu — bu bizim koruma tavanımızdır,
             # EKAP'ın reddi değil. Mesaj bunu dürüstçe söyler.
@@ -1096,6 +1119,7 @@ class TenderDocumentView(APIView):
             logger.warning("Mobil doküman indirilemedi (%s): %s", tender.ikn, e)
             return api_response(message="Belge indirilemedi.", success=False, status=502)
 
+        # Dosya adı `{GUID}_{2}_{}_TEKNİK ŞARTNAME.pdf` kalıbında → son parça gerçek ad.
         ad = (secilen.get("dosyaAdi") or f"ihale_{yil}_{sayi}.zip").split("}_")[-1]
         cikti = StreamingHttpResponse(
             resp.iter_content(chunk_size=64 * 1024),

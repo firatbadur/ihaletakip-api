@@ -312,6 +312,26 @@ class EkapMobilClient:
             ek_baslik={"x-skip-error-dialog": "true"},
         )
 
+    def teknik_sartname_indir(self, ikn_yili, ikn_sayi, dosya_id, *, zincir=False):
+        """
+        Teknik şartnameyi indirir — **ham PDF** (`requests.Response`, stream).
+
+        ⚠️ Teknik şartname ihale dokümanı ZIP'inin **içinde değildir**; ayrı dosya,
+        ayrı uç. `Bilgiler` ucundaki `icerik` alanı daima `null` gelir (içerik inline
+        gelmiyor) → `dosyaId` ile bu uç çağrılır.
+        """
+        p = {"iknYili": ikn_yili, "iknSayi": ikn_sayi, "dosyaId": dosya_id}
+        ek = {"x-skip-error-dialog": "true"}
+        resp = self._ham_istek(C.PATH_TEKNIK_SARTNAME_INDIR, params=p, ek_baslik=ek,
+                               stream=True, pencere=not zincir)
+        resp = self._captcha_asilirsa_tekrarla(
+            resp, C.PATH_TEKNIK_SARTNAME_INDIR, params=p, ek_baslik=ek,
+            stream=True, pencere=not zincir,
+        )
+        if resp.status_code != 200:
+            raise MobilError(f"Teknik şartname indirilemedi → HTTP {resp.status_code}")
+        return resp
+
     def idari_sartname(self, ikn_yili, ikn_sayi):
         return self._post(
             C.PATH_IDARI_SARTNAME,

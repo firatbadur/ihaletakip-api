@@ -19,6 +19,11 @@ PATH_SONUC_ILANLARI = f"{KOK}/IhaleArama/SonucIlanlari/Ilan"
 PATH_DOKUMAN_LISTE = f"{KOK}/IhaleArama/IhaleDokumani/Liste"
 PATH_DOKUMAN_INDIR = f"{KOK}/IhaleArama/IhaleDokumani/Indir"
 PATH_TEKNIK_SARTNAME = f"{KOK}/IhaleArama/TeknikSartname/Bilgiler"
+# ⚠️ Teknik şartname **ihale dokümanı ZIP'inin İÇİNDE DEĞİL**, ayrı bir dosyadır
+# (üretimde ölçüldü: 15 MB PDF). İndirme ucu keşif notlarında yoktu; 2026-09-10'da
+# bulundu — bilinmeyen yollar `404`, bu yol CAPTCHA duvarına takıldığında `300`
+# döndü, yani var. Doğrulandı: `%PDF-1.6` baytlarıyla dönüyor.
+PATH_TEKNIK_SARTNAME_INDIR = f"{KOK}/IhaleArama/TeknikSartname/Indir"
 PATH_IDARI_SARTNAME = f"{KOK}/IhaleArama/IdariSartname/Bilgiler"
 
 # ⚠️ Captcha uçları `Captcha/` kökündedir, `IhaleArama/` altında DEĞİL.

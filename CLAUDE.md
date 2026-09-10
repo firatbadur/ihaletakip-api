@@ -215,6 +215,14 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   açısından anlamlıdır; çözülürse metindeki kaçırılmış bir `<` gerçek etikete döner.
   Yalnızca **ASCII dışı** referanslar çevrilir. Eski satırlar:
   `python manage.py fix_mobil_html [--dry-run]`.
+- ⚠️⚠️ **Teknik şartname ihale dokümanı ZIP'inin İÇİNDE DEĞİLDİR** — ayrı dosya,
+  ayrı uç (`TeknikSartname/Bilgiler` → `dosyaId` → `TeknikSartname/Indir`, ölçülen
+  örnek 15 MB PDF). `Bilgiler`in `icerik` alanı **daima `null`**. Uç
+  `?tur=teknik` ile sunulur; `document-url` bağlantıyı **iyimser** verir (varlığını
+  sorgulamak her ihale açılışında fazladan bir mobil isteği demekti), yoksa 404.
+  ⚠️ Var olan ucu bulma yöntemi: bilinmeyen yol `404`, var olan yol CAPTCHA duvarında
+  **`300`** döner. ⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal id'si
+  verilirse **400** — iki uç farklı kimlik uzayı kullanıyor (64 hex ↔ int).
 - **Belge indirme** (`GET /ekap/tenders/<key>/document/`): mobil uçta **kalıcı belge
   URL'i yoktur** — `IhaleDokumani/Liste` her çağrıda **tek kullanımlık** id üretir ve
   indirme aynı zincirde yapılmalıdır → dosya bizim üzerimizden akıtılır (streaming).

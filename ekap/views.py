@@ -1037,9 +1037,89 @@ class DocumentUrlView(APIView):
         # **404** ve net bir mesaj döner.
         return api_response(data={
             "url": temel,
-            "teknik_sartname_url": f"{temel}?tur=teknik",
+            "documents_url": request.build_absolute_uri(
+                reverse("v1:ekap-tender-documents", kwargs={"key": ekap_id})
+            ),
             "proxy": True,
         })
+
+
+def _dosya_adi_temizle(ham: str) -> str:
+    """
+    `{GUID}_{2}_{}_TEMİZLİK MALZEMELERİ.docx` → `TEMİZLİK MALZEMELERİ.docx`.
+
+    EKAP dosya adının başına GUID + iki teknik alan ekliyor; kullanıcıya bunları
+    göstermenin bir anlamı yok.
+    """
+    return (ham or "").split("}_")[-1].lstrip("_") or "dokuman"
+
+
+@extend_schema(
+    tags=["ekap"],
+    summary="İhale dokümanlarını listele",
+    description=(
+        "İhalenin indirilebilir dosyalarını listeler: **ihale dokümanı** (tek ZIP) ve "
+        "varsa **teknik şartname** dosyaları (adı + boyutu + indirme adresi).\n\n"
+        "⚠️ EKAP teknik şartnameyi tek dosya olarak vermiyor; bir ihalede 10-11 ayrı "
+        "dosya olabiliyor ve toplamları 1 GB'a ulaşabiliyor (ölçüldü). Bu yüzden "
+        "birleştirilmez — kullanıcı boyutu görüp seçer.\n\n"
+        "Sonuç 24 saat önbelleklenir: aynı ihaleyi çok kullanıcı açsa da EKAP'a bir "
+        "kez gidilir."
+    ),
+    responses={200: OpenApiTypes.OBJECT, 404: None},
+    auth=[],
+)
+class TenderDocumentsView(APIView):
+    """GET /ekap/tenders/{key}/documents/ — indirilebilir dosya listesi."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, key):
+        from .mobil.client import EkapMobilClient, MobilError
+
+        tender = _tender_by_key(key, defer_raw=True)
+        if tender is None:
+            return api_response(message="İhale bulunamadı.", success=False, status=404)
+        yil, _, sayi = str(tender.ikn or "").partition("/")
+        if not yil.isdigit() or not sayi.isdigit():
+            return api_response(message="Geçersiz İKN.", success=False, status=400)
+
+        temel = request.build_absolute_uri(
+            reverse("v1:ekap-tender-document", kwargs={"key": key})
+        )
+        veri = {
+            # İhale dokümanı tek ZIP → EKAP uygulamasında da doğrudan iniyor,
+            # listelemeye gerek yok.
+            "ihale_dokumani": {"ad": "İhale Dokümanı", "tur": "ihale", "url": temel},
+            "teknik_sartnameler": [],
+        }
+
+        # ⚠️ Önbellek hız bütçesinin asıl koruması: liste her doküman ekranı
+        # açılışında sorulacak, ama içerik gün içinde değişmiyor.
+        anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
+        kayitlar = cache.get(anahtar)
+        if kayitlar is None:
+            try:
+                ham = EkapMobilClient(butce="kullanici").teknik_sartname(yil, sayi)
+                kayitlar = ham if isinstance(ham, list) else []
+                cache.set(anahtar, kayitlar, timeout=24 * 3600)
+            except MobilError as e:
+                logger.info("teknik şartname listesi alınamadı (%s): %s",
+                            tender.ikn, str(e)[:120])
+                kayitlar = []
+
+        for k in kayitlar:
+            dosya_id = k.get("dosyaId")
+            if dosya_id is None:
+                continue
+            veri["teknik_sartnameler"].append({
+                "ad": _dosya_adi_temizle(k.get("dosyaAdi")),
+                "boyut": k.get("boyut"),
+                "dosya_id": dosya_id,
+                "tur": "teknik",
+                "url": f"{temel}?tur=teknik&dosyaId={dosya_id}",
+            })
+        return api_response(data=veri)
 
 
 @extend_schema(
@@ -1084,13 +1164,28 @@ class TenderDocumentView(APIView):
         cli = EkapMobilClient(butce="kullanici")
         try:
             if tur == "teknik":
-                bilgiler = cli.teknik_sartname(yil, sayi)
-                kayitlar = bilgiler if isinstance(bilgiler, list) else []
+                # ⚠️ Teknik şartname **birden çok dosya** olabilir (ölçüldü: 10-11
+                # dosya). `dosyaId` verilmezse ilk dosya döner — ama doğru akış
+                # `documents/` ucundan listeleyip kullanıcıya seçtirmektir.
+                istenen = request.query_params.get("dosyaId")
+                anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
+                kayitlar = cache.get(anahtar)
+                if kayitlar is None:
+                    bilgiler = cli.teknik_sartname(yil, sayi)
+                    kayitlar = bilgiler if isinstance(bilgiler, list) else []
+                    cache.set(anahtar, kayitlar, timeout=24 * 3600)
                 if not kayitlar:
                     return api_response(
                         message="Bu ihalede ayrı bir teknik şartname yok.",
                         success=False, status=404)
-                secilen = kayitlar[0]
+                secilen = next(
+                    (k for k in kayitlar
+                     if not istenen or str(k.get("dosyaId")) == str(istenen)),
+                    None,
+                )
+                if secilen is None:
+                    return api_response(message="Bu dosya bulunamadı.",
+                                        success=False, status=404)
                 # ⚠️ Aynı zincir: ikinci istek için pencere beklenmez.
                 resp = cli.teknik_sartname_indir(
                     yil, sayi, secilen["dosyaId"], zincir=True)
@@ -1131,8 +1226,7 @@ class TenderDocumentView(APIView):
             logger.warning("Mobil doküman indirilemedi (%s): %s", tender.ikn, e)
             return api_response(message="Belge indirilemedi.", success=False, status=502)
 
-        # Dosya adı `{GUID}_{2}_{}_TEKNİK ŞARTNAME.pdf` kalıbında → son parça gerçek ad.
-        ad = (secilen.get("dosyaAdi") or f"ihale_{yil}_{sayi}.zip").split("}_")[-1]
+        ad = _dosya_adi_temizle(secilen.get("dosyaAdi")) or f"ihale_{yil}_{sayi}.zip"
         cikti = StreamingHttpResponse(
             resp.iter_content(chunk_size=64 * 1024),
             content_type=resp.headers.get("content-type", "application/octet-stream"),

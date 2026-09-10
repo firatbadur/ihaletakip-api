@@ -1728,6 +1728,44 @@
           }
         },
         {
+          "name": "İhale dokümanlarını listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/documents/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "documents",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "İhalenin indirilebilir dosyalarını listeler: **ihale dokümanı** (tek ZIP) ve varsa **teknik şartname** dosyaları (adı + boyutu + indirme adresi).\n\n⚠️ EKAP teknik şartnameyi tek dosya olarak vermiyor; bir ihalede 10-11 ayrı dosya olabiliyor ve toplamları 1 GB'a ulaşabiliyor (ölçüldü). Bu yüzden birleştirilmez — kullanıcı boyutu görüp seçer.\n\nSonuç 24 saat önbelleklenir: aynı ihaleyi çok kullanıcı açsa da EKAP'a bir kez gidilir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Bu ihale tekrar eden bir serinin parçası mı? (Pro)",
           "request": {
             "method": "GET",

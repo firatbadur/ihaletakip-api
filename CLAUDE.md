@@ -215,11 +215,19 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   açısından anlamlıdır; çözülürse metindeki kaçırılmış bir `<` gerçek etikete döner.
   Yalnızca **ASCII dışı** referanslar çevrilir. Eski satırlar:
   `python manage.py fix_mobil_html [--dry-run]`.
-- ⚠️⚠️ **Teknik şartname ihale dokümanı ZIP'inin İÇİNDE DEĞİLDİR** — ayrı dosya,
-  ayrı uç (`TeknikSartname/Bilgiler` → `dosyaId` → `TeknikSartname/Indir`, ölçülen
-  örnek 15 MB PDF). `Bilgiler`in `icerik` alanı **daima `null`**. Uç
-  `?tur=teknik` ile sunulur; `document-url` bağlantıyı **iyimser** verir (varlığını
-  sorgulamak her ihale açılışında fazladan bir mobil isteği demekti), yoksa 404.
+- ⚠️⚠️ **Teknik şartname ihale dokümanı ZIP'inin İÇİNDE DEĞİLDİR** — ayrı dosya(lar),
+  ayrı uç (`TeknikSartname/Bilgiler` → `dosyaId` → `TeknikSartname/Indir`).
+  `Bilgiler`in `icerik` alanı **daima `null`**.
+  ⚠️⚠️ **TEK dosya değil, LİSTE.** Ölçülen boyutlar (8 ihale): 0,05 · 0,27 · 1,25 ·
+  3,96 · 9,32 · 9,83 ve **951 MB (10 dosya)**. Medyan ~4 MB ama kuyruk çok uzun →
+  **sunucuda birleştirilmez**: 1 GB'ı indirip yeniden paketleyip servis etmek diski,
+  trafiği ve kullanıcının mobil verisini yakar. EKAP uygulamasının kendisi de
+  listeleyip **kullanıcıya seçtiriyor**; aynısı yapılır:
+  `GET /ekap/tenders/<key>/documents/` → `{ihale_dokumani, teknik_sartnameler[
+  {ad, boyut, dosya_id, url}]}` · indirme `?tur=teknik&dosyaId=<id>`.
+  ⚠️ Liste **24 sa önbelleklidir**: doküman ekranı her açıldığında sorulacak ama
+  içerik gün içinde değişmiyor → aynı ihaleyi 50 kullanıcı açsa EKAP'a bir kez gidilir.
+  ⚠️ Dosya adı `{GUID}_{2}_{}_ad.docx` kalıbında gelir → `_dosya_adi_temizle`.
   ⚠️ Var olan ucu bulma yöntemi: bilinmeyen yol `404`, var olan yol CAPTCHA duvarında
   **`300`** döner. ⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal id'si
   verilirse **400** — iki uç farklı kimlik uzayı kullanıyor (64 hex ↔ int).

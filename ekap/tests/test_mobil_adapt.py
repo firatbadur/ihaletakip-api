@@ -214,6 +214,35 @@ class DokumanUcuTest(TestCase):
         veri = resp.json()["data"]
         self.assertTrue(veri["proxy"])
         self.assertIn("/document/", veri["url"])
+        self.assertIn("/documents/", veri["documents_url"])
+
+    def test_dosya_adi_temizlenir(self):
+        """EKAP dosya adının başındaki GUID + teknik alanlar kullanıcıya gösterilmez."""
+        from ekap.views import _dosya_adi_temizle
+        self.assertEqual(
+            _dosya_adi_temizle("{FF0E34682908E4BE5926B0A3F007F22F}_{2}_{}_TEMİZLİK MALZEMELERİ.docx"),
+            "TEMİZLİK MALZEMELERİ.docx",
+        )
+
+    def test_liste_ucu_onbellekten_calisir(self):
+        """⚠️ Liste her doküman ekranı açılışında sorulacak → EKAP'a gidilmemeli."""
+        from django.core.cache import cache
+        Tender.objects.create(ikn="2026/778", ekap_id="mobil:2026-778")
+        cache.set("ekap:mobil:dokliste:2026/778", [
+            {"dosyaId": 30882363, "boyut": 48632,
+             "dosyaAdi": "{FF0E}_{2}_{}_TEMİZLİK MALZEMELERİ.docx", "icerik": None},
+            {"dosyaId": 30882403, "boyut": 23522,
+             "dosyaAdi": "{C09A}_{2}_{}_Tatlı ve Unlu Mamüller.docx", "icerik": None},
+        ], 60)
+        resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-778/documents/")
+        self.assertEqual(resp.status_code, 200)
+        veri = resp.json()["data"]
+        self.assertEqual(len(veri["teknik_sartnameler"]), 2)
+        ilk = veri["teknik_sartnameler"][0]
+        self.assertEqual(ilk["ad"], "TEMİZLİK MALZEMELERİ.docx")
+        self.assertEqual(ilk["boyut"], 48632)
+        self.assertIn("dosyaId=30882363", ilk["url"])
+        self.assertIn("/document/", veri["ihale_dokumani"]["url"])
 
 
 class HtmlNormalizeTest(TestCase):

@@ -216,6 +216,14 @@ CACHES = {
     }
 }
 
+# ── OCR (base64 resimden metin) ────────────────────────
+# Motor: Tesseract (ücretsiz, yerel, dışarıya istek atmaz) — bkz. ekap/tools/ocr.py
+# ⚠️ `tur` dil paketi kurulu değilse Türkçe metinde isabet düşer; Dockerfile
+# `tesseract-ocr-tur`'u kurar. Yerelde yoksa OCR_DIL=eng verin.
+OCR_DIL = env("OCR_DIL", default="tur+eng")
+# Tesseract ikilisinin yolu; boşsa PATH'ten bulunur (Docker/Linux için doğrusu budur).
+TESSERACT_CMD = env("TESSERACT_CMD", default="")
+
 # ── Uygulama servis ayarları ───────────────────────────
 # Claude / Anthropic
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")

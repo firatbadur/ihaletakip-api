@@ -93,6 +93,7 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── sonuc_ilani.py # Sonuç İlanı (ilanTip=4) HTML ayrıştırıcı — doğru yaklaşık maliyet kaynağı
 ├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities/contractors
 ├── views.py       # /ekap/tenders, detail, announcements, contracts, contractors, document-url, okas, authorities, cities
+├── tools/         # genel amaçlı yardımcılar → ocr.py (base64 resim → metin)
 └── management/    # seed_cities, ekap_probe, run_ingest, rebuild_contractors
 
 core/              # Ortak altyapı
@@ -517,6 +518,31 @@ ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorile
     `detsis_no` tekrar → upsert (hata yok). `alarm:false` = yalnızca hızlı erişim, bildirim yok.
   - `DELETE favorite-authorities/<detsis_no>/` — favoriden çıkar (idempotent, 204).
   - `GET favorite-authorities/<detsis_no>/` — `{is_favorite: bool}`.
+
+### OCR — base64 resimden metin (`ekap/tools/`)
+
+`from ekap.tools import resimden_metin_cikar` → base64 (ya da `data:image/png;base64,…`)
+bir resmin içindeki metni döndürür. Görselde metin yoksa **boş string** döner (hata değil);
+girdi/ortam hataları `OCRHatasi`.
+
+- **Motor Tesseract** (`pytesseract` + `Pillow`) — **ücretsiz, yerel, dışarıya istek yok,
+  token harcamaz**. AI (Claude vision) bilinçli olarak seçilmedi: iş tek satırlık düz metin
+  okumak; bunun için model çağırmak her istekte para ve gecikme demekti.
+- ⚠️ **Sistem bağımlılığı var**: Dockerfile `tesseract-ocr` + `tesseract-ocr-tur` kurar
+  (macOS: `brew install tesseract tesseract-lang`). Kurulu değilse fonksiyon **net bir
+  `OCRHatasi`** verir — sessizce boş string döndürmez, yoksa "resimde metin yok" ile
+  "OCR kurulu değil" ayırt edilemezdi. Ayarlar: `OCR_DIL` (vars. `tur+eng`), `TESSERACT_CMD`.
+- ⚠️ **RGBA doğrudan `convert("L")` YAPILMAZ**: saydam pikseller siyaha düşer, açık zemindeki
+  koyu metin siyah üstüne siyah olur ve sonuç **boş** gelir. Önce beyaz zemine yapıştırılır.
+- ⚠️ **Küçük görsel önce büyütülür** (`buyut=2`): Tesseract ~30 px'in altındaki harf
+  yüksekliğinde belirgin kötüleşir; etiket/kod görselleri tipik olarak 60 px'tir.
+- ⚠️ **Varsayılan PSM (3 = sayfa analizi) tek satırlık görselde sık sık BOŞ döner.**
+  Görüntü alçaksa otomatik olarak `PSM_TEK_SATIR` (7) seçilir; tek kelimelik kodlarda
+  `psm=PSM_TEK_KELIME` (8) + `whitelist=` verin — arama uzayını daraltmak isabeti artırır.
+- Elle test / kurulum doğrulaması: `python manage.py ocr_test --dosya resim.png`
+  (ayrıca `--base64`, `--stdin`, `--dil`, `--psm`, `--whitelist`).
+- ⚠️ EKAP'ın **insan doğrulaması** bu araçla çözülmez ve çözülmeye çalışılmaz: oradaki engel
+  Cloudflare Turnstile'dır (metin captcha değil) — bkz. "2026-09-08: İMZA KATMANI KALDIRILDI".
 
 ### Türkçe arama normalizasyonu (kritik)
 

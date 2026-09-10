@@ -8,11 +8,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Sistem bağımlılıkları (psycopg, cryptography, docx/pdf build gereksinimleri)
+# Sistem bağımlılıkları (psycopg, cryptography, docx/pdf build gereksinimleri,
+# tesseract: ekap/tools/ocr.py — Türkçe dil paketiyle birlikte)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libpq-dev \
         curl \
+        tesseract-ocr \
+        tesseract-ocr-tur \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

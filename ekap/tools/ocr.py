@@ -53,6 +53,15 @@ def _ham_bayt(veri) -> bytes:
         _, _, veri = veri.partition(",")
     veri = "".join(veri.split())
 
+    # ⚠️ `len % 4 == 1` matematiksel olarak İMKÂNSIZDIR (base64 4'lük bloklar hâlinde
+    # 3 bayt kodlar; artık 2 ya da 3 karakter olabilir, 1 olamaz) → veri kopyalanırken
+    # karakter kaybetmiştir. Dolgu ekleyip devam etmek çözülebilir ama BOZUK bir bayt
+    # dizisi üretir ve hata çok sonra, anlamsız bir "resim çözümlenemedi" olarak çıkar.
+    if len(veri) % 4 == 1:
+        raise OCRHatasi(
+            "Base64 verisi eksik/bozuk (uzunluk geçersiz) — metin kopyalanırken "
+            "karakter kaybolmuş olabilir."
+        )
     # Eksik dolgu (padding) yaygın bir kopyala-yapıştır hatası; sessizce tamamla.
     veri += "=" * (-len(veri) % 4)
     try:

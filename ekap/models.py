@@ -121,7 +121,9 @@ class Tender(models.Model):
     ihale_durum = models.IntegerField(null=True, blank=True, db_index=True)
     ihale_durum_aciklama = models.CharField(max_length=200, blank=True)
     ihale_kapsam_aciklama = models.CharField(max_length=200, blank=True)
-    yasa_kapsami = models.IntegerField(null=True, blank=True, db_index=True)  # 1=4734,2=Dışı,3=İstisna
+    # ⚠️ Kodlar ÜRETİM DAĞILIMINDAN (1.050.157 ihale): 1="4734 Kapsamında" (%82,8),
+    # 2="İstisna" (%17,0), 3="Kapsam Dışı" (%0,3). Eski yorum 2 ile 3'ü ters yazıyordu.
+    yasa_kapsami = models.IntegerField(null=True, blank=True, db_index=True)
 
     # İhale özellikleri (ihaleOzellikList etiketleri: E_IHALE, KISMI_TEKLIF_VEREBILIR, ...)
     # Gelişmiş filtreler bu liste üzerinden çalışır (JSONField __contains). Detaydan doldurulur.

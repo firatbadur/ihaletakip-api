@@ -33,8 +33,9 @@ class DurumMetniTest(TestCase):
     def test_kapsam_tur_usul(self):
         self.assertEqual(adapt.kapsam_tur_usul("4734 Kapsamında - Mal - Açık"), (1, 1, 1))
         # ⚠️ Üçüncü parça usul değil madde numarası → usul boş kalmalı, uydurulmamalı.
+        # ⚠️ İstisna = **2** (üretim dağılımı), 3 değil — bkz. KapsamKoduTest.
         kapsam, tip, usul = adapt.kapsam_tur_usul("İstisna - Hizmet - 4734 / 3-g")
-        self.assertEqual((kapsam, tip), (3, 3))
+        self.assertEqual((kapsam, tip), (2, 3))
         self.assertIsNone(usul)
 
 
@@ -317,3 +318,22 @@ class IdareEslestirmeTest(TestCase):
     def test_bos_ad(self):
         from ekap.mobil import idare
         self.assertEqual(idare.coz(""), ("", ""))
+
+
+class KapsamKoduTest(TestCase):
+    """⚠️ Kodlar üretim dağılımından: 1=4734 Kapsamında, 2=İstisna, 3=Kapsam Dışı."""
+
+    def test_istisna_iki_olmali(self):
+        kapsam, tip, _ = adapt.kapsam_tur_usul("İstisna - Hizmet - 4734 / 3-g")
+        self.assertEqual(kapsam, 2)
+        self.assertEqual(tip, 3)
+
+    def test_kapsam_disi_uc_olmali(self):
+        kapsam, _, _ = adapt.kapsam_tur_usul("Kapsam Dışı - Mal - Açık")
+        self.assertEqual(kapsam, 3)
+
+    def test_aciklama_metni_koda_uyar(self):
+        from ekap.mobil import constants as C
+        for kod, metin in C.KAPSAM_ACIKLAMA.items():
+            self.assertEqual(C.KAPSAM_METIN[__import__(
+                "ekap.utils", fromlist=["normalize_tr"]).normalize_tr(metin)], kod)

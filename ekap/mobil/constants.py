@@ -123,15 +123,23 @@ USUL_ACIKLAMA = {
     3: "İhale Usulü: Pazarlık",
     4: "İhale Usulü: Doğrudan Temin",
 }
-KAPSAM_ACIKLAMA = {1: "4734 Kapsamında", 2: "Kapsam Dışı", 3: "İstisna"}
+KAPSAM_ACIKLAMA = {1: "4734 Kapsamında", 2: "İstisna", 3: "Kapsam Dışı"}
 
 # `ihaleKapsamTurUsul` üçlüsünün parçaları:
 #   "4734 Kapsamında - Mal - Açık"  ·  "İstisna - Hizmet - 4734 / 3-g"
+# ⚠️⚠️ **Kodlar ÜRETİM VERİSİNDEN alındı, model yorumundan DEĞİL.**
+# `Tender.yasa_kapsami` yorumu "1=4734, 2=Dışı, 3=İstisna" diyor ama gerçek dağılım
+# (1.050.157 ihale) bunun tersini gösteriyor:
+#     1 → "4734 Kapsamında"  869.109  (%82,8)
+#     2 → "İstisna"          178.120  (%17,0)
+#     3 → "Kapsam Dışı"        2.736  (%0,3)
+# İlk sürümde 2 ile 3 yer değiştirmişti; mobil kaynaklı kayıtlar v2 ile **farklı
+# kod** yazıyordu ve `yasa_kapsami` filtresi iki kaynağı karıştırıyordu.
 KAPSAM_METIN = _n({
     "4734 Kapsamında": 1,
-    "4734 Kapsamı Dışında": 2,
-    "Kapsam Dışı": 2,
-    "İstisna": 3,
+    "İstisna": 2,
+    "Kapsam Dışı": 3,
+    "4734 Kapsamı Dışında": 3,
 })
 TUR_METIN = _n({
     "Mal": 1, "Mal Alımı": 1,

@@ -66,6 +66,17 @@ class Command(BaseCommand):
             n = temel.filter(ihale_usul=kod).exclude(ihale_usul_aciklama=metin)
             toplam += n.count() if o["dry_run"] else n.update(
                 ihale_usul_aciklama=metin)
+        # ⚠️ **Kapsam KODU da onarılır**, yalnızca metin değil: ilk sürümde
+        # `İstisna` ↔ `Kapsam Dışı` kodları ters yazılmıştı (2 ↔ 3) ve mobil
+        # kaynaklı kayıtlar v2'den farklı kod taşıyordu → `yasa_kapsami` filtresi
+        # iki kaynağı karıştırıyordu. Doğru kod, kaydın kendi açıklama metninden
+        # yeniden türetilir.
+        for metin_norm, kod in C.KAPSAM_METIN.items():
+            metin = C.KAPSAM_ACIKLAMA.get(kod)
+            if not metin:
+                continue
+            n = temel.filter(ihale_kapsam_aciklama=metin).exclude(yasa_kapsami=kod)
+            toplam += n.count() if o["dry_run"] else n.update(yasa_kapsami=kod)
         for kod, metin in C.KAPSAM_ACIKLAMA.items():
             n = temel.filter(yasa_kapsami=kod).exclude(ihale_kapsam_aciklama=metin)
             toplam += n.count() if o["dry_run"] else n.update(

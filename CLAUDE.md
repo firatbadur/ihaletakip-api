@@ -229,6 +229,19 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   içerik gün içinde değişmiyor → aynı ihaleyi 50 kullanıcı açsa EKAP'a bir kez gidilir.
   ⚠️ Dosya adı `{GUID}_{2}_{}_ad.docx` kalıbında gelir → `_dosya_adi_temizle`.
   Mobil entegrasyon talimatı: `docs/mobil-dokuman.md`.
+- ⚠️⚠️ **DOKÜMAN YALNIZCA 4734 KAPSAMINDAKİ İHALELERDE VAR.** Ölçüldü (2026-09-10):
+  `yasa_kapsami=1` → doküman var (2019'a kadar 12/12 örnek, **tarih engel değil**);
+  `yasa_kapsami=2` (İstisna) ve `3` (Kapsam Dışı) → EKAP her iki uca da
+  `404 "Herhangibir Kayıt Bulunumadı"` döndürüyor (9/9 örnek). Arşivin **%17,3**'ü
+  bu durumda. Bu bir arıza DEĞİL → `MobilYokError` → uç `404` + "EKAP'ta yayımlanmış
+  doküman yok"; liste ucu `ihale_dokumani: null` + `mesaj` döner.
+  ⚠️ **502 döndürmek YANLIŞTI**: kullanıcı sistemi bozuk sanıyor ve destek talebi
+  doğuyordu (üretimde bildirildi).
+- ⚠️⚠️ **`yasa_kapsami` kodları: 1=4734 Kapsamında · 2=İstisna · 3=Kapsam Dışı.**
+  Üretim dağılımından alındı (869.109 / 178.120 / 2.736). `Tender.yasa_kapsami`
+  yorumu uzun süre "2=Dışı, 3=İstisna" diyordu ve **yanlıştı**; mobil çevirici o
+  yoruma bakarak 2 ile 3'ü ters yazmıştı → aynı ihale kaynağa göre farklı kod
+  alıyor, `yasa_kapsami` filtresi iki kaynağı karıştırıyordu.
   ⚠️ Var olan ucu bulma yöntemi: bilinmeyen yol `404`, var olan yol CAPTCHA duvarında
   **`300`** döner. ⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal id'si
   verilirse **400** — iki uç farklı kimlik uzayı kullanıyor (64 hex ↔ int).

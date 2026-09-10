@@ -236,22 +236,102 @@ Liste ve indirme **aynı istek zincirinde** yapılmalı; id önbelleklenemez.
 
 ### 5. Captcha uçları
 
-Hız sınırına takılınca kullanılıyor (bkz. aşağısı).
+⚠️ Bu uçlar **`Captcha/`** kökündedir, `IhaleArama/` altında **değil**.
+
+Akış:
 
 ```
-POST /Captcha/Getir?api-version=1.0
-→ {"captchaRequired": true,
-   "captchaImage": "<base64 PNG>",
-   "captchaId": "822c775652584936bdcbe71df54dc4f4"}
-
-POST /Captcha/Sonuc?api-version=1.0
-Content-Type: application/json
-{"captchaId": "...", "captchaAnswer": "HagB21"}
-→ {"success": true, "message": "Captcha doğrulandı"}
+herhangi bir sorgu  →  HTTP 300 "CAPTCHA_REQUIRED"
+                          ↓
+                    POST /Captcha/Getir      → captchaId + captchaImage (base64 PNG)
+                          ↓
+                    (cevap üretilir)
+                          ↓
+                    POST /Captcha/Sonuc      → {"success": true}
+                          ↓              ↘ success:false → baştan (yeni Getir)
+                    sorgular kaldığı yerden devam eder
 ```
 
-`success:false` gelirse yeni captcha alınıp tekrar denenir. Doğrulandıktan sonra
-sorgular kaldığı yerden devam ediyor.
+#### 5.1 `Captcha/Getir` — captcha üret
+
+```
+POST /KikMobilServicesApi/api/Mobil/v1/Captcha/Getir?api-version=1.0
+```
+
+Yanıt:
+
+```json
+{
+  "captchaRequired": true,
+  "captchaImage": "iVBORw0KGgoAAAANSUhEUgAAALQAAAA8CAYAAADPLpCHAAAAAXNSR0IArs4c6QAA
+                   AARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAPRSURBVHhe7ZjR
+                   leMgDEXTl5txK27EfaSOFOS1zxxPHPMkJBvYjHgf92s8IMRFiDxer9dCSBQoNAkF
+                   hSahoNAkFBSahIJCk1BQaBIKCk1CQaFJKCg0CQWFJqGg0CQUFJqEgkKTUFBoEgoK
+                   TUJBoUkoKDQJBYUmoaDQJBSv5R8Gq4+axngtTAAAAABJRU5ErkJggg==",
+  "captchaId": "822c775652584936bdcbe71df54dc4f4"
+}
+```
+
+| Alan | Açıklama |
+|---|---|
+| `captchaRequired` | bool |
+| `captchaImage` | **base64 PNG**, `data:` öneki yok — doğrudan `base64.b64decode()` |
+| `captchaId` | 32 hex karakter; `Sonuc` çağrısında bu id gönderilir |
+
+Gözlemlenen resim boyutu: **180 × 60 px** (PNG başlığından: `0xB4 × 0x3C`).
+Örnek cevap metni: `HagB21` — 6 karakter, harf + rakam, büyük/küçük karışık.
+
+⚠️ Bu ucun **isteği yakalanmadı**; yalnızca yanıtı elimizde. Gövde muhtemelen boş,
+diğer gövdesiz uçlar gibi `content-type: text/plain; charset=utf-8` ile.
+
+#### 5.2 `Captcha/Sonuc` — cevabı doğrula
+
+```
+POST /KikMobilServicesApi/api/Mobil/v1/Captcha/Sonuc?api-version=1.0
+user-agent: EKAP/2.2.0 58cf399f-a709-45f0-9f39-3df12b2936b4 iOS 26.6.1 Darwin Kernel Version 25.6.0: ...
+connection: keep-alive
+accept: */*
+accept-language: en-us
+accept-encoding: gzip, deflate, br
+content-type: application/json; charset=utf-8
+content-length: 73
+host: ekapmobil.kik.gov.tr
+```
+
+Gövde:
+
+```json
+{
+  "captchaId": "44db9b9c7d664b0b9c5ee8c65350f2c3",
+  "captchaAnswer": "HagB21"
+}
+```
+
+Yanıt (HTTP 200):
+
+```json
+{ "success": true, "message": "Captcha doğrulandı" }
+```
+
+```
+Set-Cookie: TS015c8da3=01af917a164a4776ba299d046bf207c2fd83378701649642c91e36a985604aefb...
+            Path=/; Domain=.ekapmobil.kik.gov.tr
+api-supported-versions: 1.0
+```
+
+⚠️ **`Sonuc` yanıtı da ASM çerezini tazeliyor.** Doğrulama sonrası isteklerin
+aynı oturumla (aynı çerez taşınarak) devam etmesi gerekir; yeni bir oturum açmak
+doğrulamayı boşa çıkarır.
+
+⚠️ `success: false` gelirse **aynı `captchaId` tekrar denenmez** — yeni bir
+`Getir` çağrısıyla yeni id/resim alınır.
+
+⚠️ ⚠️ **Bu projede captcha çözümü otomatikleştirilmedi ve otomatikleştirilmemeli.**
+Kontrolün amacı "karşıda insan var mı" sorusuna cevap almak; makineyle cevaplamak
+onu yanıltmak olur. Tasarım tercihi **insan-döngüde**: resim admin panosunda
+gösterilir, bir kişi 6 karakteri yazar, `Sonuc`'a gönderilir. Doğru tasarlanmış
+bir toplayıcıda (2-3 dk aralık, kalıcı oturum, patlama yok) bu ekranın **hiç**
+açılmaması beklenir; açılırsa da sistem sessizce durmaz, operatöre sorar.
 
 ---
 
@@ -282,6 +362,13 @@ Mobil API **korumasız değil.** Eşik aşılınca:
 HTTP 300
 CAPTCHA_REQUIRED        (gövde tam olarak bu, 16 bayt)
 ```
+
+⚠️ **HTTP 300 alışılmadık bir koddur** (standартta "Multiple Choices"). İstemci
+kütüphaneleri bunu hata saymaz; `r.status_code == 200` kontrolü yapan kod sessizce
+boş veriyle devam eder. Kontrol **gövdeye** de bakmalı: `"CAPTCHA" in r.text`.
+
+Engel kalkması için `Captcha/Getir` + `Captcha/Sonuc` akışı (bkz. 5. bölüm) ya da
+yeterince uzun sessizlik gerekir.
 
 ### Ölçümler
 

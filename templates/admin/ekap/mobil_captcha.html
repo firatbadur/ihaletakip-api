@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+EKAP mobil captcha operatör ekranı.
+⚠️ Resim `data:` URI olarak gömülür — captcha tek kullanımlıktır ve diske/statik
+dosyaya yazmanın anlamı yok; ayrıca oturuma bağlı bir sırdır.
+{% endcomment %}
+{% block content %}
+<div style="max-width:760px">
+  <h1>EKAP Mobil CAPTCHA</h1>
+
+  {% if geri_cekilme %}
+    <p style="padding:10px;border-left:4px solid #dc3545;background:#fdf2f3">
+      <b>Toplama duraklatıldı.</b> Otomatik çözüm başarısız oldu; geri çekilme süresi
+      dolana kadar istek atılmıyor. Aşağıdaki cevabı girerek hemen devam ettirebilirsiniz.
+    </p>
+  {% else %}
+    <p style="padding:10px;border-left:4px solid #198754;background:#f2f9f5">
+      Toplama çalışıyor. Bekleyen bir captcha yoksa bu ekrana gerek yoktur.
+    </p>
+  {% endif %}
+
+  <p><b>Durum:</b> {{ durum|default:"—" }}</p>
+  <p><b>Günlük bütçe:</b>
+    arka plan {{ butce.arka_plan.kullanilan }}/{{ butce.arka_plan.tavan }} ·
+    kullanıcı {{ butce.kullanici.kullanilan }}/{{ butce.kullanici.tavan }}</p>
+
+  {% if bekleyen %}
+    <p><img src="data:image/png;base64,{{ bekleyen.resim }}" alt="captcha"
+            style="border:1px solid #ccc;image-rendering:pixelated;transform:scale(2);
+                   transform-origin:left top;margin-bottom:70px"></p>
+    <form method="post">{% csrf_token %}
+      <input type="text" name="cevap" autofocus autocomplete="off" spellcheck="false"
+             style="font-size:20px;letter-spacing:3px;padding:6px;width:220px">
+      <button type="submit" class="default">Gönder</button>
+      <button type="submit" name="eylem" value="ocr">OCR dene</button>
+      <button type="submit" name="eylem" value="yeni">Yeni captcha</button>
+    </form>
+    <p style="color:#666;margin-top:8px">
+      Büyük/küçük harf duyarlıdır. Uzunluk sabit değildir (6-9 karakter).
+    </p>
+  {% else %}
+    <p>Bekleyen captcha yok.</p>
+    <form method="post">{% csrf_token %}
+      <button type="submit" name="eylem" value="yeni">Yeni captcha iste</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -11,6 +11,7 @@ from .views import (
     ContractorDetailView,
     ContractorListView,
     DocumentUrlView,
+    TenderDocumentView,
     MarketBucketView,
     MarketOverviewView,
     OkasSearchView,
@@ -33,6 +34,9 @@ urlpatterns = [
     path("tenders/<str:key>/recurring/", TenderRecurringView.as_view(), name="ekap-tender-recurring"),
     path("tenders/<str:key>/benchmark/", TenderBenchmarkView.as_view(), name="ekap-tender-benchmark"),
     path("tenders/<str:ekap_id>/document-url/", DocumentUrlView.as_view(), name="ekap-document-url"),
+    # Mobil kaynaklı ihalelerde belge indirme: mobil uçta kalıcı URL yok, tek
+    # kullanımlık id var → dosya bizim üzerimizden akıtılır (bkz. TenderDocumentView).
+    path("tenders/<str:key>/document/", TenderDocumentView.as_view(), name="ekap-tender-document"),
     # Yüklenici (firma) uçları
     path("contractors/", ContractorListView.as_view(), name="ekap-contractors"),
     path("contractors/<int:pk>/", ContractorDetailView.as_view(), name="ekap-contractor-detail"),

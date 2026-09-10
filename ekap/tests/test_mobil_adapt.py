@@ -45,7 +45,9 @@ class EkapIdTest(TestCase):
         self.assertEqual(adapt.ekap_id_coz("2026/1"), "998877")
 
     def test_yeni_ihaleye_sentetik_id(self):
-        self.assertEqual(adapt.ekap_id_coz("2026/2"), "mobil:2026/2")
+        # ⚠️ `/` yok: `ekap_id` yol parametresi olarak kullanılıyor (`<str:>` `/` eşleştirmez).
+        self.assertEqual(adapt.ekap_id_coz("2026/2"), "mobil:2026-2")
+        self.assertNotIn("/", adapt.ekap_id_coz("2026/2"))
 
 
 class KoruyucuYazmaTest(TestCase):
@@ -142,7 +144,7 @@ class SonucGovdesiTest(TestCase):
     )
 
     def test_sozlesme_yazilir(self):
-        t = Tender.objects.create(ikn="2024/9", ekap_id="mobil:2024/9")
+        t = Tender.objects.create(ikn="2024/9", ekap_id="mobil:2024-9")
         govde = adapt.sonuc_govdesi("2024/9", [
             {"ilanHtml": self.HTML, "ilanXml": self.XML,
              "ilanTarihi": "20.03.2025 00:00:00", "ilanTipi": 4},
@@ -165,7 +167,7 @@ class SonucGovdesiTest(TestCase):
         xml = self.XML.replace(
             "<IhaleKisimYMGosterilsinMi>1<", "<IhaleKisimYMGosterilsinMi>0<"
         )
-        t = Tender.objects.create(ikn="2024/10", ekap_id="mobil:2024/10")
+        t = Tender.objects.create(ikn="2024/10", ekap_id="mobil:2024-10")
         govde = adapt.sonuc_govdesi("2024/10", [
             {"ilanHtml": self.HTML, "ilanXml": xml, "ilanTarihi": "", "ilanTipi": 4},
         ])
@@ -183,3 +185,32 @@ class SonucGovdesiTest(TestCase):
         b = adapt.sonuc_govdesi("2024/9", [{"ilanHtml": "x", "ilanXml": ""}, kayit])
         b = b["item"]["sozlesmeBilgiList"][1]["id"]
         self.assertEqual(a, b)
+
+
+class CaptchaEkraniTest(TestCase):
+    """Operatör ekranı staff'a açık, herkese kapalı olmalı."""
+
+    def test_staff_gorur_anonim_goremez(self):
+        from django.contrib.auth import get_user_model
+
+        url = "/admin/ekap/mobil-captcha/"
+        self.assertEqual(self.client.get(url).status_code, 302)  # girişe yönlendirir
+
+        User = get_user_model()
+        User.objects.create_superuser("op", "op@example.com", "parola12345")
+        self.client.login(username="op", password="parola12345")
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Bekleyen captcha yok")
+
+
+class DokumanUcuTest(TestCase):
+    """Mobil kaynaklı ihalede `document-url` v2'ye gitmez, proxy adresini döner."""
+
+    def test_sentetik_id_proxy_dondurur(self):
+        Tender.objects.create(ikn="2026/777", ekap_id="mobil:2026-777")
+        resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-777/document-url/")
+        self.assertEqual(resp.status_code, 200)
+        veri = resp.json()["data"]
+        self.assertTrue(veri["proxy"])
+        self.assertIn("/document/", veri["url"])

@@ -187,6 +187,23 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
 - **Komutlar**: `manage.py mobil_probe --is uclar|idare|tempo|captcha|kapsam`
   (ölçüm, yazmaz), `manage.py run_mobil --is tik|kesif|detay|sonuc|durum`,
   `manage.py mobil_captcha [--cevap X] [--yeni] [--ocr]`.
+- **Belge indirme** (`GET /ekap/tenders/<key>/document/`): mobil uçta **kalıcı belge
+  URL'i yoktur** — `IhaleDokumani/Liste` her çağrıda **tek kullanımlık** id üretir ve
+  indirme aynı zincirde yapılmalıdır → dosya bizim üzerimizden akıtılır (streaming).
+  `document-url` ucu mobil kaynaklı ihalelerde bu adresi döner (`data.url` sözleşmesi
+  korunur, `proxy:true` eklenir).
+  ⚠️ **Kullanıcı yolu AYRI pencere kullanır** (`EKAP_MOBIL_KULLANICI_INTERVAL_MS`,
+  vars. 30 sn) + ayrı günlük rezerv (100): 2,5 dk'lık arka plan penceresini bir insanın
+  beklemesi pratikte "indirilemiyor" demektir. Slot bulunamazsa uç **503** + net Türkçe
+  mesaj döner (sessiz başarısızlık yok). ⚠️ Rezerv tavanı bilinçlidir: kullanıcı
+  trafiğinin toplam tempoyu ölçülen eşiğin üstüne çıkarmasını engeller.
+- **Pano şeridi + `ingest_saglik`**: mobil hattın durumu admin anasayfasının en üstünde
+  (captcha bekliyorsa **kırmızı** + çözüm bağlantısı) ve `manage.py ingest_saglik`
+  raporunun ilk bölümünde. ⚠️ Teşhis `SyncRun`'a bakarak yapılmaz — sayaçlar
+  (`ekap.mobil.tasks.sayaclar`) ve `Tender.detay_kaynak='mobil'` satır sayısı kullanılır.
+- ⚠️ **Sentetik `ekap_id`de `/` YOKTUR** (`mobil:2026-1690784`): `ekap_id` detay/ilan/
+  sözleşme/benchmark/doküman uçlarında **yol parametresidir** ve Django'nun `<str:>`
+  dönüştürücüsü `/` eşleştirmez (bkz. "URL'de İKN"). İKN'deki `/` → `-` yapılır.
 - ⚠️ **Kill switch `EKAP_MOBIL_ENABLED` (vars. False).** Üretimde açmadan önce
   `mobil_probe --is tempo` **üretim sunucusunda** koşturulmalı: hız sınırı IP
   tabanlıdır, geliştirici makinesinde ölçülen tempo oraya taşınmaz.

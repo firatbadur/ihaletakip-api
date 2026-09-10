@@ -35,7 +35,42 @@
       </div>
     {% else %}
 
-    {# ── 0. EKAP insan doğrulaması — bu düşükse TOPLAMA DURUR ── #}
+    {# ── 0. EKAP MOBİL (birincil kaynak) — bu durursa yeni ihale gelmez ── #}
+    {% if pano.mobil.seviye == "hata" %}
+      <div class="alert alert-danger py-2">
+        <i class="fas fa-triangle-exclamation me-1"></i>
+        <strong>EKAP mobil toplama DURDU — CAPTCHA bekliyor.</strong>
+        {{ pano.mobil.captcha_durum }}
+        <div class="small mt-1">
+          <a href="{% url 'ekap_mobil_captcha' %}">Captcha ekranını aç</a> ve resimdeki
+          kodu girin; toplama kaldığı yerden devam eder.
+        </div>
+      </div>
+    {% elif pano.mobil.seviye == "uyari" %}
+      <div class="alert alert-warning py-2">
+        <i class="fas fa-robot me-1"></i>
+        <strong>Operatör cevabı bekleyen bir CAPTCHA var.</strong>
+        <a href="{% url 'ekap_mobil_captcha' %}">Çöz</a>
+      </div>
+    {% elif pano.mobil.seviye == "kapali" %}
+      <div class="alert alert-secondary py-2">
+        <i class="fas fa-pause me-1"></i>
+        <strong>EKAP mobil toplama kapalı</strong>
+        (<code>EKAP_MOBIL_ENABLED=False</code>) — yeni ihale toplanmıyor.
+      </div>
+    {% else %}
+      <div class="alert alert-success py-2">
+        <i class="fas fa-mobile-screen me-1"></i>
+        <strong>EKAP mobil toplama çalışıyor</strong> — bugün
+        {{ pano.mobil.bugun_detay|tr_sayi }} ihalenin detayı çekildi
+        (keşif {{ pano.mobil.sayac.kesif|tr_sayi }} ·
+         sonuç {{ pano.mobil.sayac.sonuc|tr_sayi }} ·
+         hata {{ pano.mobil.sayac.hata|tr_sayi }}) ·
+        bütçe {{ pano.mobil.butce.arka_plan.kullanilan|tr_sayi }}/{{ pano.mobil.butce.arka_plan.tavan|tr_sayi }}
+      </div>
+    {% endif %}
+
+    {# ── 0b. EKAP v2 insan doğrulaması — artık YEDEK yolun ön koşulu ── #}
     {% if pano.dogrulama.seviye == "ok" %}
       <div class="alert alert-success py-2">
         <i class="fas fa-shield-halved me-1"></i>
@@ -45,17 +80,16 @@
         {% endif %}
       </div>
     {% else %}
-      <div class="alert alert-danger py-2">
+      <div class="alert alert-warning py-2">
         <i class="fas fa-triangle-exclamation me-1"></i>
-        <strong>EKAP doğrulaması yok — ihale toplama DURDU.</strong>
+        <strong>EKAP v2 doğrulaması yok — YEDEK yol kapalı.</strong>
         {{ pano.dogrulama.metin }}
         {% if pano.dogrulama.guncelleme %}
           <span class="text-muted">({{ pano.dogrulama.guncelleme|date:"d.m.Y H:i" }})</span>
         {% endif %}
         <div class="small mt-1">
-          <code>ekap-browser</code> servisi doğrulamayı tazeleyemiyor. Turnstile
-          etkileşim istiyorsa tarayıcı oturumuna bağlanıp "robot değilim" kutusunu
-          geçmek gerekir.
+          Toplama mobil API'den sürüyor; v2 yalnızca mobilde <em>olmayan</em> verileri
+          (idare_id, DETSIS ağacı, OKAS kataloğu, düzeltme/iptal ilanları) besliyor.
         </div>
       </div>
     {% endif %}

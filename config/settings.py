@@ -379,6 +379,12 @@ EKAP_MOBIL_GUNLUK_TAVAN = env.int("EKAP_MOBIL_GUNLUK_TAVAN", default=600)
 # Kullanıcı tetikli işler (belge indirme) için ayrı rezerv: arka plan toplaması
 # kullanıcıyı aç bırakmamalı.
 EKAP_MOBIL_KULLANICI_REZERV = env.int("EKAP_MOBIL_KULLANICI_REZERV", default=100)
+# Kullanıcı yolunun kendi (daha dar) hız penceresi ve azami bekleme süresi.
+# ⚠️ Denge: 2,5 dk'lık arka plan penceresini bir belge indirme isteği için beklemek
+# pratikte "indirilemiyor" demektir. Rezerv (100/gün) bu yolun toplam tempoyu
+# ölçülen eşiğin üstüne çıkarmasını engeller.
+EKAP_MOBIL_KULLANICI_INTERVAL_MS = env.int("EKAP_MOBIL_KULLANICI_INTERVAL_MS", default=30000)
+EKAP_MOBIL_KULLANICI_BEKLEME = env.int("EKAP_MOBIL_KULLANICI_BEKLEME", default=20)
 # ⚠️ Kurulum başına SABİT olmalı — her başlatmada değişen UUID bot imzasıdır.
 EKAP_MOBIL_CIHAZ_UUID = env("EKAP_MOBIL_CIHAZ_UUID", default="")
 EKAP_MOBIL_TIMEOUT = env.int("EKAP_MOBIL_TIMEOUT", default=60)
@@ -568,6 +574,11 @@ JAZZMIN_SETTINGS = {
         {"name": "Panel", "url": "admin:index", "permissions": ["auth.view_user"]},
         {"name": "API Dokümanı", "url": "/api/docs/", "new_window": True},
         {"name": "Sağlık", "url": "/health/", "new_window": True},
+        # ⚠️ Operatör yolu: OCR captcha'yı çözemezse toplama durur ve resim burada
+        # gösterilir. Menüde görünür olması şart — gizli bir sayfa, "sistem sessizce
+        # durmasın" tasarımını işlevsiz bırakır.
+        {"name": "EKAP Captcha", "url": "ekap_mobil_captcha",
+         "permissions": ["ekap.view_tender"]},
         {"model": "accounts.User"},
         {"app": "ekap"},
     ],

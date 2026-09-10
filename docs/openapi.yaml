@@ -2424,6 +2424,37 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/ekap/tenders/{key}/document/:
+    get:
+      operationId: api_v1_ekap_tenders_document_retrieve
+      description: 'Mobil API''den ihale dokümanını **proxy''leyerek** indirir. Mobil
+        uçta kalıcı bir belge URL''i yoktur: doküman listesi her çağrıda **tek kullanımlık**
+        bir id üretir ve indirme aynı istek zincirinde yapılmalıdır.
+
+
+        ⚠️ EKAP mobil hız sınırı IP tabanlıdır; slot bulunamazsa **503** döner ve
+        istemci kısa süre sonra tekrar denemelidir.'
+      summary: İhale dokümanını indir (mobil kaynak)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        required: true
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '502':
+          description: No response body
+        '503':
+          description: No response body
   /api/v1/ekap/tenders/{key}/recurring/:
     get:
       operationId: ekap_tender_recurring

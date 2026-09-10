@@ -451,6 +451,55 @@ def ekap_dogrulama_durumu() -> dict:
     }
 
 
+def ekap_mobil_durumu() -> dict:
+    """
+    EKAP **mobil** hattının panodaki özeti (birincil kaynak).
+
+    ⚠️ **Cache'lenmez ve canlı EKAP sorgusu YAPMAZ**: hepsi Redis sayaçları + tek
+    küçük DB sorgusu. "Toplama duruyor mu" sorusunda 60 sn eski bilgi kabul edilemez
+    (`ekap_dogrulama_durumu` ile aynı gerekçe).
+
+    ⚠️ Buradaki asıl sinyal `SyncRun` DEĞİL: çekmeli tik görevi tur başına satır
+    yazmıyor (günde ~720 boş kayıt olurdu). Gerçek kanıt bugünkü iş sayaçları ve
+    `Tender.detay_kaynak='mobil'` satırlarıdır.
+    """
+    from django.conf import settings
+
+    from ekap.mobil import captcha as mobil_captcha
+    from ekap.mobil import tasks as mobil_tasks
+    from ekap.mobil import throttle as mobil_throttle
+    from ekap.models import Tender
+
+    acik = bool(getattr(settings, "EKAP_MOBIL_ENABLED", False))
+    bekliyor = mobil_captcha.bekliyor_mu()
+    bekleyen = bool(mobil_captcha.bekleyen_oku())
+    sayac = mobil_tasks.sayaclar()
+    butce = mobil_throttle.butce_ozet()
+    bas = bugun_basi()
+    bugunku = Tender.objects.filter(
+        detay_kaynak="mobil", detail_synced_at__gte=bas
+    ).count()
+
+    if bekliyor:
+        seviye = "hata"
+    elif not acik:
+        seviye = "kapali"
+    elif bekleyen:
+        seviye = "uyari"
+    else:
+        seviye = "ok"
+    return {
+        "seviye": seviye,
+        "acik": acik,
+        "captcha_bekliyor": bekliyor,
+        "captcha_var": bekleyen,
+        "captcha_durum": mobil_captcha.bekleyen_durum(),
+        "sayac": sayac,
+        "butce": butce,
+        "bugun_detay": bugunku,
+    }
+
+
 # ── Giriş noktası ───────────────────────────────────────
 def panel_metrikleri(*, force_refresh: bool = False) -> dict:
     """
@@ -474,6 +523,7 @@ def panel_metrikleri(*, force_refresh: bool = False) -> dict:
         # ⚠️ Cache'lenmez: arıza anında panonun 60 sn eski bilgi göstermesi,
         # "toplama duruyor mu" sorusunda kabul edilemez.
         "dogrulama": ekap_dogrulama_durumu(),
+        "mobil": ekap_mobil_durumu(),
         "uretildi": timezone.localtime(),
         # Grafiklere gidecek dilim (json_script ile şablondan JS'e aktarılır).
         "grafik": {

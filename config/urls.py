@@ -8,6 +8,7 @@ from drf_spectacular.views import (
 )
 
 from core.views import health_check
+from ekap.mobil.admin_views import captcha_ekrani
 
 admin.site.site_header = "IhaleTakip Yönetim"
 admin.site.site_title = "IhaleTakip API"
@@ -24,6 +25,13 @@ api_v1 = [
 ]
 
 urlpatterns = [
+    # ⚠️ `admin/` include'undan ÖNCE: aksi hâlde admin URL çözücüsü yakalar ve 404 verir.
+    # `admin_view` sarmalayıcısı staff kontrolünü ve giriş yönlendirmesini sağlar.
+    path(
+        "admin/ekap/mobil-captcha/",
+        admin.site.admin_view(captcha_ekrani),
+        name="ekap_mobil_captcha",
+    ),
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health"),
     path("api/v1/", include((api_v1, "v1"))),

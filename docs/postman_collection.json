@@ -1690,6 +1690,44 @@
           }
         },
         {
+          "name": "İhale dokümanını indir (mobil kaynak)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/document/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "document",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Mobil API'den ihale dokümanını **proxy'leyerek** indirir. Mobil uçta kalıcı bir belge URL'i yoktur: doküman listesi her çağrıda **tek kullanımlık** bir id üretir ve indirme aynı istek zincirinde yapılmalıdır.\n\n⚠️ EKAP mobil hız sınırı IP tabanlıdır; slot bulunamazsa **503** döner ve istemci kısa süre sonra tekrar denemelidir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Bu ihale tekrar eden bir serinin parçası mı? (Pro)",
           "request": {
             "method": "GET",

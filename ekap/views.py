@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
+from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -986,6 +987,20 @@ class DocumentUrlView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, ekap_id):
+        # ⚠️ Mobil kaynaklı ihalelerin gerçek EKAP `id`si YOK (mobil API vermiyor) →
+        # v2'nin `GetDokumanUrl` ucu çağrılamaz. Mobil tarafta da "belge URL'i" diye
+        # bir şey yok: `IhaleDokumani/Liste` **tek kullanımlık** bir id veriyor ve
+        # indirme aynı zincirde yapılmak zorunda. Bu yüzden istemciye kendi proxy
+        # ucumuzun adresi döner (sözleşme aynı kalır: `data.url`).
+        from .mobil.adapt import sentetik_mi
+
+        if sentetik_mi(ekap_id):
+            return api_response(data={
+                "url": request.build_absolute_uri(
+                    reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
+                ),
+                "proxy": True,
+            })
         islem_id = request.query_params.get("islemId", "1")
         cache_key = f"ekap:docurl:{ekap_id}:{islem_id}"
         cached = cache.get(cache_key)
@@ -1002,6 +1017,71 @@ class DocumentUrlView(APIView):
         except Exception as e:
             logger.warning("Belge URL alınamadı (%s): %s", ekap_id, e)
             return api_response(message="Belge bağlantısı alınamadı.", success=False, status=502)
+
+
+@extend_schema(
+    tags=["ekap"],
+    summary="İhale dokümanını indir (mobil kaynak)",
+    description=(
+        "Mobil API'den ihale dokümanını **proxy'leyerek** indirir. Mobil uçta kalıcı "
+        "bir belge URL'i yoktur: doküman listesi her çağrıda **tek kullanımlık** bir id "
+        "üretir ve indirme aynı istek zincirinde yapılmalıdır.\n\n"
+        "⚠️ EKAP mobil hız sınırı IP tabanlıdır; slot bulunamazsa **503** döner ve "
+        "istemci kısa süre sonra tekrar denemelidir."
+    ),
+    responses={200: OpenApiTypes.BINARY, 502: None, 503: None},
+    auth=[],
+)
+class TenderDocumentView(APIView):
+    """GET /ekap/tenders/{key}/document/ — mobil API'den akış (streaming) indirme."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, key):
+        from django.http import StreamingHttpResponse
+
+        from .mobil.client import EkapMobilClient, MobilError, MobilSlotError
+
+        tender = _tender_by_key(key, defer_raw=True)
+        if tender is None:
+            return api_response(message="İhale bulunamadı.", success=False, status=404)
+        yil, _, sayi = str(tender.ikn or "").partition("/")
+        if not yil.isdigit() or not sayi.isdigit():
+            return api_response(message="Geçersiz İKN.", success=False, status=400)
+
+        # ⚠️ `butce="kullanici"`: kullanıcı istekleri arka plan toplamasından **ayrı**
+        # ve daha dar bir pencere + ayrı günlük rezerv kullanır (bkz. mobil/throttle).
+        cli = EkapMobilClient(butce="kullanici")
+        try:
+            liste = cli.dokuman_liste(yil, sayi)
+            dokumanlar = (liste or {}).get("dokumanlar") or []
+            istenen = request.query_params.get("dosyaId")
+            secilen = next(
+                (d for d in dokumanlar if not istenen or str(d.get("id")) == istenen),
+                None,
+            )
+            if not secilen:
+                return api_response(message="Bu ihalede indirilebilir doküman yok.",
+                                    success=False, status=404)
+            # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
+            resp = cli.dokuman_indir(yil, sayi, secilen["id"])
+        except MobilSlotError:
+            return api_response(
+                message="EKAP hız sınırı nedeniyle şu an belge indirilemiyor; "
+                        "lütfen birazdan tekrar deneyin.",
+                success=False, status=503,
+            )
+        except MobilError as e:
+            logger.warning("Mobil doküman indirilemedi (%s): %s", tender.ikn, e)
+            return api_response(message="Belge indirilemedi.", success=False, status=502)
+
+        ad = (secilen.get("dosyaAdi") or f"ihale_{yil}_{sayi}.zip").split("}_")[-1]
+        cikti = StreamingHttpResponse(
+            resp.iter_content(chunk_size=64 * 1024),
+            content_type=resp.headers.get("content-type", "application/octet-stream"),
+        )
+        cikti["Content-Disposition"] = f'attachment; filename="{ad}"'
+        return cikti
 
 
 @extend_schema(

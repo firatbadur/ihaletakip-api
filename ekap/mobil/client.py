@@ -123,7 +123,16 @@ class EkapMobilClient:
                 raise MobilButceError(
                     f"EKAP mobil günlük bütçe doldu ({self.butce}); tur atlandı."
                 )
-            if not throttle.slot_al():
+            # ⚠️ Kullanıcı istekleri ayrı (daha dar) pencereyi ve sınırlı beklemeyi
+            # kullanır: karşıda bekleyen bir insan var, arka plan turu ise bekleyebilir.
+            if self.butce == "kullanici":
+                uygun = throttle.slot_al(
+                    ad="kullanici", bekle=True,
+                    azami_bekleme=getattr(settings, "EKAP_MOBIL_KULLANICI_BEKLEME", 20),
+                )
+            else:
+                uygun = throttle.slot_al()
+            if not uygun:
                 raise MobilSlotError("EKAP mobil hız penceresi dolu (slot alınamadı).")
 
         url = f"{self.base_url}{path}"

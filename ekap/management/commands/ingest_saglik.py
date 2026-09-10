@@ -45,6 +45,64 @@ class Command(BaseCommand):
     def _baslik(self, s):
         self.stdout.write(self.style.MIGRATE_HEADING(f"\n── {s} " + "─" * (58 - len(s))))
 
+    def _mobil_bolumu(self, now):
+        """
+        ⚠️ Mobil hattın teşhisi `SyncRun`'a bakarak YAPILMAZ: çekmeli tik görevi tur
+        başına satır yazmıyor (günde ~720 boş kayıt olurdu). Gerçek kanıt, bugün
+        yapılan iş sayaçları ve `Tender.detay_kaynak='mobil'` satırlarıdır.
+        """
+        from django.conf import settings
+
+        from ekap.mobil import captcha as mobil_captcha
+        from ekap.mobil import tasks as mobil_tasks
+        from ekap.mobil import throttle as mobil_throttle
+        from ekap.models import SyncCheckpoint, Tender
+        from ekap.utils import local_day_range
+
+        self._baslik("EKAP MOBİL (birincil kaynak)")
+        acik = getattr(settings, "EKAP_MOBIL_ENABLED", False)
+        self.stdout.write(
+            ("  ✅ AÇIK" if acik else "  ⚠️ KAPALI (EKAP_MOBIL_ENABLED=False)")
+            + f" · pencere {settings.EKAP_MOBIL_MIN_INTERVAL_MS / 1000:.0f} sn"
+        )
+
+        sayac = mobil_tasks.sayaclar()
+        self.stdout.write(
+            "  bugün: keşif={kesif} detay={detay} sonuç={sonuc} "
+            "tazeleme={tazeleme} hata={hata}".format(**sayac)
+        )
+        for ad, v in mobil_throttle.butce_ozet().items():
+            self.stdout.write(f"  bütçe {ad:10s} {v['kullanilan']}/{v['tavan']}")
+
+        cp = SyncCheckpoint.objects.filter(name=mobil_tasks.CHECKPOINT).first()
+        extra = (cp.extra if cp and isinstance(cp.extra, dict) else {}) or {}
+        self.stdout.write(
+            f"  keşif: bekleyen dilim={len(extra.get('yigin') or [])} "
+            f"son tur={extra.get('son_tur') or '—'}"
+        )
+
+        bas, bit = local_day_range(timezone.localdate())
+        self.stdout.write(
+            "  bugün mobil kaynaklı detay: "
+            f"{Tender.objects.filter(detay_kaynak='mobil', detail_synced_at__gte=bas, detail_synced_at__lt=bit).count()}"
+        )
+
+        # ⚠️ CAPTCHA en sık sessiz durma sebebi: geri çekilme varken hiçbir istek
+        # atılmaz ve `SyncRun`'da iz kalmaz.
+        if mobil_captcha.bekliyor_mu():
+            self.stdout.write(self.style.ERROR(
+                "  ❌ CAPTCHA GERİ ÇEKİLMESİ AKTİF — toplama duraklattı. "
+                "Admin → EKAP Captcha ya da `manage.py mobil_captcha --cevap XXXXXX`"
+            ))
+        elif mobil_captcha.bekleyen_oku():
+            self.stdout.write(self.style.WARNING(
+                "  ⚠️ Operatör cevabı bekleyen captcha var."
+            ))
+        else:
+            self.stdout.write("  captcha: bekleyen yok")
+        if mobil_captcha.bekleyen_durum():
+            self.stdout.write(f"  captcha durumu: {mobil_captcha.bekleyen_durum()[:120]}")
+
     def handle(self, *args, **o):
         from ekap.models import SyncRun, Tender
         from ekap.utils import local_day_range
@@ -52,8 +110,11 @@ class Command(BaseCommand):
         now = timezone.now()
         bugun_bas, bugun_bit = local_day_range(timezone.localdate())
 
-        # 0) EKAP insan doğrulaması — bu düşükse aşağıdaki her şey durur
-        self._baslik("EKAP insan doğrulaması")
+        # 0) EKAP MOBİL — birincil kaynak. Bu durursa yeni ihale gelmez.
+        self._mobil_bolumu(now)
+
+        # 0b) v2 insan doğrulaması — artık YEDEK yolun ön koşulu (birincil mobildir).
+        self._baslik("EKAP v2 insan doğrulaması (yedek yol)")
         from ekap import session as ekap_session
         self.stdout.write(f"  çerez: {ekap_session.maskele(ekap_session.cerez())}")
         try:
@@ -69,9 +130,13 @@ class Command(BaseCommand):
                     f"  ✅ GEÇERLİ — bitiş {d.get('expiresAtUtc')} "
                     f"(yenileme {d.get('refreshAtUtc')})"))
             else:
-                self.stdout.write(self.style.ERROR(
-                    "  ❌ DOĞRULAMA YOK → toplama durur. Çözüm: tarayıcıda "
-                    "doğrulayıp `manage.py ekap_dogrula --cookie …`"))
+                # ⚠️ Bu artık toplamayı DURDURMAZ (birincil kaynak mobil). Yalnızca
+                # v2'nin verebildiği alanlar (idare_id, DETSIS ağacı, OKAS kataloğu,
+                # düzeltme/iptal ilanları) tazelenemez.
+                self.stdout.write(self.style.WARNING(
+                    "  ⚠️ Doğrulama yok → YEDEK yol kapalı (idare_id / DETSIS / OKAS "
+                    "kataloğu tazelenmez). Çözüm: tarayıcıda doğrulayıp "
+                    "`manage.py ekap_dogrula --cookie …`"))
 
         # 1) Son çalışmalar — görev başına en son kayıt
         self._baslik("Son senkron çalışmaları")

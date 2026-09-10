@@ -32,11 +32,25 @@ _YEREL_KILIT = threading.Lock()
 _SON_CAGRI = {"t": 0.0}
 
 
-def _aralik() -> float:
+def _aralik(ad: str = "arka_plan") -> float:
+    """
+    Pencere uzunluğu (sn) — **kullanıcı istekleri ayrı ve daha dar bir pencere kullanır.**
+
+    ⚠️ Gerekçe: arka plan penceresi 2,5 dk. Kullanıcı bir belgeyi indirmek istediğinde
+    o pencereyi beklemek pratikte "indirilemiyor" demektir. Kullanıcı yolu bu yüzden
+    ayrı bir pencere (vars. 30 sn) + ayrı **günlük rezerv** (vars. 100 istek) kullanır:
+    rezerv, kullanıcı trafiğinin toplam tempoyu ölçülen eşiğin üstüne çıkarmasını
+    engeller (100 istek/gün, en yoğun hâlde ~50 dk sürecek bir patlama).
+    ⚠️ Bu iki pencere **ayrı anahtar uzayındadır**; kullanıcı isteği arka plan turunu
+    ötelemez, ikisi birlikte EKAP'a giden toplam hızı belirler.
+    """
+    if ad == "kullanici":
+        return getattr(settings, "EKAP_MOBIL_KULLANICI_INTERVAL_MS", 30000) / 1000.0
     return getattr(settings, "EKAP_MOBIL_MIN_INTERVAL_MS", 150000) / 1000.0
 
 
-def slot_al(*, bekle: bool = False) -> bool:
+def slot_al(*, bekle: bool = False, ad: str = "arka_plan",
+            azami_bekleme: float = None) -> bool:
     """
     Bir sonraki mobil isteğin zaman penceresini atomik olarak alır.
 
@@ -45,37 +59,45 @@ def slot_al(*, bekle: bool = False) -> bool:
     `ekap_mobil` kuyruğunu tümüyle bloke ederdi.
     `bekle=True` → pencerenin başına kadar uyur (elle komutlar için).
     """
-    aralik = _aralik()
+    aralik = _aralik(ad)
     if aralik <= 0:
         return True
     ttl = max(2, int(aralik * 3))
+    onek = f"{_SLOT_PREFIX}{ad}:"
     try:
         slot = int(time.time() / aralik) + 1
-        if not cache.add(f"{_SLOT_PREFIX}{slot}", 1, timeout=ttl):
+        if not cache.add(f"{onek}{slot}", 1, timeout=ttl):
             if not bekle:
                 return False
             # Sıradaki boş pencereyi ara (uzun beklemede bile sonlu).
             for _ in range(10):
                 slot += 1
-                if cache.add(f"{_SLOT_PREFIX}{slot}", 1, timeout=ttl):
+                if cache.add(f"{onek}{slot}", 1, timeout=ttl):
                     break
             else:
                 return False
         kalan = slot * aralik - time.time()
+        # ⚠️ Web isteği içindeyken sınırsız uyumak worker'ı rehin alır → üst sınır.
+        if azami_bekleme is not None and kalan > azami_bekleme:
+            return False
         if kalan > 0:
             time.sleep(kalan)
-        _sapma()
+        _sapma(ad)
         return True
     except Exception:                                   # noqa: BLE001
         return _yerel_bekle(aralik, bekle)
 
 
-def _sapma():
+def _sapma(ad: str = "arka_plan"):
     """Sabit kadansı kırmak için küçük rastgele gecikme (bot imzası azaltma)."""
     oran = getattr(settings, "EKAP_MOBIL_SAPMA_ORANI", 0.25)
     if oran <= 0:
         return
-    time.sleep(random.uniform(0, _aralik() * oran))
+    # ⚠️ Kullanıcı yolunda sapma kısa tutulur: orada bekleyen bir insan var.
+    tavan = _aralik(ad) * oran
+    if ad == "kullanici":
+        tavan = min(tavan, 2.0)
+    time.sleep(random.uniform(0, tavan))
 
 
 def _yerel_bekle(aralik: float, bekle: bool) -> bool:

@@ -26,6 +26,11 @@ logger = logging.getLogger("ihaletakip")
 # olduğu için sentetik bir kimlik üretilir. Upsert zaten **İKN'ye göre** yapıldığından
 # (bkz. `sync.upsert_tender_from_list`) çakışma doğmaz.
 SENTETIK_ONEK = "mobil:"
+# ⚠️ İKN `2026/1690784` biçimindedir, yani **`/` içerir** ve Django'nun `<str:...>`
+# dönüştürücüsü `/` eşleştirmez (bkz. CLAUDE.md "URL'de İKN"). `ekap_id` detay,
+# ilan, sözleşme, benchmark ve doküman uçlarında **yol parametresi** olarak
+# kullanıldığı için sentetik id'de `/` → `-` yapılır; aksi hâlde mobil kaynaklı
+# her ihalenin detay ucu 404 verirdi.
 # Mobil kaynaklı sözleşme/ilan satırlarının anahtar öneki. Kaynağı ayırt etmek için
 # ayrı bir kolon eklemek yerine anahtarın kendisi işaretlenir.
 SOZLESME_ONEK = "mobil:s:"
@@ -50,7 +55,7 @@ def ekap_id_coz(ikn: str) -> str:
     ).first()
     if mevcut and not sentetik_mi(mevcut):
         return mevcut
-    return f"{SENTETIK_ONEK}{ikn}"
+    return f"{SENTETIK_ONEK}{str(ikn).replace('/', '-')}"
 
 
 # ── Metin → kod ────────────────────────────────────────

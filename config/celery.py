@@ -94,9 +94,14 @@ app.conf.beat_schedule = {
         "task": "ekap.mobil.tasks.tik",
         "schedule": crontab(minute="*/2"),
     },
+    # ⚠️ **Artık günde BİR kez (06:00).** Aşağıdaki "gün içinde koşmalı" gerekçesi
+    # v2 birincil kaynakken geçerliydi; birincil kaynak artık mobil API ve gün içi
+    # tazelik oradan geliyor. v2 turu yalnızca **yedek/karşılaştırma** amaçlı:
+    # mobilde olmayan alanları (idare_id, ozellikler, kısım listesi) taze tutar.
+    # Turnstile çerezi yoksa görev zaten bedavaya çıkar (`_dogrulama_kapisi`).
     "ekap-sync-recent": {
         "task": "ekap.tasks.sync_recent",
-        "schedule": crontab(minute=0, hour="1-23/2"),
+        "schedule": crontab(minute=0, hour=6),
     },
     # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
     "ekap-refresh-stale": {
@@ -114,10 +119,15 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.refresh_market_stats",
         "schedule": crontab(hour=1, minute=30),
     },
-    "ekap-backfill": {
-        "task": "ekap.tasks.backfill",
-        "schedule": crontab(minute="*/15"),
-    },
+    # ⚠️ **`ekap-backfill` KALDIRILDI (2026-09-10).** Arşiv doldu: pencere
+    # (`EKAP_BACKFILL_YEARS`) taranıp bitti, görev her turda "done" dönüyordu ve
+    # yalnızca `SyncRun` satırı üretiyordu. Görevin kendisi (`ekap.tasks.backfill`)
+    # duruyor — pencere genişletilirse `run_ingest --task backfill` ile elle ya da
+    # buraya geri eklenerek çalıştırılabilir.
+    # ⚠️ Kodda girdiyi silmek YETMEZ: `DatabaseScheduler` DB'deki `PeriodicTask`
+    # satırını kendiliğinden kaldırmaz → satır ayrıca **devre dışı bırakılmalıdır**
+    # (admin → Periodic Tasks, ya da `PeriodicTask.objects.filter(
+    #  name="ekap-backfill").update(enabled=False)`).
     # OKAS kodları — haftalık (Pazartesi 05:00)
     # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →
     # `celery` kuyruğuna yönlendirilir (bkz. settings.CELERY_TASK_ROUTES) ve EKAP

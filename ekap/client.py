@@ -115,11 +115,17 @@ class EkapV2Client:
             # ⚠️ **406 = insan doğrulaması geçersiz** (F5 ASM engel sayfası).
             # Retry EDİLMEZ: çözümü bir insanın çerezi yenilemesi, tekrar
             # denemek yalnızca WAF'a yük bindirir ve logu doldurur.
-            if resp.status_code == 406:
-                ekap_session.dustu(f"{path} → HTTP 406")
+            # ⚠️ **428 de aynı arızadır** (ölçüldü 2026-09-10, üretim): EKAP artık
+            # doğrulanmamış isteğe `428 {"code":"HUMAN_VERIFICATION_REQUIRED"}`
+            # döndürüyor; 406 + HTML engel sayfası eski davranış. 428'i genel 4xx
+            # dalında bırakmak "kalıcı hata" sayılmasına yol açıyordu: `dustu()`
+            # bayrağı konmuyor, görevler kendini geri çekmiyor ve her tur
+            # `SyncRun.status='error'` satırı yazılıyordu.
+            if resp.status_code in (406, 428):
+                ekap_session.dustu(f"{path} → HTTP {resp.status_code}")
                 raise EkapDogrulamaError(
-                    f"EKAP {path} → HTTP 406: insan doğrulaması geçersiz. "
-                    f"`manage.py ekap_dogrula` ile çerezi yenileyin."
+                    f"EKAP {path} → HTTP {resp.status_code}: insan doğrulaması "
+                    f"geçersiz. `manage.py ekap_dogrula` ile çerezi yenileyin."
                 )
 
             if resp.status_code in (401, 403, 500) and not yenilendi:

@@ -70,29 +70,12 @@
       </div>
     {% endif %}
 
-    {# ── 0b. EKAP v2 insan doğrulaması — artık YEDEK yolun ön koşulu ── #}
-    {% if pano.dogrulama.seviye == "ok" %}
-      <div class="alert alert-success py-2">
-        <i class="fas fa-shield-halved me-1"></i>
-        <strong>EKAP doğrulaması aktif</strong> — {{ pano.dogrulama.metin }}
-        {% if pano.dogrulama.guncelleme %}
-          <span class="text-muted">({{ pano.dogrulama.guncelleme|date:"d.m.Y H:i" }})</span>
-        {% endif %}
-      </div>
-    {% else %}
-      <div class="alert alert-warning py-2">
-        <i class="fas fa-triangle-exclamation me-1"></i>
-        <strong>EKAP v2 doğrulaması yok — YEDEK yol kapalı.</strong>
-        {{ pano.dogrulama.metin }}
-        {% if pano.dogrulama.guncelleme %}
-          <span class="text-muted">({{ pano.dogrulama.guncelleme|date:"d.m.Y H:i" }})</span>
-        {% endif %}
-        <div class="small mt-1">
-          Toplama mobil API'den sürüyor; v2 yalnızca mobilde <em>olmayan</em> verileri
-          (idare_id, DETSIS ağacı, OKAS kataloğu, düzeltme/iptal ilanları) besliyor.
-        </div>
-      </div>
-    {% endif %}
+    {# ⚠️ **v2 (eski sistem) doğrulama şeridi KALDIRILDI (2026-09-10).**
+       Toplama artık mobil API'den yapılıyor; v2 yalnızca mobilde olmayan alanları
+       (idare_id, DETSIS ağacı, OKAS kataloğu) besleyen bir yedek. Çerezi düşünce
+       panoda kırmızı/sarı uyarı basmak, çalışan bir sistemde **yanlış alarm**
+       üretiyordu. Durum yine `manage.py ingest_saglik`'in "v2 yedek" bölümünde
+       görülebilir; `pano.dogrulama` verisi de yerinde duruyor. #}
 
     {# ── 1. Kullanıcı KPI şeridi ───────────────────────────── #}
     <div class="it-section-title">

@@ -281,6 +281,11 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
   kutusu → `POST /b_han/api/human-verification/verify` + `X-Turnstile-Token`
   (`withCredentials`) → **`ekap.human-verification` çerezi** doğrulanmış işaretlenir.
   Sonraki API çağrıları ekstra başlık taşımaz; iş tamamen çerezdedir.
+  - ⚠️ **2026-09-10: kod `428` oldu.** EKAP doğrulanmamış isteğe artık
+    `428 {"code":"HUMAN_VERIFICATION_REQUIRED"}` döndürüyor (JSON, HTML değil).
+    `client._post` 406 ile birlikte 428'i de doğrulama arızası sayar; genel 4xx
+    dalında bırakılırsa `dustu()` bayrağı konmaz, görevler kendini geri çekmez ve
+    her tur `SyncRun.status='error'` satırı yazılır.
   - ⚠️ **Belirti `401` DEĞİL `406` + HTML**: F5 BIG-IP ASM engel sayfası
     ("Bu olay için referans numarası: …"). `keyfetch`'in 401/500 kurtarma yolu
     burada **işe yaramaz**; `SyncRun.note` HTML ile başlıyorsa arıza budur.

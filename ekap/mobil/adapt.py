@@ -193,15 +193,24 @@ def detaydan(ikn: str, detay: dict, *, okas_list=None, idare_id: str = "") -> di
         "isinYapilacagiYer": detay.get("isinYeri") or "",
         "ihaleYeri": detay.get("ihaleYer") or "",
     }
+    # ⚠️ **Açıklama metinleri MOBİLİN HAM METNİ DEĞİL, v2'nin kanonik metnidir.**
+    # Mobil uygulama bu alanları doğrudan gösteriyor; kaynağa göre değişmesi
+    # kullanıcıya görünen bir tutarsızlık üretir (üretimde bildirildi: mobil
+    # "İhale İlanı Yayımlanmış/İlansız, Katılıma Açık" derken v2
+    # "İhale İlanı Yayımlanmış, Katılıma Açık" diyordu).
+    # ⚠️ Kod çözülemediyse açıklama da YAZILMAZ — uydurma metin, uydurma koddan
+    # daha az zararlı değil.
     if tip is not None:
         bilgi["ihaleTip"] = tip
+        bilgi["ihaleTipiAciklama"] = C.TIP_ACIKLAMA.get(tip, "")
     if kapsam is not None:
         bilgi["yasaKapsami4734"] = kapsam
+        bilgi["ihaleKapsamAciklama"] = C.KAPSAM_ACIKLAMA.get(kapsam, "")
+    if usul is not None:
+        bilgi["ihaleUsulAciklama"] = C.USUL_ACIKLAMA.get(usul, "")
     if durum is not None:
         bilgi["ihaleDurum"] = durum
-        bilgi["ihaleDurumAciklama"] = (detay.get("ihaleDurumu") or "")[:200]
-    if detay.get("ihaleKapsamTurUsul"):
-        bilgi["ihaleKapsamAciklama"] = str(detay["ihaleKapsamTurUsul"])[:200]
+        bilgi["ihaleDurumAciklama"] = C.DURUM_ACIKLAMA.get(durum, "")
 
     item = {
         "ikn": ikn,

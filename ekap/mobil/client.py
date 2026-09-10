@@ -112,11 +112,17 @@ class EkapMobilClient:
         return h
 
     def _ham_istek(self, path, *, json_body=None, params=None, ek_baslik=None,
-                   stream=False, throttle_uygula=True):
+                   stream=False, throttle_uygula=True, pencere=True):
         """
         Tek POST — captcha çözümü YAPMAZ (sonsuz özyineleme olurdu).
 
         `captcha.py` ve `_post` bunun üzerine kurulur.
+
+        ⚠️ `pencere=False` **zincirin ikinci isteği** içindir: doküman indirme
+        `Liste` + `Indir` çiftidir ve `Liste`nin verdiği id **tek kullanımlıktır**,
+        yani ikisi bitişik olmak zorunda. Her ikisi için ayrı pencere beklemek
+        (30 sn) indirmeyi pratikte imkânsız kılardı. Bütçeden yine düşülür — EKAP'a
+        giden istek sayısı doğru sayılmalı.
         """
         if throttle_uygula:
             if not throttle.butce_harca(self.butce):
@@ -125,7 +131,9 @@ class EkapMobilClient:
                 )
             # ⚠️ Kullanıcı istekleri ayrı (daha dar) pencereyi ve sınırlı beklemeyi
             # kullanır: karşıda bekleyen bir insan var, arka plan turu ise bekleyebilir.
-            if self.butce == "kullanici":
+            if not pencere:
+                uygun = True
+            elif self.butce == "kullanici":
                 uygun = throttle.slot_al(
                     ad="kullanici", bekle=True,
                     azami_bekleme=getattr(settings, "EKAP_MOBIL_KULLANICI_BEKLEME", 20),
@@ -262,18 +270,27 @@ class EkapMobilClient:
             ek_baslik={"x-skip-error-dialog": "true"},
         )
 
-    def dokuman_indir(self, ikn_yili, ikn_sayi, dosya_id):
-        """Dokümanı indirir — `requests.Response` (stream) döner, JSON değil."""
+    def dokuman_indir(self, ikn_yili, ikn_sayi, dosya_id, *, zincir=False):
+        """
+        Dokümanı indirir — **ham baytlar** (`requests.Response`, stream), JSON değil.
+
+        Ölçüldü: `content-type: application/octet-stream`, gövde gerçek ZIP
+        (PK sihirli baytı) — base64 DEĞİL, ayrıca çözmeye gerek yok.
+
+        ⚠️ `zincir=True`: `Liste` ile aynı zincirde çağrıldığını bildirir → ikinci
+        kez pencere beklenmez (id tek kullanımlık, bitişik olmak zorunda).
+        """
         resp = self._ham_istek(
             C.PATH_DOKUMAN_INDIR,
             params={"iknYili": ikn_yili, "iknSayi": ikn_sayi, "dosyaId": dosya_id},
             ek_baslik={"x-skip-error-dialog": "true"},
             stream=True,
+            pencere=not zincir,
         )
         resp = self._captcha_asilirsa_tekrarla(
             resp, C.PATH_DOKUMAN_INDIR,
             params={"iknYili": ikn_yili, "iknSayi": ikn_sayi, "dosyaId": dosya_id},
-            ek_baslik={"x-skip-error-dialog": "true"}, stream=True,
+            ek_baslik={"x-skip-error-dialog": "true"}, stream=True, pencere=not zincir,
         )
         if resp.status_code != 200:
             raise MobilError(f"Doküman indirilemedi → HTTP {resp.status_code}")

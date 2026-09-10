@@ -987,20 +987,25 @@ class DocumentUrlView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, ekap_id):
-        # ⚠️ Mobil kaynaklı ihalelerin gerçek EKAP `id`si YOK (mobil API vermiyor) →
-        # v2'nin `GetDokumanUrl` ucu çağrılamaz. Mobil tarafta da "belge URL'i" diye
-        # bir şey yok: `IhaleDokumani/Liste` **tek kullanımlık** bir id veriyor ve
-        # indirme aynı zincirde yapılmak zorunda. Bu yüzden istemciye kendi proxy
-        # ucumuzun adresi döner (sözleşme aynı kalır: `data.url`).
-        from .mobil.adapt import sentetik_mi
-
-        if sentetik_mi(ekap_id):
+        # ⚠️⚠️ **Belge indirme MOBİL uçtan yapılır — v2'den DEĞİL.**
+        # v2'nin `GetDokumanUrl`u insan doğrulaması (Turnstile) istiyor; çerez
+        # düştüğünde **hiçbir ihalenin** dokümanı indirilemiyordu (üretimde
+        # yaşandı 2026-09-10: tüm belge istekleri 502). Mobil doküman uçları
+        # **İKN ile** çalışıyor, yani ihalenin hangi kaynaktan geldiğinden
+        # bağımsız olarak her ihale için kullanılabilir.
+        # ⚠️ Mobilde kalıcı "belge URL'i" yok: `IhaleDokumani/Liste` **tek
+        # kullanımlık** bir id veriyor ve indirme aynı zincirde yapılmak zorunda →
+        # istemciye kendi proxy ucumuzun adresi döner (sözleşme aynı: `data.url`).
+        tender = _tender_by_key(ekap_id, defer_raw=True)
+        if tender is not None:
             return api_response(data={
                 "url": request.build_absolute_uri(
                     reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
                 ),
                 "proxy": True,
             })
+
+        # DB'de olmayan bir ihale için son çare: v2 (doğrulama çerezi gerekir).
         islem_id = request.query_params.get("islemId", "1")
         cache_key = f"ekap:docurl:{ekap_id}:{islem_id}"
         cached = cache.get(cache_key)
@@ -1064,7 +1069,7 @@ class TenderDocumentView(APIView):
                 return api_response(message="Bu ihalede indirilebilir doküman yok.",
                                     success=False, status=404)
             # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
-            resp = cli.dokuman_indir(yil, sayi, secilen["id"])
+            resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
         except MobilSlotError:
             return api_response(
                 message="EKAP hız sınırı nedeniyle şu an belge indirilemiyor; "

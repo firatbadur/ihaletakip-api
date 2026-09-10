@@ -94,6 +94,32 @@ DURUM_PARCA = [
     ("taslak", 1),
 ]
 
+# ── v2 ile BİREBİR aynı açıklama metinleri ─────────────
+# ⚠️ **Mobil ham metni kullanılmaz.** Mobil "İhale İlanı Yayımlanmış/İlansız,
+# Katılıma Açık" derken v2 "İhale İlanı Yayımlanmış, Katılıma Açık" diyor; mobil
+# uygulama bu metni **doğrudan gösteriyor**, dolayısıyla kaynağa göre değişmesi
+# kullanıcıya görünen bir tutarsızlıktır (üretimde bildirildi 2026-09-10).
+# Aşağıdaki değerler üretim DB'sindeki v2 satırlarından **sayılarak** alındı.
+DURUM_ACIKLAMA = {
+    1: "İhale Onayı Verilmemiş",
+    2: "İhale İlanı Yayımlanmış, Katılıma Açık",
+    3: "İhale Tekliflere Kapalı, Teklifler Değerlendiriliyor",
+    4: "Teklif Değerlendirme Tamamlanmış",
+    5: "Sözleşme İmzalanmış",
+    6: "İhale İptal Edilmiş",
+    10: "İhale İptal Edilmiş",
+    15: "Sonuç İlanı Yayımlanmış",
+    20: "Sözleşme İmzalanmış",
+}
+TIP_ACIKLAMA = {1: "Mal", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
+USUL_ACIKLAMA = {
+    1: "İhale Usulü: Açık",
+    2: "İhale Usulü: Belli İstekliler Arasında",
+    3: "İhale Usulü: Pazarlık",
+    4: "İhale Usulü: Doğrudan Temin",
+}
+KAPSAM_ACIKLAMA = {1: "4734 Kapsamında", 2: "Kapsam Dışı", 3: "İstisna"}
+
 # `ihaleKapsamTurUsul` üçlüsünün parçaları:
 #   "4734 Kapsamında - Mal - Açık"  ·  "İstisna - Hizmet - 4734 / 3-g"
 KAPSAM_METIN = _n({

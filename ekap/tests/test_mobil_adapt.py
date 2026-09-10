@@ -237,3 +237,33 @@ class HtmlNormalizeTest(TestCase):
                            "ilanHtml": "<b>SA&#286;LIK</b>"},
         })
         self.assertEqual(govde["item"]["ilanList"][0]["veriHtml"], "<b>SAĞLIK</b>")
+
+
+class IdareEslestirmeTest(TestCase):
+    """⚠️ Ad eşleştirmesi kusurlu → belirsizlikte YAZMAMALI."""
+
+    def setUp(self):
+        from ekap.models import Authority
+        from ekap.utils import normalize_tr
+        for detsis, ad, iid in (
+            ("1", "ÜNYE BELEDİYE BAŞKANLIĞI", "24192"),
+            ("2", "BİLGİ İŞLEM MÜDÜRLÜĞÜ", "111"),
+            ("3", "BİLGİ İŞLEM MÜDÜRLÜĞÜ", "222"),
+        ):
+            Authority.objects.create(detsis_no=detsis, ad=ad,
+                                     ad_norm=normalize_tr(ad), idare_id=iid)
+        from django.core.cache import cache
+        cache.clear()
+
+    def test_tek_aday_yazilir(self):
+        from ekap.mobil import idare
+        self.assertEqual(idare.coz("Ünye Belediye Başkanlığı"), ("24192", "tam"))
+
+    def test_ayni_ad_birden_cok_idare_BOS_birakilir(self):
+        """⚠️ 'En uygun'u seçmek burada yazı tura atmaktır — boş bırakılır."""
+        from ekap.mobil import idare
+        self.assertEqual(idare.coz("BİLGİ İŞLEM MÜDÜRLÜĞÜ"), ("", ""))
+
+    def test_bos_ad(self):
+        from ekap.mobil import idare
+        self.assertEqual(idare.coz(""), ("", ""))

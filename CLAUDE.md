@@ -158,10 +158,31 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   görünmeyen satırları **budayamaz**. Regresyon testi:
   `ekap/tests/test_mobil_adapt.py::KoruyucuYazmaTest`.
 - ⚠️⚠️ **`idare_id` MOBİLDE YOK — hiçbir uçta** (ölçüldü 2026-09-10, tüm uçlar tek
-  tek tarandı). Ad eşleştirmesi reddedildi (%11,7 YANLIŞ eşleşme). Alan **boş
-  bırakılır**; favori idare bildirimi / idare profili / `seri_anahtar` mobil kaynaklı
-  yeni ihalelerde çalışmaz. ⚠️ Doküman adlarındaki `{76DC25C0…}` **belge GUID'i**,
-  şartnamedeki `3231941` ise **telefon numarası** — ikisi de idare kimliği DEĞİL.
+  tek tarandı). ⚠️ Doküman adlarındaki `{76DC25C0…}` **belge GUID'i**, şartnamedeki
+  `3231941` ise **telefon numarası** — ikisi de idare kimliği DEĞİL. v2 liste yanıtı
+  da yalnızca `idareIdHash` (bir .png adı) veriyor; sayısal id **yalnızca v2 detay
+  ucunda**.
+  → Alan **`Authority` adından eşleştirilerek** doldurulur (`ekap/mobil/idare.py`).
+  ⚠️ Yöntem kusurludur ve bu bilinçli bir kabuldür; ÜRETİM VERİSİYLE ölçüldü:
+
+  | yöntem | doğru | yanlış | kesinlik |
+  |---|---|---|---|
+  | tam ad, **tek** aday | 137 | 3 | **%97,9** |
+  | trigram ≥ 0,90 | 47 | 4 | %92,2 |
+  | trigram ≥ 0,85 | 51 | 7 | %87,9 |
+  | trigram ≥ 0,50 | 78 | 65 | %54,5 (yazı tura) |
+
+  ⚠️ **Aynı ada sahip 3.155 idare var** → birden çok adaya giden ad **belirsizdir**
+  ve boş bırakılır ("en uygun"u seçmek yazı turadır). `Authority`de il alanı yok,
+  ayırt edecek veri de yok.
+  ⚠️ Eşik `EKAP_MOBIL_IDARE_ESIK` (vars. **0,90**) — düşürmeyin; 0,50'de kesinlik
+  %54'e çöküyor. `0` → bulanık kademe tümüyle kapanır.
+  ⚠️ **Yalnızca BOŞ alan doldurulur**: v2'den gelmiş gerçek id tahminle ezilmez.
+  ⚠️ Hangi satırın tahminle dolduğu **`Tender.idare_kaynak`**ta (`tam`|`benzer`) →
+  denetlenebilir ve gerekirse yalnızca `benzer` olanlar geri alınabilir.
+  ⚠️ Eşleştirme `upsert_tender_detail`'DEN ÖNCE yapılır: `seri_anahtar` `idare_id`ye
+  bağlı, sonradan yazılsa seri anahtarı boş idareyle hesaplanırdı.
+  Geriye dönük: `python manage.py mobil_idare_esle [--dry-run]`.
 - **OKAS = idari şartnameden** (`ekap/mobil/okas.py`): 8-9 haneli sayılar `OkasCode`
   kataloğuyla **kesiştirilir** (kesinlik %100, duyarlılık %97,2). ⚠️ Katalog
   `sync_okas` ile v2'den geliyor → o görev yedekte de olsa çalışmalı.

@@ -37,7 +37,8 @@ from .. import sync as sync_mod
 from ..constants import DURUM_SONUCLANMIS
 from ..models import SyncCheckpoint, Tender
 from ..tasks import _run
-from . import adapt, captcha as captcha_mod, constants as C, okas as okas_mod, throttle
+from . import adapt, captcha as captcha_mod, constants as C
+from . import idare as idare_mod, okas as okas_mod, throttle
 from .client import (
     EkapMobilClient,
     MobilButceError,
@@ -362,17 +363,34 @@ def detay(ikn, cli=None, tazeleme=False):
         # ⚠️ OKAS yalnızca idari şartnamenin içinde var; katalogla kesiştirilir.
         # Bulunamazsa liste HİÇ konmaz → mevcut OKAS kalemleri korunur.
         kalemler = okas_mod.okas_cikar(ham.get("idariSartnameHtml") or "")
-        govde = adapt.detaydan(ikn, ham, okas_list=kalemler)
+
+        # ⚠️ `idare_id` mobil uçlarda YOK → ad üzerinden çözülür (`mobil/idare.py`).
+        # **Yalnızca alan boşken**: v2'den gelmiş gerçek bir id, tahminle EZİLMEZ.
+        # Çözüm `upsert_tender_detail`'DEN ÖNCE yapılır ki `apply_pro_fields`
+        # `seri_anahtar`ı doğru `idare_id` ile üretsin (sonradan yazılsaydı seri
+        # anahtarı boş idare ile hesaplanmış olurdu).
+        mevcut = Tender.objects.filter(ikn=ikn).values_list(
+            "idare_id", "idare_kaynak"
+        ).first()
+        idare_id = idare_kaynak = ""
+        if not (mevcut and mevcut[0]):
+            idare_id, idare_kaynak = idare_mod.coz(ham.get("idareAdi") or "")
+
+        govde = adapt.detaydan(ikn, ham, okas_list=kalemler, idare_id=idare_id)
         tender = sync_mod.upsert_tender_detail(
             adapt.ekap_id_coz(ikn), govde, koruyucu=True
         )
-        Tender.objects.filter(pk=tender.pk).update(detay_kaynak="mobil")
+        alanlar = {"detay_kaynak": "mobil"}
+        if idare_kaynak:
+            alanlar["idare_kaynak"] = idare_kaynak
+        Tender.objects.filter(pk=tender.pk).update(**alanlar)
         _say("tazeleme" if tazeleme else "detay")
         # ⚠️ İşaret yalnızca **başarıda** silinir. Hata hâlinde bırakmak, kalıcı
         # olarak başarısız olan bir kaydın bütçeyi her turda yemesini engeller;
         # TTL (1 sa) dolunca kendiliğinden yeniden denenir.
         _isaret_sil(ikn)
         return {"is": "detay", "ikn": ikn, "okas": len(kalemler),
+                "idare": f"{idare_id or '-'}({idare_kaynak or '-'})",
                 "ilan_tarihi": str(tender.ilan_tarihi or "")}
     except MobilSlotError:
         # Sıra beklemesi hata değil → işaret silinir, kayıt sıradaki turda gelsin.

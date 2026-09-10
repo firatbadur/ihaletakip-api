@@ -405,6 +405,12 @@ EKAP_MOBIL_CAPTCHA_BUYUT = env.int("EKAP_MOBIL_CAPTCHA_BUYUT", default=2)
 EKAP_MOBIL_CAPTCHA_PSM = env.int("EKAP_MOBIL_CAPTCHA_PSM", default=7)
 # Keşif (liste taraması) sıklığı ve penceresi. ⚠️ `ilanTarihi*` parametreleri mobil
 # uçta YOK SAYILIYOR → pencere `ihaleTarihi` üzerinden kurulur (ileriye bakar).
+# ⚠️ Mobil API `idare_id` vermiyor → ad eşleştirmesiyle çözülür (`ekap/mobil/idare.py`).
+# Trigram eşiği ÖLÇÜMLE seçildi (üretim, gerçek idare_id ile karşılaştırma):
+#   0,90 → %92,2 kesinlik · 0,85 → %87,9 · 0,50 → %54,5 (yazı tura)
+# Tam ad eşleşmesi ayrı ve daha güvenilir bir kademedir (%97,9); eşik yalnızca
+# bulanık kademeyi yönetir. `0` → bulanık eşleştirme tamamen kapanır.
+EKAP_MOBIL_IDARE_ESIK = env.float("EKAP_MOBIL_IDARE_ESIK", default=0.90)
 EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=60)
 EKAP_MOBIL_KESIF_ILERI_GUN = env.int("EKAP_MOBIL_KESIF_ILERI_GUN", default=45)
 EKAP_MOBIL_KESIF_GERI_GUN = env.int("EKAP_MOBIL_KESIF_GERI_GUN", default=3)

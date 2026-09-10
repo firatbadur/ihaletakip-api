@@ -159,6 +159,12 @@ class Tender(models.Model):
     # Bkz. `ekap/mobil/adapt.py`. Bu kolon olmadan "bu detail_raw neden farklı
     # görünüyor?" sorusu ancak gövdeyi açarak cevaplanabilirdi.
     detay_kaynak = models.CharField(max_length=16, blank=True, default="")
+    # ⚠️ `idare_id` hangi yolla dolduruldu: "" (v2'den geldi / hiç yok) | "tam"
+    # (mobil, ad birebir eşleşti · ölçülen kesinlik %97,9) | "benzer" (mobil,
+    # trigram ≥ eşik · %92,2). Ad eşleştirmesi kusurlu olduğu için hangi satırın
+    # tahminle dolduğu **denetlenebilir** olmalı; gerekirse yalnızca "benzer"
+    # olanlar geri alınabilir. Bkz. `ekap/mobil/idare.py`.
+    idare_kaynak = models.CharField(max_length=16, blank=True, default="")
 
     # Yüklenici/sonuç çözümlemesi (bkz. ekap/contractors.py, ekap/sonuc_ilani.py)
     contractors_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)

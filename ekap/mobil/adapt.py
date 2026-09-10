@@ -168,7 +168,7 @@ def liste_satirindan(item: dict, ekap_id: str) -> dict:
 
 
 # ── Detay ──────────────────────────────────────────────
-def detaydan(ikn: str, detay: dict, *, okas_list=None) -> dict:
+def detaydan(ikn: str, detay: dict, *, okas_list=None, idare_id: str = "") -> dict:
     """
     Mobil `IhaleArama/Ihale` yanıtı → sentetik v2 detay gövdesi.
 
@@ -177,9 +177,10 @@ def detaydan(ikn: str, detay: dict, *, okas_list=None) -> dict:
     tablo hiç ellenmez. Boş liste/boş string koymak, v2'nin doldurduğu değeri
     silmek demek olurdu (2026-08-27 `_LISTE_EZMEZ` arızasının aynısı).
 
-    ⚠️ `idareId` **hiç konmaz**: mobil API bu değeri hiçbir uçta vermiyor (ölçüldü) ve
-    ad üzerinden eşleştirme reddedildi (2000 ihalede %11,7 YANLIŞ eşleşme). Yanlış
-    `idare_id` ihaleyi yanlış kuruma bağlar ve kullanıcı bunu fark edemez.
+    ⚠️ `idareId` mobil API'de **hiç yok** (tüm uçlar tarandı). Çağıran, ad
+    eşleştirmesiyle çözebilirse `idare_id=` ile verir (bkz. `mobil/idare.py`);
+    veremezse anahtar **konmaz** ve alan boş kalır — `koruyucu=True` sayesinde
+    v2'den gelmiş bir değer de ezilmez.
     """
     kapsam, tip, usul = kapsam_tur_usul(detay.get("ihaleKapsamTurUsul"))
     durum = durum_kodu(detay.get("ihaleDurumu"))
@@ -209,6 +210,8 @@ def detaydan(ikn: str, detay: dict, *, okas_list=None) -> dict:
         "ihaleBilgi": bilgi,
         "idare": _idare(detay),
     }
+    if idare_id:
+        item["idareId"] = idare_id
     if durum is not None:
         item["ihaleDurum"] = durum
     if usul is not None:

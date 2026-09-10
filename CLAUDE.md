@@ -187,6 +187,13 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
 - **Komutlar**: `manage.py mobil_probe --is uclar|idare|tempo|captcha|kapsam`
   (ölçüm, yazmaz), `manage.py run_mobil --is tik|kesif|detay|sonuc|durum`,
   `manage.py mobil_captcha [--cevap X] [--yeni] [--ocr]`.
+- ⚠️ **Mobil HTML'i sayısal karakter referansı kullanıyor** (`SA&#286;LIK` = "SAĞLIK");
+  v2 aynı belgeyi **düz UTF-8** veriyor. Aynı kolona iki kodlama yazmak veriyi
+  okunamaz gösterir (üretimde bildirildi) → `adapt.html_normalize` ingest'te çözer.
+  ⚠️ **Kör `html.unescape` YAPILMAZ**: `&lt; &gt; &amp; &quot; &#39;` işaretleme
+  açısından anlamlıdır; çözülürse metindeki kaçırılmış bir `<` gerçek etikete döner.
+  Yalnızca **ASCII dışı** referanslar çevrilir. Eski satırlar:
+  `python manage.py fix_mobil_html [--dry-run]`.
 - **Belge indirme** (`GET /ekap/tenders/<key>/document/`): mobil uçta **kalıcı belge
   URL'i yoktur** — `IhaleDokumani/Liste` her çağrıda **tek kullanımlık** id üretir ve
   indirme aynı zincirde yapılmalıdır → dosya bizim üzerimizden akıtılır (streaming).

@@ -15,6 +15,7 @@ tüketiciler çalışmaya devam eder ve ham veri de kaybolmaz.
 """
 import hashlib
 import logging
+import re
 
 from . import constants as C
 from ..utils import normalize_tr, parse_ekap_datetime
@@ -102,6 +103,41 @@ def kapsam_tur_usul(metin):
         if usul is None and n in C.USUL_METIN:
             usul = C.USUL_METIN[n]
     return kapsam, tip, usul
+
+
+# ⚠️ Mobil API HTML'i **sayısal karakter referanslarıyla** döndürüyor
+# (`SA&#286;LIK B&#304;LG&#304;` = "SAĞLIK BİLGİ"); v2 aynı belgeyi düz UTF-8 veriyor.
+# Aynı kolona iki farklı kodlama yazmak veriyi okunamaz hâle getirir: mobil satırlar
+# admin'de ve HTML olarak render etmeyen her istemcide "saçma karakterler" olarak
+# görünür (üretimde kullanıcı bildirdi, 2026-09-10).
+#
+# ⚠️ **Kör `html.unescape` YAPILMAZ**: `&lt;` `&gt;` `&amp;` `&quot;` `&#39;` işaretleme
+# açısından anlamlıdır — çözülürlerse metin içindeki kaçırılmış bir `<` gerçek etikete
+# dönüşür ve belgenin yapısı bozulur (ve XSS yüzeyi açılır). Bu yüzden yalnızca
+# **ASCII dışı** karakter referansları (Türkçe harfler, tırnaklar, tire) çözülür.
+_KARAKTER_REF = re.compile(r"&#(\d{2,7});|&#[xX]([0-9a-fA-F]{2,6});")
+
+
+def html_normalize(metin: str) -> str:
+    """Mobil HTML'indeki ASCII-dışı karakter referanslarını gerçek harflere çevirir."""
+    if not metin or "&#" not in metin:
+        return metin or ""
+
+    def _coz(m):
+        try:
+            kod = int(m.group(1)) if m.group(1) else int(m.group(2), 16)
+        except (TypeError, ValueError):
+            return m.group(0)
+        # ⚠️ ASCII aralığı dokunulmadan bırakılır: `&#60;` (<) ve `&#38;` (&) gibi
+        # referanslar işaretlemeyi etkiler.
+        if kod < 128 or kod > 0x10FFFF:
+            return m.group(0)
+        try:
+            return chr(kod)
+        except ValueError:
+            return m.group(0)
+
+    return _KARAKTER_REF.sub(_coz, metin)
 
 
 def _as_int(v):
@@ -224,7 +260,7 @@ def _ihale_ilani(detay):
     """
     ilan = detay.get("ihaleIlani") or {}
     tarih = ilan.get("ilanTarihi") or ""
-    html = ilan.get("ilanHtml") or detay.get("ilanHtml") or ""
+    html = html_normalize(ilan.get("ilanHtml") or detay.get("ilanHtml") or "")
     if not tarih and not html:
         return None
     if tarih and parse_ekap_datetime(tarih) is None:
@@ -270,7 +306,7 @@ def sonuc_govdesi(ikn: str, kayitlar: list) -> dict:
             "id": f"{ILAN_ONEK}s{idx}",
             "ilanTip": 4,
             "ilanTarihi": kayit.get("ilanTarihi") or "",
-            "veriHtml": kayit.get("ilanHtml") or "",
+            "veriHtml": html_normalize(kayit.get("ilanHtml") or ""),
             "sozlesmeId": anahtar,
             "istekliAdi": (x.get("yuklenici_adi") or "")[:500],
             "baslik": "Sonuç İlanı",

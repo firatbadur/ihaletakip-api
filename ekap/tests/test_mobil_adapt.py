@@ -214,3 +214,26 @@ class DokumanUcuTest(TestCase):
         veri = resp.json()["data"]
         self.assertTrue(veri["proxy"])
         self.assertIn("/document/", veri["url"])
+
+
+class HtmlNormalizeTest(TestCase):
+    """⚠️ Mobil HTML'i sayısal karakter referansı kullanıyor; v2 düz UTF-8."""
+
+    def test_turkce_harfler_cozulur(self):
+        self.assertEqual(
+            adapt.html_normalize("SA&#286;LIK B&#304;LG&#304; Y&#214;NET&#304;M"),
+            "SAĞLIK BİLGİ YÖNETİM",
+        )
+        self.assertEqual(adapt.html_normalize("&#x130;stanbul"), "İstanbul")
+
+    def test_isaretleme_entityleri_KORUNUR(self):
+        """⚠️ Kör `html.unescape` belgeyi bozar: kaçırılmış `<` gerçek etikete döner."""
+        ham = "&lt;script&gt; &amp; &#39;tek&#39; &quot;çift&quot;"
+        self.assertEqual(adapt.html_normalize(ham), ham)
+
+    def test_ilan_govdesinde_uygulanir(self):
+        govde = adapt.detaydan("2026/1", {
+            "ihaleIlani": {"ilanTarihi": "08.09.2026 00:00:00",
+                           "ilanHtml": "<b>SA&#286;LIK</b>"},
+        })
+        self.assertEqual(govde["item"]["ilanList"][0]["veriHtml"], "<b>SAĞLIK</b>")

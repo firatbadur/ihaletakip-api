@@ -223,8 +223,16 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   ⚠️ Var olan ucu bulma yöntemi: bilinmeyen yol `404`, var olan yol CAPTCHA duvarında
   **`300`** döner. ⚠️ `IhaleDokumani/Indir`e teknik şartnamenin sayısal id'si
   verilirse **400** — iki uç farklı kimlik uzayı kullanıyor (64 hex ↔ int).
-- **Belge indirme** (`GET /ekap/tenders/<key>/document/`): mobil uçta **kalıcı belge
-  URL'i yoktur** — `IhaleDokumani/Liste` her çağrıda **tek kullanımlık** id üretir ve
+- **Belge indirme — ÖNCE v2, sonra mobil.** `document-url` ucu **eski davranışı
+  korur**: v2'den `GetDokumanUrl` ile EKAP'ın kendi adresini döndürür, mobil
+  uygulama onu WebView'de açar, EKAP captcha sorarsa **kullanıcı çözer** ve dosya
+  `stream.kik.gov.tr`den doğrudan iner — dosya bizim sunucumuzdan geçmez, hız
+  bütçesi harcanmaz. ⚠️ Bu yol iki şeye bağlıdır: ihalenin **gerçek EKAP `id`si**
+  (mobil kayıtlarda yok) ve sunucudaki doğrulama çerezi (yoksa **428**). İkisinden
+  biri yoksa aşağıdaki mobil proxy'ye düşülür — 2026-09-10'da çerez düşünce belge
+  indirme tamamen durmuştu, yedek yol bunun tekrarını engelliyor.
+- **Yedek yol: mobil proxy** (`GET /ekap/tenders/<key>/document/`): mobil uçta
+  **kalıcı belge URL'i yoktur** — `IhaleDokumani/Liste` her çağrıda **tek kullanımlık** id üretir ve
   indirme aynı zincirde yapılmalıdır → dosya bizim üzerimizden akıtılır (streaming).
   `document-url` ucu mobil kaynaklı ihalelerde bu adresi döner (`data.url` sözleşmesi
   korunur, `proxy:true` eklenir).

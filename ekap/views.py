@@ -987,47 +987,59 @@ class DocumentUrlView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
 
     def get(self, request, ekap_id):
-        # ⚠️⚠️ **Belge indirme MOBİL uçtan yapılır — v2'den DEĞİL.**
-        # v2'nin `GetDokumanUrl`u insan doğrulaması (Turnstile) istiyor; çerez
-        # düştüğünde **hiçbir ihalenin** dokümanı indirilemiyordu (üretimde
-        # yaşandı 2026-09-10: tüm belge istekleri 502). Mobil doküman uçları
-        # **İKN ile** çalışıyor, yani ihalenin hangi kaynaktan geldiğinden
-        # bağımsız olarak her ihale için kullanılabilir.
-        # ⚠️ Mobilde kalıcı "belge URL'i" yok: `IhaleDokumani/Liste` **tek
-        # kullanımlık** bir id veriyor ve indirme aynı zincirde yapılmak zorunda →
-        # istemciye kendi proxy ucumuzun adresi döner (sözleşme aynı: `data.url`).
-        tender = _tender_by_key(ekap_id, defer_raw=True)
-        if tender is not None:
-            temel = request.build_absolute_uri(
-                reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
-            )
-            # ⚠️ Teknik şartnamenin VARLIĞI burada sorgulanmaz: öğrenmek için mobil
-            # uca bir istek daha atmak gerekir ve bu uç her ihale açılışında
-            # çağrılıyor — hız bütçesini boşa yakardı. Bağlantı iyimser verilir;
-            # şartname yoksa indirme ucu **404** ve net bir mesaj döner.
-            return api_response(data={
-                "url": temel,
-                "teknik_sartname_url": f"{temel}?tur=teknik",
-                "proxy": True,
-            })
+        """
+        ⚠️ **ÖNCE v2 (eski, tercih edilen yol).** EKAP'ın kendi belge adresini
+        döndürürüz; mobil uygulama onu WebView'de açar, EKAP kullanıcıya captcha
+        sorarsa **kullanıcı çözer** ve dosya `stream.kik.gov.tr`den doğrudan iner.
+        Bu yolda dosya bizim sunucumuzdan geçmez — ne bant genişliği ne hız bütçesi
+        harcanır.
 
-        # DB'de olmayan bir ihale için son çare: v2 (doğrulama çerezi gerekir).
+        ⚠️ v2 iki şeye bağlı: (1) ihalenin **gerçek EKAP `id`si** (mobil API bunu
+        vermiyor, yalnızca v2'den gelen kayıtlarda var), (2) sunucudaki insan
+        doğrulaması çerezi (yoksa `428`). İkisinden biri yoksa **mobil proxy'ye**
+        düşeriz: orada dosyayı biz indirip akıtırız (bkz. `TenderDocumentView`).
+        Böylece çerez düştüğünde belge indirme tamamen durmaz — 2026-09-10'da
+        yaşanan arıza buydu.
+        """
+        from .mobil.adapt import sentetik_mi
+
         islem_id = request.query_params.get("islemId", "1")
-        cache_key = f"ekap:docurl:{ekap_id}:{islem_id}"
-        cached = cache.get(cache_key)
-        if cached:
-            return api_response(data={"url": cached})
-        try:
-            from .client import EkapV2Client
+        if not sentetik_mi(ekap_id):
+            cache_key = f"ekap:docurl:{ekap_id}:{islem_id}"
+            cached = cache.get(cache_key)
+            if cached:
+                return api_response(data={"url": cached, "proxy": False})
+            try:
+                from .client import EkapV2Client
 
-            resp = EkapV2Client().get_document_url(ekap_id, islem_id)
-            url = resp.get("url") if isinstance(resp, dict) else None
-            if url:
-                cache.set(cache_key, url, timeout=300)
-            return api_response(data={"url": url})
-        except Exception as e:
-            logger.warning("Belge URL alınamadı (%s): %s", ekap_id, e)
-            return api_response(message="Belge bağlantısı alınamadı.", success=False, status=502)
+                resp = EkapV2Client().get_document_url(ekap_id, islem_id)
+                url = resp.get("url") if isinstance(resp, dict) else None
+                if url:
+                    cache.set(cache_key, url, timeout=300)
+                    return api_response(data={"url": url, "proxy": False})
+            except Exception as e:                      # noqa: BLE001
+                # ⚠️ Yutulur ve mobil yola düşülür: v2'nin doğrulaması düşmüş
+                # olabilir (`428`) ve bu, belge indirmeyi durdurmamalı.
+                logger.info("v2 belge URL'i alınamadı (%s), mobil yola düşülüyor: %s",
+                            ekap_id, str(e)[:120])
+
+        # ── Yedek: mobil proxy ──────────────────────────
+        tender = _tender_by_key(ekap_id, defer_raw=True)
+        if tender is None:
+            return api_response(message="Belge bağlantısı alınamadı.",
+                                success=False, status=502)
+        temel = request.build_absolute_uri(
+            reverse("v1:ekap-tender-document", kwargs={"key": ekap_id})
+        )
+        # ⚠️ Teknik şartnamenin VARLIĞI burada sorgulanmaz: öğrenmek için mobil uca
+        # bir istek daha atmak gerekir ve bu uç her ihale açılışında çağrılıyor —
+        # hız bütçesini boşa yakardı. Bağlantı iyimser verilir; yoksa indirme ucu
+        # **404** ve net bir mesaj döner.
+        return api_response(data={
+            "url": temel,
+            "teknik_sartname_url": f"{temel}?tur=teknik",
+            "proxy": True,
+        })
 
 
 @extend_schema(

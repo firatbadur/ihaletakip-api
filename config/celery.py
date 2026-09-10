@@ -9,6 +9,14 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 app = Celery("ihaletakip")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
+# ⚠️ **`autodiscover_tasks()` yalnızca `<app>/tasks.py`'ye bakar** (INSTALLED_APPS
+# üzerinden). `ekap/mobil/tasks.py` bir ALT PAKETTE olduğu için bulunmaz ve görevler
+# worker'da kayıtlı olmaz. Belirti (üretimde ölçüldü 2026-09-10): beat görevi doğru
+# tetikliyor (`PeriodicTask.last_run_at` ilerliyor) ama worker
+# `Received unregistered task of type 'ekap.mobil.tasks.tik'` + `KeyError` basıyor ve
+# **hiçbir iş yapılmıyor**. Kuyruk boş göründüğü için arıza "çalışmıyor ama sebebi yok"
+# gibi görünür → paket açıkça verilir.
+app.autodiscover_tasks(["ekap.mobil"])
 
 # ── Celery Beat — periyodik görevler ───────────────────
 app.conf.beat_schedule = {

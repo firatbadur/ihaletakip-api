@@ -54,6 +54,8 @@ CHECKPOINT = "mobil_kesif"
 _ISARET = "ekap:mobil:is:"
 _ISARET_TTL = 3600
 _TUR_SAYACI = "ekap:mobil:tur"
+# Sonuç ilanı henüz yayımlanmamış ihaleyi bu kadar süre yeniden sorma.
+_SONUC_YOK_TTL = 7 * 86400
 # Keşif her N turda bir önceliklidir; aksi hâlde büyük bir detay borcu keşfi
 # tümüyle aç bırakır ve yeni ihaleler hiç görünmezdi.
 KESIF_PAYI = 3
@@ -86,6 +88,14 @@ def _isaretle(ikn: str) -> bool:
         return bool(cache.add(f"{_ISARET}{ikn}", "1", timeout=_ISARET_TTL))
     except Exception:                                   # noqa: BLE001
         return True
+
+
+def _isaret_uzat(anahtar: str, sure: int):
+    """İşareti uzun süre tut — tekrar sormanın anlamsız olduğu durumlar için."""
+    try:
+        cache.set(f"{_ISARET}{anahtar}", "1", timeout=sure)
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def _isaret_sil(ikn: str):
@@ -231,7 +241,8 @@ def _kesif_yigini(olustur: bool):
     bugun = timezone.localdate()
     bas = bugun - timedelta(days=settings.EKAP_MOBIL_KESIF_GERI_GUN)
     bit = bugun + timedelta(days=settings.EKAP_MOBIL_KESIF_ILERI_GUN)
-    yigin = [[bas.isoformat(), bit.isoformat(), tur] for tur in C.IHALE_TURU_DILIMLERI]
+    # Dilim biçimi: [baslangic, bitis, ihale_turu, il_plaka(0=tümü)]
+    yigin = [[bas.isoformat(), bit.isoformat(), tur, 0] for tur in C.IHALE_TURU_DILIMLERI]
     extra["yigin"] = yigin
     extra["son_tur"] = timezone.now().isoformat()
     cp.extra = extra
@@ -255,7 +266,9 @@ def kesif_adimi(cli=None):
     if not yigin:
         return {"atlandi": "kesif_yok"}
     cli = cli or EkapMobilClient()
-    bas_s, bit_s, tur = yigin[0]
+    dilim = yigin[0]
+    bas_s, bit_s, tur = dilim[0], dilim[1], dilim[2]
+    il = dilim[3] if len(dilim) > 3 else 0
     kalan = yigin[1:]
     bas, bit = date.fromisoformat(bas_s), date.fromisoformat(bit_s)
 
@@ -263,31 +276,47 @@ def kesif_adimi(cli=None):
         ihaleTarihiBaslangic=f"{bas:%Y-%m-%d} 00:00:00",
         ihaleTarihiBitis=f"{bit:%Y-%m-%d} 23:59:59",
         ihaleTuru=tur,
+        ilKod=il or 0,
     )
     veri = cli.liste(govde)
     satirlar = veri if isinstance(veri, list) else []
 
-    # ⚠️ Tavan sessizce keser: 250 dönen sorgu **eksiktir**. Aralık bölünebiliyorsa
-    # ikiye bölünüp yığına geri konur; tek güne inmişse il kırılımı gerekir.
-    if len(satirlar) >= C.LISTE_TAVAN and bas < bit:
-        orta = bas + (bit - bas) / 2
-        kalan = [[bas.isoformat(), orta.isoformat(), tur],
-                 [(orta + timedelta(days=1)).isoformat(), bit.isoformat(), tur]] + kalan
-        _yigin_yaz(kalan)
-        _say("kesif")
-        return {"is": "kesif", "bolundu": [str(bas), str(bit)], "tur": tur}
-
+    # ⚠️ **Kesilmiş sayfanın satırları da YAZILIR.** İlk sürüm 250 dönünce sayfayı
+    # atıp aralığı bölüyordu; o istekten gelen 250 geçerli ihale çöpe gidiyordu ve
+    # aynı aralık yeniden isteniyordu. 2,5 dk'lık pencerede bu, bütçenin büyük
+    # kısmını mükerrer isteğe harcamak demek.
     yeni, hata = _satirlari_yaz(satirlar)
+
+    # ⚠️ Tavan sessizce keser: 250 dönen sorgu **eksiktir** → daralt.
+    bolundu = None
+    if len(satirlar) >= C.LISTE_TAVAN:
+        if bas < bit:
+            orta = bas + (bit - bas) / 2
+            kalan = [[bas.isoformat(), orta.isoformat(), tur, il],
+                     [(orta + timedelta(days=1)).isoformat(), bit.isoformat(), tur, il]] + kalan
+            bolundu = "tarih"
+        elif not il:
+            # Tek gün + tek tür hâlâ tavanda → ikinci kırılım: **il**.
+            # ⚠️ `ilKod` **PLAKA**dır (1-81), `City.ekap_il_id` DEĞİL (ölçüldü
+            # 2026-09-10: ilKod=6 → ANKARA, ilKod=251 → 0 kayıt).
+            kalan = [[bas_s, bit_s, tur, plaka] for plaka in range(1, 82)] + kalan
+            bolundu = "il"
+            logger.warning(
+                "mobil keşif tek günde tavana takıldı (%s tür=%s) → 81 il dilimine "
+                "bölünüyor; bu tur bütçeden 81 istek harcayacak", bas, tur,
+            )
+        else:
+            # Gün + tür + il üçlüsü de tavanda: daha fazla bölünecek eksen yok.
+            logger.error(
+                "mobil keşif tavanı aşılamıyor (%s tür=%s il=%s) — kayıt eksik kalıyor",
+                bas, tur, il,
+            )
+
     _yigin_yaz(kalan)
     _say("kesif")
-    if len(satirlar) >= C.LISTE_TAVAN:
-        logger.warning(
-            "mobil keşif tek günde tavana takıldı (%s tür=%s) — il kırılımı gerekiyor",
-            bas, tur,
-        )
-    return {"is": "kesif", "aralik": [str(bas), str(bit)], "tur": tur,
+    return {"is": "kesif", "aralik": [str(bas), str(bit)], "tur": tur, "il": il,
             "kayit": len(satirlar), "yazilan": yeni, "hata": hata,
-            "kalan_dilim": len(kalan)}
+            "bolundu": bolundu, "kalan_dilim": len(kalan)}
 
 
 def _satirlari_yaz(satirlar):
@@ -318,6 +347,12 @@ def detay(ikn, cli=None, tazeleme=False):
     """
     yil, sayi = _ikn_parcala(ikn)
     if not yil:
+        # ⚠️ İşaret SİLİNMEZ: aksi hâlde bozuk bir satır (ör. test/örnek İKN) her
+        # turda yeniden seçilir ve çekmeli döngüyü **sonsuza dek** kilitler.
+        # `sync_contractors` artımlı modunda yaşanan arızanın aynısı (her turda
+        # aynı kayıt, `errors=1`). İşaret TTL'i (1 sa) dolunca yeniden denenir.
+        logger.warning("mobil detay atlandı, geçersiz İKN: %s", ikn)
+        _say("hata")
         return {"hata": f"geçersiz İKN: {ikn}"}
     cli = cli or EkapMobilClient()
     try:
@@ -333,10 +368,16 @@ def detay(ikn, cli=None, tazeleme=False):
         )
         Tender.objects.filter(pk=tender.pk).update(detay_kaynak="mobil")
         _say("tazeleme" if tazeleme else "detay")
+        # ⚠️ İşaret yalnızca **başarıda** silinir. Hata hâlinde bırakmak, kalıcı
+        # olarak başarısız olan bir kaydın bütçeyi her turda yemesini engeller;
+        # TTL (1 sa) dolunca kendiliğinden yeniden denenir.
+        _isaret_sil(ikn)
         return {"is": "detay", "ikn": ikn, "okas": len(kalemler),
                 "ilan_tarihi": str(tender.ilan_tarihi or "")}
-    finally:
+    except MobilSlotError:
+        # Sıra beklemesi hata değil → işaret silinir, kayıt sıradaki turda gelsin.
         _isaret_sil(ikn)
+        raise
 
 
 # ── Sonuç ilanları ─────────────────────────────────────
@@ -368,9 +409,12 @@ def sonuc(ikn, cli=None):
         ham = cli.sonuc_ilanlari(yil, sayi)
         kayitlar = ham if isinstance(ham, list) else []
         if not kayitlar:
-            # Sonuç ilanı henüz yayımlanmamış olabilir (imzadan aylar sonra çıkıyor).
+            # ⚠️ Sonuç ilanı imzadan **aylar sonra** yayımlanabiliyor. İşareti kısa
+            # tutmak, sonucu olmayan yüzlerce ihalenin her turda yeniden sorulmasına
+            # ve 2,5 dk'lık bütçenin tümüyle boşa gitmesine yol açardı → uzun bekleme.
+            _isaret_uzat(f"sonuc:{ikn}", _SONUC_YOK_TTL)
             _say("sonuc")
-            return {"is": "sonuc", "ikn": ikn, "kayit": 0}
+            return {"is": "sonuc", "ikn": ikn, "kayit": 0, "not": "ilan_yok"}
         govde = adapt.sonuc_govdesi(ikn, kayitlar)
         # ⚠️ `buda=False`: mobil yalnızca sonuç ilanlarını görüyor; budamak detay
         # turunun yazdığı İhale İlanı satırını silerdi.
@@ -378,10 +422,17 @@ def sonuc(ikn, cli=None):
             tender, detail=govde, recompute=True, buda=False
         )
         _say("sonuc")
+        _isaret_sil(f"sonuc:{ikn}")
         return {"is": "sonuc", "ikn": ikn, "kayit": len(kayitlar),
                 "sozlesme": ozet.get("contracts")}
-    finally:
+    except MobilSlotError:
         _isaret_sil(f"sonuc:{ikn}")
+        raise
+    except MobilError:
+        # ⚠️ İşaret bırakılır (TTL 1 sa): kalıcı olarak hata veren bir kayıt
+        # çekmeli döngüyü her turda meşgul etmemeli.
+        _say("hata")
+        raise
 
 
 # ── Elle tam tur (komut için) ──────────────────────────

@@ -85,7 +85,7 @@ ihaleIlani, duzeltmeIlanlari, iptalIlani, onIlan, sonucIlanlari, ilan2015Sonrasi
 | Parametre | Durum |
 |---|---|
 | `ihaleTarihiBaslangic` / `Bitis` | ✅ **çalışıyor** — geçmiş tarihler dahil |
-| `ilKod` | ✅ çalışıyor |
+| `ilKod` | ✅ çalışıyor — ⚠️ **PLAKA** (1-81), `City.ekap_il_id` DEĞİL (ölçüldü 2026-09-10: `ilKod=6` → ANKARA, `ilKod=251` → 0 kayıt) |
 | `ihaleTuru` (1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık) | ✅ çalışıyor |
 | `icerik` (metin arama) | ✅ çalışıyor |
 | `yasaKapsam` (0/1/2) | ✅ çalışıyor — farklı evrenler döndürüyor |

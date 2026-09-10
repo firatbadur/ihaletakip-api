@@ -228,12 +228,12 @@ class DokumanUcuTest(TestCase):
         """⚠️ Liste her doküman ekranı açılışında sorulacak → EKAP'a gidilmemeli."""
         from django.core.cache import cache
         Tender.objects.create(ikn="2026/778", ekap_id="mobil:2026-778")
-        cache.set("ekap:mobil:dokliste:2026/778", [
+        cache.set("ekap:mobil:dokliste:2026/778", {"ihale": True, "teknik": [
             {"dosyaId": 30882363, "boyut": 48632,
              "dosyaAdi": "{FF0E}_{2}_{}_TEMİZLİK MALZEMELERİ.docx", "icerik": None},
             {"dosyaId": 30882403, "boyut": 23522,
              "dosyaAdi": "{C09A}_{2}_{}_Tatlı ve Unlu Mamüller.docx", "icerik": None},
-        ], 60)
+        ]}, 60)
         resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-778/documents/")
         self.assertEqual(resp.status_code, 200)
         veri = resp.json()["data"]
@@ -243,6 +243,27 @@ class DokumanUcuTest(TestCase):
         self.assertEqual(ilk["boyut"], 48632)
         self.assertIn("dosyaId=30882363", ilk["url"])
         self.assertIn("/document/", veri["ihale_dokumani"]["url"])
+
+    def test_dokuman_yoksa_hata_degil(self):
+        """⚠️ EKAP 4734 kapsamı dışı ihalelerde doküman yayımlamıyor — bu HATA DEĞİL."""
+        from django.core.cache import cache
+        Tender.objects.create(ikn="2026/779", ekap_id="mobil:2026-779")
+        cache.set("ekap:mobil:dokliste:2026/779", {"ihale": False, "teknik": []}, 60)
+        resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-779/documents/")
+        self.assertEqual(resp.status_code, 200)
+        veri = resp.json()["data"]
+        self.assertIsNone(veri["ihale_dokumani"])
+        self.assertEqual(veri["teknik_sartnameler"], [])
+        self.assertIn("yayımlanmış doküman yok", veri["mesaj"])
+
+    def test_eski_bicimli_onbellek_500_uretmez(self):
+        """⚠️ Deploy anında Redis'te eski (liste) biçimli kayıtlar duruyor olabilir."""
+        from django.core.cache import cache
+        Tender.objects.create(ikn="2026/780", ekap_id="mobil:2026-780")
+        cache.set("ekap:mobil:dokliste:2026/780", [{"dosyaId": 1}], 60)
+        with self.settings(EKAP_MOBIL_ENABLED=False):
+            resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-780/documents/")
+        self.assertNotEqual(resp.status_code, 500)
 
 
 class HtmlNormalizeTest(TestCase):

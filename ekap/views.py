@@ -1075,7 +1075,7 @@ class TenderDocumentsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, key):
-        from .mobil.client import EkapMobilClient, MobilError
+        from .mobil.client import EkapMobilClient, MobilError, MobilYokError
 
         tender = _tender_by_key(key, defer_raw=True)
         if tender is None:
@@ -1087,26 +1087,47 @@ class TenderDocumentsView(APIView):
         temel = request.build_absolute_uri(
             reverse("v1:ekap-tender-document", kwargs={"key": key})
         )
-        veri = {
-            # İhale dokümanı tek ZIP → EKAP uygulamasında da doğrudan iniyor,
-            # listelemeye gerek yok.
-            "ihale_dokumani": {"ad": "İhale Dokümanı", "tur": "ihale", "url": temel},
-            "teknik_sartnameler": [],
-        }
+        veri = {"ihale_dokumani": None, "teknik_sartnameler": [], "mesaj": ""}
 
         # ⚠️ Önbellek hız bütçesinin asıl koruması: liste her doküman ekranı
         # açılışında sorulacak, ama içerik gün içinde değişmiyor.
         anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
-        kayitlar = cache.get(anahtar)
-        if kayitlar is None:
+        onbellek = cache.get(anahtar)
+        # ⚠️ **Biçim değişikliğine karşı savunma.** Bu anahtar önce düz bir liste
+        # tutuyordu; deploy anında Redis'te eski biçimli kayıtlar duruyor ve onlara
+        # `.get()` çağırmak **500** üretirdi. Beklenmedik biçim = önbellek ıskası.
+        if not isinstance(onbellek, dict):
+            onbellek = None
+        if onbellek is None:
+            cli = EkapMobilClient(butce="kullanici")
+            onbellek = {"ihale": False, "teknik": []}
+            # ⚠️ İhale dokümanının VARLIĞI da sorulur. Önceki sürüm bağlantıyı
+            # koşulsuz veriyordu; EKAP **4734 kapsamı dışındaki** ihaleler için
+            # doküman yayımlamadığından (ölçüldü) kullanıcı butona basıp hata
+            # alıyordu. İki istek de 24 saat önbelleklenir.
             try:
-                ham = EkapMobilClient(butce="kullanici").teknik_sartname(yil, sayi)
-                kayitlar = ham if isinstance(ham, list) else []
-                cache.set(anahtar, kayitlar, timeout=24 * 3600)
+                liste = cli.dokuman_liste(yil, sayi)
+                onbellek["ihale"] = bool((liste or {}).get("dokumanlar"))
+            except MobilYokError:
+                pass
+            except MobilError as e:
+                logger.info("doküman listesi alınamadı (%s): %s",
+                            tender.ikn, str(e)[:120])
+            try:
+                ham = cli.teknik_sartname(yil, sayi)
+                onbellek["teknik"] = ham if isinstance(ham, list) else []
+            except MobilYokError:
+                pass
             except MobilError as e:
                 logger.info("teknik şartname listesi alınamadı (%s): %s",
                             tender.ikn, str(e)[:120])
-                kayitlar = []
+            cache.set(anahtar, onbellek, timeout=24 * 3600)
+
+        kayitlar = onbellek.get("teknik") or []
+        if onbellek.get("ihale"):
+            veri["ihale_dokumani"] = {
+                "ad": "İhale Dokümanı", "tur": "ihale", "url": temel,
+            }
 
         for k in kayitlar:
             dosya_id = k.get("dosyaId")
@@ -1119,6 +1140,12 @@ class TenderDocumentsView(APIView):
                 "tur": "teknik",
                 "url": f"{temel}?tur=teknik&dosyaId={dosya_id}",
             })
+
+        # ⚠️ "Doküman yok" bir HATA DEĞİL, yaygın bir durumdur: EKAP 4734 kapsamı
+        # dışındaki ihaleler için doküman yayımlamıyor. Mobil bunu hata ekranı
+        # yerine açıklayıcı bir metinle göstermeli.
+        if not veri["ihale_dokumani"] and not veri["teknik_sartnameler"]:
+            veri["mesaj"] = "Bu ihale için EKAP'ta yayımlanmış doküman yok."
         return api_response(data=veri)
 
 
@@ -1145,7 +1172,7 @@ class TenderDocumentView(APIView):
 
         from .mobil.client import (
             EkapMobilClient, MobilButceError, MobilCaptchaError, MobilError,
-            MobilSlotError,
+            MobilSlotError, MobilYokError,
         )
 
         tender = _tender_by_key(key, defer_raw=True)
@@ -1203,6 +1230,13 @@ class TenderDocumentView(APIView):
                                         success=False, status=404)
                 # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
                 resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
+        except MobilYokError:
+            # ⚠️ 502 DEĞİL: EKAP'ta doküman yok, bizde arıza yok. 502 demek
+            # kullanıcıya "sistem bozuk" demektir ve destek talebi doğurur.
+            return api_response(
+                message="Bu ihale için EKAP'ta yayımlanmış doküman yok.",
+                success=False, status=404,
+            )
         except MobilButceError:
             # ⚠️ Günlük kullanıcı rezervi doldu — bu bizim koruma tavanımızdır,
             # EKAP'ın reddi değil. Mesaj bunu dürüstçe söyler.

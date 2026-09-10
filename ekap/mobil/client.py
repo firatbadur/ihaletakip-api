@@ -40,6 +40,20 @@ class MobilCaptchaError(MobilError):
     """
 
 
+class MobilYokError(MobilError):
+    """EKAP'ta böyle bir kayıt yok (`404 Herhangibir Kayıt Bulunumadı`).
+
+    ⚠️ **Bu bir arıza DEĞİL, normal bir durumdur.** Ölçüldü (2026-09-10): EKAP,
+    **4734 kapsamı dışındaki** ihaleler için doküman yayımlamıyor; `yasa_kapsami=2`
+    olan ihalelerde hem `IhaleDokumani/Liste` hem `TeknikSartname/Bilgiler` 404
+    döndürüyor. Kapsam içi (`yasa_kapsami=1`) ihalelerde ise geçmiş tarihlilerde bile
+    doküman geliyor — yani sebep tarih değil, kapsam.
+
+    Ayrı sınıf olmasının sebebi: bunu "EKAP yanıt vermedi" gibi bir sunucu hatasına
+    çevirmek kullanıcıya **yanlış** bilgi verir ve destek talebi doğurur.
+    """
+
+
 class MobilSlotError(MobilError):
     """Hız penceresi bu an için dolu — iş yapılmadı.
 
@@ -203,6 +217,8 @@ class EkapMobilClient:
         return self._ham_istek(path, **kw)
 
     def _govde(self, resp, path):
+        if resp.status_code == 404:
+            raise MobilYokError(f"EKAP {path} → kayıt yok")
         if resp.status_code != 200:
             raise MobilError(
                 f"EKAP mobil {path} → HTTP {resp.status_code}: {(resp.text or '')[:200]}"
@@ -301,6 +317,8 @@ class EkapMobilClient:
             params={"iknYili": ikn_yili, "iknSayi": ikn_sayi, "dosyaId": dosya_id},
             ek_baslik={"x-skip-error-dialog": "true"}, stream=True, pencere=not zincir,
         )
+        if resp.status_code == 404:
+            raise MobilYokError("Doküman EKAP'ta bulunamadı")
         if resp.status_code != 200:
             raise MobilError(f"Doküman indirilemedi → HTTP {resp.status_code}")
         return resp
@@ -328,6 +346,8 @@ class EkapMobilClient:
             resp, C.PATH_TEKNIK_SARTNAME_INDIR, params=p, ek_baslik=ek,
             stream=True, pencere=not zincir,
         )
+        if resp.status_code == 404:
+            raise MobilYokError("Teknik şartname EKAP'ta bulunamadı")
         if resp.status_code != 200:
             raise MobilError(f"Teknik şartname indirilemedi → HTTP {resp.status_code}")
         return resp

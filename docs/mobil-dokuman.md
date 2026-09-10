@@ -36,6 +36,7 @@ da** desteklemeli.
 | **Teknik şartname, ihale dokümanı ZIP'inin içinde DEĞİL** | Ayrı bir liste olarak gösterilmeli |
 | Teknik şartname **tek dosya değil** — bir ihalede 10-11 dosya olabiliyor | Tek buton yetmez, liste gerekiyor |
 | Ölçülen boyutlar: 0,05 · 0,27 · 1,25 · 3,96 · 9,32 · 9,83 ve **951 MB** | **Boyut mutlaka gösterilmeli**; kullanıcı mobil veriyle 1 GB indirmeye zorlanmamalı |
+| ⚠️ **4734 kapsamı dışındaki ihalelerde EKAP hiç doküman yayımlamıyor** (ölçüldü) | `ihale_dokumani: null` + `teknik_sartnameler: []` gelir — **hata değil**, açıklayıcı metin gösterin |
 | Bazı ihalelerde teknik şartname **hiç yok** | Liste boş gelebilir, bu hata değildir |
 | EKAP mobil API'nin IP tabanlı hız sınırı var | Nadiren `503` gelebilir; "tekrar deneyin" denmeli, hata ekranı basılmamalı |
 
@@ -99,6 +100,18 @@ kalır ve sunucu boşuna iki kat trafik taşır.
 }
 ```
 
+⚠️ **`ihale_dokumani` `null` OLABİLİR.** Sunucu artık dokümanın gerçekten var olup
+olmadığını EKAP'a sorar; yoksa bağlantı verilmez ve `mesaj` doldurulur:
+
+```json
+{ "ihale_dokumani": null, "teknik_sartnameler": [],
+  "mesaj": "Bu ihale için EKAP'ta yayımlanmış doküman yok." }
+```
+
+Sebep: EKAP **4734 kapsamı dışındaki** ihaleler için (`yasa_kapsami=2`) doküman
+yayımlamıyor — ölçülen davranış, tarihle ilgisi yok (kapsam içi geçmiş tarihli
+ihalelerde doküman geliyor). Bu ekranda **hata gösterilmemeli**; `mesaj` basılmalı.
+
 - `boyut` **bayt** cinsindendir; `null` gelebilir (EKAP her dosya için vermiyor).
 - `teknik_sartnameler` **boş dizi** olabilir → "Bu ihalede ayrı teknik şartname yok".
 - `ad` zaten temizlenmiştir; EKAP'ın `{GUID}_{2}_{}_` önekini siz ayıklamayın.
@@ -125,9 +138,9 @@ gelmeyebilir → indirme çubuğunu belirsiz modda çalıştırın (mevcut kodda
    └─ GET /document-url/
         ├─ proxy=false → mevcut WebView akışı (değişmedi)
         └─ proxy=true  → GET /documents/
-                            ├─ "İhale Dokümanı (ZIP)"        → RNFS ile indir
-                            └─ Teknik şartname listesi
-                                 ad + boyut  → dokununca RNFS ile indir
+                            ├─ ihale_dokumani null değilse → "İhale Dokümanı (ZIP)"
+                            ├─ teknik_sartnameler[]        → ad + boyut, seçmeli
+                            └─ ikisi de boşsa              → mesaj metnini göster
 ```
 
 Öneriler:
@@ -147,6 +160,7 @@ gelmeyebilir → indirme çubuğunu belirsiz modda çalıştırın (mevcut kodda
 
 | Kod | Anlamı | Kullanıcıya |
 |---|---|---|
+| `404` "Bu ihale için EKAP'ta yayımlanmış doküman yok." | EKAP'ta doküman yok (çoğunlukla 4734 kapsamı dışı ihale) | Açıklayıcı metin — **hata ekranı değil** |
 | `404` "Bu ihalede ayrı bir teknik şartname yok." | Teknik şartname yok | Liste zaten boş gelirse bu ekrana hiç düşmeyin |
 | `404` "Bu dosya bulunamadı." | `dosyaId` eskimiş (liste 24 sa önbellekli) | Listeyi yenileyip tekrar deneyin |
 | `503` "Bugünkü belge indirme kotası doldu" | Günlük koruma tavanımız doldu | "Yarın tekrar deneyin" |

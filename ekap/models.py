@@ -154,6 +154,11 @@ class Tender(models.Model):
     sync_error = models.TextField(blank=True)
     detail_raw = models.JSONField(null=True, blank=True)
     list_raw = models.JSONField(null=True, blank=True)
+    # ⚠️ `detail_raw`ın hangi kaynaktan geldiği: "v2" (ham EKAP yanıtı) | "mobil"
+    # (mobil payload'dan çevrilmiş **sentetik** gövde, ham hâli `_ham` altında durur).
+    # Bkz. `ekap/mobil/adapt.py`. Bu kolon olmadan "bu detail_raw neden farklı
+    # görünüyor?" sorusu ancak gövdeyi açarak cevaplanabilirdi.
+    detay_kaynak = models.CharField(max_length=16, blank=True, default="")
 
     # Yüklenici/sonuç çözümlemesi (bkz. ekap/contractors.py, ekap/sonuc_ilani.py)
     contractors_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)

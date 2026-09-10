@@ -359,6 +359,53 @@ EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 # worker'lar hiç boşta beklemez. Fazlası throttle'da erir; **EKAP yükü değişmez**.
 EKAP_MISSING_DETAIL_LIMIT = env.int("EKAP_MISSING_DETAIL_LIMIT", default=600)
 
+# ── EKAP MOBİL API (birincil kaynak) ───────────────────
+# EKAP'a resmî başvuru yapıldı; `ekapmobil.kik.gov.tr` onaylı kullanım. Turnstile,
+# imza ve kimlik YOK; buna karşılık IP tabanlı hız sınırı ve aşıldığında
+# `HTTP 300 CAPTCHA_REQUIRED` var. Bkz. `ekap/mobil/` ve `docs/ekap-mobil-api.md`.
+EKAP_MOBIL_BASE_URL = env("EKAP_MOBIL_BASE_URL", default="https://ekapmobil.kik.gov.tr")
+# ⚠️ Kill switch — ilk sürümde KAPALI. Faz 0 ölçümleri (güvenli tempo, OCR isabeti,
+# kapsam) yapılmadan açılmaz.
+EKAP_MOBIL_ENABLED = env.bool("EKAP_MOBIL_ENABLED", default=False)
+# ⚠️ Hız penceresi **dakikalar** mertebesindedir (v2'de saniye). Ölçüm: 2,4 istek/dk
+# sürdürülen tempoda 12/12 istek engellendi; 30 dk sessizlikten sonra açıldı. Gerçek
+# eşik ölçülmedi (tekrar tekrar engellenmek, aynı IP'yi v2 için de riske atardı).
+EKAP_MOBIL_MIN_INTERVAL_MS = env.int("EKAP_MOBIL_MIN_INTERVAL_MS", default=150000)
+# Sabit kadans da bir bot imzasıdır → her isteğe aralığın bu oranı kadar sapma eklenir.
+EKAP_MOBIL_SAPMA_ORANI = env.float("EKAP_MOBIL_SAPMA_ORANI", default=0.25)
+# Günlük istek tavanları. ⚠️ Amaç bir hata döngüsünün günlük hakkı bir saatte
+# yakmasını engellemek. `<=0` → sınırsız.
+EKAP_MOBIL_GUNLUK_TAVAN = env.int("EKAP_MOBIL_GUNLUK_TAVAN", default=600)
+# Kullanıcı tetikli işler (belge indirme) için ayrı rezerv: arka plan toplaması
+# kullanıcıyı aç bırakmamalı.
+EKAP_MOBIL_KULLANICI_REZERV = env.int("EKAP_MOBIL_KULLANICI_REZERV", default=100)
+# ⚠️ Kurulum başına SABİT olmalı — her başlatmada değişen UUID bot imzasıdır.
+EKAP_MOBIL_CIHAZ_UUID = env("EKAP_MOBIL_CIHAZ_UUID", default="")
+EKAP_MOBIL_TIMEOUT = env.int("EKAP_MOBIL_TIMEOUT", default=60)
+# Captcha: OCR ile otomatik çözüm (KİK'in onayladığı kullanım). Kapatılırsa akış
+# doğrudan insan-döngüye düşer (admin panosu / `manage.py mobil_captcha`).
+EKAP_MOBIL_CAPTCHA_OCR = env.bool("EKAP_MOBIL_CAPTCHA_OCR", default=True)
+# ⚠️ Deneme sayısı ölçüme dayanır: tek atışta isabet **~%70-87** (etiketli 8 örnekte
+# 7/8, canlı 6 örnekte 3/6 — küçük örneklem, geniş bant). 4 denemeyle birleşik
+# başarı ~%99. Captcha üretmek hız bütçesinden DÜŞMEZ (bkz. client.captcha_getir),
+# bu yüzden deneme artırmak ucuzdur; asıl maliyet başarısızlıkta operatörü beklemektir.
+EKAP_MOBIL_CAPTCHA_DENEME = env.int("EKAP_MOBIL_CAPTCHA_DENEME", default=4)
+# ⚠️ Captcha latin harf+rakam; `tur` dil paketi Türkçe harflere eğilim yaratır → `eng`.
+EKAP_MOBIL_CAPTCHA_DIL = env("EKAP_MOBIL_CAPTCHA_DIL", default="eng")
+# ⚠️ OCR parametreleri **ölçümle** seçildi (8 etiketli örnek): psm=7 + buyut=2 → 7/8.
+# Büyütmek burada KÖTÜLEŞTİRİYOR (harfler zaten büyük ve temiz) — bkz.
+# `ekap/mobil/captcha.py::ocr_coz`. 3 denemeyle birleşik başarı ~%99.
+EKAP_MOBIL_CAPTCHA_BUYUT = env.int("EKAP_MOBIL_CAPTCHA_BUYUT", default=2)
+EKAP_MOBIL_CAPTCHA_PSM = env.int("EKAP_MOBIL_CAPTCHA_PSM", default=7)
+# Keşif (liste taraması) sıklığı ve penceresi. ⚠️ `ilanTarihi*` parametreleri mobil
+# uçta YOK SAYILIYOR → pencere `ihaleTarihi` üzerinden kurulur (ileriye bakar).
+EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=60)
+EKAP_MOBIL_KESIF_ILERI_GUN = env.int("EKAP_MOBIL_KESIF_ILERI_GUN", default=45)
+EKAP_MOBIL_KESIF_GERI_GUN = env.int("EKAP_MOBIL_KESIF_GERI_GUN", default=3)
+# Çekmeli iş döngüsünün kalp atışı (dk) ve tur başına harcanacak istek sayısı.
+EKAP_MOBIL_TIK_DK = env.int("EKAP_MOBIL_TIK_DK", default=2)
+EKAP_MOBIL_TIK_ISTEK = env.int("EKAP_MOBIL_TIK_ISTEK", default=1)
+
 # Arama uçlarının `totalCount` cache süresi (sn). COUNT soğuk buffer cache'te pahalıdır
 # (500k satır + GIN indeksleri); bu TTL soğuk yola düşme sıklığını doğrudan belirler.
 # `totalCount` yalnızca bir ilerleme göstergesidir, sayfa içeriği hep canlı sorgudur.
@@ -493,6 +540,10 @@ CELERY_TASK_ROUTES = {
     "ekap.tasks.refresh_stale": {"queue": "ekap_oncelik"},
     "ekap.tasks.sync_okas": {"queue": "ekap_oncelik"},
     "ekap.tasks.sync_authorities": {"queue": "ekap_oncelik"},
+    # ⚠️ **Mobil API AYRI kuyrukta** (`ekap_mobil`, concurrency=1) ve joker'den ÖNCE.
+    # Bütçesi `ekap` kuyruğunun iki mertebe altında (~1 istek/2-3 dk vs ~1 istek/sn);
+    # aynı kuyruğu paylaşsalardı arşiv görevleri mobil bütçeyi anında yerdi.
+    "ekap.mobil.tasks.*": {"queue": "ekap_mobil"},
     "ekap.tasks.*": {"queue": "ekap"},
 }
 

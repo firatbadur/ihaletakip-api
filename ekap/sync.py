@@ -227,7 +227,22 @@ def _ucdeger(kaynak: dict, anahtar: str):
     return bool(kaynak[anahtar])
 
 
-def apply_pro_fields(tender: Tender, data: dict) -> None:
+def _yaz(tender, alan: str, deger, koruyucu: bool):
+    """
+    Alanı yazar; `koruyucu` ise **boş değer dolu değeri ezmez**.
+
+    "Boş" = `None`, `""` ve sayaçlar için `0`. Bu, kod tabanının genel kuralının
+    (`_LISTE_EZMEZ`) alan bazlı hâlidir: kaynağın bir alanı vermemesi "değer yok"
+    demektir, "değeri sil" demek DEĞİL.
+    """
+    if koruyucu and deger in (None, "", 0):
+        mevcut = getattr(tender, alan, None)
+        if mevcut not in (None, "", 0):
+            return
+    setattr(tender, alan, deger)
+
+
+def apply_pro_fields(tender: Tender, data: dict, *, koruyucu: bool = False) -> None:
     """
     `detail_raw["item"]` → Pro sinyal kolonları. EKAP'a istek ATMAZ.
 
@@ -236,6 +251,15 @@ def apply_pro_fields(tender: Tender, data: dict) -> None:
     yazılsaydı arşiv ile yeni kayıtlar sessizce farklı semantiğe kayardı.
 
     `tender` üzerinde alanları set eder, kaydetmez (çağıran `save`/`bulk_update` yapar).
+
+    ⚠️ **`koruyucu=True` → BOŞ değer, DOLU değeri ezmez.** Mobil API (birincil kaynak,
+    `ekap/mobil/`) bu alanların bir kısmını hiç vermiyor (`idare.enUstIdareKod`,
+    `islemlerKuralSeti`, çoğu zaman `ihtiyacKalemiOkasList`). Koşulsuz yazılsalardı
+    mobil kaynaklı her tazeleme arşivdeki OKAS'ı ve bakanlık kırılımını **silerdi** —
+    2026-08-27'de üretimde yaşanan `_LISTE_EZMEZ` arızasının birebir aynısı
+    ("EKAP'ın bir alanı boş döndürmesi 'değer yok' demektir, 'değeri sil' demek DEĞİL").
+    v2 yolu `koruyucu=False` ile bugünkü davranışta kalır: orada boş gelen alan
+    gerçekten "EKAP artık bu değeri vermiyor" anlamına gelir.
     """
     from .series import series_key
 
@@ -246,28 +270,32 @@ def apply_pro_fields(tender: Tender, data: dict) -> None:
     # Kaynak `ihtiyacKalemiOkasList[0]`; `ihaleBilgi.okas` aynı listenin birleştirilmiş
     # string'i olduğu için yalnızca liste boşsa yedek olarak ayrıştırılır.
     okas_list = data.get("ihtiyacKalemiOkasList") or []
+    okas_kod = okas_ad = ""
     if okas_list:
         ilk = okas_list[0] or {}
-        tender.okas_ana_kod = str(ilk.get("kodu") or "")[:16]
-        tender.okas_ana_adi = str(ilk.get("adi") or "")[:500]
+        okas_kod = str(ilk.get("kodu") or "")[:16]
+        okas_ad = str(ilk.get("adi") or "")[:500]
     else:
         ham = str(bilgi.get("okas") or "").strip()
         if ham:
             # "45350000 - Mekanik tesisatlar, 45000000 - İnşaat işleri" → ilk çift
             ilk_parca = ham.split(",")[0]
             kod, _, ad = ilk_parca.partition(" - ")
-            tender.okas_ana_kod = kod.strip()[:16]
-            tender.okas_ana_adi = ad.strip()[:500]
-    tender.okas_bucket = tender.okas_ana_kod[:4]
-    tender.okas_kalem_sayisi = len(okas_list)
+            okas_kod = kod.strip()[:16]
+            okas_ad = ad.strip()[:500]
+    _yaz(tender, "okas_ana_kod", okas_kod, koruyucu)
+    _yaz(tender, "okas_ana_adi", okas_ad, koruyucu)
+    _yaz(tender, "okas_bucket", tender.okas_ana_kod[:4], koruyucu)
+    _yaz(tender, "okas_kalem_sayisi", len(okas_list), koruyucu)
 
     # ── Bakanlık (üst kurum) ──────────────────────────────────────────────────
-    tender.en_ust_idare_kod = str(idare.get("enUstIdareKod") or "")[:16]
-    tender.en_ust_idare_adi = str(idare.get("enUstIdareAdi") or "")[:500]
+    _yaz(tender, "en_ust_idare_kod", str(idare.get("enUstIdareKod") or "")[:16], koruyucu)
+    _yaz(tender, "en_ust_idare_adi", str(idare.get("enUstIdareAdi") or "")[:500], koruyucu)
 
     # ── Katılım ───────────────────────────────────────────────────────────────
     # `or None`: boş liste "sıfır istekli" değil "değerlendirme henüz bitmedi" demek.
-    tender.istekli_sayisi = len(data.get("tebligatAlanIstekliList") or []) or None
+    _yaz(tender, "istekli_sayisi",
+         len(data.get("tebligatAlanIstekliList") or []) or None, koruyucu)
 
     # ── islemlerKuralSeti bayrakları ──────────────────────────────────────────
     # ⚠️⚠️ **`islemlerKuralSeti` bir İHALE ÖZELLİĞİ DEĞİLDİR** — o an giriş yapmış EKAP
@@ -287,22 +315,32 @@ def apply_pro_fields(tender: Tender, data: dict) -> None:
     # kolonlar `None` (bilinmiyor) kalır ve API'de hiç sunulmaz.
     kural = data.get("islemlerKuralSeti") or {}
     # itirazen_sikayet_var / idareye_sikayet_var / sikayet_dilekce_var: BİLEREK YAZILMIYOR
-    tender.fiyat_disi_unsur_var = _ucdeger(kural, "fiyatDisiUnsurVarMi")
-    tender.e_eksiltme_yapilacak = _ucdeger(kural, "eEksiltmeYapilacakMi")
-    tender.duzeltme_ilani_var = _ucdeger(kural, "ilanDuzeltmeIlani")
+    _yaz(tender, "fiyat_disi_unsur_var", _ucdeger(kural, "fiyatDisiUnsurVarMi"), koruyucu)
+    _yaz(tender, "e_eksiltme_yapilacak", _ucdeger(kural, "eEksiltmeYapilacakMi"), koruyucu)
+    _yaz(tender, "duzeltme_ilani_var", _ucdeger(kural, "ilanDuzeltmeIlani"), koruyucu)
 
-    tender.kismi_ihale = _ucdeger(data, "kismiIhale")
-    tender.ilansiz_mi = _ucdeger(data, "ihaleIlansizMi")
+    _yaz(tender, "kismi_ihale", _ucdeger(data, "kismiIhale"), koruyucu)
+    _yaz(tender, "ilansiz_mi", _ucdeger(data, "ihaleIlansizMi"), koruyucu)
 
     # ── Seri anahtarı (Adım 7) ────────────────────────────────────────────────
     # Burada üretilir ki arşivin `detail_raw`'ı bir kez okunsun.
-    tender.seri_anahtar = series_key(
+    _yaz(tender, "seri_anahtar", series_key(
         tender.idare_id, tender.okas_ana_kod, tender.ihale_adi
-    )
+    ), koruyucu)
 
 
-def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
-    """Detay response'unu Tender + çocuk tablolara yazar."""
+def upsert_tender_detail(ekap_id, detail, announcements=None, *,
+                         koruyucu: bool = False) -> Tender:
+    """
+    Detay response'unu Tender + çocuk tablolara yazar.
+
+    ⚠️ **`koruyucu=True` mobil API içindir** (`ekap/mobil/`): o kaynak detayın bir
+    kısmını hiç vermiyor (`ihaleOzellikList`, `ihaleTarihSaatList`,
+    `ihtiyacKalemiOkasList`, `sozlesmeBilgiList`). Koruyucu modda **anahtarın hiç
+    gelmemesi** "veri yok" sayılır: o alan/çocuk tablo **hiç ellenmez** ve budama
+    yapılmaz. Aksi hâlde mobil bir tazeleme, v2'nin doldurduğu özellik etiketlerini,
+    OKAS kalemlerini ve **sözleşmeleri** silerdi.
+    """
     data = detay_govdesi(detail)
     bilgi = data.get("ihaleBilgi", {}) or {}
     idare = data.get("idare", {}) or {}
@@ -332,12 +370,16 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.yasa_kapsami = _as_int(bilgi.get("yasaKapsami4734")) or tender.yasa_kapsami
 
     # İhale özellik etiketleri (gelişmiş boolean filtreleri için)
-    ozellik_list = data.get("ihaleOzellikList") or []
-    tender.ozellikler = [
-        (o.get("ihaleOzellik") or "").replace("TENDER_DETAIL.", "")
-        for o in ozellik_list
-        if o.get("ihaleOzellik")
-    ]
+    # ⚠️ Koruyucu modda anahtar yoksa DOKUNMA: `ozellikler` GIN indeksli ve `e_ihale`
+    # filtresi (`ozellikler__contains=["E_IHALE"]`) buna dayanıyor; boş liste yazmak
+    # o filtreyi sessizce boşaltırdı.
+    if not (koruyucu and "ihaleOzellikList" not in data):
+        ozellik_list = data.get("ihaleOzellikList") or []
+        tender.ozellikler = [
+            (o.get("ihaleOzellik") or "").replace("TENDER_DETAIL.", "")
+            for o in ozellik_list
+            if o.get("ihaleOzellik")
+        ]
     tender.ihale_tarih_saat = bilgi.get("ihaleTarihSaat") or tender.ihale_tarih_saat
     tender.ihale_tarihi = parse_ekap_datetime(bilgi.get("ihaleTarihSaat")) or tender.ihale_tarihi
     tender.isin_yapilacagi_yer = bilgi.get("isinYapilacagiYer") or tender.isin_yapilacagi_yer
@@ -381,7 +423,7 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.sync_error = ""
     # Pro sinyal kolonları — `idare_id`/`ihale_adi` set edildikten SONRA (seri anahtarı
     # ikisini de kullanıyor), `save()`'den önce.
-    apply_pro_fields(tender, data)
+    apply_pro_fields(tender, data, koruyucu=koruyucu)
     # Anahtar kelime katmanı — **ingest hızlı yolu**. Kalıp sözlüğünde `durum="ok"`
     # bir kayıt varsa keyword'ler AI'ya HİÇ gidilmeden kopyalanır (tek indeksli
     # SELECT + birkaç INSERT); yoksa kalıp `pending` açılır ve bir sonraki
@@ -395,33 +437,47 @@ def upsert_tender_detail(ekap_id, detail, announcements=None) -> Tender:
     tender.save()
 
     # ── Çocuk tablolar (tam yenile) ────────────────────
-    _sync_children(tender, bilgi, data, announcements)
+    _sync_children(tender, bilgi, data, announcements, koruyucu=koruyucu)
     return tender
 
 
-def _sync_children(tender, bilgi, data, announcements):
+def _sync_children(tender, bilgi, data, announcements, koruyucu: bool = False):
+    """Çocuk tabloları tazeler. ⚠️ `koruyucu` → kaynağın vermediği tabloya DOKUNMAZ."""
     # Tarihler
-    tender.tarihler.all().delete()
-    TenderDate.objects.bulk_create([
-        TenderDate(tender=tender, etiket=t.get("ihaleTarihiEtiket", ""),
-                   deger=t.get("ihaleTarihiEtiketDegeri", ""))
-        for t in (bilgi.get("ihaleTarihSaatList") or [])
-    ])
+    if not (koruyucu and "ihaleTarihSaatList" not in bilgi):
+        tender.tarihler.all().delete()
+        TenderDate.objects.bulk_create([
+            TenderDate(tender=tender, etiket=t.get("ihaleTarihiEtiket", ""),
+                       deger=t.get("ihaleTarihiEtiketDegeri", ""))
+            for t in (bilgi.get("ihaleTarihSaatList") or [])
+        ])
 
     # OKAS kalemleri
-    tender.okas_kalemleri.all().delete()
-    OkasItem.objects.bulk_create([
-        OkasItem(
-            tender=tender,
-            kodu=str(o.get("kodu", "")),
-            adi=o.get("adi", "") or "",
-            adi_norm=normalize_tr(o.get("adi", "")),
-        )
-        for o in (data.get("ihtiyacKalemiOkasList") or [])
-    ])
+    if not (koruyucu and "ihtiyacKalemiOkasList" not in data):
+        tender.okas_kalemleri.all().delete()
+        OkasItem.objects.bulk_create([
+            OkasItem(
+                tender=tender,
+                kodu=str(o.get("kodu", "")),
+                adi=o.get("adi", "") or "",
+                adi_norm=normalize_tr(o.get("adi", "")),
+            )
+            for o in (data.get("ihtiyacKalemiOkasList") or [])
+        ])
 
     # İlanlar + sözleşmeler + kısımlar → kararlı anahtarla upsert (bkz. aşağısı)
-    sync_contracts_from_raw(tender, detail={"item": data}, announcements=announcements)
+    # ⚠️ Koruyucu modda sözleşme anahtarı yoksa `sync_contracts_from_raw` ÇAĞRILMAZ:
+    # o fonksiyonun "sözleşme listesi boş" dalı satırları siler ve
+    # `sozlesme_sayisi`/`toplam_sozlesme_bedeli`/`yaklasik_maliyet_num` sıfırlar —
+    # mobil detay ucu sözleşme vermediği için her tazeleme para zincirini silerdi.
+    # İlanlar yine yazılır (mobil detay İhale İlanı'nı veriyor; `ilan_tarihi`nin
+    # ve dolayısıyla TÜM bildirimlerin kaynağı odur).
+    if koruyucu and "sozlesmeBilgiList" not in data:
+        if "ilanList" in data or announcements:
+            _upsert_announcements(tender, data, announcements, buda=False)
+        return
+    sync_contracts_from_raw(tender, detail={"item": data}, announcements=announcements,
+                            buda=not koruyucu)
 
 
 # ── Sözleşme / yüklenici çözümlemesi ───────────────────
@@ -459,7 +515,8 @@ def _kirp_alanlar(model, objs):
                 setattr(obj, attname, deger[:limit])
 
 
-def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
+def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build,
+                          buda: bool = True):
     """
     Kararlı anahtarla toplu upsert + budama — **satır sayısından bağımsız ~4 sorgu**.
 
@@ -468,6 +525,11 @@ def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
 
     child_qs: mevcut çocuk satırların queryset'i · wanted: {key: alan sözlüğü}
     build(key, vals) → yeni örnek. Döner: {key: örnek} (yeni + güncel hepsi)
+
+    ⚠️ **`buda=False` KISMİ kaynaklar içindir** (mobil API). Budama "EKAP bu satırı
+    kaldırmış" varsayımına dayanır; oysa mobil uçlar ihalenin yalnızca bir dilimini
+    döndürüyor (detay ucu sözleşmeleri, sonuç ucu ihale ilanını vermiyor). Kısmi bir
+    görüntüyle budamak, görünmeyen satırların hepsini silerdi.
 
     ⚠️ Mevcut satırlar **anahtar başına tekilleştirilir**: eski sil-yeniden-yaz
     döneminden kalan satırların hepsi `ekap_*_id=""` taşıyor, yani aynı ihalede N tane
@@ -516,7 +578,8 @@ def _bulk_upsert_children(model, child_qs, wanted, key_attr, fields, build):
     if to_update:
         model.objects.bulk_update(to_update, fields, batch_size=500)
 
-    stale += [o.pk for key, o in existing.items() if key not in wanted]
+    if buda:
+        stale += [o.pk for key, o in existing.items() if key not in wanted]
     if stale:
         model.objects.filter(pk__in=stale).delete()
     return out
@@ -527,8 +590,10 @@ _ANNOUNCEMENT_FIELDS = [
 ]
 
 
-def _upsert_announcements(tender, data, announcements) -> dict:
-    """İlanları `ekap_ilan_id` ile upsert eder, artıkları budar. Döner: {sozlesme_id: ilan}."""
+def _upsert_announcements(tender, data, announcements, buda: bool = True) -> dict:
+    """İlanları `ekap_ilan_id` ile upsert eder, artıkları budar. Döner: {sozlesme_id: ilan}.
+
+    ⚠️ `buda=False` → kısmi kaynak (mobil): görünmeyen ilanlar silinmez."""
     ilan_list = list(data.get("ilanList") or [])
     if announcements:
         extra, _ = extract_list(announcements)
@@ -556,6 +621,7 @@ def _upsert_announcements(tender, data, announcements) -> dict:
         "ekap_ilan_id",
         _ANNOUNCEMENT_FIELDS,
         lambda key, vals: Announcement(tender=tender, ekap_ilan_id=key, **vals),
+        buda=buda,
     )
     # Sonuç ilanları (ilanTip=4) sözleşmeye `sozlesmeId` ile bağlanır
     return {
@@ -584,7 +650,7 @@ _CONTRACT_FIELDS = [
 
 
 def sync_contracts_from_raw(
-    tender, *, detail=None, announcements=None, recompute=True
+    tender, *, detail=None, announcements=None, recompute=True, buda: bool = True
 ) -> dict:
     """
     İhalenin sözleşmelerini + yüklenici bağlantılarını ham detaydan kurar.
@@ -611,7 +677,7 @@ def sync_contracts_from_raw(
         return {"contracts": 0, "contractors": set(), "alias_cakismasi": 0}
 
     # 1) İlanlar önce — sözleşmeler sonuç ilanına bağlanacak
-    sonuc_ilanlari = _upsert_announcements(tender, data, announcements)
+    sonuc_ilanlari = _upsert_announcements(tender, data, announcements, buda=buda)
 
     sozlesme_list = [s for s in (data.get("sozlesmeBilgiList") or []) if s]
     if not sozlesme_list:
@@ -734,7 +800,12 @@ def sync_contracts_from_raw(
             # maliyeti (`tender_yaklasik_maliyet_num`) DOĞRUdur, o korunur.
             # Yanlış bir sayı göstermektense "veri yok" demek doğrudur — kullanıcı bu
             # orana bakıp teklif fiyatı belirliyor.
-            if _kisim_maliyeti_belirsiz(ym, parsed.get("yaklasik_maliyet"), cok_sozlesmeli):
+            # ⚠️ `kisimYMGosterilsinMi` yalnızca mobil kaynaklı sentetik gövdede
+            # bulunur (bkz. `ekap/mobil/adapt.py`); v2'de `None` → sezgi çalışır.
+            if _kisim_maliyeti_belirsiz(
+                ym, parsed.get("yaklasik_maliyet"), cok_sozlesmeli,
+                beyan=s.get("kisimYMGosterilsinMi"),
+            ):
                 defaults["yaklasik_maliyet_num"] = None
                 defaults["yaklasik_maliyet_kaynak"] = ""
                 defaults["indirim_orani"] = None
@@ -788,9 +859,14 @@ def sync_contracts_from_raw(
         lambda key, vals: Contract(
             tender=tender, ekap_sozlesme_id=key, ilk_gorulme=now, **vals
         ),
+        buda=buda,
     )
     for key, contract in contracts.items():
-        _upsert_sections(contract, kisimlar_by_key.get(key) or [])
+        # ⚠️ Kısım listesi yalnızca v2 detayında var; mobil kaynakta anahtar hiç
+        # gelmez → boş listeyle budamak v2'nin yazdığı kısımları silerdi.
+        kisimlar = kisimlar_by_key.get(key) or []
+        if kisimlar or buda:
+            _upsert_sections(contract, kisimlar, buda=buda)
     alias_cakismasi = 0
     for contractor, raw_ad, kaynak in alias_jobs:
         if not contractors_mod.attach_alias(contractor, raw_ad, kaynak):
@@ -828,7 +904,7 @@ def sync_contracts_from_raw(
 _SECTION_FIELDS = ["kisim_adi", "en_dusuk_teklif", "en_yuksek_teklif", "yaklasik_maliyet"]
 
 
-def _upsert_sections(contract, kisim_list) -> None:
+def _upsert_sections(contract, kisim_list, buda: bool = True) -> None:
     """Kısımları `ekap_kisim_id` ile upsert eder, artıkları budar."""
     deduped = _dedupe_by_key(
         [k for k in kisim_list if k], lambda k: str(k.get("id", "") or "")
@@ -850,12 +926,20 @@ def _upsert_sections(contract, kisim_list) -> None:
         "ekap_kisim_id",
         _SECTION_FIELDS,
         lambda key, vals: ContractSection(contract=contract, ekap_kisim_id=key, **vals),
+        buda=buda,
     )
 
 
-def _kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli: bool) -> bool:
+def _kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli: bool,
+                             beyan=None) -> bool:
     """
     Ayrıştırılan "kısım maliyeti" aslında ihalenin tamamının maliyeti mi?
+
+    ⚠️ **`beyan` varsa tahmine gerek yoktur.** Mobil API'nin Sonuç İlanı XML'i
+    `IhaleKisimYMGosterilsinMi` alanını veriyor: kısım maliyetinin yayımlanıp
+    yayımlanmadığının **kaynağın kendi beyanı**. `False` → kısım maliyeti gerçekten
+    yok, ayrıştırılan değer ihale toplamıdır. `None` (v2 yolu, beyan yok) → aşağıdaki
+    ölçülmüş sezgi kullanılır.
 
     Çok sözleşmeli (kısımlı) bir ihalede kısım maliyeti ile ihale toplamı **birebir
     eşitse**, Sonuç İlanı büyük olasılıkla yalnızca toplam maliyeti yayımlamıştır; o
@@ -865,7 +949,11 @@ def _kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli: bool) -> bool:
     Ayrı fonksiyon: koşul hem canlı senkronda hem `fix_indirim_orani` onarım komutunda
     kullanılıyor, iki yerde ayrı yazılırsa sessizce ayrışırlardı.
     """
-    if kisim_ym is None or ihale_ym is None:
+    if kisim_ym is None:
+        return False
+    if beyan is not None:
+        return not beyan
+    if ihale_ym is None:
         return False
     return cok_sozlesmeli and kisim_ym == ihale_ym
 

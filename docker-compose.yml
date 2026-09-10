@@ -234,6 +234,29 @@ services:
       - web
       - redis
 
+  # EKAP **Mobil API** toplayıcısı (birincil kaynak) — bkz. ekap/mobil/.
+  #
+  # ⚠️ **concurrency=1 ŞART.** Mobil uçta hız sınırı IP tabanlı ve ölçülen eşik
+  # 2,4 istek/dk'nın ALTINDA (v2'de ~1 istek/sn). `ekap-worker`ın 8 concurrency'li
+  # mantığı burada geçerli DEĞİL: orada amaç EKAP'ın gecikmesini örtüştürmekti,
+  # burada tek bir istek bile pencereyi doldurur. Çekmeli tik görevi zaten tur başına
+  # tek iş yapıyor; ikinci bir tüketici yalnızca kilit yarışı üretir.
+  #
+  # ⚠️ Bu servis EKAP'a giden yükü ARTIRMAZ: `ekap/mobil/throttle.py` pencereyi Redis
+  # SETNX ile global rezerve eder (v2 throttle'ından **ayrı** anahtar uzayı).
+  #
+  # ⚠️ `tesseract` gerekiyor (CAPTCHA OCR) — imaj zaten kuruyor (Dockerfile).
+  ekap-mobil-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      RUN_MIGRATIONS: "false"
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap_mobil", "--concurrency=1"]
+    depends_on:
+      - web
+      - redis
+
   # Asistan sohbeti: kullanıcı BEKLİYOR (mobil 2 sn'de bir yokluyor). Arşiv
   # görevleriyle slot paylaşmasın diye ayrı kuyruk + ayrı worker.
   # concurrency=2: iş CPU değil ağ-bekleme; prefetch=1 uzun bir sohbetin kuyruktaki

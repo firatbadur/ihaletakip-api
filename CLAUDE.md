@@ -112,9 +112,95 @@ templates/admin/   # ⚠️ jazzmin'in admin/index.html'ini EZEN pano şablonlar
 └── _chart_card.html
 ```
 
-## EKAP Entegrasyonu (kritik)
+## EKAP Mobil API (BİRİNCİL KAYNAK — `ekap/mobil/`)
 
-Uygulama artık EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
+EKAP'a **resmî başvuru yapıldı ve `ekapmobil.kik.gov.tr` kullanımı onaylandı.**
+Toplama artık buradan yapılır; v2 (aşağıdaki bölüm) **yedek**tir: kod duruyor,
+beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
+
+- **Kimlik/imza/Turnstile YOK; `requests` yeterli** — v2'nin TLS parmak izi engeli
+  burada yok, `curl_cffi` taklidi **kullanılmaz**.
+- ⚠️ **Hız sınırı IP tabanlı ve dakikalar mertebesinde.** Ölçüm: 2,4 istek/dk
+  sürdürülen tempoda 12/12 istek engellendi; 4 dk soğuma yetmedi, 30 dk yetti.
+  `EKAP_MOBIL_MIN_INTERVAL_MS` (vars. 150.000 = 2,5 dk) + `EKAP_MOBIL_SAPMA_ORANI`
+  (sabit kadans da bir imzadır). Bütçe ~576 istek/gün; `EKAP_MOBIL_GUNLUK_TAVAN`
+  bir hata döngüsünün günlük hakkı bir saatte yakmasını engeller.
+  ⚠️ **Eşiği aramak için tekrar tekrar engellenmeyin**: ceza büyür ve **aynı IP**
+  v2 için de kullanılıyor.
+- **Çekmeli (pull) tek tüketici**: beat 2 dk'da bir `ekap.mobil.tasks.tik` tetikler,
+  tik **tek** iş seçip **tek** istek harcar. Kuyruk (`ekap_mobil`, concurrency=1)
+  daima boştur. ⚠️ İtmeli fan-out bu bütçede 2026-08-11 arızasını tekrar üretirdi
+  (kuyrukta 218.443 görev / 159.801 gerçek iş). Öncelik: **detay** (→ `ilan_tarihi`,
+  bildirimlerin tamamı buna bağlı) > **keşif** (her 3 turda bir, aksi hâlde borç
+  keşfi aç bırakır) > **sonuç ilanı** > **tazeleme**.
+- ⚠️ **`SyncRun` satırı yalnızca keşif turlarında yazılır.** Tik 2 dk'da bir koşuyor;
+  her tur satır yazmak admin'i günde ~720 kayıtla doldururdu. Teşhis
+  `Tender.detail_synced_at` / `ilan_tarihi` sayımlarıyla yapılır.
+- **250 kayıt tavanı, sayfalama YOK** → keşif **uyarlamalı aralık bölmesi** yapar:
+  yığındaki dilim 250 dönerse ikiye bölünüp geri konur (`SyncCheckpoint("mobil_kesif")
+  .extra["yigin"]`). İstek sayısı gerçek hacimle orantılı olur, sabit gün×tür
+  ızgarasıyla değil. ⚠️ `ilanTarihi*` parametreleri **yok sayılıyor** → pencere
+  `ihaleTarihi` üzerinden ve **ileriye** kurulur (v2'deki `sync_recent`ten farklı
+  semantik).
+- **Adapter deseni**: `ekap/mobil/adapt.py` mobil payload'ı **v2 detay şekline**
+  çevirir (`{"item": ..., "_kaynak": "mobil", "_ham": ...}`), sonrası
+  (`upsert_tender_detail` → `apply_pro_fields` → `sync_contracts_from_raw` →
+  `keywords.uygula`) **değişmeden** çalışır. ⚠️ İkinci bir türetme yolu yazmak, tek
+  çıkarım kaynağı kuralının ihlali olurdu. `Tender.detay_kaynak` hangi kaynaktan
+  geldiğini söyler.
+- ⚠️⚠️ **KORUYUCU YAZMA — `_LISTE_EZMEZ`in genelleştirilmiş hâli.** Mobil bazı
+  alanları hiç vermiyor; koşulsuz yazılsalardı v2 verisini **silerlerdi**
+  (2026-08-27 arızasının aynısı, yine sessizce). Bu yüzden:
+  `apply_pro_fields(..., koruyucu=True)` → boş değer dolu değeri ezmez;
+  `upsert_tender_detail(..., koruyucu=True)` → **anahtar yoksa alan/çocuk tablo hiç
+  ellenmez** (`ihaleOzellikList`, `ihaleTarihSaatList`, `ihtiyacKalemiOkasList`,
+  `sozlesmeBilgiList`); `_bulk_upsert_children(..., buda=False)` → kısmi kaynak
+  görünmeyen satırları **budayamaz**. Regresyon testi:
+  `ekap/tests/test_mobil_adapt.py::KoruyucuYazmaTest`.
+- ⚠️⚠️ **`idare_id` MOBİLDE YOK — hiçbir uçta** (ölçüldü 2026-09-10, tüm uçlar tek
+  tek tarandı). Ad eşleştirmesi reddedildi (%11,7 YANLIŞ eşleşme). Alan **boş
+  bırakılır**; favori idare bildirimi / idare profili / `seri_anahtar` mobil kaynaklı
+  yeni ihalelerde çalışmaz. ⚠️ Doküman adlarındaki `{76DC25C0…}` **belge GUID'i**,
+  şartnamedeki `3231941` ise **telefon numarası** — ikisi de idare kimliği DEĞİL.
+- **OKAS = idari şartnameden** (`ekap/mobil/okas.py`): 8-9 haneli sayılar `OkasCode`
+  kataloğuyla **kesiştirilir** (kesinlik %100, duyarlılık %97,2). ⚠️ Katalog
+  `sync_okas` ile v2'den geliyor → o görev yedekte de olsa çalışmalı.
+- **Para zinciri XML'den DAHA TEMİZ**: v2'nin bozuk `yaklasikMaliyet` string'i
+  (10×/100× şişme) burada yok. ⚠️ Ama **para için ikinci ayrıştırıcı YAZILMADI**:
+  mevcut `parse_sonuc_ilani` mobil `ilanHtml`'i birebir çözüyor (13 ilanda
+  doğrulandı). XML'den yalnızca `IhaleKazanan` (tam ünvan — HTML ayrıştırıcısı ünvanı
+  kesiyor ve kesilmiş ad **mükerrer firma** doğurur) ve `IhaleKisimYMGosterilsinMi`
+  alınır. Bu bayrak `sync._kisim_maliyeti_belirsiz`in **sezgisinin yerine geçer**
+  (`beyan=` parametresi); sezgi v2 için yedekte kalır.
+- ⚠️ **Sözleşme anahtarı içerikten türetilir** (`mobil:s:{sha1(kazanan|tarih|bedel)}`):
+  mobilde `sozlesmeBilgiList[].id` karşılığı yok, konuma göre anahtar üretmek EKAP
+  sırayı değiştirdiğinde satırları yetim bırakırdı. v2 sözleşmesi olan ihaleye mobil
+  **hiç dokunmaz** (önek kontrolü) — mükerrer sözleşme üretmemek için.
+- **CAPTCHA (`HTTP 300 CAPTCHA_REQUIRED`) → OCR + insan yedeği.**
+  ⚠️ **`status_code == 200` kontrolü YETMEZ**: 300 hata sayılmaz, kod sessizce boş
+  veriyle devam eder → gövdeye de bakılır. OCR parametreleri **ölçümle** seçildi
+  (`psm=7, buyut=2` → 7/8; ⚠️ **büyütmek kötüleştiriyor** ve ⚠️ **cevap uzunluğu
+  sabit değil**, 6-9 karakter). Tutmazsa toplama durur, resim admin ekranına düşer
+  (`manage.py mobil_captcha --cevap XXXXXX`) ve üstel geri çekilme başlar (taban
+  30 dk = ölçülen soğuma). ⚠️ Captcha çağrıları hız bütçesinden **düşmez** — engel
+  altındayken çıkışı da kilitlerdi.
+- **Komutlar**: `manage.py mobil_probe --is uclar|idare|tempo|captcha|kapsam`
+  (ölçüm, yazmaz), `manage.py run_mobil --is tik|kesif|detay|sonuc|durum`,
+  `manage.py mobil_captcha [--cevap X] [--yeni] [--ocr]`.
+- ⚠️ **Kill switch `EKAP_MOBIL_ENABLED` (vars. False).** Üretimde açmadan önce
+  `mobil_probe --is tempo` **üretim sunucusunda** koşturulmalı: hız sınırı IP
+  tabanlıdır, geliştirici makinesinde ölçülen tempo oraya taşınmaz.
+
+## EKAP v2 Entegrasyonu (YEDEK — kritik geçmiş)
+
+⚠️ **Bu bölüm artık YEDEK yolu anlatıyor.** Birincil kaynak yukarıdaki mobil API'dir;
+v2 görevleri (`sync_recent`, `refresh_stale`, `backfill`) beat'te kapalıdır. Kod
+duruyor çünkü mobilde **olmayan** verileri yalnızca v2 verebiliyor: `idare_id`,
+DETSIS ağacı (`sync_authorities`), OKAS kataloğu (`sync_okas` — mobil OKAS
+çıkarımının temeli), düzeltme/iptal ilanları. Aşağıdaki tuzakların tamamı hâlâ
+geçerlidir; v2'yi tekrar açan herkes önce bunları okumalı.
+
+Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
 
 - **TLS parmak izi engeli**: EKAP v2 WAF'ı düz `requests`/OpenSSL'i reddeder
   (`SSLV3_ALERT_HANDSHAKE_FAILURE`). Çözüm: **`curl_cffi`** ile tarayıcı TLS taklidi

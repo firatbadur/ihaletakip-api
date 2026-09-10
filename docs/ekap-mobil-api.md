@@ -1,20 +1,16 @@
-# EKAP Mobil API — keşif notları
+# EKAP Mobil API — birincil veri kaynağı
 
-**Keşif tarihi:** 2026-09-09 / 2026-09-10
-**Durum:** Araştırma tamamlandı, **kod yazılmadı**. Üretim hâlâ v2 + tarayıcı köprüsü ile çalışıyor.
+**Durum:** EKAP'a **resmî başvuru yapıldı ve bu uç onaylandı.** Toplayıcı
+`ekap/mobil/` altında; v2 (`ekapv2.kik.gov.tr`) **yedek** olarak kod düzeyinde
+duruyor, beat'te kapalı.
 
-## Neden araştırıldı
-
-EKAP 2026-09-08 akşamı web portalına (`ekapv2.kik.gov.tr`) **Cloudflare Turnstile**
-insan doğrulaması koydu; doğrulamanın ömrü ~8 dakika ve sunucudaki otomasyon
-tarayıcısı Cloudflare tarafından açıkça reddediliyor. Bunun üzerine EKAP'ın **mobil
-uygulamasının** kullandığı ayrı API keşfedildi: `ekapmobil.kik.gov.tr`.
-
-Bu API'de **Turnstile yok, imza yok, kimlik doğrulama yok.** Ama kendi **hız
-sınırı** var (bkz. "Hız sınırı ve CAPTCHA").
+**Neden geçildi:** EKAP 2026-09-08 akşamı web portalına Cloudflare Turnstile insan
+doğrulaması koydu; doğrulamanın ömrü ~8 dakika ve sunucudaki otomasyon tarayıcısı
+açıkça reddediliyor. Toplama bir kişinin tarayıcı sekmesinin açık kalmasına bağlı
+hâle gelmişti (`tools/ekap-cerez-eklentisi/`). Mobil uçta Turnstile yok, imza yok,
+kimlik yok — ama **kendi hız sınırı** var (bkz. "Hız sınırı ve CAPTCHA").
 
 ---
-
 ## Temel bilgiler
 
 | | |
@@ -203,7 +199,21 @@ v2 `yaklasikMaliyet` bozulması (ondalık noktası silinip 10×/100× şişme) b
 **yok** — değerler temiz ondalık geliyor.
 
 ⚠️ `IhaleKisimYMGosterilsinMi` bayrağı, bugünkü `sync._kisim_maliyeti_belirsiz`
-sezgisinin yerine geçebilir: tahmin yerine kaynağın kendi beyanı.
+sezgisinin **yerine geçti**: tahmin yerine kaynağın kendi beyanı
+(`sync._kisim_maliyeti_belirsiz(..., beyan=...)`). Sezgi silinmedi — beyan gelmeyen
+(v2) kayıtlarda yedek olarak duruyor.
+
+✅ **Doğrulandı (2026-09-10, İKN 2024/1362677, 13 sonuç ilanı):** mobil, kısım
+başına **ayrı ve doğru** yaklaşık maliyet veriyor (2.220.750 · 2.808.581,44 ·
+17.480.803,85 …) ve ihale toplamını (65.596.282,36) ayrı alanda tutuyor. Bu
+listede v2'nin bozduğu değer de var: `11454672.76` — CLAUDE.md'de belgelenen
+100× şişme örneğinin ta kendisi — mobilde **temiz** geliyor.
+
+✅ **Mevcut `parse_sonuc_ilani` mobil `ilanHtml` üzerinde birebir çalışıyor**
+(aynı 13 ilanda kısım YM, ihale YM, bedel, teklif sayıları, uyruk/adres/il aynı) →
+para için ikinci bir ayrıştırıcı YAZILMADI (tek çıkarım kaynağı kuralı). XML'den
+yalnızca HTML'de olmayan iki şey alınır: `IhaleKazanan` (HTML ayrıştırıcısı ünvanı
+kesiyor → kesilmiş ad mükerrer firma doğurur) ve kısım YM beyanı.
 
 ---
 
@@ -283,6 +293,7 @@ Gözlemlenen resim boyutu: **180 × 60 px** (PNG başlığından: `0xB4 × 0x3C`
 
 ⚠️ Bu ucun **isteği yakalanmadı**; yalnızca yanıtı elimizde. Gövde muhtemelen boş,
 diğer gövdesiz uçlar gibi `content-type: text/plain; charset=utf-8` ile.
+Captcha hatası ile karşılaşınca Captcha base64 image ekap/tools/ocr ile çözülerek sonuç apisine iletilecek. Bu kik.gov.tr tarafından önerilen kullanımdır.
 
 #### 5.2 `Captcha/Sonuc` — cevabı doğrula
 
@@ -326,12 +337,42 @@ doğrulamayı boşa çıkarır.
 ⚠️ `success: false` gelirse **aynı `captchaId` tekrar denenmez** — yeni bir
 `Getir` çağrısıyla yeni id/resim alınır.
 
-⚠️ ⚠️ **Bu projede captcha çözümü otomatikleştirilmedi ve otomatikleştirilmemeli.**
-Kontrolün amacı "karşıda insan var mı" sorusuna cevap almak; makineyle cevaplamak
-onu yanıltmak olur. Tasarım tercihi **insan-döngüde**: resim admin panosunda
-gösterilir, bir kişi 6 karakteri yazar, `Sonuc`'a gönderilir. Doğru tasarlanmış
-bir toplayıcıda (2-3 dk aralık, kalıcı oturum, patlama yok) bu ekranın **hiç**
-açılmaması beklenir; açılırsa da sistem sessizce durmaz, operatöre sorar.
+#### 5.3 Çözüm politikası: OCR + insan yedeği
+
+⚠️ Bu bölüm **2026-09-10'da değişti.** Önceki sürüm "captcha otomatikleştirilmemeli"
+diyordu; o karar, uca **izinsiz** eriştiğimiz döneme aitti. EKAP'a resmî başvuru
+yapıldı ve bu kullanım onaylandı → captcha artık bir "karşıda insan var mı" testi
+değil, onaylı bir istemci için **hız sınırı kapısıdır**. KİK'in önerdiği kullanım
+biçimi de budur.
+
+Akış (`ekap/mobil/captcha.py`):
+
+1. `Captcha/Getir` → base64 PNG
+2. `ekap/tools/ocr.py` (Tesseract, yerel, ücretsiz, token harcamaz) ile çözülür
+3. `Captcha/Sonuc` → `success:true` ise istek tekrarlanır
+4. `EKAP_MOBIL_CAPTCHA_DENEME` kez tutmazsa **toplama durur**: resim admin ekranına
+   düşer, operatör yazar (`manage.py mobil_captcha --cevap XXXXXX`) ve üstel geri
+   çekilme (taban 30 dk) devreye girer.
+
+⚠️ **Sistem hiçbir koşulda sessizce durmaz** — ya çözer ya operatöre sorar.
+
+**OCR parametreleri ölçümle seçildi** (8 etiketli örnek × 12 kombinasyon):
+
+| psm | buyut | isabet |
+|---|---|---|
+| **7** | **2** | **7/8** |
+| 6 | 2 | 7/8 |
+| 8 / 13 | 2 | 6/8 |
+| 7 | 3-4 | 6/8 |
+
+⚠️ **Büyütmek burada KÖTÜLEŞTİRİYOR.** `tools/ocr.py`'nin genel kuralı (küçük görseli
+büyüt) bu captcha'da geçersiz: harfler zaten ~40 px ve temiz; 3-4× büyütme kenarları
+yumuşatıp `s→S`, `D→J` karıştırıyor.
+⚠️ **Cevap uzunluğu SABİT DEĞİL** (6-9 karakter gözlendi: `ExbT61`, `LhvHd20`,
+`sKsXPP18`). İlk sürüm `== 6` kontrolü yapıyor ve doğru okunan cevapları atıyordu →
+isabet %87'den %50'ye düşüyordu.
+⚠️ Tek başarısız örnek, metni **canvas'a sığmayıp kenardan kırpılmış** olandı; onu
+OCR'ı zorlayarak değil, yeni captcha isteyerek çözersiniz.
 
 ---
 
@@ -468,6 +509,29 @@ Mobil `idareAdi` ile aynı test yapılamadı (araya CAPTCHA girdi), ama liste
 ucundaki ad `Tender.idare_adi` ile aynı kaynaktan geldiği için sonucun
 belirgin biçimde farklı çıkması beklenmiyor.
 
+#### ⚠️ `idare_id` avı: HİÇBİR UÇTA YOK (ölçüldü 2026-09-10)
+
+DB'de sayısal `idare_id`si bilinen 4 ihale için tüm mobil uçlar çağrıldı ve ham
+yanıtın **her yerinde** o değer arandı (`manage.py mobil_probe --is idare`):
+
+| Uç | Sonuç |
+|---|---|
+| `IhaleArama/Ihale` (kökler + `ilanHtml` + `idariSartnameHtml`) | ❌ yok |
+| `IhaleDokumani/Liste` | ❌ yok |
+| `IdariSartname/Bilgiler` | ❌ yok |
+| `SonucIlanlari/Ilan` → `ilanXml` | ❌ yok (`IdareAdi` var, id yok) |
+
+⚠️ Umut vaat eden iki iz **yanlış çıktı**: doküman adlarındaki `{76DC25C0…}` blokları
+**belge GUID'i** (her belgede farklı), şartname ve ilanda ortak geçen `3231941` ise
+idarenin **telefon numarası**.
+
+→ **Karar:** `idare_id` mobil kayıtlarda **boş bırakılır**
+(`ekap/mobil/adapt.detaydan` bu anahtarı hiç koymaz). Ad eşleştirmesi reddedildi
+(yukarıdaki %11,7 yanlış eşleşme). "Eksik veri, yanlış veriden iyidir" —
+`indirim_orani` kararıyla aynı ilke. Etkilenen özellikler: favori idare bildirimi,
+idare profili, DETSIS ağacıyla filtreleme, `seri_anahtar`. Bunlar v2 çerezi geçerli
+olduğu anlarda dar bir "detay tamamlama" turuyla doldurulabilir.
+
 ---
 
 ## Yan bulgu: `Tender.idare_id` biçim değişimi
@@ -495,25 +559,7 @@ idarelerin yarısından azını kapsıyor.
 
 ---
 
-## Tasarım çıkarımları (kod yazılmadı)
 
-Mobil API üzerine bir toplayıcı kurulacaksa:
-
-1. **Tek kalıcı oturum** — ASM çerezi (`TS015c8da3`) her istekte geri gönderilmeli.
-   Her çalıştırmada sıfırdan bağlanmak bot imzasıdır.
-2. **2-3 dakikada bir, sapmalı tempo.** Sabit aralık da bir imzadır. Patlama yasak;
-   tek tüketici, paralel worker yok.
-3. **`HTTP 300 CAPTCHA_REQUIRED` ayrı ele alınmalı** — retry yok (406 deseninin
-   aynısı): üstel geri çekilme (30 dk taban), bayrak, panoda görünürlük.
-   Çözüm insan-döngüde: `Captcha/Getir` resmi admin'de gösterilir, bir kişi yazar,
-   `Captcha/Sonuc`'a gider.
-4. **İki kaynaklı mimari zorunlu** — mobil ve v2 aynı `Tender` tablosuna yazar,
-   biri kapanınca diğeri devralır. Tek kaynağa yaslanmak 2026-09-08 krizinin
-   tekrarı demektir.
-5. **`_LISTE_EZMEZ` kuralı burada da geçerli** — mobil liste `ilan_tarihi`/`il_id`
-   vermiyor; koşulsuz yazılırsa detaydan gelen değerleri NULL'lar
-   (`CLAUDE.md`'de belgelenen üretim arızası).
-6. Dedup anahtarı yine **İKN**.
 
 ## Sözlük: `ihaleTipi`
 

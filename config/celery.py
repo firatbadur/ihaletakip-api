@@ -80,6 +80,20 @@ app.conf.beat_schedule = {
     # ⚠️ Maliyet önemsiz: pencere ~700 kayıt = 15 liste isteği (50/istek), 12 tur =
     # 180 istek/gün. Asıl pahalı olan detay istekleridir; onlar da `only_if_missing`
     # sayesinde yalnızca **yeni** ihaleler için atılıyor (bkz. sync_recent).
+    # ── EKAP MOBİL (birincil kaynak) ───────────────────────────────────────
+    # ⚠️ **Çekmeli tek tüketici**: `tik` her turda TEK iş seçer ve TEK istek harcar
+    # (bkz. ekap/mobil/tasks.py). İtmeli fan-out bu bütçede (~1 istek/2-3 dk) kuyruğu
+    # bayat görevle doldururdu — 2026-08-11'de `ekap` kuyruğunda ölçülen 218.443
+    # görev / 159.801 gerçek iş arızası.
+    # ⚠️ Aralık `EKAP_MOBIL_TIK_DK` ile uyumlu tutulmalı: beat'in tetiklemesi hız
+    # penceresinden SIK olursa turlar bedavaya "hiz_penceresi" deyip çıkar (zararsız),
+    # SEYREK olursa bütçe boşa gider.
+    # ⚠️ `EKAP_MOBIL_ENABLED=False` iken görev ilk satırda döner → beat girdisi
+    # açık kalabilir, kill switch ayardadır.
+    "ekap-mobil-tik": {
+        "task": "ekap.mobil.tasks.tik",
+        "schedule": crontab(minute="*/2"),
+    },
     "ekap-sync-recent": {
         "task": "ekap.tasks.sync_recent",
         "schedule": crontab(minute=0, hour="1-23/2"),

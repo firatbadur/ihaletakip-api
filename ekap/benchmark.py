@@ -435,6 +435,13 @@ def _uyari(n, n_indirim):
             "Bu kümede indirim oranı bilinen sözleşme yok — indirim oranı yalnızca Sonuç "
             "İlanı yayımlanmış sözleşmelerde hesaplanabiliyor."
         )
+    # ⚠️ Metin `indirim_orani`nın gerçekte hesaplanıp hesaplanmadığıyla uyumlu olmalı:
+    # `MUTLAK_MIN_ORNEK` altında değer `null` döner, "hesaplandı" demek yanlış olurdu.
+    if n_indirim < MUTLAK_MIN_ORNEK:
+        return (
+            f"Bu kümede indirim oranı bilinen yalnızca {n_indirim} sözleşme var; "
+            "dağılım gösterilemeyecek kadar az örnek."
+        )
     if n_indirim < MIN_INDIRIM_ORNEK:
         return (
             f"İndirim oranı yalnızca {n_indirim} sözleşmeden hesaplandı; "

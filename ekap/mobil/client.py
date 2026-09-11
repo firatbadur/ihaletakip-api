@@ -14,6 +14,7 @@ Katmanlar:
 ile gelir ve istemci kütüphaneleri bunu hata saymaz (bkz. `captcha.captcha_mi`).
 """
 import logging
+import time
 import uuid
 
 import requests
@@ -171,20 +172,45 @@ class EkapMobilClient:
         if params:
             sorgu.update({k: v for k, v in params.items() if v is not None})
 
-        try:
-            resp = self.session.post(
-                url,
-                json=json_body if json_body is not None else None,
-                data=None if json_body is not None else "",
-                params=sorgu,
-                headers=self._basliklar(govdeli=json_body is not None, ek=ek_baslik),
-                cookies=mobil_session.cerezler(),
-                timeout=self.timeout,
-                stream=stream,
-                allow_redirects=False,   # HTTP 300'ü kendimiz ele alıyoruz
-            )
-        except requests.RequestException as e:
-            raise MobilError(f"EKAP mobil {path} ağ hatası: {e}") from e
+        # ⚠️⚠️ **Ağ hatasında TEKRAR DENE.** EKAP keep-alive bağlantılarını arada
+        # kapatıyor ve yeniden kullanılan sokete `ConnectionResetError(104)` düşüyor
+        # (üretimde ölçüldü 2026-09-11: doküman istekleri rastgele başarısız oluyor,
+        # "bazı ihalelerde belge gelmiyor" şikâyetinin kaynağı buydu). Tek denemede
+        # pes etmek, aslında var olan belgeyi "yok" göstermek demek.
+        # ⚠️ Tekrar denemede **bütçe yeniden harcanmaz ve pencere yeniden alınmaz**:
+        # bu aynı mantıksal istektir, EKAP'a giden ek yük bir sokettir.
+        # ⚠️ Sıfırlanan bağlantı havuzdan atılır (`session.close()`), aksi hâlde aynı
+        # bozuk soket tekrar seçilebilir.
+        deneme = max(1, getattr(settings, "EKAP_MOBIL_AG_DENEME", 3))
+        son_hata = None
+        for i in range(deneme):
+            try:
+                resp = self.session.post(
+                    url,
+                    json=json_body if json_body is not None else None,
+                    data=None if json_body is not None else "",
+                    params=sorgu,
+                    headers=self._basliklar(govdeli=json_body is not None, ek=ek_baslik),
+                    cookies=mobil_session.cerezler(),
+                    timeout=self.timeout,
+                    stream=stream,
+                    allow_redirects=False,   # HTTP 300'ü kendimiz ele alıyoruz
+                )
+                break
+            except requests.RequestException as e:
+                son_hata = e
+                logger.info("EKAP mobil %s ağ hatası (deneme %s/%s): %s",
+                            path, i + 1, deneme, str(e)[:120])
+                try:
+                    self.session.close()
+                except Exception:                       # noqa: BLE001
+                    pass
+                if i + 1 < deneme:
+                    time.sleep(0.5 * (i + 1))
+        else:
+            raise MobilError(
+                f"EKAP mobil {path} ağ hatası ({deneme} deneme): {son_hata}"
+            ) from son_hata
 
         # Oturum çerezini her yanıttan tazele (ASM her istekte yeniler).
         if resp.cookies:

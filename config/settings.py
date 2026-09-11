@@ -392,6 +392,10 @@ EKAP_MOBIL_KULLANICI_BEKLEME = env.int("EKAP_MOBIL_KULLANICI_BEKLEME", default=1
 # ⚠️ Kurulum başına SABİT olmalı — her başlatmada değişen UUID bot imzasıdır.
 EKAP_MOBIL_CIHAZ_UUID = env("EKAP_MOBIL_CIHAZ_UUID", default="")
 EKAP_MOBIL_TIMEOUT = env.int("EKAP_MOBIL_TIMEOUT", default=60)
+# ⚠️ EKAP keep-alive bağlantılarını arada kapatıyor → yeniden kullanılan sokette
+# `ConnectionResetError(104)`. Tek denemede pes etmek, var olan belgeyi "yok"
+# göstermek demekti (üretimde ölçüldü). Tekrar deneme bütçeden DÜŞMEZ.
+EKAP_MOBIL_AG_DENEME = env.int("EKAP_MOBIL_AG_DENEME", default=3)
 # Captcha: OCR ile otomatik çözüm (KİK'in onayladığı kullanım). Kapatılırsa akış
 # doğrudan insan-döngüye düşer (admin panosu / `manage.py mobil_captcha`).
 EKAP_MOBIL_CAPTCHA_OCR = env.bool("EKAP_MOBIL_CAPTCHA_OCR", default=True)

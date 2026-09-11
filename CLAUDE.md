@@ -1174,6 +1174,41 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   değil: `_temel_qs` ayrıca tarih + "bedeli dolu" süzüyor. En az **2 keyword** şart —
   tek keyword benzerlik değil tesadüftür. **Geri alma: `KEYWORD_BENCHMARK_ENABLED=False`,
   deploy'suz.**
+  ⚠️⚠️ **Benzerlik sırası `_benzerler`'e TAŞINMALI** (`Kademe.sira`). Liste eskiden
+  her zaman `-sozlesme_tarihi` ile sıralanıyordu; OKAS kademelerinde bu doğrudur
+  (üyeler tanım gereği eşit alakada, ayırt edici olan tazelik) ama `anahtar`
+  kademesinde adaylar skora göre dizili gelir ve o sıra atılıyordu → kullanıcı 1115
+  sözleşmenin **en yenisi** 20'sini görüyordu, **en benzeri** 20'sini değil.
+  Üretimde gözlendi (2026-09-11): "Siber Güvenlik Hizmeti Alım İşi" analizinin
+  başında "OTOMATİK VEZNE SİSTEMİ MAL ALIM İŞİ" duruyordu. **İstatistikler doğruydu**
+  (n=1115, medyan indirim %21,7) — bozuk olan yalnızca görünen listeydi, ki bu
+  özelliğin var oluş sebebi tam olarak "benzer iş yanlış seçiliyor" şikâyetiydi.
+  ⚠️ Sıralama **Python'da** yapılır: 2000 dallı `Case/When` planlayıcıyı boğar.
+  Önce `values_list("pk","tender_id")` (TOAST'a dokunmaz), sonra yalnızca ilk
+  `limit` satır tam okunur.
+
+- ✅ **ÜRETİMDE AÇIK (2026-09-11).** Ölçülen kapsam ve maliyet:
+  kalıp sözlüğü **665.768 `ok` = 1.006.988 ihale (%95,9)** · `skipped` %1,5 (model
+  anlamlı keyword çıkaramadı, uydurmadı) · yayma **1.003.338 ihale (%95,5)**,
+  2.663.046 `TenderKeyword` satırı · **125.163 tekil keyword** (55.524 aktif) ·
+  **toplam AI maliyeti $121,72** (30 batch, Haiku 4.5 + Batches API).
+  Ölçülen etki (kapalı → açık):
+
+  | ihale | kapalı | açık |
+  |---|---|---|
+  | Siber Güvenlik Hizmeti | `idare_tur` **n=0** | `anahtar` **n=1115**, indirim n=308 |
+  | Bağ Demiri Bağlantı Elemanları | `idare_tur` **n=0** | `anahtar` **n=522** |
+  | Boraks Penta VI Üretim Tesisi | `grup` n=31.795 (gürültü) | `anahtar` **n=217** |
+  | Malatya Hizmet Binası | `ulke` n=62 | `anahtar` n=779 |
+
+  ⚠️ **OKAS'sız ihalelerde merdiven gerçekten BOŞ dönüyordu** (`n=0`) — plandaki
+  "%19'unda OKAS yok" tahmini ürün açısından "analiz yok" demekmiş.
+  ⚠️ **AI köprüsü doğrulandı**: "Proaktif Zafiyet Tarama Hizmeti" ile "Siber Güvenlik
+  Hizmeti Alım İşi"nin ortak **hiçbir kelimesi yok**; ikisini `siber guvenlik`
+  keyword'ü bağlıyor. Deterministik taban çizgisi bu çifti kuramaz.
+  ⚠️ **Süre ölçerken SOĞUK cache'i sıcakla karıştırmayın**: ilk çağrı 18.443 ms
+  ölçüldü, aynı ihale tekrarda **392 ms**. Tek ölçümle "18 saniye sürüyor" teşhisi
+  konup gereksiz optimizasyona girilebilirdi. Sıcak bant: **120-590 ms**.
 - **Sektör** (`Contract.sektor` ingest-kopyası + `Tender.sektor`): tek değerli ~36
   kardinalite → kopya DOĞRU tercih (0014'ün `okas_bucket`'i gibi). Keyword'ler
   çok-değerli olduğu için onlara aynısı yapılamaz. `grup` kademesinden önce gelir ve

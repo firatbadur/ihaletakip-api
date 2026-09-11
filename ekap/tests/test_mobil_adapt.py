@@ -337,3 +337,55 @@ class KapsamKoduTest(TestCase):
         for kod, metin in C.KAPSAM_ACIKLAMA.items():
             self.assertEqual(C.KAPSAM_METIN[__import__(
                 "ekap.utils", fromlist=["normalize_tr"]).normalize_tr(metin)], kod)
+
+
+class DokumanOnbellekZehirlenmesiTest(TestCase):
+    """⚠️ Geçici hata 'doküman yok' diye ÖNBELLEĞE YAZILMAMALI (üretim arızası)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.t = Tender.objects.create(ikn="2026/900", ekap_id="mobil:2026-900")
+
+    def _cagir(self):
+        return self.client.get("/api/v1/ekap/tenders/mobil:2026-900/documents/")
+
+    def test_gecici_hata_onbellege_yazilmaz(self):
+        from unittest.mock import patch
+
+        from ekap.mobil.client import MobilError
+
+        with patch("ekap.mobil.client.EkapMobilClient.dokuman_liste",
+                   side_effect=MobilError("ağ hatası")), \
+             patch("ekap.mobil.client.EkapMobilClient.teknik_sartname",
+                   side_effect=MobilError("ağ hatası")):
+            veri = self._cagir().json()["data"]
+        # "yok" DEMEMELİ — bilmiyoruz.
+        self.assertNotIn("yayımlanmış doküman yok", veri["mesaj"])
+        self.assertIn("alınamadı", veri["mesaj"])
+
+        from django.core.cache import cache
+        self.assertIsNone(cache.get("ekap:mobil:dokliste:2026/900"))
+
+        # Sonraki çağrı EKAP'a yeniden gitmeli ve belgeyi bulabilmeli.
+        with patch("ekap.mobil.client.EkapMobilClient.dokuman_liste",
+                   return_value={"dokumanlar": [{"id": "abc"}]}), \
+             patch("ekap.mobil.client.EkapMobilClient.teknik_sartname",
+                   return_value=[]):
+            veri = self._cagir().json()["data"]
+        self.assertIsNotNone(veri["ihale_dokumani"])
+
+    def test_kesin_yok_cevabi_onbellege_yazilir(self):
+        from unittest.mock import patch
+
+        from ekap.mobil.client import MobilYokError
+
+        with patch("ekap.mobil.client.EkapMobilClient.dokuman_liste",
+                   side_effect=MobilYokError("kayıt yok")), \
+             patch("ekap.mobil.client.EkapMobilClient.teknik_sartname",
+                   side_effect=MobilYokError("kayıt yok")):
+            veri = self._cagir().json()["data"]
+        self.assertIn("yayımlanmış doküman yok", veri["mesaj"])
+
+        from django.core.cache import cache
+        self.assertIsNotNone(cache.get("ekap:mobil:dokliste:2026/900"))

@@ -1101,27 +1101,32 @@ class TenderDocumentsView(APIView):
         if onbellek is None:
             cli = EkapMobilClient(butce="kullanici")
             onbellek = {"ihale": False, "teknik": []}
-            # ⚠️ İhale dokümanının VARLIĞI da sorulur. Önceki sürüm bağlantıyı
-            # koşulsuz veriyordu; EKAP **4734 kapsamı dışındaki** ihaleler için
-            # doküman yayımlamadığından (ölçüldü) kullanıcı butona basıp hata
-            # alıyordu. İki istek de 24 saat önbelleklenir.
-            try:
-                liste = cli.dokuman_liste(yil, sayi)
-                onbellek["ihale"] = bool((liste or {}).get("dokumanlar"))
-            except MobilYokError:
-                pass
-            except MobilError as e:
-                logger.info("doküman listesi alınamadı (%s): %s",
-                            tender.ikn, str(e)[:120])
-            try:
-                ham = cli.teknik_sartname(yil, sayi)
-                onbellek["teknik"] = ham if isinstance(ham, list) else []
-            except MobilYokError:
-                pass
-            except MobilError as e:
-                logger.info("teknik şartname listesi alınamadı (%s): %s",
-                            tender.ikn, str(e)[:120])
-            cache.set(anahtar, onbellek, timeout=24 * 3600)
+            # ⚠️ İhale dokümanının VARLIĞI da sorulur: EKAP istisna/kapsam dışı
+            # ihalelerde doküman yayımlamıyor (ölçüldü) ve koşulsuz bağlantı vermek
+            # kullanıcıyı hataya sürüklüyordu.
+            ihale_kesin = self._sorgula(
+                onbellek, "ihale", lambda: bool(
+                    (cli.dokuman_liste(yil, sayi) or {}).get("dokumanlar")),
+                tender.ikn, "doküman listesi",
+            )
+            teknik_kesin = self._sorgula(
+                onbellek, "teknik", lambda: (
+                    lambda h: h if isinstance(h, list) else []
+                )(cli.teknik_sartname(yil, sayi)),
+                tender.ikn, "teknik şartname listesi",
+            )
+            # ⚠️⚠️ **YALNIZCA KESİN SONUÇ ÖNBELLEĞE YAZILIR.** Önceki sürüm sonucu
+            # koşulsuz yazıyordu: tek bir geçici hata (ölçüldü: `ConnectionResetError`,
+            # ayrıca captcha duvarı) "bu ihalede doküman yok" diye **24 saat**
+            # saklanıyor ve kullanıcı gün boyu belgeye ulaşamıyordu. Üretimde yaşandı
+            # (2026-09-11). "Bilmiyorum"u "yok" diye önbelleğe almak, yanlış veriyi
+            # kalıcılaştırmaktır.
+            if ihale_kesin and teknik_kesin:
+                cache.set(anahtar, onbellek, timeout=24 * 3600)
+            else:
+                veri["mesaj"] = ("Doküman bilgisi şu an alınamadı; "
+                                 "lütfen birazdan tekrar deneyin.")
+                onbellek["_gecici_hata"] = True
 
         kayitlar = onbellek.get("teknik") or []
         if onbellek.get("ihale"):
@@ -1141,12 +1146,34 @@ class TenderDocumentsView(APIView):
                 "url": f"{temel}?tur=teknik&dosyaId={dosya_id}",
             })
 
-        # ⚠️ "Doküman yok" bir HATA DEĞİL, yaygın bir durumdur: EKAP 4734 kapsamı
-        # dışındaki ihaleler için doküman yayımlamıyor. Mobil bunu hata ekranı
-        # yerine açıklayıcı bir metinle göstermeli.
-        if not veri["ihale_dokumani"] and not veri["teknik_sartnameler"]:
+        # ⚠️ "Doküman yok" bir HATA DEĞİL, yaygın bir durumdur: EKAP istisna ve
+        # kapsam dışı ihaleler için doküman yayımlamıyor (arşivin ~%17'si).
+        # ⚠️ Ama bu mesaj **yalnızca kesin sonuçta** basılır: geçici bir hatada
+        # "yok" demek kullanıcıyı var olan belgeden mahrum eder.
+        if (not veri["ihale_dokumani"] and not veri["teknik_sartnameler"]
+                and not onbellek.get("_gecici_hata")):
             veri["mesaj"] = "Bu ihale için EKAP'ta yayımlanmış doküman yok."
         return api_response(data=veri)
+
+    @staticmethod
+    def _sorgula(onbellek, alan, cagir, ikn, etiket):
+        """
+        Tek sorgu; **kesin bir cevap alındıysa `True`** döner.
+
+        Kesin = EKAP yanıt verdi (`200`) ya da "kayıt yok" dedi (`404`). Ağ hatası,
+        captcha duvarı ve benzeri geçici arızalar `False` döner → çağıran sonucu
+        önbelleğe yazmaz.
+        """
+        from .mobil.client import MobilError, MobilYokError
+
+        try:
+            onbellek[alan] = cagir()
+            return True
+        except MobilYokError:
+            return True          # EKAP net söyledi: kayıt yok
+        except MobilError as e:  # ağ/captcha/5xx → BİLMİYORUZ
+            logger.warning("%s alınamadı (%s): %s", etiket, ikn, str(e)[:150])
+            return False
 
 
 @extend_schema(

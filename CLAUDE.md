@@ -494,7 +494,8 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
   ⚠️ Sıklaşan tur **`only_if_missing=True` ile birlikte** gelmeli: bayraksız hâlde
   pencerede duran ~700 ihalenin detayı her turda yeniden istenir (12 × 700 ≈ 8.400
   mükerrer istek/gün, 1 istek/sn bütçesinin onda biri).
-- **Toplama (Celery Beat)**: `sync_recent` (**2 saatte bir, tek saatlerde**, `ekap_oncelik` kuyruğu; son
+- **Toplama (Celery Beat)**: `sync_recent` (**günde iki kez: 04:00 + 12:00** — mobil birincil
+  kaynak olduğu için v2 turu yedek/karşılaştırma; öğlen turu kontrol amaçlı, `ekap_oncelik` kuyruğu; son
   `EKAP_RECENT_DAYS`=3 günde **yayınlanan** ihaleler, `ilanTarihSaatBaslangic` ile
   EKAP tarafında filtreli), `refresh_stale` (3 saatte bir, akıllı kural: geçmiş+sonuçlanmamış → detay
   yenile; **yalnızca son `EKAP_REFRESH_YEARS`=1 yıl**), `backfill` (**tüm gün** 15 dk'da

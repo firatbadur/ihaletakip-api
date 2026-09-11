@@ -102,14 +102,16 @@ app.conf.beat_schedule = {
         "task": "ekap.mobil.tasks.tik",
         "schedule": crontab(minute="*/2"),
     },
-    # ⚠️ **Artık günde BİR kez (04:00).** Aşağıdaki "gün içinde koşmalı" gerekçesi
-    # v2 birincil kaynakken geçerliydi; birincil kaynak artık mobil API ve gün içi
-    # tazelik oradan geliyor. v2 turu yalnızca **yedek/karşılaştırma** amaçlı:
-    # mobilde olmayan alanları (idare_id, ozellikler, kısım listesi) taze tutar.
+    # ⚠️ **Günde İKİ kez: 04:00 (gece) + 12:00 (öğlen kontrol turu).** Aşağıdaki
+    # "gün içinde koşmalı" gerekçesi v2 birincil kaynakken geçerliydi; birincil
+    # kaynak artık mobil API ve gün içi tazelik oradan geliyor. v2 turu yalnızca
+    # **yedek/karşılaştırma** amaçlı: mobilde olmayan alanları (idare_id,
+    # ozellikler, kısım listesi) taze tutar. Öğlen turu, gece turundan sonra
+    # EKAP'a düşen kayıtları aynı gün içinde yakalayan kontrol turudur.
     # Turnstile çerezi yoksa görev zaten bedavaya çıkar (`_dogrulama_kapisi`).
     "ekap-sync-recent": {
         "task": "ekap.tasks.sync_recent",
-        "schedule": crontab(minute=0, hour=4),
+        "schedule": crontab(minute=0, hour="4,12"),
     },
     # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
     "ekap-refresh-stale": {

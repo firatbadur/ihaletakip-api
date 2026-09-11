@@ -236,6 +236,16 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   (ölçüldü: iki ardışık çağrıda tamamen farklı) ama `dosyaAdi` **birebir aynı** →
   kararlı anahtar dosya adındaki GUID'dir (`?dosya=<GUID>`). Teknik şartnamenin
   `dosyaId`si ise kararlıdır (`?tur=teknik&dosyaId=<int>`) — ikisi karıştırılmamalı.
+- ⚠️⚠️ **EKAP bazen açıklama yerine ÇEVRİLMEMİŞ i18n ANAHTARI gönderiyor**:
+  `ihaleKapsamAciklama = "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"`
+  (üretimde görüldü 2026-09-11, kullanıcının ekranında böyle çıktı). İhale **detay
+  ucu ham payload'ı döndürdüğü** için bu doğrudan mobil arayüze düşüyor — oysa aynı
+  bilginin doğru hâli (`"İstisna"`) `Tender` kolonunda zaten duruyor.
+  → `views._aciklamalari_duzelt` okuma anında değiştirir; kolon da boşsa alanı
+  **siler** (anlamsız anahtar göstermektense hiç göstermemek doğrudur).
+  ⚠️ **`detail_raw` DEĞİŞTİRİLMEZ** — ham veri kanıttır, düzeltme yanıtın kopyasında
+  yapılır. ⚠️ CLAUDE.md'de "`ihaleKapsamAciklama` zaten hep Türkçe geliyor" yazıyordu;
+  **doğru değilmiş**.
 - ⚠️⚠️ **"Bilmiyorum"u "yok" diye ÖNBELLEĞE ALMAYIN.** `documents/` ucu sonucu
   koşulsuz 24 sa önbelleğe yazıyordu; tek bir `ConnectionResetError` "bu ihalede
   doküman yok" olarak saklanıyor ve kullanıcı **gün boyu** var olan belgeye
@@ -310,7 +320,7 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
   alanlar İngilizce ("Production", "Procurement Procedure"...) dönüyordu. `client.py`
   `_post` başlıklarına **`Accept-Language: tr-TR,tr;q=0.9`** eklendi → Türkçe döner.
   Yalnızca **yeni/yeniden senkronlanan** kayıtlar düzelir; eski kayıtlar `refresh_stale`/
-  `sync_recent` ile zamanla güncellenir. (`ihaleKapsamAciklama` zaten hep Türkçe geliyor.)
+  `sync_recent` ile zamanla güncellenir. (`ihaleKapsamAciklama` çoğunlukla Türkçe gelir ama **her zaman değil** — bkz. i18n anahtarı notu.)
 - **İmzalama**: Her EKAP v2 isteği AES-CBC imza başlıkları ister. Sabit olan
   yalnızca **algoritma**: düz GUID + AES(GUID) + IV(Base64) + AES(unix_ms), ve
   2026-08-25'ten beri AES("POST") + AES(istek yolu). Anahtar ham AES anahtarıdır

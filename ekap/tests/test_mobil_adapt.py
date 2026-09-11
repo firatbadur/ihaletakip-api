@@ -404,3 +404,43 @@ class DokumanOnbellekZehirlenmesiTest(TestCase):
 
         from django.core.cache import cache
         self.assertIsNotNone(cache.get("ekap:mobil:dokliste:2026/900"))
+
+
+class I18nAnahtariTest(TestCase):
+    """⚠️ EKAP bazen açıklama yerine çevrilmemiş i18n anahtarı gönderiyor."""
+
+    def test_anahtar_kolondaki_metinle_degistirilir(self):
+        from ekap.views import _aciklamalari_duzelt
+
+        t = Tender.objects.create(
+            ikn="2020/455325", ekap_id="x1",
+            ihale_kapsam_aciklama="İstisna", ihale_tipi_aciklama="Mal",
+        )
+        ham = {
+            "ihaleKapsamAciklama": "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION",
+            "ihaleBilgi": {"ihaleTipiAciklama": "Mal",
+                           "ihaleDurumAciklama": "İhale İlanı Yayımlanmış, Katılıma Açık"},
+        }
+        cikti = _aciklamalari_duzelt(ham, t)
+        self.assertEqual(cikti["ihaleKapsamAciklama"], "İstisna")
+        # Zaten Türkçe olan alanlara DOKUNULMAZ.
+        self.assertEqual(cikti["ihaleBilgi"]["ihaleTipiAciklama"], "Mal")
+        self.assertEqual(cikti["ihaleBilgi"]["ihaleDurumAciklama"],
+                         "İhale İlanı Yayımlanmış, Katılıma Açık")
+
+    def test_kolon_da_bossa_alan_silinir(self):
+        """⚠️ Anlamsız anahtar göstermektense alanı hiç göstermemek doğrudur."""
+        from ekap.views import _aciklamalari_duzelt
+
+        t = Tender.objects.create(ikn="2020/9", ekap_id="x2")
+        cikti = _aciklamalari_duzelt(
+            {"ihaleKapsamAciklama": "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"}, t)
+        self.assertNotIn("ihaleKapsamAciklama", cikti)
+
+    def test_turkce_metin_anahtar_sanilmaz(self):
+        from ekap.views import _aciklamalari_duzelt
+
+        t = Tender.objects.create(ikn="2020/10", ekap_id="x3",
+                                  ihale_kapsam_aciklama="İstisna")
+        cikti = _aciklamalari_duzelt({"ihaleKapsamAciklama": "4734 Kapsamında"}, t)
+        self.assertEqual(cikti["ihaleKapsamAciklama"], "4734 Kapsamında")

@@ -830,6 +830,51 @@ class TenderListView(APIView):
         return api_response(data=payload)
 
 
+# EKAP'ın çevrilmemiş i18n anahtarı: "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"
+_I18N_ANAHTARI = re.compile(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$")
+
+# Ham detaydaki açıklama alanı → onu doğru tutan kolon.
+_ACIKLAMA_KOLONU = {
+    "ihaleKapsamAciklama": "ihale_kapsam_aciklama",
+    "ihaleTipiAciklama": "ihale_tipi_aciklama",
+    "ihaleUsulAciklama": "ihale_usul_aciklama",
+    "ihaleDurumAciklama": "ihale_durum_aciklama",
+}
+
+
+def _aciklamalari_duzelt(data, tender):
+    """
+    Ham detaydaki **çevrilmemiş i18n anahtarlarını** kolondaki Türkçe metinle değiştirir.
+
+    ⚠️ EKAP bazı ihalelerde açıklama yerine anahtarın kendisini gönderiyor (üretimde
+    görüldü 2026-09-11): `ihaleKapsamAciklama =
+    "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"`. Detay ucu ham payload'ı
+    döndürdüğü için bu doğrudan **kullanıcının ekranına** düşüyordu; oysa aynı bilginin
+    doğru hâli (`"İstisna"`) `Tender` kolonunda zaten duruyor.
+
+    ⚠️ **`detail_raw` DEĞİŞTİRİLMEZ** — ham veri kanıttır; düzeltme yalnızca okuma
+    anında, yanıtın kopyasında yapılır. Kolon da boşsa alan **silinir**: kullanıcıya
+    anlamsız bir anahtar göstermektense hiç göstermemek doğrudur.
+    """
+    if not isinstance(data, dict) or tender is None:
+        return data
+    bloklar = [data]
+    bilgi = data.get("ihaleBilgi")
+    if isinstance(bilgi, dict):
+        bloklar.append(bilgi)
+    for blok in bloklar:
+        for alan, kolon in _ACIKLAMA_KOLONU.items():
+            deger = blok.get(alan)
+            if not isinstance(deger, str) or not _I18N_ANAHTARI.match(deger.strip()):
+                continue
+            dogru = (getattr(tender, kolon, "") or "").strip()
+            if dogru:
+                blok[alan] = dogru
+            else:
+                blok.pop(alan, None)
+    return data
+
+
 @extend_schema(
     tags=["ekap"],
     summary="İhale detayı",
@@ -896,7 +941,9 @@ class TenderDetailView(APIView):
             # Bayatsa arka planda yenile, eldekini dön
             self._maybe_refresh(tender)
             data = _unwrap_item(tender.detail_raw)
-            return api_response(data=_attach_idare_detsis(data, tender))
+            return api_response(
+                data=_aciklamalari_duzelt(_attach_idare_detsis(data, tender), tender)
+            )
 
         # Detay yoksa → canlı çek (lazy sync)
         ekap_id = tender.ekap_id if tender else key
@@ -906,12 +953,16 @@ class TenderDetailView(APIView):
 
             client = EkapV2Client()
             detail = client.get_detail(ekap_id)
-            sync_mod.upsert_tender_detail(ekap_id, detail)
-            return api_response(data=_attach_idare_detsis(_unwrap_item(detail)))
+            taze = sync_mod.upsert_tender_detail(ekap_id, detail)
+            return api_response(data=_aciklamalari_duzelt(
+                _attach_idare_detsis(_unwrap_item(detail), taze), taze))
         except Exception as e:
             logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
             if tender:
-                data = _attach_idare_detsis(_unwrap_item(tender.detail_raw or {}), tender)
+                data = _aciklamalari_duzelt(
+                    _attach_idare_detsis(_unwrap_item(tender.detail_raw or {}), tender),
+                    tender,
+                )
                 return api_response(data=data, message="Detay güncel değil.")
             return api_response(message="İhale bulunamadı.", success=False, status=404)
 

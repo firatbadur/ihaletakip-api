@@ -773,9 +773,25 @@ def benzer_ihale_idleri(tender_pk, gruplar, limit, min_grup=None):
     for tid, kid in satirlar.iterator(chunk_size=20000):
         bulunan[tid].add(kmap[kid])
 
+    # ⚠️⚠️ **Kavram SAYISI tek başına yetmez, kavramın GÜCÜ de şarttır.**
+    # Eşik = en ayırt edici kavramın ağırlığı: aday ya o kavramı paylaşır ya da
+    # zayıflardan aynı kanıtı biriktirir. Bu olmadan tek bir yaygın kelime (örn.
+    # `bilisim`, df=3133) eşleşmeyi geçiriyordu ve "Siber Güvenlik" için 2000 adayın
+    # 1.941'i böyle giriyordu — indirim medyanı 0,2165 çıkıyordu, gerçeği 0,1073.
+    # ⚠️ **`min_grup=2` TEK BAŞINA kullanılamaz** (ölçüldü 2026-09-11): AI aynı iş için
+    # farklı terimler ürettiği için birebir aynı işler bile çoğu kez tek kavram
+    # paylaşıyor. Literal uygulandığında kademe susuyor, merdiven OKAS'a düşüyor ve
+    # kullanıcı DAHA alakasız sonuç görüyor — İKN 2026/845304'te `anahtar` n=17
+    # (hepsi SAİS işi) yerine `ulke` n=37 (Pompa Motor Bakım, UPS Bakım) geliyordu.
+    # Bu yüzden varsayılan `min_grup=1` + ağırlık eşiği: "ayırt edici kavramı paylaş"
+    # şartı, "2 kelime ortak olsun" şartının hedeflediği isabeti zaten sağlıyor.
+    en_iyi = max(agirlik.values())
+    oran = getattr(settings, "KEYWORD_SIMILAR_MIN_ORAN", 1.0)
+    esik = en_iyi * oran
     secilen = [
         (tid, len(g), sum(agirlik[i] for i in g))
-        for tid, g in bulunan.items() if len(g) >= min_grup
+        for tid, g in bulunan.items()
+        if len(g) >= min_grup and sum(agirlik[i] for i in g) >= esik
     ]
     # Önce kaç kavram örtüştü, sonra kanıtın ağırlığı.
     secilen.sort(key=lambda x: (-x[1], -x[2]))

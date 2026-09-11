@@ -509,7 +509,12 @@ KEYWORD_DERECE_BONUS = env.float("KEYWORD_DERECE_BONUS", default=0.1)
 # Benzer sayılmak için gereken en az ORTAK KAVRAM sayısı. 1'e düşürmek tek kelimelik
 # tesadüfi eşleşmeleri geri getirir (ölçüldü: "Siber Güvenlik" adaylarının %97'si tek
 # keyword eşleşmesiydi ve indirim medyanını iki katına çıkarıyordu).
-KEYWORD_MIN_ORTAK_GRUP = env.int("KEYWORD_MIN_ORTAK_GRUP", default=2)
+# Benzer sayılmak için gereken en az ORTAK KAVRAM sayısı. ⚠️ 2 yapmak ÖLÇÜLDÜ ve
+# sonucu KÖTÜLEŞTİRDİ (2026-09-11): AI aynı iş için farklı terimler ürettiği için
+# birebir aynı işler bile çoğu kez tek kavram paylaşıyor; kademe susunca merdiven
+# OKAS'a düşüyor ve kullanıcı daha alakasız sonuç görüyor. İsabeti sağlayan asıl
+# mekanizma `KEYWORD_SIMILAR_MIN_ORAN` ağırlık eşiğidir.
+KEYWORD_MIN_ORTAK_GRUP = env.int("KEYWORD_MIN_ORTAK_GRUP", default=1)
 
 # Benchmark kademesi — ⚠️ tek env değişkeniyle deploy'suz geri alınabilir.
 KEYWORD_BENCHMARK_ENABLED = env.bool("KEYWORD_BENCHMARK_ENABLED", default=False)

@@ -356,6 +356,18 @@ def benchmark(tender, yil_geri=VARSAYILAN_YIL, kapsam="auto", limit=20):
         anahtar_skor = (aday_istat["n_indirim"], aday_istat["n"], -sira)
         if en_iyi is None or anahtar_skor > en_iyi[0]:
             en_iyi = (anahtar_skor, kademe, aday_istat, aday_qs)
+        # ⚠️⚠️ **`anahtar` kademesi ALAKA bakımından otoriterdir: elinde gerçek kanıt
+        # varsa genişletilmez.** Merdivenin geri kalanı OKAS/idare tabanlıdır ve
+        # keyword kademesi sustuğunda kullanıcı DAHA alakasız sonuç görür. Ölçüldü
+        # (2026-09-11, İKN 2026/845304 "Sürekli Atıksu İzleme Sistemi"): keyword
+        # kademesi elenince `ulke` kademesi devreye giriyor ve OKAS kodu "Makine araç
+        # kurulum montaj" olduğu için liste *Pompa Motor Bakım, UPS Periyodik Bakım,
+        # Beton Parke Makinesi Revizyonu* oluyordu — n büyük (37), alaka sıfır.
+        # Az ama gerçekten benzer > çok ama alakasız: `MUTLAK_MIN_ORNEK` yeterlidir,
+        # dürüstlüğü `guven` + `uyari` + gizlenen dağılım zaten sağlıyor.
+        if kademe.ad == "anahtar" and aday_istat["n"] >= MUTLAK_MIN_ORNEK:
+            secilen, istat, qs = kademe, aday_istat, aday_qs
+            break
         # Yeterince örnek varsa genişletme; yoksa bir sonraki (daha geniş) kademeye geç.
         if (aday_istat["n_indirim"] >= MIN_INDIRIM_ORNEK
                 and aday_istat["n"] >= MIN_SOZLESME_ORNEK):

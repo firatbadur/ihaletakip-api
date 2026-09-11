@@ -58,12 +58,19 @@ AZAMI_YIL = 10
 
 
 class Kademe:
-    """Bir benzerlik kademesi: filtre + kullanıcıya gösterilecek etiket."""
+    """
+    Bir benzerlik kademesi: filtre + kullanıcıya gösterilecek etiket.
 
-    __slots__ = ("ad", "aciklama", "kosul")
+    `sira`: kademe bir BENZERLİK SIRASI üretiyorsa (şu an yalnızca `anahtar`),
+    en benzerden en uzağa dizilmiş `tender_id` listesi. OKAS kademelerinde üyeler
+    tanım gereği eşit alakadadır (hepsi "aynı iş kalemi") ve sıra `None` kalır.
+    """
 
-    def __init__(self, ad, aciklama, kosul):
+    __slots__ = ("ad", "aciklama", "kosul", "sira")
+
+    def __init__(self, ad, aciklama, kosul, sira=None):
         self.ad, self.aciklama, self.kosul = ad, aciklama, kosul
+        self.sira = sira
 
 
 def _keyword_kademesi(tender):
@@ -103,7 +110,7 @@ def _keyword_kademesi(tender):
     if not ids:
         return None
     return Kademe("anahtar", "Benzer işler (ihale adı benzerliği)",
-                  Q(tender_id__in=ids))
+                  Q(tender_id__in=ids), sira=ids)
 
 
 def _merdiven(tender):
@@ -233,19 +240,47 @@ def _yillara_gore(qs):
     ]
 
 
-def _benzerler(qs, limit):
+def _benzerler(qs, limit, sira=None):
     """
-    Karşılaştırma listesi — en yeni sözleşmeler önce.
+    Karşılaştırma listesi. `sira` verilmişse **en benzerden**, yoksa en yeniden.
+
+    ⚠️⚠️ **Benzerlik sırası varsa tarihe göre sıralamak yanlıştır.** `anahtar`
+    kademesi adayları skora göre dizili döndürür (`benzer_ihale_idleri`); bu sıralama
+    atılıp `-sozlesme_tarihi` uygulanınca kullanıcı 1115 sözleşmenin **en yenisi**
+    20'sini görür, **en benzeri** 20'sini değil. Üretimde gözlendi (2026-09-11):
+    "Siber Güvenlik Hizmeti Alım İşi" için listenin başında "OTOMATİK VEZNE SİSTEMİ"
+    çıkıyordu — istatistikler doğruyken görünen liste güveni bozuyor, ki bu özelliğin
+    var oluş sebebi tam olarak "benzer iş yanlış seçiliyor" şikâyetiydi.
+    OKAS kademelerinde sıra `None`'dır ve tarih sıralaması doğru kalır: orada üyeler
+    tanım gereği eşit alakadadır (hepsi aynı iş kalemi), ayırt edici olan tazeliktir.
+
+    ⚠️ Sıralama **Python'da** yapılır, `Case/When` ile DEĞİL: 2000 dallı bir CASE
+    ifadesi planlayıcıyı boğar. Önce `values_list` ile (pk, tender_id) çifti çekilir
+    (iki int, TOAST'a dokunmaz), sıraya dizilir, yalnızca ilk `limit` satır tam
+    olarak okunur.
 
     ⚠️ `.defer(tender__detail_raw/list_raw)`: `select_related("tender")` olmadan satır
     başına ek sorgu olurdu, `defer` olmadan ise satır başına ~80 KB JSONB TOAST'tan
     açılırdı (bkz. `views._TENDER_BLOB_FIELDS` — aynı hata sözleşme uçlarında yaşandı).
     """
-    satirlar = (
-        qs.select_related("tender", "yuklenici")
-        .defer("tender__detail_raw", "tender__list_raw")
-        .order_by("-sozlesme_tarihi")[:limit]
-    )
+    if sira:
+        rank = {tid: i for i, tid in enumerate(sira)}
+        ciftler = sorted(qs.values_list("pk", "tender_id"),
+                         key=lambda c: rank.get(c[1], len(rank)))
+        secilen = [pk for pk, _ in ciftler[:limit]]
+        yerel = {pk: i for i, pk in enumerate(secilen)}
+        satirlar = sorted(
+            (Contract.objects.filter(pk__in=secilen)
+             .select_related("tender", "yuklenici")
+             .defer("tender__detail_raw", "tender__list_raw")),
+            key=lambda c: yerel[c.pk],
+        )
+    else:
+        satirlar = (
+            qs.select_related("tender", "yuklenici")
+            .defer("tender__detail_raw", "tender__list_raw")
+            .order_by("-sozlesme_tarihi")[:limit]
+        )
     return [
         {
             "ekap_id": c.tender.ekap_id,
@@ -351,7 +386,7 @@ def benchmark(tender, yil_geri=VARSAYILAN_YIL, kapsam="auto", limit=20):
         },
         # Teklif stratejisi uyarısı — bu bayrak varsa en düşük fiyat tek başına kazandırmaz
         "fiyat_disi_unsur_var": tender.fiyat_disi_unsur_var,
-        "benzer_ihaleler": _benzerler(qs, limit) if n else [],
+        "benzer_ihaleler": _benzerler(qs, limit, secilen.sira) if n else [],
         "uyari": _uyari(n, n_ind),
     }
     return veri, None

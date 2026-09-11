@@ -6,7 +6,8 @@ otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 """
 import hashlib
 import logging
-from datetime import timedelta
+import re
+from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -1044,6 +1045,22 @@ class DocumentUrlView(APIView):
         })
 
 
+_DOKUMAN_ANAHTAR = re.compile(r"^\{([0-9A-Fa-f]{8,40})\}")
+
+
+def _dokuman_anahtari(d: dict, sira: int) -> str:
+    """
+    İhale dokümanı için **kararlı** seçici.
+
+    ⚠️ `IhaleDokumani/Liste`in verdiği `id` **her çağrıda değişir** (tek kullanımlık)
+    → istemciye verilip sonra indirmede kullanılamaz. Ölçüldü (2026-09-11): iki ardışık
+    çağrıda `id`ler tamamen farklı ama `dosyaAdi` **birebir aynı** → baştaki GUID
+    kararlı bir anahtardır.
+    """
+    m = _DOKUMAN_ANAHTAR.match(d.get("dosyaAdi") or "")
+    return m.group(1) if m else f"sira{sira}"
+
+
 def _dosya_adi_temizle(ham: str) -> str:
     """
     `{GUID}_{2}_{}_TEMİZLİK MALZEMELERİ.docx` → `TEMİZLİK MALZEMELERİ.docx`.
@@ -1087,26 +1104,40 @@ class TenderDocumentsView(APIView):
         temel = request.build_absolute_uri(
             reverse("v1:ekap-tender-document", kwargs={"key": key})
         )
-        veri = {"ihale_dokumani": None, "teknik_sartnameler": [], "mesaj": ""}
+        veri = {"ihale_dokumani": None, "ihale_dokumanlari": [],
+                "teknik_sartnameler": [], "mesaj": ""}
 
         # ⚠️ Önbellek hız bütçesinin asıl koruması: liste her doküman ekranı
         # açılışında sorulacak, ama içerik gün içinde değişmiyor.
         anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
         onbellek = cache.get(anahtar)
-        # ⚠️ **Biçim değişikliğine karşı savunma.** Bu anahtar önce düz bir liste
-        # tutuyordu; deploy anında Redis'te eski biçimli kayıtlar duruyor ve onlara
-        # `.get()` çağırmak **500** üretirdi. Beklenmedik biçim = önbellek ıskası.
-        if not isinstance(onbellek, dict):
+        # ⚠️⚠️ **Biçim değişikliğine karşı savunma — ŞEKLİ DOĞRULA, tipi değil.**
+        # Bu anahtarın biçimi iki kez değişti (düz liste → sözlük; `ihale` alanı
+        # bool → liste). Her seferinde Redis'te önceki biçimli kayıtlar duruyor ve
+        # onları olduğu gibi kullanmak **500** üretti. Beklenen şekle uymayan her
+        # değer "önbellek ıskası" sayılır: bir sonraki istekte doğru biçimde yazılır.
+        if not (isinstance(onbellek, dict)
+                and isinstance(onbellek.get("ihale"), list)
+                and isinstance(onbellek.get("teknik"), list)):
             onbellek = None
         if onbellek is None:
             cli = EkapMobilClient(butce="kullanici")
-            onbellek = {"ihale": False, "teknik": []}
+            onbellek = {"ihale": [], "teknik": []}
             # ⚠️ İhale dokümanının VARLIĞI da sorulur: EKAP istisna/kapsam dışı
             # ihalelerde doküman yayımlamıyor (ölçüldü) ve koşulsuz bağlantı vermek
             # kullanıcıyı hataya sürüklüyordu.
             ihale_kesin = self._sorgula(
-                onbellek, "ihale", lambda: bool(
-                    (cli.dokuman_liste(yil, sayi) or {}).get("dokumanlar")),
+                onbellek, "ihale", lambda: [
+                    # ⚠️ `id` ÖNBELLEĞE ALINMAZ: tek kullanımlık, indirme anında
+                    # listeden yeniden alınır.
+                    {"ad": _dosya_adi_temizle(d.get("dosyaAdi")),
+                     "boyut": d.get("boyut") or None,
+                     "tarih": d.get("tarih") or "",
+                     "aciklama": d.get("aciklama") or "",
+                     "anahtar": _dokuman_anahtari(d, i)}
+                    for i, d in enumerate(
+                        (cli.dokuman_liste(yil, sayi) or {}).get("dokumanlar") or [])
+                ],
                 tender.ikn, "doküman listesi",
             )
             teknik_kesin = self._sorgula(
@@ -1129,9 +1160,22 @@ class TenderDocumentsView(APIView):
                 onbellek["_gecici_hata"] = True
 
         kayitlar = onbellek.get("teknik") or []
-        if onbellek.get("ihale"):
+        dokumanlar = onbellek.get("ihale") or []
+        # ⚠️ İhale dokümanı da **çok dosyalı** olabiliyor (ölçüldü: 5 dosya, tarihleri
+        # 7 Ağustos → 7 Eylül, yani zeyilname/revizyon sürümleri). İlkini vermek
+        # kullanıcıya **en eski** dokümanı indirtiyordu.
+        if dokumanlar:
+            veri["ihale_dokumanlari"] = [
+                {"ad": d["ad"], "boyut": d["boyut"], "tarih": d["tarih"],
+                 "aciklama": d["aciklama"], "tur": "ihale",
+                 "url": f"{temel}?dosya={d['anahtar']}"}
+                for d in dokumanlar
+            ]
+            # Geriye dönük uyum: tek bağlantı bekleyen istemciler için **en güncel**
+            # doküman (parametresiz indirme de onu verir).
             veri["ihale_dokumani"] = {
                 "ad": "İhale Dokümanı", "tur": "ihale", "url": temel,
+                "dosya_sayisi": len(dokumanlar),
             }
 
         for k in kayitlar:
@@ -1150,7 +1194,7 @@ class TenderDocumentsView(APIView):
         # kapsam dışı ihaleler için doküman yayımlamıyor (arşivin ~%17'si).
         # ⚠️ Ama bu mesaj **yalnızca kesin sonuçta** basılır: geçici bir hatada
         # "yok" demek kullanıcıyı var olan belgeden mahrum eder.
-        if (not veri["ihale_dokumani"] and not veri["teknik_sartnameler"]
+        if (not veri["ihale_dokumanlari"] and not veri["teknik_sartnameler"]
                 and not onbellek.get("_gecici_hata")):
             veri["mesaj"] = "Bu ihale için EKAP'ta yayımlanmış doküman yok."
         return api_response(data=veri)
@@ -1246,15 +1290,33 @@ class TenderDocumentView(APIView):
             else:
                 liste = cli.dokuman_liste(yil, sayi)
                 dokumanlar = (liste or {}).get("dokumanlar") or []
-                istenen = request.query_params.get("dosyaId")
-                secilen = next(
-                    (d for d in dokumanlar
-                     if not istenen or str(d.get("id")) == istenen),
-                    None,
-                )
-                if not secilen:
-                    return api_response(message="Bu ihalede indirilebilir doküman yok.",
-                                        success=False, status=404)
+                if not dokumanlar:
+                    return api_response(
+                        message="Bu ihale için EKAP'ta yayımlanmış doküman yok.",
+                        success=False, status=404)
+                # ⚠️ Seçim `id` ile YAPILAMAZ: `IhaleDokumani/Liste`in `id`si her
+                # çağrıda değişiyor (ölçüldü) → istemcinin elindeki id daima bayat
+                # olurdu. Kararlı anahtar dosya adındaki GUID'dir.
+                istenen = request.query_params.get("dosya")
+                secilen = None
+                if istenen:
+                    secilen = next(
+                        (d for i, d in enumerate(dokumanlar)
+                         if _dokuman_anahtari(d, i) == istenen), None)
+                    if secilen is None:
+                        return api_response(message="Bu dosya bulunamadı.",
+                                            success=False, status=404)
+                else:
+                    # ⚠️ Varsayılan **EN GÜNCEL** doküman, ilk sıradaki değil: çok
+                    # dosyalı ihalelerde liste zeyilname/revizyon sürümlerini eskiden
+                    # yeniye sıralıyor ve ilkini vermek en eski sürümü indirtiyordu.
+                    from datetime import datetime as _dt
+
+                    secilen = max(
+                        dokumanlar,
+                        key=lambda d: parse_ekap_datetime(d.get("tarih"))
+                        or _dt.min.replace(tzinfo=dt_timezone.utc),
+                    )
                 # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
                 resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
         except MobilYokError:

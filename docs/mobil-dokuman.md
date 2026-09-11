@@ -81,6 +81,11 @@ kalır ve sunucu boşuna iki kat trafik taşır.
 
 ### 2.2 `GET /ekap/tenders/{key}/documents/` — dosya listesi
 
+⚠️⚠️ **İhale dokümanı da çok dosyalı olabilir.** Ölçüldü: bir ihalede **5 doküman**,
+tarihleri 7 Ağustos → 7 Eylül — yani **zeyilname/revizyon** sürümleri. Bu yüzden
+`ihale_dokumanlari` bir **dizidir** ve her sürüm tarihiyle listelenir. Parametresiz
+indirme **en güncel** sürümü verir (ilk sıradakini değil).
+
 ```json
 {
   "success": true,
@@ -112,6 +117,21 @@ Sebep: EKAP **4734 kapsamı dışındaki** ihaleler için (`yasa_kapsami=2`) dok
 yayımlamıyor — ölçülen davranış, tarihle ilgisi yok (kapsam içi geçmiş tarihli
 ihalelerde doküman geliyor). Bu ekranda **hata gösterilmemeli**; `mesaj` basılmalı.
 
+```json
+"ihale_dokumanlari": [
+  { "ad": "ihale_dokumani_2026_1381635.zip", "boyut": null,
+    "tarih": "07.09.2026 11:47", "aciklama": "İhale Dokümanı", "tur": "ihale",
+    "url": ".../document/?dosya=A28D42269BDD228D68A3C36B462D1D2D" }
+]
+```
+
+⚠️ **`dosya` anahtarı ile `dosyaId` farklıdır ve karıştırılmamalı:**
+
+| Tür | Seçici | Neden |
+|---|---|---|
+| İhale dokümanı | `?dosya=<GUID>` | `IhaleDokumani/Liste`in `id`si **her çağrıda değişir** (tek kullanımlık) → istemciye verilemez. Dosya adındaki GUID kararlıdır. |
+| Teknik şartname | `?tur=teknik&dosyaId=<int>` | Bu id **kararlıdır**, doğrudan kullanılabilir |
+
 - `boyut` **bayt** cinsindendir; `null` gelebilir (EKAP her dosya için vermiyor).
 - `teknik_sartnameler` **boş dizi** olabilir → "Bu ihalede ayrı teknik şartname yok".
 - `ad` zaten temizlenmiştir; EKAP'ın `{GUID}_{2}_{}_` önekini siz ayıklamayın.
@@ -122,7 +142,8 @@ ihalelerde doküman geliyor). Bu ekranda **hata gösterilmemeli**; `mesaj` bası
 
 | Sorgu | Ne iner |
 |---|---|
-| (parametresiz) | İhale dokümanı — **ZIP** (idari şartname, sözleşme tasarısı, birim fiyat cetveli, katılım belgesi) |
+| (parametresiz) | İhale dokümanının **EN GÜNCEL** sürümü — ZIP (idari şartname, sözleşme tasarısı, birim fiyat cetveli, katılım belgesi) |
+| `?dosya=<GUID>` | Seçilen ihale dokümanı sürümü (zeyilname geçmişi için) |
 | `?tur=teknik&dosyaId=<id>` | Seçilen teknik şartname dosyası (`.docx`, `.pdf`, …) |
 
 Yanıt gerçek dosya baytlarıdır (`application/octet-stream`) ve
@@ -160,7 +181,8 @@ gelmeyebilir → indirme çubuğunu belirsiz modda çalıştırın (mevcut kodda
 
 | Kod | Anlamı | Kullanıcıya |
 |---|---|---|
-| `404` "Bu ihale için EKAP'ta yayımlanmış doküman yok." | EKAP'ta doküman yok (çoğunlukla 4734 kapsamı dışı ihale) | Açıklayıcı metin — **hata ekranı değil** |
+| `404` "Bu ihale için EKAP'ta yayımlanmış doküman yok." | EKAP'ta doküman yok — **istisna** (`yasa_kapsami=2`, arşivin %17'si) ve kapsam dışı ihalelerde normal | Açıklayıcı metin — **hata ekranı değil** |
+| `mesaj` = "Doküman bilgisi şu an alınamadı…" | Geçici arıza (ağ/captcha) — **"yok" ile karıştırmayın** | "Birazdan tekrar deneyin" + yeniden dene butonu |
 | `404` "Bu ihalede ayrı bir teknik şartname yok." | Teknik şartname yok | Liste zaten boş gelirse bu ekrana hiç düşmeyin |
 | `404` "Bu dosya bulunamadı." | `dosyaId` eskimiş (liste 24 sa önbellekli) | Listeyi yenileyip tekrar deneyin |
 | `503` "Bugünkü belge indirme kotası doldu" | Günlük koruma tavanımız doldu | "Yarın tekrar deneyin" |

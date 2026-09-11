@@ -229,7 +229,9 @@ class DokumanUcuTest(TestCase):
         """⚠️ Liste her doküman ekranı açılışında sorulacak → EKAP'a gidilmemeli."""
         from django.core.cache import cache
         Tender.objects.create(ikn="2026/778", ekap_id="mobil:2026-778")
-        cache.set("ekap:mobil:dokliste:2026/778", {"ihale": True, "teknik": [
+        cache.set("ekap:mobil:dokliste:2026/778", {"ihale": [
+            {"ad": "İhale Dokümanı.zip", "boyut": 66393, "tarih": "04.09.2026 16:00:05",
+             "aciklama": "İhale Dokümanı", "anahtar": "ABC123"}], "teknik": [
             {"dosyaId": 30882363, "boyut": 48632,
              "dosyaAdi": "{FF0E}_{2}_{}_TEMİZLİK MALZEMELERİ.docx", "icerik": None},
             {"dosyaId": 30882403, "boyut": 23522,
@@ -244,12 +246,24 @@ class DokumanUcuTest(TestCase):
         self.assertEqual(ilk["boyut"], 48632)
         self.assertIn("dosyaId=30882363", ilk["url"])
         self.assertIn("/document/", veri["ihale_dokumani"]["url"])
+        # ⚠️ İhale dokümanı da çok dosyalı olabilir → hepsi listelenmeli.
+        self.assertEqual(len(veri["ihale_dokumanlari"]), 1)
+        self.assertIn("dosya=ABC123", veri["ihale_dokumanlari"][0]["url"])
+
+    def test_eski_bool_bicimli_onbellek_500_uretmez(self):
+        """⚠️ `ihale` alanı bir zamanlar bool'du; eski kayıt 500 üretmemeli."""
+        from django.core.cache import cache
+        Tender.objects.create(ikn="2026/781", ekap_id="mobil:2026-781")
+        cache.set("ekap:mobil:dokliste:2026/781", {"ihale": True, "teknik": []}, 60)
+        with self.settings(EKAP_MOBIL_ENABLED=False):
+            resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-781/documents/")
+        self.assertNotEqual(resp.status_code, 500)
 
     def test_dokuman_yoksa_hata_degil(self):
         """⚠️ EKAP 4734 kapsamı dışı ihalelerde doküman yayımlamıyor — bu HATA DEĞİL."""
         from django.core.cache import cache
         Tender.objects.create(ikn="2026/779", ekap_id="mobil:2026-779")
-        cache.set("ekap:mobil:dokliste:2026/779", {"ihale": False, "teknik": []}, 60)
+        cache.set("ekap:mobil:dokliste:2026/779", {"ihale": [], "teknik": []}, 60)
         resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-779/documents/")
         self.assertEqual(resp.status_code, 200)
         veri = resp.json()["data"]
@@ -261,6 +275,7 @@ class DokumanUcuTest(TestCase):
         """⚠️ Deploy anında Redis'te eski (liste) biçimli kayıtlar duruyor olabilir."""
         from django.core.cache import cache
         Tender.objects.create(ikn="2026/780", ekap_id="mobil:2026-780")
+        # Eski biçimler: düz liste ve `ihale` alanı bool olan sözlük.
         cache.set("ekap:mobil:dokliste:2026/780", [{"dosyaId": 1}], 60)
         with self.settings(EKAP_MOBIL_ENABLED=False):
             resp = self.client.get("/api/v1/ekap/tenders/mobil:2026-780/documents/")

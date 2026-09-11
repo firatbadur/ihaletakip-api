@@ -229,6 +229,22 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   içerik gün içinde değişmiyor → aynı ihaleyi 50 kullanıcı açsa EKAP'a bir kez gidilir.
   ⚠️ Dosya adı `{GUID}_{2}_{}_ad.docx` kalıbında gelir → `_dosya_adi_temizle`.
   Mobil entegrasyon talimatı: `docs/mobil-dokuman.md`.
+- ⚠️⚠️ **İhale dokümanı da ÇOK DOSYALI olabilir** (ölçüldü: 5 dosya, 7 Ağustos →
+  7 Eylül tarihli = zeyilname/revizyon sürümleri). İlkini vermek kullanıcıya **en
+  eski** dokümanı indirtiyordu → parametresiz indirme artık **en güncel** sürümü verir.
+  ⚠️ **Seçim `id` ile YAPILAMAZ**: `IhaleDokumani/Liste`in `id`si her çağrıda değişir
+  (ölçüldü: iki ardışık çağrıda tamamen farklı) ama `dosyaAdi` **birebir aynı** →
+  kararlı anahtar dosya adındaki GUID'dir (`?dosya=<GUID>`). Teknik şartnamenin
+  `dosyaId`si ise kararlıdır (`?tur=teknik&dosyaId=<int>`) — ikisi karıştırılmamalı.
+- ⚠️⚠️ **"Bilmiyorum"u "yok" diye ÖNBELLEĞE ALMAYIN.** `documents/` ucu sonucu
+  koşulsuz 24 sa önbelleğe yazıyordu; tek bir `ConnectionResetError` "bu ihalede
+  doküman yok" olarak saklanıyor ve kullanıcı **gün boyu** var olan belgeye
+  ulaşamıyordu (üretimde yaşandı 2026-09-11). Artık yalnızca **kesin** cevap
+  yazılır: `200` ya da `404` (kayıt yok). Ağ/captcha/5xx → yazılmaz, kullanıcıya
+  "şu an alınamadı" denir.
+  ⚠️ Bu anahtarın biçimi iki kez değişti (liste → sözlük; `ihale` bool → liste) ve
+  her seferinde eski kayıtlar **500** üretti → önbellek okunurken **şekil doğrulanır**,
+  uymayan değer ıska sayılır.
 - ⚠️⚠️ **DOKÜMAN YALNIZCA 4734 KAPSAMINDAKİ İHALELERDE VAR.** Ölçüldü (2026-09-10):
   `yasa_kapsami=1` → doküman var (2019'a kadar 12/12 örnek, **tarih engel değil**);
   `yasa_kapsami=2` (İstisna) ve `3` (Kapsam Dışı) → EKAP her iki uca da

@@ -390,9 +390,23 @@ def benchmark(tender, yil_geri=VARSAYILAN_YIL, kapsam="auto", limit=20):
             "yeterli_veri": yeterli,
             "guven": _guven(n_ind, n),
         },
-        "indirim_orani": yuzdelik_sozluk(istat["indirim_p"], QUARTILES, basamak=4) if n_ind else None,
+        # ⚠️ **Dağılım `MUTLAK_MIN_ORNEK` altında GÖSTERİLMEZ** — o sabitin zaten
+        # belgelenmiş kuralı bu ("istatistik değil, anekdot olur") ama eskiden yalnızca
+        # `sozlesme_bedeli`/`yillara_gore`'ye uygulanıyordu; `indirim_orani` için koşul
+        # `if n_ind` idi, yani **tek bir sözleşme** bile çeyreklik ürettiriyordu.
+        # Üretimde görüldü (2026-09-11, İKN 2026/845304): 2 örnekten
+        # `p25=0,1255 medyan=0,2238 p75=0,322` basılıyordu. İki noktanın çeyrekliği
+        # yoktur; bu sahte kesinliktir ve `indirim_orani` fiyat analizinin MANŞET
+        # sayısıdır — kullanıcı teklifini ona bakarak veriyor.
+        # `null` + `guven="dusuk"` + `uyari` dürüst cevaptır (pazar panosundaki
+        # `indirim_guven="yetersiz"` kuralıyla aynı ilke).
+        "indirim_orani": (
+            yuzdelik_sozluk(istat["indirim_p"], QUARTILES, basamak=4)
+            if n_ind >= MUTLAK_MIN_ORNEK else None
+        ),
         "ortalama_indirim_orani": (
-            str(round(istat["ort_indirim"], 4)) if istat["ort_indirim"] is not None else None
+            str(round(istat["ort_indirim"], 4))
+            if istat["ort_indirim"] is not None and n_ind >= MUTLAK_MIN_ORNEK else None
         ),
         "sozlesme_bedeli": yuzdelik_sozluk(istat["bedel_p"], QUARTILES) if yeterli else None,
         "yillara_gore": _yillara_gore(qs) if yeterli else [],

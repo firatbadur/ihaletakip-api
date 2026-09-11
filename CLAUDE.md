@@ -1230,6 +1230,45 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   ⚠️ `_uyari` metni de bununla uyumlu olmalı — gizlenen bir hesabı "hesaplandı" diye
   anlatmak kapının amacını bozar.
 
+- ⚠️⚠️ **Kavram grupları (`kavram_gruplari`) — AI aynı iş için farklı terim üretti.**
+  Ölçüldü (2026-09-11, "Sürekli Atıksu İzleme Sistemi" ihaleleri): birebir aynı işin
+  keyword'leri `atiksu izleme` · `atiksu izleme sistemi` · `izleme sistemi` ·
+  `atiksu analizi`. Metin eşitliğine dayanan kesişim bu ihaleleri **birbirine
+  bağlayamaz** (ortak keyword 0-1). `kanonik_keyword` yakalayamaz — bunlar çekim eki
+  varyantı değil, **farklı ifade tercihleri**.
+  Grup kuralı: kapsama ilişkisi (biri diğerinin token kümesini içerir) **ve ≥2 ortak
+  token**. ⚠️ "≥2 ortak token" olmasa tek kelimelik `atiksu` her şeye bağlanır.
+  Ölçülen kazanç (aynı isabetle daha çok kapsam): Siber Güvenlik n=169→**194**,
+  Yol Kaplama n=101→**143**, Bağ Demiri n=3→**13**.
+  ⚠️ Maliyet ~80 ms (5 keyword × `metin__contains`, 125k satır) → materyalize bir
+  `kok` kolonu GEREKMEDİ; kademe zaten 150-500 ms.
+
+- ⚠️⚠️ **`KEYWORD_MIN_ORTAK_GRUP=2` DENENDİ ve SONUCU KÖTÜLEŞTİRDİ — geri koymayın.**
+  ("Benzer iş en az 2 ortak keyword taşımalı" sezgisel olarak doğru görünür.)
+  Yukarıdaki tutarsızlık yüzünden birebir aynı işler bile çoğu kez **tek** kavram
+  paylaşıyor → kademe susuyor → merdiven OKAS kademelerine düşüyor → kullanıcı
+  **daha** alakasız sonuç görüyor. Ölçüm:
+
+  | ihale | min_grup=2 | min_grup=1 + ağırlık eşiği |
+  |---|---|---|
+  | 2026/845304 atıksu izleme | `ulke` n=37 — *Pompa Motor Bakım, UPS Bakım* | `anahtar` n=32 — **SAİS işleri** |
+  | Yol Kaplama Malzemesi | `ulke` n=846 — *Asfalt Üretim, Parke Taşı* | `anahtar` n=143 |
+
+  İsabeti sağlayan asıl mekanizma **ağırlık eşiğidir** (`KEYWORD_SIMILAR_MIN_ORAN`):
+  aday, ihalenin **en ayırt edici kavramını** paylaşmak zorunda. "2 ortak keyword"
+  kuralının hedeflediği şey zaten budur ve kümeyi öldürmeden sağlar.
+
+- ⚠️ **`anahtar` kademesi ALAKA bakımından otoriterdir**: `MUTLAK_MIN_ORNEK` (3)
+  örneği varsa merdiven **genişletilmez**. Merdivenin geri kalanı OKAS/idare
+  tabanlıdır; keyword kademesi elendiğinde kullanıcı daha alakasız sonuç görür
+  (2026/845304'te OKAS kodu "Makine araç kurulum montaj" → *Pompa Motor Bakım*).
+  **Az ama gerçekten benzer > çok ama alakasız**; dürüstlüğü `guven` + `uyari` +
+  `MUTLAK_MIN_ORNEK` altında gizlenen dağılım sağlıyor.
+
+- ⚠️ **Kalan kök sorun: keyword kalitesi.** Skorlama bunu örter, çözmez. Kalıcı çözüm
+  prompt'u "aynı iş için hep aynı terimi kullan, jenerik varyant üretme" diye
+  sıkılaştırıp kalıpları yeniden üretmektir (~$120, birkaç gün).
+
 - ✅ **ÜRETİMDE AÇIK (2026-09-11).** Ölçülen kapsam ve maliyet:
   kalıp sözlüğü **665.768 `ok` = 1.006.988 ihale (%95,9)** · `skipped` %1,5 (model
   anlamlı keyword çıkaramadı, uydurmadı) · yayma **1.003.338 ihale (%95,5)**,

@@ -100,13 +100,14 @@ def _keyword_kademesi(tender):
         return None
     from . import keywords as kw_mod
 
-    agirliklar = kw_mod.probe_keywordleri(tender.pk)
+    gruplar = kw_mod.kavram_gruplari(tender.pk)
     # ⚠️ Tek keyword benzerlik değil tesadüftür ("malzeme" ortak olabilir); en az iki
-    # bağımsız kanıt aranır.
-    if len(agirliklar) < 2:
+    # bağımsız KAVRAM aranır — metin değil kavram, çünkü AI aynı iş için farklı
+    # terimler üretmiş olabiliyor (`atiksu izleme` ≡ `atiksu izleme sistemi`).
+    if len(gruplar) < 2:
         return None
     ids = list(kw_mod.benzer_ihale_idleri(
-        tender.pk, agirliklar, settings.KEYWORD_BENCHMARK_ADAY))
+        tender.pk, gruplar, settings.KEYWORD_BENCHMARK_ADAY))
     if not ids:
         return None
     return Kademe("anahtar", "Benzer işler (ihale adı benzerliği)",

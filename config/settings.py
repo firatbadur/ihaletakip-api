@@ -506,6 +506,10 @@ KEYWORD_SIMILAR_MIN_ORAN = env.float("KEYWORD_SIMILAR_MIN_ORAN", default=1.0)
 # ⚠️ `× derece` YAPMAYIN — IDF'i ezip yaygın 3 kelimelik ifadeyi nadir 2 kelimeliğin
 # önüne geçirir (bkz. keywords.probe_keywordleri, İKN 2026/845304 ölçümü).
 KEYWORD_DERECE_BONUS = env.float("KEYWORD_DERECE_BONUS", default=0.1)
+# Benzer sayılmak için gereken en az ORTAK KAVRAM sayısı. 1'e düşürmek tek kelimelik
+# tesadüfi eşleşmeleri geri getirir (ölçüldü: "Siber Güvenlik" adaylarının %97'si tek
+# keyword eşleşmesiydi ve indirim medyanını iki katına çıkarıyordu).
+KEYWORD_MIN_ORTAK_GRUP = env.int("KEYWORD_MIN_ORTAK_GRUP", default=2)
 
 # Benchmark kademesi — ⚠️ tek env değişkeniyle deploy'suz geri alınabilir.
 KEYWORD_BENCHMARK_ENABLED = env.bool("KEYWORD_BENCHMARK_ENABLED", default=False)

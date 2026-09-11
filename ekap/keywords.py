@@ -655,48 +655,131 @@ def probe_keywordleri(tender_pk, limit=None):
     return skorlu[:limit]
 
 
-def benzer_ihale_idleri(tender_pk, keyword_agirliklari, limit):
+def kavram_gruplari(tender_pk, limit=None):
     """
-    Keyword örtüşmesine göre en benzer ihalelerin id'leri.
+    İhalenin keyword'lerini **kavram gruplarına** ayırır: `[(keyword_id_listesi, ağırlık)]`.
 
-    Beklenen plan: `Limit → Sort → HashAggregate → Index Only Scan
-    (ekap_tk_kw_tender_idx)`. Heap'e hiç gidilmez — `ekap_tender` 11 GB olduğu için
-    bu tasarımın tek sebebi budur (bkz. `TenderKeyword` docstring'i).
+    ⚠️⚠️ **Neden gerekli: AI aynı iş için farklı terimler üretti.** Üretimde ölçüldü
+    (2026-09-11, "Sürekli Atıksu İzleme Sistemi" ihaleleri) — birebir aynı işin
+    keyword'leri şunlardı:
+
+        atiksu izleme · atiksu izleme sistemi · izleme sistemi · atiksu analizi
+
+    Metin eşitliğine dayanan bir kesişim bu ihaleleri **birbirine bağlayamaz**;
+    ortak keyword sayısı 0-1 çıkar. `kanonik_keyword` bunu yakalayamaz çünkü bunlar
+    çekim eki varyantı değil, **farklı ifade tercihleri**.
+
+    Grup kuralı: bir keyword ile aynı gruba, **kapsama ilişkisi olan** (biri diğerinin
+    token kümesini içeren) ve **en az 2 ortak token** taşıyan sözlük keyword'leri girer.
+    `atiksu izleme` ≡ `atiksu izleme sistemi` ≡ `atiksu izleme istasyonu`.
+    ⚠️ "En az 2 ortak token" şartı olmasaydı tek kelimelik `atiksu` her şeye bağlanır,
+    grup kavram olmaktan çıkardı.
+    ⚠️ Kapsama şartı yönsüz ama zararsız: `yedek parca` ile `tasit yedek parca` aynı
+    gruba girer — biri diğerinin özelleşmişidir, benzerlik kanıtı olarak eşdeğerdir.
+
+    Ölçülen maliyet ~80 ms (5 keyword × `metin__contains` taraması, 125k satır).
+    Kademe zaten 150-500 ms sürdüğü için materyalize bir `kok` kolonu GEREKMEDİ.
     """
+    import math
+
     from django.conf import settings
-    from django.db.models import Case, FloatField, Sum, Value, When
+    from django.core.cache import cache
+
+    from .models import Keyword, Tender, TenderKeyword
+
+    limit = limit or getattr(settings, "KEYWORD_PROBE_LIMIT", 5)
+    satirlar = list(
+        TenderKeyword.objects.filter(tender_id=tender_pk, keyword__pasif=False)
+        .values_list("keyword_id", "keyword__metin", "keyword__derece",
+                     "keyword__kullanim_sayisi")
+    )
+    if not satirlar:
+        return []
+    toplam = cache.get(_N_IHALE_ANAHTARI)
+    if not toplam:
+        toplam = Tender.objects.count() or 1
+        cache.set(_N_IHALE_ANAHTARI, toplam, timeout=86400)
+    bonus = getattr(settings, "KEYWORD_DERECE_BONUS", 0.1)
+
+    skorlu = sorted(
+        ((kid, metin, (1 + bonus * (max(d, 1) - 1)) * math.log(toplam / max(df, 1)))
+         for kid, metin, d, df in satirlar),
+        key=lambda x: -x[2],
+    )[:limit]
+
+    gruplar = []
+    for kid, metin, agirlik in skorlu:
+        tokenlar = metin.split()
+        uyeler = {kid}
+        if len(tokenlar) >= 2:
+            qs = Keyword.objects.filter(pasif=False)
+            for w in tokenlar[:2]:          # iki token yeterli; kalanı Python'da elenir
+                qs = qs.filter(metin__contains=w)
+            kume = frozenset(tokenlar)
+            for pk2, metin2 in qs.values_list("pk", "metin")[:500]:
+                q = frozenset(metin2.split())
+                if len(kume & q) >= 2 and (kume < q or q < kume or kume == q):
+                    uyeler.add(pk2)
+        gruplar.append((sorted(uyeler), agirlik))
+    return gruplar
+
+
+def benzer_ihale_idleri(tender_pk, gruplar, limit, min_grup=None):
+    """
+    Keyword örtüşmesine göre en benzer ihalelerin id'leri — **en az `min_grup` ortak
+    kavram** şartıyla, benzerlik skoruna göre sıralı.
+
+    ⚠️⚠️ **Tek ortak keyword benzerlik DEĞİLDİR.** Eskiden eşik yoktu ve "Siber
+    Güvenlik Hizmeti" için 2000 adayın 1.941'i tek keyword eşleşmesiydi (çoğu yalnızca
+    `bilisim` kelimesini paylaşan bilgisayar/yazıcı alımları). İndirim medyanı bu
+    gürültüden hesaplanıyordu: 0,2165 — gerçek siber güvenlik işlerinde 0,1073.
+    Kullanıcı teklif fiyatını bu sayıya bakarak belirlediği için bu, ürünün en zararlı
+    hatasıydı.
+    ⚠️ Sayım **keyword değil KAVRAM** üzerinden yapılır (bkz. `kavram_gruplari`);
+    aksi hâlde `atiksu izleme` ile `atiksu izleme sistemi` ayrı sayılır ve aynı işler
+    birbirini bulamaz.
+    ⚠️ Kural kümeyi daraltır; ölçüm (30 ihale): 20'sinde yeterli örnek kalıyor, 10'u
+    merdivenin OKAS kademelerine düşüyor. Bu **doğru davranıştır** — gürültülü bir
+    medyan göstermektense kademeyi atlamak yeğdir.
+
+    Toplama Python'da yapılır: "aday başına kaç FARKLI grup" sorusu tek bir SQL
+    agregasyonuyla temiz ifade edilemez (grup→keyword eşlemesi 2000 dallı bir CASE
+    gerektirirdi, planlayıcıyı boğar). Okunan satırlar `(tender_id, keyword_id)`
+    çiftidir — index-only scan, `ekap_tender` heap'ine dokunulmaz.
+    """
+    from collections import defaultdict
+
+    from django.conf import settings
 
     from .models import TenderKeyword
 
-    if not keyword_agirliklari:
+    if not gruplar:
         return []
-    when = [When(keyword_id=k, then=Value(w)) for k, w in keyword_agirliklari]
-    # ⚠️⚠️ **Eşik GÖRELİDİR: en ayırt edici keyword'ün ağırlığı.** Anlamı: "aday, en
-    # az en özgül terim kadar kanıt getirmeli" — ya o terimi paylaşır, ya da daha
-    # zayıf terimlerden aynı toplamı biriktirir.
-    # Eskiden mutlak 0,0 idi, yani **eşik yoktu**: tek bir yaygın kelimeyi paylaşan
-    # her ihale hesaba giriyordu. Üretimde ölçüldü (2026-09-11, "Siber Güvenlik
-    # Hizmeti"): 2000 adayın **1.941'i tek keyword** eşleşmesiydi ve medyan skor
-    # (2,87) tam olarak `bilisim` kelimesinin tek başına ağırlığıydı. Yani indirim
-    # medyanı siber güvenlik işlerinden değil, rastgele bilişim alımlarından
-    # hesaplanıyordu. **Görünen liste sıralamayla düzelse bile SAYILAR bozuk kalır** —
-    # istatistik kümenin tamamından hesaplanır, ilk 20'den değil.
-    # ⚠️ Eşik kümeyi daraltır ve bazı ihalelerde kademe hiç ateşlenmez (ölçüm: 30
-    # ihalenin 7'si). Bu **doğru davranıştır**: merdiven OKAS kademelerine düşer.
-    # Gürültülü bir medyan göstermektense kademeyi atlamak yeğdir.
-    en_iyi = max(w for _, w in keyword_agirliklari)
-    oran = getattr(settings, "KEYWORD_SIMILAR_MIN_ORAN", 1.0)
-    esik = max(en_iyi * oran, getattr(settings, "KEYWORD_SIMILAR_MIN_SKOR", 0.0))
-    return (
-        TenderKeyword.objects
-        .filter(keyword_id__in=[k for k, _ in keyword_agirliklari])
-        .exclude(tender_id=tender_pk)
-        .values("tender_id")
-        .annotate(skor=Sum(Case(*when, default=Value(0.0), output_field=FloatField())))
-        .filter(skor__gte=esik)
-        .order_by("-skor")
-        .values_list("tender_id", flat=True)[:limit]
-    )
+    if min_grup is None:
+        min_grup = getattr(settings, "KEYWORD_MIN_ORTAK_GRUP", 2)
+    if len(gruplar) < min_grup:
+        return []
+
+    kmap, agirlik = {}, {}
+    for i, (uyeler, w) in enumerate(gruplar):
+        agirlik[i] = w
+        for kid in uyeler:
+            kmap.setdefault(kid, i)
+
+    bulunan = defaultdict(set)
+    satirlar = (TenderKeyword.objects.filter(keyword_id__in=list(kmap))
+                .exclude(tender_id=tender_pk)
+                .values_list("tender_id", "keyword_id"))
+    for tid, kid in satirlar.iterator(chunk_size=20000):
+        bulunan[tid].add(kmap[kid])
+
+    secilen = [
+        (tid, len(g), sum(agirlik[i] for i in g))
+        for tid, g in bulunan.items() if len(g) >= min_grup
+    ]
+    # Önce kaç kavram örtüştü, sonra kanıtın ağırlığı.
+    secilen.sort(key=lambda x: (-x[1], -x[2]))
+    return [tid for tid, _, _ in secilen[:limit]]
 
 
 def uygula(tender, kalip=None):

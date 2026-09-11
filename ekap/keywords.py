@@ -591,6 +591,9 @@ def oneri_keywordleri(kaliplar, limit=80):
     )
 
 
+_N_IHALE_ANAHTARI = "kw:n_ihale"
+
+
 def probe_keywordleri(tender_pk, limit=None):
     """
     Bir ihalenin benzerlik sorgusunda kullanılacak keyword'leri `[(id, ağırlık), ...]`.
@@ -600,14 +603,34 @@ def probe_keywordleri(tender_pk, limit=None):
     Bu yüzden `pasif` olanlar atılır ve kalanlardan **en düşük df'li** birkaç tanesi
     seçilir: hem en ayırt edici olanlar bunlardır (IDF), hem de en ucuz olanlar.
 
-    Ağırlık `derece × log(N/df)`: 3 kelimelik bir ifade 1 kelimelikten daha güçlü
-    kanıttır.
+    Ağırlık `(1 + KEYWORD_DERECE_BONUS×(derece−1)) × log(N/df)`.
+
+    ⚠️⚠️ **`N` İHALE sayısıdır, keyword sayısı DEĞİL.** `df` "bu keyword kaç ihalede
+    geçiyor" demek; IDF'in paydası aynı evrenden olmalı. Eskiden `Keyword.count()`
+    (55.524) kullanılıyordu, oysa doğrusu ~1.003.338. Yanlış payda tüm ağırlıkları
+    sabit bir miktar küçültür ve **derece çarpanının göreli etkisini şişirir** — hata
+    tek başına değil, aşağıdaki çarpanla birlikte zarar veriyordu.
+
+    ⚠️⚠️ **Derece çarpanı `× derece` DEĞİL.** Kelime sayısıyla çarpmak IDF'i eziyordu:
+    3 kelimelik YAYGIN bir ifade, 2 kelimelik NADİR olanı geçiyordu. Üretimde ölçüldü
+    (2026-09-11, İKN 2026/845304 "Sürekli Atıksu İzleme Sistemi"):
+
+        atiksu aritim tesisi  df=161  derece=3  →  3 × 5,84 = 17,53   ← kazanıyordu
+        atiksu izleme         df= 41  derece=2  →  2 × 7,21 = 14,42
+
+    Sonuç: "benzer işler" listesi atıksu **arıtma tesisi** projeleri/işletmeleriyle
+    doluyordu — ihale ise bir **izleme sistemi** alımı. Kullanıcının keyword katmanını
+    istemesinin sebebi tam olarak buydu.
+    ⚠️ Uzun ifade zaten doğal olarak daha nadirdir, yani özgüllüğü **IDF'in içinde**
+    sayılır; `× derece` bunu ikinci kez sayar. Bonus bu yüzden küçük (varsayılan 0,1 →
+    çarpanlar 1,0 / 1,1 / 1,2) ve ayarla değiştirilebilir.
     """
     import math
 
     from django.conf import settings
+    from django.core.cache import cache
 
-    from .models import Keyword, TenderKeyword
+    from .models import Tender, TenderKeyword
 
     limit = limit or getattr(settings, "KEYWORD_PROBE_LIMIT", 5)
     satirlar = list(
@@ -616,9 +639,15 @@ def probe_keywordleri(tender_pk, limit=None):
     )
     if not satirlar:
         return []
-    toplam = Keyword.objects.filter(pasif=False).count() or 1
+    # ⚠️ 1M satırda `count()` her probe'da atılamaz → 24 sa cache. Değer yavaş değişir
+    # (günde ~300 ihale), log içinde olduğu için küçük sapma sonucu etkilemez.
+    toplam = cache.get(_N_IHALE_ANAHTARI)
+    if not toplam:
+        toplam = Tender.objects.count() or 1
+        cache.set(_N_IHALE_ANAHTARI, toplam, timeout=86400)
+    bonus = getattr(settings, "KEYWORD_DERECE_BONUS", 0.1)
     skorlu = [
-        (kid, d * math.log(toplam / max(df, 1)))
+        (kid, (1 + bonus * (max(d, 1) - 1)) * math.log(toplam / max(df, 1)))
         for kid, d, df in satirlar
         if df >= 1
     ]
@@ -642,7 +671,22 @@ def benzer_ihale_idleri(tender_pk, keyword_agirliklari, limit):
     if not keyword_agirliklari:
         return []
     when = [When(keyword_id=k, then=Value(w)) for k, w in keyword_agirliklari]
-    esik = getattr(settings, "KEYWORD_SIMILAR_MIN_SKOR", 0.0)
+    # ⚠️⚠️ **Eşik GÖRELİDİR: en ayırt edici keyword'ün ağırlığı.** Anlamı: "aday, en
+    # az en özgül terim kadar kanıt getirmeli" — ya o terimi paylaşır, ya da daha
+    # zayıf terimlerden aynı toplamı biriktirir.
+    # Eskiden mutlak 0,0 idi, yani **eşik yoktu**: tek bir yaygın kelimeyi paylaşan
+    # her ihale hesaba giriyordu. Üretimde ölçüldü (2026-09-11, "Siber Güvenlik
+    # Hizmeti"): 2000 adayın **1.941'i tek keyword** eşleşmesiydi ve medyan skor
+    # (2,87) tam olarak `bilisim` kelimesinin tek başına ağırlığıydı. Yani indirim
+    # medyanı siber güvenlik işlerinden değil, rastgele bilişim alımlarından
+    # hesaplanıyordu. **Görünen liste sıralamayla düzelse bile SAYILAR bozuk kalır** —
+    # istatistik kümenin tamamından hesaplanır, ilk 20'den değil.
+    # ⚠️ Eşik kümeyi daraltır ve bazı ihalelerde kademe hiç ateşlenmez (ölçüm: 30
+    # ihalenin 7'si). Bu **doğru davranıştır**: merdiven OKAS kademelerine düşer.
+    # Gürültülü bir medyan göstermektense kademeyi atlamak yeğdir.
+    en_iyi = max(w for _, w in keyword_agirliklari)
+    oran = getattr(settings, "KEYWORD_SIMILAR_MIN_ORAN", 1.0)
+    esik = max(en_iyi * oran, getattr(settings, "KEYWORD_SIMILAR_MIN_SKOR", 0.0))
     return (
         TenderKeyword.objects
         .filter(keyword_id__in=[k for k, _ in keyword_agirliklari])

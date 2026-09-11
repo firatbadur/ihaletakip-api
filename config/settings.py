@@ -498,6 +498,14 @@ KEYWORD_FIYAT_OUT = env.float("KEYWORD_FIYAT_OUT", default=2.50)
 KEYWORD_PROBE_LIMIT = env.int("KEYWORD_PROBE_LIMIT", default=5)
 KEYWORD_MAX_DF = env.int("KEYWORD_MAX_DF", default=20_000)
 KEYWORD_SIMILAR_MIN_SKOR = env.float("KEYWORD_SIMILAR_MIN_SKOR", default=0.0)
+# Benzerlik eşiği = en ayırt edici keyword'ün ağırlığı × bu oran. 1.0 = "aday en az
+# en özgül terim kadar kanıt getirsin". Düşürmek kümeyi genişletir ve gürültüyü geri
+# getirir; 0'a çekmek eşiği tümden kaldırır (eski, bozuk davranış).
+KEYWORD_SIMILAR_MIN_ORAN = env.float("KEYWORD_SIMILAR_MIN_ORAN", default=1.0)
+# Çok kelimeli keyword'e verilen ek ağırlık: (1 + bonus × (derece-1)).
+# ⚠️ `× derece` YAPMAYIN — IDF'i ezip yaygın 3 kelimelik ifadeyi nadir 2 kelimeliğin
+# önüne geçirir (bkz. keywords.probe_keywordleri, İKN 2026/845304 ölçümü).
+KEYWORD_DERECE_BONUS = env.float("KEYWORD_DERECE_BONUS", default=0.1)
 
 # Benchmark kademesi — ⚠️ tek env değişkeniyle deploy'suz geri alınabilir.
 KEYWORD_BENCHMARK_ENABLED = env.bool("KEYWORD_BENCHMARK_ENABLED", default=False)

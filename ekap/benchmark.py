@@ -332,15 +332,36 @@ def benchmark(tender, yil_geri=VARSAYILAN_YIL, kapsam="auto", limit=20):
             "(iş kalemi ve idare bilgisi eksik)."
         )
 
+    # ⚠️⚠️ **Hiçbir kademe yetmezse EN İYİSİ seçilir, SONUNCUSU değil.** Eskiden döngü
+    # değişkeni son iterasyonda ne kaldıysa o kullanılıyordu; bu da merdivenin en
+    # genel (ve en alakasız) basamağıydı. Üretimde ölçüldü (2026-09-11, İKN
+    # 2026/845304 "Sürekli Atıksu İzleme Sistemi"):
+    #
+    #     anahtar   n=17  indirim_n=2      ← en iyi kanıt, seçilmesi gereken
+    #     ulke      n=37  indirim_n=0
+    #     grup      n=37  indirim_n=0
+    #     idare_tur n= 1  indirim_n=0      ← eskiden BU seçiliyordu
+    #
+    # Kullanıcı "aynı idare, aynı ihale türü" etiketiyle **tek bir alakasız sözleşme**
+    # görüyordu, oysa elde 17 gerçekten benzer iş vardı.
+    # ⚠️ Sıralama ölçütü `n_indirim` ÖNCE: manşet sayı (indirim oranı) ondan hesaplanır,
+    # `n` çok olsa bile indirim örneği yoksa gösterilecek bir şey yoktur. Eşitlikte
+    # `n`, onda da eşitlikte **merdivendeki sıra** (daha alakalı olan önce) kazanır.
     secilen = istat = qs = None
-    for kademe in kademeler:
-        qs = _temel_qs(tender, kademe.kosul, taban)
-        istat = _istatistik(qs)
-        secilen = kademe
+    en_iyi = None                         # (n_indirim, n, -sira, kademe, istat, qs)
+    for sira, kademe in enumerate(kademeler):
+        aday_qs = _temel_qs(tender, kademe.kosul, taban)
+        aday_istat = _istatistik(aday_qs)
+        anahtar_skor = (aday_istat["n_indirim"], aday_istat["n"], -sira)
+        if en_iyi is None or anahtar_skor > en_iyi[0]:
+            en_iyi = (anahtar_skor, kademe, aday_istat, aday_qs)
         # Yeterince örnek varsa genişletme; yoksa bir sonraki (daha geniş) kademeye geç.
-        if (istat["n_indirim"] >= MIN_INDIRIM_ORNEK
-                and istat["n"] >= MIN_SOZLESME_ORNEK):
+        if (aday_istat["n_indirim"] >= MIN_INDIRIM_ORNEK
+                and aday_istat["n"] >= MIN_SOZLESME_ORNEK):
+            secilen, istat, qs = kademe, aday_istat, aday_qs
             break
+    if secilen is None:
+        _, secilen, istat, qs = en_iyi
 
     n, n_ind = istat["n"], istat["n_indirim"]
     yeterli = n >= MUTLAK_MIN_ORNEK

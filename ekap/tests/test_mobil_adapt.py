@@ -444,3 +444,39 @@ class I18nAnahtariTest(TestCase):
                                   ihale_kapsam_aciklama="İstisna")
         cikti = _aciklamalari_duzelt({"ihaleKapsamAciklama": "4734 Kapsamında"}, t)
         self.assertEqual(cikti["ihaleKapsamAciklama"], "4734 Kapsamında")
+
+
+class TeknikIndirmeOnbellekTest(TestCase):
+    """⚠️ İndirme ucu, `documents/` ile AYNI önbellek biçimini okumalı."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        Tender.objects.create(ikn="2026/950", ekap_id="mobil:2026-950")
+
+    def test_sozluk_bicimli_onbellekte_indirme_500_vermez(self):
+        """Biçim uyuşmazlığı bu ucu 500'e düşürüyordu (üretimde yaşandı)."""
+        from unittest.mock import patch
+
+        from django.core.cache import cache
+
+        cache.set("ekap:mobil:dokliste:2026/950", {"ihale": [], "teknik": [
+            {"dosyaId": 111, "boyut": 10, "dosyaAdi": "{A}_{2}_{}_sartname.pdf"},
+        ]}, 60)
+
+        class SahteYanit:
+            headers = {"content-type": "application/pdf"}
+
+            @staticmethod
+            def iter_content(chunk_size=0):
+                yield b"%PDF-1.6"
+
+        with patch("ekap.mobil.client.EkapMobilClient.teknik_sartname_indir",
+                   return_value=SahteYanit()) as indir:
+            resp = self.client.get(
+                "/api/v1/ekap/tenders/mobil:2026-950/document/?tur=teknik&dosyaId=111")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(b"".join(resp.streaming_content), b"%PDF-1.6")
+        # ⚠️ Doğru dosya id'si ile çağrılmalı.
+        self.assertEqual(indir.call_args.args[2], 111)
+        self.assertIn("sartname.pdf", resp["Content-Disposition"])

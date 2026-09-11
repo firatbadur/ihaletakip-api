@@ -833,6 +833,33 @@ class TenderListView(APIView):
 # EKAP'ın çevrilmemiş i18n anahtarı: "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"
 _I18N_ANAHTARI = re.compile(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$")
 
+_DOK_ONBELLEK_TTL = 24 * 3600
+
+
+def _dokuman_onbellek_anahtari(ikn: str) -> str:
+    return f"ekap:mobil:dokliste:{ikn}"
+
+
+def _dokuman_onbellek_oku(ikn: str):
+    """
+    Doküman listesi önbelleğini **şekli doğrulayarak** okur; uymuyorsa `None`.
+
+    ⚠️ **Tek okuma noktası olmak zorunda.** Bu anahtarın biçimi iki kez değişti
+    (düz liste → sözlük; `ihale` bool → liste) ve her seferinde onu **bağımsız**
+    bilen ikinci bir kod yolu (indirme ucu) kırıldı: sözlüğü liste sanıp elemanları
+    dolaşınca string üzerinde `.get()` çağrılıyor ve uç **500** veriyordu
+    (üretimde yaşandı 2026-09-11: "teknik şartnameye tıklayınca indirmiyor").
+    Biçimi iki yerin ayrı ayrı bilmesi, `sync.apply_pro_fields`'teki "tek çıkarım
+    kaynağı" kuralının ihlalinin ta kendisi.
+    """
+    v = cache.get(_dokuman_onbellek_anahtari(ikn))
+    if not (isinstance(v, dict)
+            and isinstance(v.get("ihale"), list)
+            and isinstance(v.get("teknik"), list)):
+        return None
+    return v
+
+
 # Ham detaydaki açıklama alanı → onu doğru tutan kolon.
 _ACIKLAMA_KOLONU = {
     "ihaleKapsamAciklama": "ihale_kapsam_aciklama",
@@ -1160,17 +1187,7 @@ class TenderDocumentsView(APIView):
 
         # ⚠️ Önbellek hız bütçesinin asıl koruması: liste her doküman ekranı
         # açılışında sorulacak, ama içerik gün içinde değişmiyor.
-        anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
-        onbellek = cache.get(anahtar)
-        # ⚠️⚠️ **Biçim değişikliğine karşı savunma — ŞEKLİ DOĞRULA, tipi değil.**
-        # Bu anahtarın biçimi iki kez değişti (düz liste → sözlük; `ihale` alanı
-        # bool → liste). Her seferinde Redis'te önceki biçimli kayıtlar duruyor ve
-        # onları olduğu gibi kullanmak **500** üretti. Beklenen şekle uymayan her
-        # değer "önbellek ıskası" sayılır: bir sonraki istekte doğru biçimde yazılır.
-        if not (isinstance(onbellek, dict)
-                and isinstance(onbellek.get("ihale"), list)
-                and isinstance(onbellek.get("teknik"), list)):
-            onbellek = None
+        onbellek = _dokuman_onbellek_oku(tender.ikn)
         if onbellek is None:
             cli = EkapMobilClient(butce="kullanici")
             onbellek = {"ihale": [], "teknik": []}
@@ -1204,7 +1221,8 @@ class TenderDocumentsView(APIView):
             # (2026-09-11). "Bilmiyorum"u "yok" diye önbelleğe almak, yanlış veriyi
             # kalıcılaştırmaktır.
             if ihale_kesin and teknik_kesin:
-                cache.set(anahtar, onbellek, timeout=24 * 3600)
+                cache.set(_dokuman_onbellek_anahtari(tender.ikn), onbellek,
+                          timeout=_DOK_ONBELLEK_TTL)
             else:
                 veri["mesaj"] = ("Doküman bilgisi şu an alınamadı; "
                                  "lütfen birazdan tekrar deneyin.")
@@ -1317,12 +1335,17 @@ class TenderDocumentView(APIView):
                 # dosya). `dosyaId` verilmezse ilk dosya döner — ama doğru akış
                 # `documents/` ucundan listeleyip kullanıcıya seçtirmektir.
                 istenen = request.query_params.get("dosyaId")
-                anahtar = f"ekap:mobil:dokliste:{tender.ikn}"
-                kayitlar = cache.get(anahtar)
-                if kayitlar is None:
+                # ⚠️ Önbellek **tek yardımcıdan** okunur; biçimi burada ayrıca
+                # bilmek, biçim değişince bu ucu sessizce kıran hatanın kaynağıydı.
+                onbellek = _dokuman_onbellek_oku(tender.ikn)
+                if onbellek is not None:
+                    kayitlar = onbellek["teknik"]
+                else:
                     bilgiler = cli.teknik_sartname(yil, sayi)
                     kayitlar = bilgiler if isinstance(bilgiler, list) else []
-                    cache.set(anahtar, kayitlar, timeout=24 * 3600)
+                    # ⚠️ Buradan önbelleğe YAZILMAZ: elimizde yalnızca listenin
+                    # yarısı var (ihale dokümanı sorgulanmadı) ve eksik bir kayıt
+                    # `documents/` ucunu yanlış besler.
                 if not kayitlar:
                     return api_response(
                         message="Bu ihalede ayrı bir teknik şartname yok.",

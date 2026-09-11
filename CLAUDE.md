@@ -1187,6 +1187,49 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   Önce `values_list("pk","tender_id")` (TOAST'a dokunmaz), sonra yalnızca ilk
   `limit` satır tam okunur.
 
+- ⚠️⚠️ **Benzerlik kalitesi: dört ayrı hata aynı yöne çalışıyordu** (2026-09-11,
+  kullanıcı bildirimi: "Sürekli Atıksu İzleme Sistemi" ihalesine arıtma tesisi
+  projesi/işletmesi benzer geliyor — İKN 2026/845304). Hepsi ölçümle bulundu:
+
+  1. **IDF paydası yanlıştı** (`probe_keywordleri`): `N = Keyword.count()` (55.524)
+     kullanılıyordu; `df` "kaç İHALEDE geçiyor" demek → payda `Tender.count()` (~1M)
+     olmalı. Yanlış payda tüm ağırlıkları sabit kadar küçültüp derece çarpanının
+     göreli etkisini şişiriyordu. Değer 24 sa cache'lenir (`kw:n_ihale`).
+  2. **Derece çarpanı IDF'i eziyordu**: `× derece` yerine `× (1 + 0,1×(derece−1))`.
+     Ölçüm: `atiksu aritim tesisi` (df=161, 3 kelime) → 17,53 · `atiksu izleme`
+     (df=41, 2 kelime) → 14,42. **Yaygın olan nadir olanı geçiyordu.** Uzun ifade
+     zaten doğal olarak nadirdir; özgüllüğü IDF'in içinde sayılır, çarpmak ikinci
+     kez sayar. Ayar: `KEYWORD_DERECE_BONUS`.
+  3. **Skor eşiği YOKTU** (`KEYWORD_SIMILAR_MIN_SKOR=0.0`). "Siber Güvenlik Hizmeti"
+     ölçümü: 2000 adayın **1.941'i TEK keyword** eşleşmesiydi ve medyan skor (2,87)
+     tam olarak `bilisim` kelimesinin tek başına ağırlığıydı → indirim medyanı siber
+     güvenlik işlerinden değil rastgele bilişim alımlarından hesaplanıyordu.
+     ⚠️ **Liste sıralamasını düzeltmek YETMEZ**: istatistik kümenin TAMAMINDAN
+     hesaplanır, ekrandaki ilk 20'den değil. Yeni eşik = **en ayırt edici keyword'ün
+     ağırlığı** × `KEYWORD_SIMILAR_MIN_ORAN` (1.0): aday ya o terimi paylaşır ya da
+     zayıflardan aynı kanıtı biriktirir. Düşürmek gürültüyü geri getirir.
+     Ölçülen etki: Siber Güvenlik n=1115 → **169**, medyan indirim 0,2165 → **0,1073**.
+  4. **Merdiven fallback'i bozuktu** (`benchmark`) — *keyword katmanından önce de
+     vardı*: hiçbir kademe eşiği geçemezse döngü değişkeninde **son** kademe kalıyordu,
+     yani en genel ve en alakasız olan. 2026/845304'te `anahtar` n=17/indirim 2 varken
+     `idare_tur` n=1 seçiliyor, kullanıcı "Aynı idare, aynı ihale türü" etiketiyle tek
+     bir alakasız SCADA sözleşmesi görüyordu. Artık **en çok kanıt taşıyan** seçilir:
+     `n_indirim` > `n` > merdivendeki sıra. ⚠️ Bu hata `anahtar` kademesi çoğu ihalede
+     eşiği geçtiği için saklıydı; eşik sıkılaşınca ortaya çıktı.
+
+  ⚠️ **Ders**: liste sıralaması ile istatistik kümesi AYRI şeylerdir. Ekranda doğru
+  görünen bir liste, arkasındaki sayıların doğru olduğunu göstermez.
+
+- ⚠️ **`indirim_orani` `MUTLAK_MIN_ORNEK` (3) altında GÖSTERİLMEZ.** Sabitin kendi
+  belgelenmiş kuralı buydu ("istatistik değil, anekdot olur") ama yalnızca
+  `sozlesme_bedeli`/`yillara_gore`ye uygulanıyordu; `indirim_orani`nın koşulu `if n_ind`
+  idi → **2 örnekten** `p25/medyan/p75` basılıyordu (üretimde görüldü). İki noktanın
+  çeyrekliği yoktur. `indirim_orani` fiyat analizinin **manşet sayısıdır**, kullanıcı
+  teklifini ona bakarak veriyor. `null` + `guven="dusuk"` + uyarı dürüst cevaptır
+  (pazar panosundaki `indirim_guven="yetersiz"` ile aynı ilke).
+  ⚠️ `_uyari` metni de bununla uyumlu olmalı — gizlenen bir hesabı "hesaplandı" diye
+  anlatmak kapının amacını bozar.
+
 - ✅ **ÜRETİMDE AÇIK (2026-09-11).** Ölçülen kapsam ve maliyet:
   kalıp sözlüğü **665.768 `ok` = 1.006.988 ihale (%95,9)** · `skipped` %1,5 (model
   anlamlı keyword çıkaramadı, uydurmadı) · yayma **1.003.338 ihale (%95,5)**,

@@ -419,7 +419,20 @@ EKAP_MOBIL_CAPTCHA_PSM = env.int("EKAP_MOBIL_CAPTCHA_PSM", default=7)
 # Tam ad eşleşmesi ayrı ve daha güvenilir bir kademedir (%97,9); eşik yalnızca
 # bulanık kademeyi yönetir. `0` → bulanık eşleştirme tamamen kapanır.
 EKAP_MOBIL_IDARE_ESIK = env.float("EKAP_MOBIL_IDARE_ESIK", default=0.90)
-EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=60)
+# ⚠️⚠️ **Keşif turu PAHALIDIR: ölçülen tur maliyeti ~52 istek** (bugün → +45 gün
+# penceresi, 4 ihale türü, uyarlamalı bölme). Saatlik tur = ~1.250 istek/gün, yani
+# günlük tavanın (600) iki katı → bütçe öğlene doğru biter ve **detaylar aç kalır**.
+# Detay `ilan_tarihi`nin tek kaynağı olduğu için bu, doğrudan bildirimlerin susması
+# demektir (üretimde ölçüldü 2026-09-12: saat 07:00'de 212/600 harcanmış, 209'u keşif).
+# ⚠️ **Pencereyi daraltmak çözüm DEĞİL**: mobil liste `ihaleTarihi`ne göre filtreliyor
+# ve bugün yayımlanan bir ihalenin tarihi 2-6 hafta ileride olabiliyor → dar pencere
+# yeni ilanları kaçırır. Çözüm turu seyrekleştirmek.
+# 240 dk = günde 6 tur ≈ 310 istek; kalanı detaya (günde ~300 yeni ihale) yeter.
+EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=240)
+# ⚠️ Bütçenin son dilimi **detaya ayrılır**: kalan hak bu eşiğin altına inince keşif
+# durur, yalnızca detay/sonuç çalışır. Keşif kaçarsa bir tur gecikir; detay kaçarsa
+# o ihalenin `ilan_tarihi`si hiç dolmaz ve bildirimler onu göremez.
+EKAP_MOBIL_DETAY_REZERV = env.int("EKAP_MOBIL_DETAY_REZERV", default=150)
 EKAP_MOBIL_KESIF_ILERI_GUN = env.int("EKAP_MOBIL_KESIF_ILERI_GUN", default=45)
 EKAP_MOBIL_KESIF_GERI_GUN = env.int("EKAP_MOBIL_KESIF_GERI_GUN", default=3)
 # Çekmeli iş döngüsünün kalp atışı (dk) ve tur başına harcanacak istek sayısı.

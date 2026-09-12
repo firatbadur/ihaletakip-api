@@ -136,6 +136,18 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
 - ⚠️ **`SyncRun` satırı yalnızca keşif turlarında yazılır.** Tik 2 dk'da bir koşuyor;
   her tur satır yazmak admin'i günde ~720 kayıtla doldururdu. Teşhis
   `Tender.detail_synced_at` / `ilan_tarihi` sayımlarıyla yapılır.
+- ⚠️⚠️ **KEŞİF TURU PAHALI: ~52 istek/tur** (ölçüldü 2026-09-12). Saatlik tur
+  ~1.250 istek/gün eder — günlük tavanın (600) iki katı → bütçe öğlene doğru biter ve
+  **detaylar aç kalır**; detay `ilan_tarihi`nin tek kaynağı olduğu için bu doğrudan
+  **bildirimlerin susması** demektir. Belirti: sabah saatlerinde `butce_ozet()`
+  kullanılanın çoğu `kesif` sayacında, `detay=0`.
+  → `EKAP_MOBIL_KESIF_ARALIK_DK` **240** (günde 6 tur ≈ 310 istek).
+  ⚠️ **Pencereyi daraltmak çözüm DEĞİL**: mobil liste `ihaleTarihi`ne göre filtreliyor
+  ve bugün yayımlanan ihalenin tarihi 2-6 hafta ileride olabiliyor → dar pencere yeni
+  ilanları kaçırır. Seyrekleştirmek doğru düğmedir.
+  ⚠️ Ayrıca **bütçenin son dilimi detaya ayrılır** (`EKAP_MOBIL_DETAY_REZERV`, 150):
+  kalan hak bu eşiğin altına inince keşif durur. Keşfin gecikmesi bir turluktur,
+  detayın kaçması kalıcı boşluktur.
 - **250 kayıt tavanı, sayfalama YOK** → keşif **uyarlamalı aralık bölmesi** yapar:
   yığındaki dilim 250 dönerse ikiye bölünüp geri konur (`SyncCheckpoint("mobil_kesif")
   .extra["yigin"]`). İstek sayısı gerçek hacimle orantılı olur, sabit gün×tür

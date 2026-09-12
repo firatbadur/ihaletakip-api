@@ -155,11 +155,21 @@ def _tur_yap(cli, tur: int):
     kesif_hazir = _kesif_yigini(olustur=False)
     detay_ikn = _sirada_detay()
 
+    # ⚠️ **Bütçenin son dilimi detaya ayrılır.** Keşif turu pahalı (~52 istek); bütçeyi
+    # bitirirse o gün gelen ihalelerin detayı hiç çekilemez ve `ilan_tarihi` boş kalır
+    # — bildirimlerin tamamı o alana bağlı. Keşfin gecikmesi bir turluk gecikmedir,
+    # detayın kaçması kalıcı bir boşluktur.
+    rezerv = getattr(settings, "EKAP_MOBIL_DETAY_REZERV", 150)
+    if kesif_hazir and throttle.butce_kalan() <= rezerv:
+        logger.info("bütçe rezerve indi (%s) → keşif duraklatıldı, detaya öncelik",
+                    throttle.butce_kalan())
+        kesif_hazir = []
+
     if kesif_hazir and (detay_ikn is None or tur % KESIF_PAYI == 0):
         return kesif_adimi(cli)
     if detay_ikn:
         return detay(detay_ikn, cli=cli)
-    if _kesif_yigini(olustur=True):
+    if throttle.butce_kalan() > rezerv and _kesif_yigini(olustur=True):
         return kesif_adimi(cli)
     sonuc_ikn = _sirada_sonuc()
     if sonuc_ikn:

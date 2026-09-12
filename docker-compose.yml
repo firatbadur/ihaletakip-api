@@ -279,6 +279,13 @@ services:
   # ⚠️ CAPTCHA çözülmez: karar Cloudflare'in; etkileşim istenirse daemon
   # `insan_gerekli` işaretler ve bir kişinin bağlanmasını bekler.
   ekap-browser:
+    # ⚠️ **Varsayılan olarak BAŞLATILMAZ** (`profiles`). Bu servis Turnstile oturumunu
+    # ayakta tutmak için yazıldı ama Cloudflare sunucudaki otomasyon tarayıcısını
+    # açıkça reddediyor (bkz. CLAUDE.md) → konteyner açılışta çöküyor ve `restart:
+    # unless-stopped` yüzünden sonsuz yeniden başlatma döngüsüne giriyor. Her
+    # deploy'dan sonra elle durdurmak gerekiyordu.
+    # Denemek gerekirse: `docker compose --profile manuel up -d ekap-browser`
+    profiles: ["manuel"]
     build:
       context: .
       dockerfile: docker/browser.Dockerfile

@@ -5,7 +5,8 @@ Bu testler önbelleğin **hızını** değil, sessizce yanlış veri servis etme
 engelleyen üç davranışı korur. Üçü de üretimde fark edilmesi zor hatalardır.
 """
 
-from unittest.mock import patch
+import threading
+import time
 
 from django.core.cache import cache
 from django.http import QueryDict
@@ -111,3 +112,79 @@ class RaporCacheTest(TestCase):
         p = QueryDict("a=1")
         self.assertEqual(_cached_rapor("benchmark", p, yap("x"))[0], {"ad": "x"})
         self.assertEqual(_cached_rapor("idare_profil", p, yap("y"))[0], {"ad": "y"})
+
+
+class TekUcusTest(TestCase):
+    """
+    Tek-uçuş: aynı raporu isteyen eşzamanlı istekler bir kez hesaplamalı.
+
+    Üretimde ölçülen senaryo (2026-09-14): mobil istemci aynı raporu **aynı saniyede
+    altı kez** istiyor. Önbellek tek başına işe yaramıyor çünkü altısı da ıskalıyor;
+    altısı birlikte hesaplanınca aynı soğuk sayfalar için diskte yarışıyor ve tek
+    başına 1,2 sn olan iş 113 sn'ye çıkıyordu.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def test_alti_eszamanli_istek_bir_kez_hesaplar(self):
+        cagri = []
+        basladi = threading.Event()
+
+        def hesapla():
+            cagri.append(1)
+            basladi.set()
+            time.sleep(0.4)          # yavaş rapor
+            return {"n": 3}, None
+
+        sonuclar = []
+        lock = threading.Lock()
+
+        def istek():
+            v, h = _cached_rapor("b", QueryDict("idare_detsis=1"), hesapla)
+            with lock:
+                sonuclar.append((v, h))
+
+        lider = threading.Thread(target=istek)
+        lider.start()
+        basladi.wait(2)              # lider kilidi almış olsun
+        digerleri = [threading.Thread(target=istek) for _ in range(5)]
+        for t in digerleri:
+            t.start()
+        for t in [lider, *digerleri]:
+            t.join(15)
+
+        self.assertEqual(len(sonuclar), 6, "altı istek de yanıt almalı")
+        self.assertTrue(all(v == {"n": 3} and h is None for v, h in sonuclar))
+        self.assertEqual(len(cagri), 1, f"hesap {len(cagri)} kez yapıldı, 1 olmalıydı")
+
+    def test_kilit_serbestse_hesaplar(self):
+        """Tek istek (yarış yok) normal yolda hesaplamalı — kilit onu engellemesin."""
+        cagri = []
+
+        def hesapla():
+            cagri.append(1)
+            return {"n": 1}, None
+
+        veri, hata = _cached_rapor("b", QueryDict("x=9"), hesapla)
+        self.assertEqual((veri, hata), ({"n": 1}, None))
+        self.assertEqual(len(cagri), 1)
+
+    def test_hatali_liderden_sonra_kilit_serbest(self):
+        """
+        ⚠️ Lider hata dönerse kilit BIRAKILMALI (finally) ve sonuç önbelleğe
+        girmemeli; aksi halde geçici bir hata kilidi TTL boyunca tutar ve o rapor
+        kimse için hesaplanamaz hâle gelirdi.
+        """
+        durum = {"basarisiz": True}
+
+        def hesapla():
+            if durum["basarisiz"]:
+                return None, "geçici"
+            return {"n": 2}, None
+
+        p = QueryDict("z=1")
+        self.assertEqual(_cached_rapor("b", p, hesapla)[1], "geçici")
+        durum["basarisiz"] = False
+        self.assertEqual(_cached_rapor("b", p, hesapla)[0], {"n": 2})
+

@@ -5,6 +5,7 @@ Hepsi kendi DB'mizden okur (hızlı, rate-limit yok). Global zarf (core renderer
 otomatik uygulanır. Detay/belge-url için gerekirse EKAP'a canlı düşülür.
 """
 import hashlib
+import time
 import logging
 import re
 from datetime import timedelta, timezone as dt_timezone
@@ -271,6 +272,9 @@ def _cached_count(qs, params, scope="tender"):
 
 
 _RAPOR_TTL = getattr(settings, "REPORT_CACHE_TTL", 3600)
+_RAPOR_LOCK_TTL = getattr(settings, "REPORT_LOCK_TTL", 180)
+_RAPOR_LOCK_WAIT = getattr(settings, "REPORT_LOCK_WAIT", 25)
+_RAPOR_POLL = 0.25
 
 
 def _cached_rapor(scope, params, hesapla, ekstra=""):
@@ -314,12 +318,58 @@ def _cached_rapor(scope, params, hesapla, ekstra=""):
     key = "rapor:" + hashlib.sha1(f"{scope}|{ekstra}|{sig!r}".encode()).hexdigest()
     kayit = cache.get(key)
     if kayit is None:
-        veri, hata = hesapla()
-        if hata is None and veri is not None:
-            cache.set(key, (veri, hata), _RAPOR_TTL)
-        return veri, hata
+        kayit = _tek_ucus(key, hesapla)
+        if kayit is None:  # kilit bizde değildi ve bekleme penceresi doldu
+            return hesapla()
     veri, hata = kayit
     return (dict(veri) if isinstance(veri, dict) else veri), hata
+
+
+def _tek_ucus(key, hesapla):
+    """
+    Tek-uçuş (single-flight): aynı raporu isteyen eşzamanlı istekler **bir kez** hesaplar.
+
+    ⚠️⚠️ Bu koruma olmadan önbellek, asıl arızayı hiç engellemiyordu. Üretim logu
+    (2026-09-14, `$request_time` açıldıktan sonra) aynı raporun **aynı saniyede altı
+    kez** istendiğini gösterdi — mobil istemci kopya istek atıyor:
+        15:21:48 idare_detsis=34726855 sure=113.658
+        15:21:48 idare_detsis=34726855 sure=80.894
+        15:21:48 idare_detsis=34726855 sure=53.261 / 53.245 / 35.003 / 34.910
+    Altısı da önbelleği ıskalıyor (ilki henüz yazmamış), altısı birlikte hesaplanıyor ve
+    aynı soğuk sayfalar için disk üzerinde **birbirleriyle yarışıyorlar** → tek başına
+    ~1,2 sn olan iş 113 sn'ye çıkıyor. Bir istek 499 ile düştü (kullanıcı vazgeçti) ve
+    hemen yeniden denendi: yeniden deneme yükü daha da artırır.
+    ⚠️ Yani "önbellek koydum" demek yetmez: **stampede** senaryosunda önbellek hiç
+    devreye girmez, çünkü herkes aynı anda ıskalar.
+
+    Dönüş: `(veri, hata)` ya da **`None`** — "kilit bizde değildi ve sonuç beklerken
+    pencere doldu" demektir; çağıran o zaman kendisi hesaplar. Bilinçli tercih:
+    bekleyene hata döndürmek yeni bir başarısızlık modu eklerdi, kendi hesaplaması ise
+    en kötü hâlde **bugünkü davranışa** geri düşmek olur. Lider ısınmayı çoktan yaptığı
+    için bu düşüş pratikte de hızlıdır.
+    ⚠️ Kilit TTL'i beklemeden UZUN olmalı: lider çökerse kilit kısa sürede düşsün ama
+    bekleyenler hâlâ beklerken düşmesin (yoksa ikinci bir sürü oluşur).
+    """
+    lock_key = key + ":lock"
+    if cache.add(lock_key, "1", _RAPOR_LOCK_TTL):
+        try:
+            veri, hata = hesapla()
+            # ⚠️ Hata önbelleğe alınmaz (bkz. `_cached_rapor`), ama yine döndürülür.
+            if hata is None and veri is not None:
+                cache.set(key, (veri, hata), _RAPOR_TTL)
+            return veri, hata
+        finally:
+            cache.delete(lock_key)
+
+    # Kilit başkasında: liderin yazmasını bekle. Yoklama ucuz (Redis GET), beklerken
+    # DB'ye hiç dokunulmaz — asıl kazanç bu.
+    son = time.monotonic() + _RAPOR_LOCK_WAIT
+    while time.monotonic() < son:
+        time.sleep(_RAPOR_POLL)
+        kayit = cache.get(key)
+        if kayit is not None:
+            return kayit
+    return None
 
 
 def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):

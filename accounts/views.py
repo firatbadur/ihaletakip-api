@@ -178,6 +178,8 @@ class GoogleLoginView(APIView):
             provider=User.Provider.GOOGLE,
             provider_uid=info["sub"],
             display_name=info.get("name", ""),
+            first_name=info.get("given_name", ""),
+            last_name=info.get("family_name", ""),
             photo_url=info.get("picture", ""),
         )
         return Response(issue_tokens(user, created=created))
@@ -299,9 +301,12 @@ class ProfileView(APIView):
     @extend_schema(
         summary="Profili güncelle",
         description=(
-            "Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url` ve "
-            "`preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined` "
-            "salt okunurdur."
+            "Kısmi güncelleme. Yazılabilir: `display_name`, `first_name`, `last_name`, "
+            "`email`, `photo_url`, `preferences`, `age_range` "
+            "(`18_24|25_34|35_44|45_54|55_plus`) ve `onboarding_status` "
+            "(`pending|skipped|completed`). `completed`'a ilk geçişte "
+            "`onboarding_completed_at` sunucuda damgalanır. `id`, `username`, "
+            "`provider` ve `date_joined` salt okunurdur."
         ),
         request=UserSerializer,
         responses={200: UserSerializer},
@@ -310,7 +315,17 @@ class ProfileView(APIView):
                 "İsim güncelle",
                 request_only=True,
                 value={"display_name": "Fırat Badur"},
-            )
+            ),
+            OpenApiExample(
+                "Tanışma sihirbazını tamamla",
+                request_only=True,
+                value={
+                    "first_name": "Fırat",
+                    "last_name": "Badur",
+                    "age_range": "25_34",
+                    "onboarding_status": "completed",
+                },
+            ),
         ],
     )
     def patch(self, request):

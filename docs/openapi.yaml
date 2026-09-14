@@ -972,9 +972,11 @@ paths:
           description: ''
     patch:
       operationId: api_v1_auth_profile_partial_update
-      description: Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url`
-        ve `preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined`
-        salt okunurdur.
+      description: 'Kısmi güncelleme. Yazılabilir: `display_name`, `first_name`, `last_name`,
+        `email`, `photo_url`, `preferences`, `age_range` (`18_24|25_34|35_44|45_54|55_plus`)
+        ve `onboarding_status` (`pending|skipped|completed`). `completed`''a ilk geçişte
+        `onboarding_completed_at` sunucuda damgalanır. `id`, `username`, `provider`
+        ve `date_joined` salt okunurdur.'
       summary: Profili güncelle
       tags:
       - auth
@@ -988,6 +990,13 @@ paths:
                 value:
                   display_name: Fırat Badur
                 summary: İsim güncelle
+              TanışmaSihirbazınıTamamla:
+                value:
+                  first_name: Fırat
+                  last_name: Badur
+                  age_range: '25_34'
+                  onboarding_status: completed
+                summary: Tanışma sihirbazını tamamla
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/PatchedUser'
@@ -3664,6 +3673,23 @@ paths:
           description: ''
 components:
   schemas:
+    AgeRangeEnum:
+      enum:
+      - '18_24'
+      - '25_34'
+      - '35_44'
+      - '45_54'
+      - 55_plus
+      type: string
+      description: '* `18_24` - 18-24
+
+        * `25_34` - 25-34
+
+        * `35_44` - 35-44
+
+        * `45_54` - 45-54
+
+        * `55_plus` - 55+'
     AnalysisResult:
       type: object
       properties:
@@ -4364,6 +4390,17 @@ components:
       required:
       - adi
       - kod
+    OnboardingStatusEnum:
+      enum:
+      - pending
+      - skipped
+      - completed
+      type: string
+      description: '* `pending` - Bekliyor
+
+        * `skipped` - Atlandı
+
+        * `completed` - Tamamlandı'
     PatchedPreferences:
       type: object
       description: Tercih güncelleme (serbest JSON).
@@ -4434,6 +4471,14 @@ components:
           type: string
           title: Görünen ad
           maxLength: 255
+        first_name:
+          type: string
+          title: Adı
+          maxLength: 150
+        last_name:
+          type: string
+          title: Soyadı
+          maxLength: 150
         photo_url:
           type: string
           format: uri
@@ -4465,6 +4510,21 @@ components:
           nullable: true
           title: Abonelik bitişi
           description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
+        age_range:
+          title: Yaş aralığı
+          oneOf:
+          - $ref: '#/components/schemas/AgeRangeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        onboarding_status:
+          allOf:
+          - $ref: '#/components/schemas/OnboardingStatusEnum'
+          title: Tanışma sihirbazı
+        onboarding_completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Sihirbaz tamamlanma
     Preferences:
       type: object
       description: Tercih güncelleme (serbest JSON).
@@ -4945,6 +5005,14 @@ components:
           type: string
           title: Görünen ad
           maxLength: 255
+        first_name:
+          type: string
+          title: Adı
+          maxLength: 150
+        last_name:
+          type: string
+          title: Soyadı
+          maxLength: 150
         photo_url:
           type: string
           format: uri
@@ -4976,11 +5044,27 @@ components:
           nullable: true
           title: Abonelik bitişi
           description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
+        age_range:
+          title: Yaş aralığı
+          oneOf:
+          - $ref: '#/components/schemas/AgeRangeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        onboarding_status:
+          allOf:
+          - $ref: '#/components/schemas/OnboardingStatusEnum'
+          title: Tanışma sihirbazı
+        onboarding_completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Sihirbaz tamamlanma
       required:
       - date_joined
       - email
       - id
       - is_premium
+      - onboarding_completed_at
       - provider
       - subscription_expires_at
       - subscription_tier

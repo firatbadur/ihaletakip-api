@@ -16,7 +16,7 @@ def verify_google_id_token(id_token_str: str) -> dict:
     Google idToken'ı doğrula ve kullanıcı bilgilerini döndür.
 
     Returns:
-        {sub, email, name, picture, email_verified}
+        {sub, email, name, given_name, family_name, picture, email_verified}
     Raises:
         GoogleAuthError — geçersiz/süresi dolmuş token
     """
@@ -48,6 +48,8 @@ def verify_google_id_token(id_token_str: str) -> dict:
         "sub": info.get("sub"),
         "email": info.get("email", ""),
         "name": info.get("name", ""),
+        "given_name": info.get("given_name", ""),
+        "family_name": info.get("family_name", ""),
         "picture": info.get("picture", ""),
         "email_verified": info.get("email_verified", False),
     }

@@ -1023,6 +1023,16 @@ uygulama uçları). Tek sebep bir arka plan sorgusuydu.
    servislere** verilir — ağır bir data-migration bu süreyi meşru olarak aşar, `web`'e
    konsa deploy kırılırdı. ⚠️ Sunucu taraflı imleçlerde zaman aşımı **deyim başına**
    işler → uzun bir `.iterator()` taraması, her FETCH hızlı olduğu sürece kesilmez.
+   ⚠️⚠️ **MIGRATION KOMUTLARI KODDA MUAF TUTULUR** (`settings._migrasyon_modu`,
+   `sys.argv` kontrolü). `web`'i muaf tutmak **YETMEZ**: bu dosyanın belgelediği
+   ağır-migration deseni tek seferlik konteyneri **`worker` servisiyle** çalıştırır
+   (`docker compose run --no-deps --entrypoint python worker manage.py migrate`) ve o
+   servis zaman aşımını taşır. Yaşandı (2026-09-14): `0026`'nın `CREATE INDEX
+   CONCURRENTLY`'si 240 sn'yi aşınca migration `canceling statement due to statement
+   timeout` ile düştü ve arkasında **geçersiz indeks** bıraktı.
+   ⚠️ Muafiyeti "operatör `-e DJANGO_DB_STATEMENT_TIMEOUT_MS=0` yazmayı hatırlar" diye
+   belgelemek çözüm değildi: unutulduğunda yarım kalan CONCURRENTLY geçersiz indeks
+   bırakır (`PgAddIndexConcurrently` onu bir sonraki turda düşürüp yeniden kurar).
 3. **Bayat bir ölçüm yanlış tavanı haklı gösteriyordu.** `sync_contractors`
    docstring'i "~200 ihale/sn" diyordu; gerçek **~2,8 ihale/sn** (CLAUDE.md'de zaten
    düzeltilmişti, kodda kalmıştı). 90 sn'lik bütçe ~250 satır tüketirken varsayılan

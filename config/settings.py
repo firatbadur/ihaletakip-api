@@ -501,10 +501,14 @@ SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
 # doğası gereği tarihseldir (yeni sözleşmeler Sonuç İlanı ile AYLAR içinde damlar).
 REPORT_CACHE_TTL = env.int("REPORT_CACHE_TTL", default=3600)
 # ⚠️ Tek-uçuş (single-flight) kilidi — ÖNBELLEK TEK BAŞINA YETMEZ. Üretim logu
-# (2026-09-14) aynı raporun **aynı saniyede altı kez** istendiğini gösterdi (mobil
-# istemci kopya istek atıyor); altısı da önbelleği ıskalayıp birlikte hesaplanıyor ve
-# aynı soğuk sayfalar için diskte birbirleriyle yarışıyordu → tek başına 1,2 sn olan
-# iş 113 sn. `REPORT_LOCK_WAIT`: bekleyenin lideri bekleme süresi (dolarsa kendisi
+# (2026-09-14) aynı rapor için **üst üste binen** istekler gösterdi: mobil 30 sn'lik
+# zaman aşımından sonra yeniden deniyor (⚠️ zaman aşımı sunucudaki hesabı İPTAL ETMEZ,
+# nginx bunu 499 olarak loglar) ve ayrıca kopya istek atıyor. Üst üste binenlerin hepsi
+# önbelleği ıskalayıp birlikte hesaplanıyor ve aynı soğuk sayfalar için diskte
+# birbirleriyle yarışıyordu → tek başına 1,2 sn olan iş 113 sn.
+# ⚠️ nginx damgası isteğin BİTİŞİdir (ölçüldü); "aynı saniye" satırlar aynı anda
+# istendi DEMEZ — başlangıç `damga − sure` ile bulunur. Bu ayrım bir kez yanlış
+# teşhis ürettirdi. `REPORT_LOCK_WAIT`: bekleyenin lideri bekleme süresi (dolarsa kendisi
 # hesaplar — en kötü hâl bugünkü davranış). `REPORT_LOCK_TTL` beklemeden UZUN olmalı:
 # lider çökerse kilit düşsün ama bekleyenler hâlâ beklerken düşmesin (ikinci sürü).
 REPORT_LOCK_TTL = env.int("REPORT_LOCK_TTL", default=180)

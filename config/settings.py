@@ -4,6 +4,7 @@ IhaleTakip API — Django ayarları.
 Ortam değişkenleri .env dosyasından okunur (django-environ).
 Üretimde tüm sırlar env üzerinden gelmelidir.
 """
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -134,8 +135,25 @@ DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 # ölsün, ki hata Python'a düşüp `_run`'ın `finally`'si kilidi bıraksın.
 # ⚠️ Sunucu taraflı imleçlerde (`.iterator()`) zaman aşımı **deyim başına** işler:
 # uzun süren bir tarama, her FETCH hızlı olduğu sürece kesilmez — istenen davranış.
+#
+# ⚠️⚠️ **MIGRATION KOMUTLARI MUAFTIR — bu satırı kaldırmayın.** `web`'i muaf tutmak
+# YETMEZ: CLAUDE.md'nin belgelediği ağır-migration deseni tek seferlik bir konteyneri
+# **`worker` servisiyle** çalıştırır (`docker compose run --no-deps --entrypoint python
+# worker manage.py migrate`) ve o servis zaman aşımını taşır. Yaşandı (2026-09-14):
+# `0026`'nın `CREATE INDEX CONCURRENTLY`'si 240 sn'yi aşınca migration
+# `OperationalError: canceling statement due to statement timeout` ile düştü.
+# ⚠️ Muafiyeti "operatör `-e DJANGO_DB_STATEMENT_TIMEOUT_MS=0` yazmayı hatırlar" diye
+# belgelemek yetmez: bu, gece yarısı deploy'unda kesin unutulacak bir adımdır ve
+# yarım kalan CONCURRENTLY **geçersiz indeks** bırakır.
+_MIGRASYON_KOMUTLARI = {"migrate", "makemigrations", "sqlmigrate", "squashmigrations"}
+_migrasyon_modu = any(a in _MIGRASYON_KOMUTLARI for a in sys.argv[1:2])
+
 DB_STATEMENT_TIMEOUT_MS = env.int("DJANGO_DB_STATEMENT_TIMEOUT_MS", default=0)
-if DB_STATEMENT_TIMEOUT_MS > 0 and "postgres" in DATABASES["default"].get("ENGINE", ""):
+if (
+    DB_STATEMENT_TIMEOUT_MS > 0
+    and not _migrasyon_modu
+    and "postgres" in DATABASES["default"].get("ENGINE", "")
+):
     _db_opts = DATABASES["default"].setdefault("OPTIONS", {})
     _db_opts["options"] = (
         f"{_db_opts.get('options', '')} -c statement_timeout={DB_STATEMENT_TIMEOUT_MS}"

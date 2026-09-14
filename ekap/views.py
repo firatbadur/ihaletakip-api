@@ -270,6 +270,58 @@ def _cached_count(qs, params, scope="tender"):
     return total
 
 
+_RAPOR_TTL = getattr(settings, "REPORT_CACHE_TTL", 3600)
+
+
+def _cached_rapor(scope, params, hesapla, ekstra=""):
+    """
+    Ağır rapor uçları için `(veri, hata)` önbelleği — fiyat analizi + idare profili.
+
+    Gerekçe: bu uçlar **yavaş değil, soğuk**. Ölçüldü (2026-09-14, boş sunucu): aynı
+    ihalenin fiyat analizi soğuk **27.929 ms**, sıcak **448 ms**; sıcak çağrıda toplam
+    3 sorgu / 200 ms ve `shared_blks_read=0`. Süreyi sorgu planı değil rastgele disk
+    okuması yiyor (çalışma kümesi 2 GB `shared_buffers`'a sığmıyor). Hesabı saklamak,
+    ikinci kullanıcıyı o bedelden tümüyle kurtarır. Bkz. `settings.REPORT_CACHE_TTL`.
+
+    ⚠️⚠️ **MASKELEME ÖNBELLEĞİN DIŞINDA KALMALI.** Saklanan veri Free/Pro'dan bağımsız
+    **maskesiz** hesaptır; `kilitli` alanlarını sıfırlamak çağıranın işidir. Maskelenmiş
+    hâli saklamak (ya da premium durumunu anahtara koymak) iki hatadan birini üretirdi:
+    Pro'nun yanıtını Free'ye servis etmek (**ödenmiş veri sızar**) ya da her kullanıcı
+    için ayrı hesap (önbellek işe yaramaz).
+
+    ⚠️ **Dönen sözlük bir KOPYADIR — savunma amaçlı, gözlenmiş bir hata için değil.**
+    Çağıran dönen sözlük üzerinde maskeleme yapıyor (`veri[alan] = None`). Bugün
+    yapılandırılmış iki arka uç da bunu zararsız kılıyor: `RedisCache` serileştiriyor
+    ve `LocMemCache` de `pickle.dumps` ile saklıyor (ölçüldü — "locmem nesneyi aynen
+    döndürür" YANLIŞTIR). Yani kopya bu hâliyle **yalnızca sözleşmeyi sabitler**:
+    önümüze süreç-içi bir memo katmanı ya da serileştirmeyen bir arka uç girerse
+    maskeleme önbelleği kirletir ve **Pro kullanıcılara maskeli veri** gider.
+    `test_rapor_cache.py` bu sözleşmeyi kilitler. Kopya sığdır: çağıranlar yalnızca
+    üst düzey anahtarları değiştiriyor.
+
+    ⚠️ **HATA ÖNBELLEĞE ALINMAZ** — `documents/` ucundaki "bilmiyorum"u "yok" diye
+    saklama arızasının (2026-09-11) aynısı olurdu: geçici bir 400/422, TTL boyunca
+    kalıcı bir hataya dönerdi.
+
+    ⚠️ Anahtar **TÜM** query param'lardan üretilir (`_cached_count`'un deny-list'inin
+    tersi). Buradaki uçların parametresi az; atlanan bir param **yanlış rapor** döndürür,
+    fazlası ise yalnızca önbellek ıskasıdır — asimetri güvenli tarafı seçtirir.
+    """
+    sig = sorted(
+        (k, ",".join(sorted(params.getlist(k))) if hasattr(params, "getlist") else str(params[k]))
+        for k in params
+    )
+    key = "rapor:" + hashlib.sha1(f"{scope}|{ekstra}|{sig!r}".encode()).hexdigest()
+    kayit = cache.get(key)
+    if kayit is None:
+        veri, hata = hesapla()
+        if hata is None and veri is not None:
+            cache.set(key, (veri, hata), _RAPOR_TTL)
+        return veri, hata
+    veri, hata = kayit
+    return (dict(veri) if isinstance(veri, dict) else veri), hata
+
+
 def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):
     """
     Filtrelenmiş Tender queryset'ine sıralama + sayfalama uygular.
@@ -2174,7 +2226,13 @@ class AuthorityProfileView(APIView):
     def get(self, request):
         require_premium(request.user, MSG_IDARE_PROFIL)
         detay = request.query_params.get("detay", "true").strip().lower() not in ("0", "false")
-        veri, hata = authority_profile.profil(request.query_params, detay=detay)
+        # ⚠️ Önbellek `require_premium`'DAN SONRA: kapı atlanırsa Free kullanıcı
+        # maskesiz profili görürdü (uç 403 veriyor, maskeleme yok).
+        veri, hata = _cached_rapor(
+            "idare_profil",
+            request.query_params,
+            lambda: authority_profile.profil(request.query_params, detay=detay),
+        )
         if hata:
             return api_response(data=None, message=hata, success=False, status=400)
         return api_response(data=veri)
@@ -2237,11 +2295,24 @@ class TenderBenchmarkView(APIView):
         except (TypeError, ValueError):
             limit = 20
 
-        veri, hata = benchmark_mod.benchmark(
-            tender,
-            yil_geri=request.query_params.get("yil_geri") or benchmark_mod.VARSAYILAN_YIL,
-            kapsam=request.query_params.get("kapsam", "auto"),
-            limit=limit,
+        # ⚠️ Saklanan veri **maskesizdir**; maskeleme aşağıda, istek başına yapılır
+        # (bkz. `_cached_rapor`). Anahtar `tender.pk` taşımalı — yol parametresi
+        # query string'de olmadığı için imzaya girmez ve tüm ihaleler aynı anahtarı
+        # paylaşırdı: her kullanıcı başkasının ihalesinin analizini görürdü.
+        # ⚠️ `ekstra`ya **kırpılmış** `limit` konur: sonucu belirleyen odur. Ham `limit`
+        # imzaya da girdiği için `limit=999` ile `limit=50` aynı yanıtı üretmesine
+        # rağmen ayrı anahtar alır — bu yalnızca bir önbellek ıskasıdır, yanlış yanıt
+        # değil. Güvenli yön budur (bkz. `_cached_rapor`'daki asimetri notu).
+        veri, hata = _cached_rapor(
+            "benchmark",
+            request.query_params,
+            lambda: benchmark_mod.benchmark(
+                tender,
+                yil_geri=request.query_params.get("yil_geri") or benchmark_mod.VARSAYILAN_YIL,
+                kapsam=request.query_params.get("kapsam", "auto"),
+                limit=limit,
+            ),
+            ekstra=f"{tender.pk}:{limit}",
         )
         if hata:
             return api_response(data=None, message=hata, success=False, status=422)

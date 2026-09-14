@@ -489,6 +489,18 @@ EKAP_MOBIL_TIK_ISTEK = env.int("EKAP_MOBIL_TIK_ISTEK", default=1)
 # `totalCount` yalnızca bir ilerleme göstergesidir, sayfa içeriği hep canlı sorgudur.
 SEARCH_COUNT_CACHE_TTL = env.int("SEARCH_COUNT_CACHE_TTL", default=600)
 
+# ── Ağır rapor uçlarının önbelleği (fiyat analizi + idare profili) ──────────────
+# ⚠️ Bu uçlar **yavaş değil, SOĞUK**. Ölçüldü (2026-09-14, boş sunucu): aynı ihalenin
+# fiyat analizi soğuk **27.929 ms**, sıcak **448 ms** — ve sıcak çağrıda toplam
+# 3 sorgu / 200 ms harcanıyor, `shared_blks_read = 0`. Yani süreyi sorgu planı değil
+# rastgele disk okuması yiyor: çalışma kümesi (`ekap_tender` tek başına 11 GB heap)
+# 2 GB'lık `shared_buffers`'a sığmıyor, dolayısıyla soğuk sayfaya dokunan her istek
+# bedeli öder. 12 ihalelik örneklemde medyan ~2,5 sn, kuyruk **26-28 sn**.
+# ⚠️ `shared_buffers` büyütmek çözüm değil: 8 GB RAM'de 2 GB zaten belgelenen tavan.
+# Bu yüzden hesabın kendisi önbelleğe alınır — bayatlık kabul edilebilir, çünkü rapor
+# doğası gereği tarihseldir (yeni sözleşmeler Sonuç İlanı ile AYLAR içinde damlar).
+REPORT_CACHE_TTL = env.int("REPORT_CACHE_TTL", default=3600)
+
 # `sync_contractors` SÜPÜRME modunun çalışabileceği saat aralığı (yerel saat, [start, end)).
 # Süpürme tüm `detail_raw` arşivini okur ve küçük bir `shared_buffers`'ı boşaltarak arama
 # sorgularını diske düşürür → gündüz çalıştırılmaz. Artımlı mod bu pencereden bağımsızdır.

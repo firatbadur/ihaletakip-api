@@ -1101,6 +1101,97 @@ baskısı bu ucu 12 saniyelik hâle çeviriyor.
 `statement_timeout` artık yetim bırakmasını engelliyor, ama `LIMIT` yine bütçesinin
 (270 sn) tüketebileceğinden kat kat büyük. Aynı arıza tekrarlarsa ilk bakılacak yer burası.
 
+#### Ağır rapor uçlarının önbelleği — `_cached_rapor` (fiyat analizi + idare profili)
+
+Kullanıcı bildirimi (2026-09-14): "idare raporu, fiyat analizi, benzer ihaleler hâlâ
+çok geç geliyor." Ölçüm iki **ayrı** sebep gösterdi; birincisini çözmek tek başına
+yetmedi.
+
+**1) Uçlar yavaş değil, SOĞUK.** Ölçüldü (boş sunucu, 12 ihalelik örneklem): fiyat
+analizi medyan ~2,5 sn, kuyruk **26-28 sn**. Ama aynı ihale ikinci çağrıda **448 ms**
+ve o çağrıda toplam **3 sorgu / 200 ms**, `shared_blks_read = 0`. Yani süreyi sorgu
+planı değil **rastgele disk okuması** yiyor: çalışma kümesi (`ekap_tender` tek başına
+11 GB heap) 2 GB'lık `shared_buffers`'a sığmıyor.
+⚠️ `shared_buffers` büyütmek çözüm değil — 8 GB RAM'de 2 GB zaten belgelenen tavan.
+→ Hesabın kendisi önbelleğe alınır (`views._cached_rapor`, `REPORT_CACHE_TTL`, vars.
+1 sa). Bayatlık kabul edilebilir: rapor doğası gereği tarihseldir, yeni sözleşmeler
+Sonuç İlanı ile **aylar** içinde damlar.
+- ⚠️⚠️ **MASKELEME ÖNBELLEĞİN DIŞINDADIR.** Saklanan veri Free/Pro'dan bağımsız
+  **maskesiz** hesaptır; `_KILITLI` alanlarını sıfırlamak view'ın işidir. Maskelenmiş
+  hâli saklamak **ödenmiş veriyi sızdırır** (Pro yanıtı Free'ye gider); premium durumunu
+  anahtara koymak ise önbelleği işlevsiz kılar. Üretimde doğrulandı: Pro → açık,
+  Free → `kilitli:true` + değerler `null`, Pro tekrar → yine açık.
+- ⚠️ **HATA ÖNBELLEĞE ALINMAZ** — `documents/` ucundaki "bilmiyorum"u "yok" diye saklama
+  arızasının (2026-09-11) aynısı olurdu: geçici bir 422, TTL boyunca kalıcı hataya dönerdi.
+- ⚠️ Anahtar **TÜM** query param'lardan üretilir (`_cached_count`'un deny-list'inin
+  tersi): atlanan param **yanlış rapor**, fazlası yalnızca önbellek ıskası demektir.
+  Fiyat analizinde ihale **yol parametresidir**, query string'de yoktur → `ekstra`ya
+  `tender.pk` konur; olmasaydı tüm ihaleler aynı kaydı paylaşır ve kullanıcı başkasının
+  analizini görürdü.
+- ⚠️ Dönen sözlük **kopyadır** — savunma amaçlı, gözlenmiş bir hata için değil: bugünkü
+  iki arka uç da serileştiriyor (`RedisCache` ve `LocMemCache`; **"locmem nesneyi aynen
+  döndürür" YANLIŞTIR**, `pickle.dumps` ile saklar — ölçüldü). Kopya sözleşmeyi
+  sabitler; süreç-içi bir memo katmanı girerse maskeleme kaydı kirletirdi.
+
+**2) ⚠️⚠️ ÖNBELLEK TEK BAŞINA YETMEZ — STAMPEDE.** `$request_time` loglaması açıldıktan
+sonra gerçek desen göründü: **mobil istemci aynı raporu AYNI SANİYEDE altı kez istiyor.**
+
+```
+15:21:48 idare_detsis=34726855 sure=113.658
+15:21:48 idare_detsis=34726855 sure=80.894
+15:21:48 idare_detsis=34726855 sure=53.261 / 53.245 / 35.003 / 34.910
+15:20:43 idare_detsis=19254760 sure=125.017 HTTP 499  ← kullanıcı vazgeçti, tekrar denedi
+```
+
+Altısı da önbelleği **ıskalıyor** (ilki henüz yazmamış), altısı birlikte hesaplanıyor ve
+aynı soğuk sayfalar için diskte **birbirleriyle yarışıyor**: tek başına 1,2 sn olan iş
+113 sn oluyor. Üstelik 499 alan istek yeniden deneniyor → yük daha da artıyor.
+→ `views._tek_ucus`: kilidi alan tek istek hesaplar, diğerleri sonucu **bekler** (yoklama
+Redis GET, beklerken DB'ye hiç dokunulmaz).
+- ⚠️ Bekleme penceresi (`REPORT_LOCK_WAIT`, 25 sn) dolarsa bekleyen **kendisi hesaplar**.
+  Bilinçli tercih: hata döndürmek yeni bir başarısızlık modu eklerdi; kendi hesabı en
+  kötü hâlde **eski davranışa** düşmektir (ve lider ısınmayı yaptığı için pratikte hızlı).
+- ⚠️ `REPORT_LOCK_TTL` (180 sn) beklemeden **UZUN** olmalı: lider çökerse kilit düşsün
+  ama bekleyenler hâlâ beklerken düşmesin — yoksa ikinci bir sürü oluşur.
+- ⚠️ Lider **hata** dönerse kilit `finally` ile bırakılır; aksi hâlde geçici bir hata o
+  raporu TTL boyunca herkes için hesaplanamaz yapardı. Testte kilitli.
+
+**Ölçülen sonuç (üretim, aynı 6'lı patlama, boş önbellek):**
+
+| istek | önce | sonra |
+|---|---|---|
+| `idare_detsis=34726855` ×6 | 113,6 / 80,9 / 53,3 / 53,2 / 35,0 / 34,9 sn | **1,35-1,55 sn (altısı da)** |
+| `idare_detsis=19254760` ×6 | 125,0 sn → **499**, sonra 108,9 sn | **2,17-2,39 sn (altısı da)** |
+| tekrar görüntüleme | — | **0,029 sn** |
+
+⚠️ **Testler `ekap/tests/test_rapor_cache.py`'de ve dişleri doğrulandı**: tek-uçuş
+kaldırılınca "hesap 6 kez yapıldı" ile kırılıyor. ⚠️ Maskeleme testi ise bir **sözleşme**
+testidir, regresyon testi değil — kopya kaldırılınca yeşil kalır (bugün geçmesi arka
+ucun serileştirmesinden gelir); dosyada böyle işaretli, "kopya çalışıyor" kanıtı sanılmasın.
+
+⚠️⚠️ **KALAN İŞ — İSTEMCİ TARAFI**: kopya istekleri atan mobil uygulama. Sunucu artık
+maliyeti soğuruyor (altı istek bir hesap) ama altı isteğin atılması hâlâ bir hatadır:
+gereksiz radyo/batarya, gereksiz gunicorn worker'ı ve 499'da yeniden deneme yükü.
+`~/Desktop/IhaleTakip` tarafında idare profili çağrısının tekilleştirilmesi gerekiyor.
+
+#### ⚠️ nginx erişim logu artık SÜRE taşıyor
+
+Varsayılan `combined` formatı süre içermiyordu; bu yüzden "şu uç yavaş" şikâyeti
+geldiğinde elde ölçüm olmuyor ve teşhis **tahmine** kalıyordu — yukarıdaki stampede
+deseni ancak log formatı açıldıktan sonra görüldü, ondan önce yavaş vakayı bulmak için
+ihale/idare id'si tahmin etmek gerekti. `docker/nginx/default.conf` → `log_format sureli`:
+`sure=$request_time` (istemciye tam yanıt) + `upstream=$upstream_response_time`
+(gunicorn'un harcadığı). İkisinin farkı ağ/istemci kaynaklıdır; **HTTP 499'da `upstream`
+boş kalır**. ⚠️ `log_format` yalnızca `http` bağlamında tanımlanabilir — bu dosya
+nginx.conf'un `http` bloğuna include edildiği için orada geçerlidir, `server` içine
+taşımayın. Uygulamak için deploy gerekmez: `docker compose exec nginx nginx -s reload`.
+
+**En yavaş gerçek istekleri bulma:**
+```
+docker compose logs --no-log-prefix nginx | grep -o '"[A-Z]* [^"]*" [0-9]* [0-9]* sure=[0-9.]*' \
+  | sed 's/ [0-9]* [0-9]* sure=/ | /' | awk -F'|' '{print $2" "$1}' | sort -rn | head -20
+```
+
 #### Tekrar eden ihaleler — `GET /ekap/recurring/`, `.../tenders/<key>/recurring/`
 
 Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebildiği için kullanıcı

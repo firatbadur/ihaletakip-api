@@ -1134,18 +1134,40 @@ Sonuç İlanı ile **aylar** içinde damlar.
   sabitler; süreç-içi bir memo katmanı girerse maskeleme kaydı kirletirdi.
 
 **2) ⚠️⚠️ ÖNBELLEK TEK BAŞINA YETMEZ — STAMPEDE.** `$request_time` loglaması açıldıktan
-sonra gerçek desen göründü: **mobil istemci aynı raporu AYNI SANİYEDE altı kez istiyor.**
+sonra gerçek desen göründü — ama **ilk okuma yanlıştı ve düzeltildi**:
 
-```
-15:21:48 idare_detsis=34726855 sure=113.658
-15:21:48 idare_detsis=34726855 sure=80.894
-15:21:48 idare_detsis=34726855 sure=53.261 / 53.245 / 35.003 / 34.910
-15:20:43 idare_detsis=19254760 sure=125.017 HTTP 499  ← kullanıcı vazgeçti, tekrar denedi
-```
+⚠️⚠️ **NGINX İSTEĞİN BİTİŞİNİ DAMGALAR, BAŞLANGICINI DEĞİL** (Apache'nin tersi;
+ampirik doğrulandı: istemci 15:40:57.511'de başladı, `sure=0.719`, log **15:40:58**).
+Altı satırın da `15:21:48` yazması "aynı anda istendi" DEMEZ — **aynı anda bittiler**.
+Başlangıçlar süreden geri hesaplanır:
 
-Altısı da önbelleği **ıskalıyor** (ilki henüz yazmamış), altısı birlikte hesaplanıyor ve
-aynı soğuk sayfalar için diskte **birbirleriyle yarışıyor**: tek başına 1,2 sn olan iş
-113 sn oluyor. Üstelik 499 alan istek yeniden deneniyor → yük daha da artıyor.
+| bitiş | süre | başlangıç | önceki isteğe fark |
+|---|---|---|---|
+| 15:21:48 | 113,7 s | 15:19:54 | — |
+| 15:21:48 | 80,9 s | 15:20:27 | **33 s** |
+| 15:21:48 | 53,3 s | 15:20:55 | **28 s** |
+| 15:21:48 | 53,2 s | 15:20:55 | **0 s** |
+| 15:21:48 | 35,0 s | 15:21:13 | 18 s |
+| 15:21:48 | 34,9 s | 15:21:13 | **0 s** |
+
+İki ayrı hata üst üste biniyor:
+1. **33/28 s aralıklar = istemci zaman aşımı zinciri.** Mobil `API_TIMEOUT = 30000`.
+   ⚠️ **Zaman aşımı sunucudaki hesabı İPTAL ETMEZ** — istek yalnızca istemcide düşer,
+   sunucu hesaplamaya devam eder (nginx bunu **HTTP 499** olarak loglar; `upstream`
+   alanı 499'da boş kalır). Yani 30 sn'de vazgeçmek işi bitirmiyor, kullanıcıya hata
+   gösteriyor; kullanıcı tekrar deniyor ve sunucuda **ikinci** bir hesap başlıyor.
+   Bu, yetim sorgu sarmalının kullanıcı tetiklemeli ikizidir.
+2. **0 s aralıklar = gerçek kopya istekler.** ⚠️ Kaynağı mobil koddan **kesin olarak
+   bulunamadı**: `AuthorityProfile` tek `load()` çağırıyor, dep'ler primitive,
+   `isPremiumUser` düzgün boolean döndürüyor ve projede `StrictMode` yok (üçü de
+   kontrol edildi, üçü de elendi). Kalan adaylar çift navigasyon ya da iOS
+   CFNetwork'ün axios'un **altında** isteği yeniden açması.
+
+Üst üste binen hesaplar önbelleği **ıskalıyor** (ilki henüz yazmamış) ve aynı soğuk
+sayfalar için diskte **birbirleriyle yarışıyor**: tek başına 1,2 sn olan iş 113 sn
+oluyor.
+⚠️ **Ders: "önbellek koydum" demek yetmez** — stampede senaryosunda önbellek hiç
+devreye girmez, çünkü herkes aynı anda ıskalar.
 → `views._tek_ucus`: kilidi alan tek istek hesaplar, diğerleri sonucu **bekler** (yoklama
 Redis GET, beklerken DB'ye hiç dokunulmaz).
 - ⚠️ Bekleme penceresi (`REPORT_LOCK_WAIT`, 25 sn) dolarsa bekleyen **kendisi hesaplar**.
@@ -1169,10 +1191,12 @@ kaldırılınca "hesap 6 kez yapıldı" ile kırılıyor. ⚠️ Maskeleme testi
 testidir, regresyon testi değil — kopya kaldırılınca yeşil kalır (bugün geçmesi arka
 ucun serileştirmesinden gelir); dosyada böyle işaretli, "kopya çalışıyor" kanıtı sanılmasın.
 
-⚠️⚠️ **KALAN İŞ — İSTEMCİ TARAFI**: kopya istekleri atan mobil uygulama. Sunucu artık
-maliyeti soğuruyor (altı istek bir hesap) ama altı isteğin atılması hâlâ bir hatadır:
-gereksiz radyo/batarya, gereksiz gunicorn worker'ı ve 499'da yeniden deneme yükü.
-`~/Desktop/IhaleTakip` tarafında idare profili çağrısının tekilleştirilmesi gerekiyor.
+✅ **İSTEMCİ TARAFI DA DÜZELTİLDİ** (`~/Desktop/IhaleTakip`, commit `24adaa9`):
+`apiGet` uçuştaki aynı GET'i Map'te tutar, ikinci çağrı aynı promise'i alır
+(yalnızca GET — POST/PATCH/DELETE'e asla, iki "kaydet" aynı niyet değildir); ağır
+rapor uçları `RAPOR_TIMEOUT = 90000` kullanır, çünkü 30 sn'de vazgeçmek zinciri
+başlatıyordu. Koruma **iki katmanda** bilinçli olarak: kopyanın kaynağı istemci içiyse
+orada kesilir, CFNetwork seviyesindeyse sunucu soğurur.
 
 #### ⚠️ nginx erişim logu artık SÜRE taşıyor
 
@@ -1182,7 +1206,16 @@ deseni ancak log formatı açıldıktan sonra görüldü, ondan önce yavaş vak
 ihale/idare id'si tahmin etmek gerekti. `docker/nginx/default.conf` → `log_format sureli`:
 `sure=$request_time` (istemciye tam yanıt) + `upstream=$upstream_response_time`
 (gunicorn'un harcadığı). İkisinin farkı ağ/istemci kaynaklıdır; **HTTP 499'da `upstream`
-boş kalır**. ⚠️ `log_format` yalnızca `http` bağlamında tanımlanabilir — bu dosya
+boş kalır**.
+⚠️⚠️ **DAMGA İSTEĞİN BİTİŞİDİR, BAŞLANGICI DEĞİL** (Apache'nin tersi). Ampirik
+doğrulandı: istemci 15:40:57.511'de başladı, `sure=0.719`, log **15:40:58** yazdı.
+Bu yüzden aynı saniyeyi taşıyan satırlar "aynı anda istendi" DEMEZ — aynı anda
+**bittiler** demektir; başlangıç `damga − sure` ile hesaplanır. Bu ayrım bir kez
+yanlış teşhis ürettirdi (eşzamanlı kopya sanılan şey aslında 30 sn'lik istemci zaman
+aşımı zinciriydi — bkz. yukarıdaki rapor önbelleği bölümü).
+⚠️ `$request_time` istemciye yazma süresini de içerir ama nginx yavaş istemciyi
+BEKLEMEZ: ölçüldü, 2,0 sn süren bir indirmede `sure=0.719` yazıldı (yanıt nginx'in
+soket tamponuna sığdığı an istek bitmiş sayılıyor). ⚠️ `log_format` yalnızca `http` bağlamında tanımlanabilir — bu dosya
 nginx.conf'un `http` bloğuna include edildiği için orada geçerlidir, `server` içine
 taşımayın. Uygulamak için deploy gerekmez: `docker compose exec nginx nginx -s reload`.
 

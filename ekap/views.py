@@ -330,15 +330,20 @@ def _tek_ucus(key, hesapla):
     Tek-uçuş (single-flight): aynı raporu isteyen eşzamanlı istekler **bir kez** hesaplar.
 
     ⚠️⚠️ Bu koruma olmadan önbellek, asıl arızayı hiç engellemiyordu. Üretim logu
-    (2026-09-14, `$request_time` açıldıktan sonra) aynı raporun **aynı saniyede altı
-    kez** istendiğini gösterdi — mobil istemci kopya istek atıyor:
-        15:21:48 idare_detsis=34726855 sure=113.658
-        15:21:48 idare_detsis=34726855 sure=80.894
-        15:21:48 idare_detsis=34726855 sure=53.261 / 53.245 / 35.003 / 34.910
-    Altısı da önbelleği ıskalıyor (ilki henüz yazmamış), altısı birlikte hesaplanıyor ve
-    aynı soğuk sayfalar için disk üzerinde **birbirleriyle yarışıyorlar** → tek başına
-    ~1,2 sn olan iş 113 sn'ye çıkıyor. Bir istek 499 ile düştü (kullanıcı vazgeçti) ve
-    hemen yeniden denendi: yeniden deneme yükü daha da artırır.
+    (2026-09-14, `$request_time` açıldıktan sonra) aynı rapor için **üst üste binen**
+    istekler gösterdi. ⚠️ nginx isteğin **bitişini** damgalar (başlangıcını değil —
+    ampirik doğrulandı), yani altı satırın da `15:21:48` taşıması "aynı anda istendi"
+    demez; başlangıçlar süreden geri hesaplanır:
+        15:19:54 · 15:20:27 · 15:20:55 · 15:20:55 · 15:21:13 · 15:21:13
+           ^33 sn      ^28 sn      ^0 sn       ^18 sn      ^0 sn
+    33/28 sn aralıklar mobil `API_TIMEOUT`(30 sn) zinciridir: zaman aşımı sunucudaki
+    hesabı İPTAL ETMEZ (nginx bunu 499 olarak loglar), kullanıcı tekrar dener ve ikinci
+    bir hesap başlar. 0 sn aralıklar ise gerçek kopya isteklerdir.
+    Üst üste binen hesaplar önbelleği ıskalıyor (ilki henüz yazmamış) ve aynı soğuk
+    sayfalar için disk üzerinde **birbirleriyle yarışıyorlar** → tek başına ~1,2 sn olan
+    iş 113 sn'ye çıkıyor.
+    ⚠️ İstemci tarafı da düzeltildi (mobil `apiGet` tekilleştirme + 90 sn rapor zaman
+    aşımı); koruma iki katmanda bilinçli olarak duruyor.
     ⚠️ Yani "önbellek koydum" demek yetmez: **stampede** senaryosunda önbellek hiç
     devreye girmez, çünkü herkes aynı anda ıskalar.
 

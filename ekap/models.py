@@ -342,6 +342,29 @@ class Tender(models.Model):
                 name="ekap_tender_detayeksik_ilt",
                 condition=models.Q(detail_synced_at__isnull=True),
             ),
+            # ── Yüklenici borcu bekleyen ihaleler (KISMİ indeks, 0026) ──
+            # ⚠️⚠️ `sync_contractors` artımlı sorgusu için. Koşul, sorgunun `WHERE`'iyle
+            # **birebir aynı** olmalı: planlayıcı kısmi indeksi ancak sorgu koşulunun
+            # indeks koşulunu **ima ettiğini kanıtlayabilirse** kullanır ve kanıt
+            # yapısal eşitlikle yürür. Buradaki bir ifadeyi (parantez, sıra, `F()`)
+            # değiştirirseniz indeks sessizce KULLANILMAZ hâle gelir.
+            # Neden şart: koşuldaki `contractors_synced_at < detail_synced_at` satır-içi
+            # bir karşılaştırma, düz indeksle süzülemez. `ORDER BY detail_synced_at
+            # LIMIT n` ile birleşince `LIMIT` asla dolmuyor ve plan ~1M satırı heap'ten
+            # eleyerek indeksin tamamını yürüyor → **boş sonuç en pahalı hâl** oluyordu
+            # (2026-09-14: borç 0 iken sorgu saatlerce koştu, iowait %90, load 10).
+            # ⚠️ `LIMIT`i küçültmek çözmez (ölçüldü: `LIMIT 1000` ile de >150 sn) —
+            # maliyet eşleşen satır sayısına değil tablonun tamamına bağlı.
+            # Borç sıfırken indeks de boş → sorgu mikrosaniyede biter.
+            models.Index(
+                fields=["detail_synced_at"],
+                name="ekap_tender_firmabekleyen",
+                condition=models.Q(detail_raw__isnull=False)
+                & (
+                    models.Q(contractors_synced_at__isnull=True)
+                    | models.Q(contractors_synced_at__lt=models.F("detail_synced_at"))
+                ),
+            ),
         ]
 
     def __str__(self):

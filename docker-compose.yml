@@ -156,6 +156,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     # Genel kuyruk (ekap hariç) — ai analiz, bildirim vb.
     command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "celery", "--concurrency=4"]
     volumes:
@@ -170,6 +171,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     # EKAP kuyruğu.
     # ⚠️ **Concurrency 1 DEĞİL 3 — ama EKAP'a giden yük DEĞİŞMEZ.** Hız sınırı artık
     # `ekap/throttle.py`'de **atomik** olarak uygulanıyor (Redis SETNX ile pencere
@@ -229,6 +231,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap_oncelik", "--concurrency=2"]
     depends_on:
       - web
@@ -252,6 +255,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "ekap_mobil", "--concurrency=1"]
     depends_on:
       - web
@@ -267,6 +271,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "assistant", "--concurrency=2", "--prefetch-multiplier=1"]
     depends_on:
       - web
@@ -293,6 +298,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     volumes:
       - browser_profile:/app/.browser
     # ⚠️ SADECE 127.0.0.1: noVNC parolasız bir masaüstü açar; dışarıya
@@ -313,6 +319,7 @@ services:
     env_file: .env.prod
     environment:
       RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     command: ["celery", "-A", "config", "beat", "-l", "info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
     depends_on:
       - web

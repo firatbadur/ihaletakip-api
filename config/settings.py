@@ -114,6 +114,33 @@ DATABASES["default"]["CONN_MAX_AGE"] = env.int("DJANGO_CONN_MAX_AGE", default=60
 # ölmüşse istek başında sessizce yenilenir, 500 dönmez.
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
+# ⚠️⚠️ **Celery bir görevi öldürdüğünde POSTGRES SORGUSU ÖLMEZ.** Backend IO'da bloke
+# olduğu için ölü istemci socket'ini hiç fark etmez ve taramaya devam eder; süreç
+# gitmiştir ama sorgu diski dövmeye devam eder. Üretimde yaşandı (2026-09-14):
+# `sync_contractors`'ın artımlı sorgusu 300 sn'lik `CELERY_TASK_TIME_LIMIT`'e
+# yetişemedi, Celery child'ı SIGKILL etti, Redis kilidi TTL ile düştü ve beat 10
+# dakikada bir bir YENİ yetim daha doğurdu. Sekiz yetim birikti (en eskisi 1sa32dk),
+# hepsi aynı buffer'lar için boğuşup (`IPC/BufferIO`) birbirinin VE arama
+# sorgularının cache'ini süpürdü → iowait %90, load 10, kullanıcılar HTTP 499.
+# Hiçbir tur tek satır ilerletemediği için borç da hiç azalmıyordu: kalıcı döngü.
+#
+# ⚠️ Uygulama tarafındaki süre bütçeleri (`*_MAX_SECONDS`) bunu ENGELLEYEMEZ: onlar
+# satır döngüsünün içinde kontrol edilir, sorgu ilk satırı döndürmeden asılı kalırsa
+# koda hiç dönülmez. Tek gerçek güvence sunucu tarafında bir zaman aşımıdır.
+#
+# ⚠️ **Yalnızca `RUN_MIGRATIONS=false` olan servislere verilir** (docker-compose):
+# ağır bir data-migration bu süreyi meşru olarak aşabilir, `web`'e konsa deploy
+# kırılırdı. Değer `CELERY_TASK_TIME_LIMIT`'in ALTINDA olmalı — sorgu görevden önce
+# ölsün, ki hata Python'a düşüp `_run`'ın `finally`'si kilidi bıraksın.
+# ⚠️ Sunucu taraflı imleçlerde (`.iterator()`) zaman aşımı **deyim başına** işler:
+# uzun süren bir tarama, her FETCH hızlı olduğu sürece kesilmez — istenen davranış.
+DB_STATEMENT_TIMEOUT_MS = env.int("DJANGO_DB_STATEMENT_TIMEOUT_MS", default=0)
+if DB_STATEMENT_TIMEOUT_MS > 0 and "postgres" in DATABASES["default"].get("ENGINE", ""):
+    _db_opts = DATABASES["default"].setdefault("OPTIONS", {})
+    _db_opts["options"] = (
+        f"{_db_opts.get('options', '')} -c statement_timeout={DB_STATEMENT_TIMEOUT_MS}"
+    ).strip()
+
 # ── Auth ───────────────────────────────────────────────
 AUTH_USER_MODEL = "accounts.User"
 
@@ -461,6 +488,19 @@ CONTRACTOR_SWEEP_END = env.int("CONTRACTOR_SWEEP_END", default=7)
 # ALTINDA olmalı, yoksa görev yarıda kesilir (imleç kaydedilmez, tur boşa gider).
 CONTRACTOR_SWEEP_MAX_SECONDS = env.int("CONTRACTOR_SWEEP_MAX_SECONDS", default=270)
 CONTRACTOR_INCREMENTAL_MAX_SECONDS = env.int("CONTRACTOR_INCREMENTAL_MAX_SECONDS", default=90)
+
+# ⚠️⚠️ **`LIMIT` süre bütçesiyle UYUMLU olmalı.** Ölçülen üretim verimi ~2,8 ihale/sn
+# (satır başına Sonuç İlanı HTML ayrıştırma + firma çözümleme var) → 90 sn'lik artımlı
+# bütçe bir turda en çok ~250 satır tüketir. Eski `max_tenders=50000` bunun 200 katıydı
+# ve `detail_raw` (~40 KB/satır) okuyan sorguda bu **~2 GB rastgele TOAST okuması**
+# demekti: sorgu ilk satırı döndürmeden 300 sn'lik görev limitini aşıyor, iş İLERLEMİYOR
+# ve yetim backend'ler birikiyordu (2026-09-14 arızası, bkz. DB_STATEMENT_TIMEOUT_MS).
+# ⚠️ Tavan bir "emniyet sınırı" değil, **sorgunun maliyetini belirleyen düğmedir** —
+# iterator kullanmak yetmez, `LIMIT` planın tamamını fiyatlar.
+# ⚠️ Artımlı tavan süpürmeden KÜÇÜK: süpürme `pk__gt` ile sıralı yürür (ucuz),
+# artımlı ise `detail_synced_at` indeksinde filtreleyerek RASTGELE heap/TOAST dokunur.
+CONTRACTOR_SWEEP_MAX_TENDERS = env.int("CONTRACTOR_SWEEP_MAX_TENDERS", default=5000)
+CONTRACTOR_INCREMENTAL_MAX_TENDERS = env.int("CONTRACTOR_INCREMENTAL_MAX_TENDERS", default=1000)
 
 # `backfill_tender_fields` (Pro sinyal kolonları) — aynı gerekçe, aynı pencere deseni.
 # ⚠️ Bu görev `sync_contractors` SÜPÜRMESİ bitene kadar kendini geri çeker: ikisi de

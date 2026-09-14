@@ -859,7 +859,7 @@ ve konan korumalar:
   vars. 00:00–07:00). Süpürme tüm arşivin `detail_raw`'ını (~40 KB/satır) okur; 3 GB'lık
   makinede 512 MB `shared_buffers` bunu kaldırmıyor ve arama sorgularının çalışma kümesi
   sürekli eviction'a uğruyordu (ölçüm: **heap cache isabeti %53**, olması gereken >%99).
-  Duty cycle da 5 dk × 240 sn (~%80) → 10 dk × 90 sn (~%15) yapıldı, `.only()` eklendi.
+  Duty cycle da 5 dk × 240 sn (~%80) → 5 dk × 90 sn yapıldı, `.only()` eklendi.
   **Artımlı mod pencereden bağımsızdır** — `refresh_stale`'in tazelediği birkaç yüz
   satıra dokunur, ucuzdur. Süpürme uzar (gece-only ~2 hafta) ama arka plan
   zenginleştirmesidir, kullanıcıyı bekletmez.
@@ -987,6 +987,97 @@ ve konan korumalar:
   (21.910 × 2 = 43.820). Görev `CELERY_TASK_TIME_LIMIT=300`'ü aşıp öldürülüyor, para
   adımına hiç sıra gelmiyordu → mobilde "Veri yok". Yorum niyeti anlatıyordu, kod
   tersini yapıyordu.
+
+#### ⚠️⚠️ Yetim sorgu sarmalı — 2026-09-14 arızası (OKUMADAN arka plan görevi yazmayın)
+
+Sunucu saatlerce ağırlaştı: **iowait %90, load 10, boş RAM 200 MB**, `db` konteyneri
+**46 GB okuma**, kullanıcılar **HTTP 499** (yanıt gelmeden vazgeçme). Saldırı sanıldı;
+değildi — nginx'te 60 dakikada **317 istek** vardı (6 Türk mobil IP'si, tamamı normal
+uygulama uçları). Tek sebep bir arka plan sorgusuydu.
+
+**Zincir (üç ayrı kusur üst üste bindi):**
+
+1. **Boş sonuç en pahalı hâldi.** `sync_contractors` artımlı sorgusu
+   `WHERE detail_raw IS NOT NULL AND (contractors_synced_at IS NULL OR
+   contractors_synced_at < detail_synced_at) ORDER BY detail_synced_at LIMIT 50000`.
+   ⚠️ Yüklenici borcu **SIFIRDI** (%2 örneklemede 20.490 satırın 0'ı bayat) — sorgu
+   hiçbir şey bulmuyordu. Satır-içi karşılaştırma (`contractors_synced_at <
+   detail_synced_at`) düz indeksle süzülemiyor, `ORDER BY … LIMIT` ise planlayıcıyı
+   `detail_synced_at` indeksini yürüyüp her satırı heap'ten elemeye itiyor; `LIMIT`
+   asla dolmadığından tarama tabloyu **bitirmek zorunda** → maliyet eşleşen satıra
+   DEĞİL tablonun tamamına (~1M satır) bağlı.
+   ⚠️ **`LIMIT`i küçültmek ÇÖZMEZ** (ölçüldü: `LIMIT 1000` ile de >150 sn).
+   → Çözüm **kısmi indeks** (`0026`, `ekap_tender_firmabekleyen`): borç sıfırken indeks
+   de boş → sorgu mikrosaniyede biter. (Aynı plan tuzağının üçüncü tekrarı — bkz. `0009`.)
+2. ⚠️⚠️ **CELERY BİR GÖREVİ ÖLDÜRÜNCE POSTGRES SORGUSU ÖLMEZ.** Backend IO'da bloke
+   olduğu için ölü istemci socket'ini **hiç fark etmez** ve taramaya devam eder: süreç
+   gitmiştir, sorgu diski dövmeye devam eder. `CELERY_TASK_TIME_LIMIT=300` aşılınca
+   child SIGKILL edildi, Redis kilidi TTL (600 sn) ile düştü ve beat (`*/5`) **10
+   dakikada bir bir YENİ yetim** doğurdu. Sekiz yetim birikti (en eskisi **1sa32dk**),
+   hepsi aynı buffer'lar için boğuştu (`IPC/BufferIO`).
+   ⚠️ Uygulama içi süre bütçeleri (`*_MAX_SECONDS`) bunu **engelleyemez**: satır
+   döngüsünün içinde kontrol edilirler, sorgu ilk satırı döndürmeden asılırsa koda hiç
+   dönülmez. → Yapısal panzehir **`settings.DB_STATEMENT_TIMEOUT_MS`** (240.000 ms;
+   `CELERY_TASK_TIME_LIMIT`in ALTINDA olmalı ki hata Python'a düşsün ve `_run`ın
+   `finally`'si kilidi bıraksın). docker-compose'da **yalnızca `RUN_MIGRATIONS=false`
+   servislere** verilir — ağır bir data-migration bu süreyi meşru olarak aşar, `web`'e
+   konsa deploy kırılırdı. ⚠️ Sunucu taraflı imleçlerde zaman aşımı **deyim başına**
+   işler → uzun bir `.iterator()` taraması, her FETCH hızlı olduğu sürece kesilmez.
+3. **Bayat bir ölçüm yanlış tavanı haklı gösteriyordu.** `sync_contractors`
+   docstring'i "~200 ihale/sn" diyordu; gerçek **~2,8 ihale/sn** (CLAUDE.md'de zaten
+   düzeltilmişti, kodda kalmıştı). 90 sn'lik bütçe ~250 satır tüketirken varsayılan
+   `max_tenders=50000` bunun **200 katıydı**. → `CONTRACTOR_INCREMENTAL_MAX_TENDERS`
+   (1000) / `CONTRACTOR_SWEEP_MAX_TENDERS` (5000); `max_tenders=None` moda göre çözülür.
+
+**Belirti parmak izi (bu sınıfı tanımak için):** `SyncRun`'da `status='running'` +
+`finished_at` **BOŞ** satırlar birikir; hemen öncesindeki turlar `items=0` ile
+bitmiştir ve süreleri tur tur **tırmanır** (ölçülen: 8 sn → 54 sn → sonsuz). Tırmanışın
+sebebi tablonun büyümesi + cache'in soğumasıdır. ⚠️ Görev "çalışıyor" göründüğü için
+admin listesinde arıza fark edilmez.
+
+**Teşhis refleksi** (sırayla, hepsi ucuz):
+```
+top -bn1 | sed -n 3p                 # iowait mi CPU mu? (%wa yüksekse disk)
+docker stats --no-stream             # hangi konteyner (BlockIO kolonu)
+docker compose logs --since 60m nginx | wc -l   # saldırı mı? (istek sayısı + IP dağılımı)
+pg_stat_activity: state<>'idle' ORDER BY query_start   # yetim sorgu var mı, kaç tane
+```
+⚠️ **`pg_stat_statements`'a fırtına sırasında bakıp yapısal teşhis KOYMAYIN**: ortalamalar
+kirlenir (ölçülen: bir `COUNT(*)` için `max_exec_time` **3.359 sn**, cache isabeti %36).
+Önce fırtınayı durdurun, `pg_stat_statements_reset()` yapın, sonra ölçün.
+
+**Yetim temizliği**: `pg_cancel_backend(pid)` yeter (`terminate` gerekmedi) — istemci
+zaten ölü, `sync_contracts_from_raw` idempotent, veri kaybı olmaz.
+
+⚠️⚠️ **ARTÇI ŞOK: fırtına bitince uçlar HÂLÂ yavaştır ve bu ayrı bir arıza sanılır.**
+Sekiz yetim 2 GB'lık buffer cache'i tamamen süpürdüğü için her istek diskten okuyordu.
+Üretimde bildirildi ("firma arama, firma detayı, idare profili çok ağır") ve ölçüm
+**yapısal bir kusur olmadığını** gösterdi — aynı uç, aynı sorgu, tek fark cache:
+
+| uç / sorgu | soğuk (fırtına artçısı) | sıcak |
+|---|---|---|
+| `contractors/?q=insaat` | 29.790 ms | **111 ms** |
+| `contractors/<id>/` | 19.340 ms | **263 ms** |
+| `authorities/search/?q=` | 26.729 ms | **864 ms** |
+| `COUNT(*) … arama_norm LIKE` | 14.495 ms | **341 ms** |
+| `Authority` tek satır lookup | 115 ms | **0,3 ms** |
+
+İndeksler sağlamdı (`ekap_contractor_arama_trgm` ve `ekap_authority_detsis_no_…_like`
+doğru kullanılıyordu). **Ders: bir uç yavaşladığında önce cache durumunu sorun** —
+`EXPLAIN (ANALYZE, BUFFERS)` çıktısında `shared read` çok / `shared hit` az ise sorun
+sorgu planı değil, buffer cache'i kim boşaltıyorsa odur.
+⚠️ Tek ölçümle teşhis koymayın: soğuk/sıcak farkı burada **268 kata** kadar çıktı
+(keyword benchmark ucunda da 18.443 ms → 392 ms ölçülmüştü).
+
+⚠️ **Kalan (acil değil) latent risk**: `AuthoritySearchView`'ın `path` breadcrumb'ı
+**N+1**'dir — tek istek için `WHERE detsis_no = $1` sorgusu **122 kez** atılıyor.
+Sıcakken 0,3 ms × 122 ≈ 37 ms (fark edilmez), soğukken **12 sn**. Yani her cache
+baskısı bu ucu 12 saniyelik hâle çeviriyor.
+
+⚠️ **Aynı kalıbı taşıyan diğer görev: `backfill_tender_fields`** —
+`.only(…detail_raw…).order_by("pk")[:200000]`. PK sıralı yürüdüğü için ucuz ve
+`statement_timeout` artık yetim bırakmasını engelliyor, ama `LIMIT` yine bütçesinin
+(270 sn) tüketebileceğinden kat kat büyük. Aynı arıza tekrarlarsa ilk bakılacak yer burası.
 
 #### Tekrar eden ihaleler — `GET /ekap/recurring/`, `.../tenders/<key>/recurring/`
 
@@ -1534,7 +1625,7 @@ hangi idarelerle çalıştığı sorgulanabilir.
     kaldırırsa/başka firmaya geçirirse kaybeden firmanın sayaçları da düşmeli. Yalnızca
     yeni listedeki firmaları toplamak onu bayat bırakırdı. Sıfır-sözleşme dalı da aynı
     şekilde önce firmaları toplar. **Firma kaydı asla silinmez** (geçmiş korunur).
-- **Toplama**: `sync_contractors` beat görevi (**10 dk**) — **EKAP'a gitmez**,
+- **Toplama**: `sync_contractors` beat görevi (**5 dk**) — **EKAP'a gitmez**,
   `Tender.detail_raw` arşivinden çalışır (`.only()` ile: `list_raw` okunmaz). Süpürme modu
   PK imleciyle tüm arşivi tarar, bitince artımlı moda geçer
   (`contractors_synced_at < detail_synced_at` → `refresh_stale` bir detayı yenileyince
@@ -1547,7 +1638,15 @@ hangi idarelerle çalıştığı sorgulanabilir.
   Darboğaz I/O değil **CPU**: satır başına Sonuç İlanı HTML ayrıştırma + firma çözümleme
   + sözleşme upsert'i var. Tur başına ortalama 180 sn (bütçe 270 sn) → **bütçe değil,
   gece penceresi sınırlayıcı**. ETA hesabı için: `SyncRun`'dan `sum(items)/sum(süre)`.
-  ⚠️ **Duty cycle bilinçli düşük tutulur (~%15).** Eskiden 5 dk × 240 sn (~%80) idi;
+  ⚠️ **Aralık 5 dk'dır, 10 dk DEĞİL** (burada bir dönem 10 dk yazıyordu — yanlıştı).
+  Gündüz koruması **saat penceresiyle** yapılır, aralıkla değil: süpürme yalnızca
+  00:00-07:00'de koşar, gündüz görev anında "atlandı" dönüp bedava çıkar. 10 dk × 90 sn
+  kurgusu gecenin %85'ini boşa harcıyordu (bkz. `config/celery.py` yorumu).
+  ⚠️⚠️ **Bu gerekçenin deliği artımlı moddur**: saat penceresi yalnızca SÜPÜRMEYE
+  uygulanır, artımlı mod gün boyu 5 dk'da bir koşar. 2026-09-14 arızasında felaket
+  sorguyu koşan mod tam olarak buydu ve 90 sn'lik bütçe onu durduramadı (sorgu ilk
+  satırı hiç döndürmüyordu) — bkz. "Yetim sorgu sarmalı".
+  ⚠️ **Duty cycle bilinçli düşük tutulur.** Eskiden 5 dk × 240 sn (~%80) idi;
   `detail_raw` (~40 KB/satır) arşiv boyunca okunduğu için Postgres buffer cache'i sürekli
   boşalıyor ve ihale arama sorguları diskten okumak zorunda kalıyordu. Süpürme artık
   birkaç kat uzun sürer ama arama ucu nefes alır; artımlı moda geçince yük zaten düşer.
@@ -2145,7 +2244,7 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `backfill_tender_fields` — Pro sinyal kolonlarını `detail_raw` arşivinden doldurur
   (5 dk'da bir; EKAP'a gitmez, gece penceresi, **yüklenici süpürmesi bitene kadar
   kendini geri çeker** — bkz. "Pro sinyal kolonları")
-- `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (**10 dk'da bir, 90 sn
+- `sync_contractors` — sözleşmeleri yüklenici firmalara bağlar (**5 dk'da bir, 90 sn**
   bütçe**; EKAP'a gitmez, `detail_raw` arşivinden çalışır — bkz. "Yüklenici (Firma)
   Kaydı"). ⚠️ Duty cycle bilinçli olarak düşük: eskiden 5 dk × 240 sn (~%80) idi ve
   Postgres buffer cache'ini boşaltıp ihale aramasını yavaşlatıyordu.

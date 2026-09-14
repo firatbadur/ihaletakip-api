@@ -386,14 +386,29 @@ def refresh_stale(batch=50, years=None, defer_detail=True):
         floor = now - timedelta(days=365 * years)
         # Aday havuzu: hiç detay çekilmemiş VEYA son 1 günde bakılmamış
         # (yalnızca son `years` yıl — ilan tarihi floor'un üstünde olanlar)
-        candidates = Tender.objects.filter(
-            detail_synced_at__isnull=True, ilan_tarihi__gte=floor
-        ).order_by("-ilan_tarihi")[: batch * 3]
-        if candidates.count() < batch:
-            more = Tender.objects.filter(
-                detail_synced_at__lt=now - timedelta(days=1), ilan_tarihi__gte=floor
-            ).order_by("detail_synced_at")[: batch * 3]
-            candidates = list(candidates) + list(more)
+        # ⚠️⚠️ **`.only()` ŞART.** Bu sorgu uzun süre tüm kolonları çekiyordu; `detail_raw`
+        # + `list_raw` satır başına ~80 KB TOAST eder ve ikisi de burada HİÇ kullanılmıyor
+        # (`should_refresh_detail` yalnızca aşağıdaki dört alanı, kuyruğa atma da `ekap_id`'yi
+        # okur). 150 aday × 80 KB, üstelik `ORDER BY detail_synced_at` + `LIMIT` planı
+        # eşleşmeyen satırları da heap'ten eleyerek yürüdüğü için rastgele I/O demekti;
+        # üretimde bu sorgu 49 dakika koşarken yakalandı (2026-09-14).
+        _ALANLAR = ("ekap_id", "detail_synced_at", "ihale_durum", "sonuc_ilani_eksik",
+                    "ihale_tarihi")
+        candidates = list(
+            Tender.objects.filter(detail_synced_at__isnull=True, ilan_tarihi__gte=floor)
+            .only(*_ALANLAR)
+            .order_by("-ilan_tarihi")[: batch * 3]
+        )
+        # ⚠️ `len()` kullanılır, `.count()` DEĞİL: LIMIT'li queryset'te `.count()` Django'yu
+        # alt sorgulu ikinci bir tarama atmaya zorlar — satırlar zaten elimizdeyken bedava.
+        if len(candidates) < batch:
+            candidates += list(
+                Tender.objects.filter(
+                    detail_synced_at__lt=now - timedelta(days=1), ilan_tarihi__gte=floor
+                )
+                .only(*_ALANLAR)
+                .order_by("detail_synced_at")[: batch * 3]
+            )
 
         picked = 0
         for tender in candidates:
@@ -443,17 +458,23 @@ def _update_checkpoint(name, newest=None, oldest=None):
 # ── Yüklenici (firma) çözümlemesi ──────────────────────
 @shared_task(name="ekap.tasks.sync_contractors")
 def sync_contractors(
-    max_tenders=50000, max_seconds=None, enqueue_missing_detail=True, missing_limit=None
+    max_tenders=None, max_seconds=None, enqueue_missing_detail=True, missing_limit=None
 ):
     """
     Sözleşmeleri firmalara bağlar — **EKAP'a gitmez**, `Tender.detail_raw` arşivinden
     çalışır (yalnızca `enqueue_missing_detail` dalı detay kuyruğa atar).
 
     ⚠️ Sınır **süre bütçesidir**, sabit ihale sayısı değil: iş tamamen DB-içi olduğu için
-    hız makineye göre çok değişir (ölçüm: ~200 ihale/sn). Sabit küçük bir batch, saatlik
-    kapasitenin yüzde biri kadarını kullanıp backfill'i günlere yayardı.
+    hız makineye göre değişir.
+    ⚠️⚠️ **Gerçek üretim verimi ~2,8 ihale/sn** (2026-08, 3 günlük `SyncRun` ortalaması).
+    Burada eskiden yazan "~200 ihale/sn" **yanlıştı** — muhtemelen küçük/sıcak bir veri
+    kümesinde ölçülmüştü ve `max_tenders=50000` varsayılanını haklı gösteriyordu; 2026-09-14
+    arızasının kökü bu 70× iyimser sayıydı. Darboğaz I/O değil CPU: satır başına Sonuç
+    İlanı HTML ayrıştırma + firma çözümleme + sözleşme upsert'i var.
     `max_seconds`, global `CELERY_TASK_TIME_LIMIT=300`'ün altında kalmalıdır.
-    `max_tenders` yalnızca emniyet tavanıdır.
+    ⚠️ `max_tenders` "emniyet tavanı" DEĞİL, sorgunun maliyetini belirleyen
+    düğmedir (bkz. aşağıdaki not) — süre bütçesiyle uyumlu olmalı. Verilmezse
+    moda göre ayardan çözülür; açıkça verilen değere dokunulmaz.
 
     ⚠️ **Duty cycle kullanıcı sorgularıyla aynı DB'yi paylaşır.** Eskiden beat bunu 5 dk'da
     bir 240 sn bütçeyle çağırıyordu (~%80 duty cycle); görev `detail_raw`'ı (~40 KB/satır)
@@ -516,6 +537,36 @@ def sync_contractors(
         base = Tender.objects.filter(detail_raw__isnull=False).only(
             "ikn", "detail_raw", "idare_id", "il_id", "ihale_tip"
         )
+        # ⚠️⚠️ **ARTIMLI SORGUNUN ASIL MALİYETİ "İŞ YOK"U KANITLAMAKTIR.**
+        # Üretimde yaşandı (2026-09-14): borç SIFIRDI (%2 örneklemede 0 bayat satır) ama
+        # sorgu yine de saatlerce koştu. Sebep `ORDER BY detail_synced_at LIMIT n` +
+        # indekssiz satır-içi karşılaştırma (`contractors_synced_at < detail_synced_at`):
+        # `LIMIT` asla dolmadığı için plan `detail_synced_at` indeksinin **tamamını**
+        # yürüyüp ~1M satırı heap'ten tek tek elemek zorunda. Yani maliyet eşleşen satır
+        # sayısına DEĞİL, tablonun tamamına bağlı — ve boş sonuç en pahalı hâl.
+        # ⚠️ **`LIMIT`i küçültmek bunu ÇÖZMEZ** (ölçüldü: `LIMIT 1000` ile de >150 sn).
+        # Çözen şey `0026`'daki **kısmi indeks**tir: yüklenici borcu olan satırları
+        # tutar, borç sıfırken indeks de boştur → sorgu mikrosaniyede biter.
+        # ⚠️ İndeks düşerse/kullanılmazsa bu sorgu eski felaket planına döner; dokunmadan
+        # önce `EXPLAIN`e bakın (beklenen: `ekap_tender_firmabekleyen` üzerinde Index Scan).
+        #
+        # Belirti parmak izi (bu arıza sınıfını tanımak için): `SyncRun` satırları
+        # `status='running'` + `finished_at` BOŞ olarak birikir, öncesindeki turlar
+        # `items=0` ile bitmiştir ve süreleri tur tur tırmanır (8 sn → 54 sn → sonsuz).
+        # Tırmanışın sebebi tablonun büyümesi + cache'in soğumasıdır; 300 sn'lik
+        # `CELERY_TASK_TIME_LIMIT` aşıldığı anda yetim sorgu sarmalı başlar
+        # (bkz. settings.DB_STATEMENT_TIMEOUT_MS).
+        #
+        # `max_tenders` ise ayrı bir mesele: "emniyet tavanı" değil, borç GERÇEKTEN
+        # varken okunacak `detail_raw` (~40 KB/satır) hacmini belirler. Ölçülen verim
+        # ~2,8 ihale/sn → 90 sn'lik bütçe bir turda ~250 satır tüketir; eski varsayılan
+        # 50.000 bunun 200 katıydı, yani tüketilemeyecek veriyi okutuyordu.
+        if max_tenders is None:
+            max_tenders = (
+                settings.CONTRACTOR_SWEEP_MAX_TENDERS
+                if sweeping
+                else settings.CONTRACTOR_INCREMENTAL_MAX_TENDERS
+            )
         if sweeping:
             qs = base.filter(pk__gt=last_pk).order_by("pk")[:max_tenders]
         else:

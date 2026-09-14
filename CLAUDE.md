@@ -869,7 +869,38 @@ ve konan korumalar:
   DEĞİL: compose'un `${VAR}` ikamesi `env_file:`'dan okumaz (o yalnızca konteyner içi
   ortam değişkeni tanımlar), kabuk ortamından ya da `.env`'den okur. Oraya yazılan bir
   `PG_*` sessizce yok sayılırdı. RAM'e göre değer tablosu dosyadaki yorumda.
-  **Üretim donanımı: 8 GB RAM · 4 çekirdek · 100 GB RAID10 SSD (VPS).**
+  **Üretim donanımı: 8 GB RAM · 4 çekirdek · 100 GB disk (KVM/QEMU VPS).**
+  ⚠️⚠️ **"RAID10 SSD" İDDİASI ÖLÇÜMLE ÇÜRÜTÜLDÜ (2026-09-14) — TUNING BUNA DAYANIYORDU.**
+  Ham cihaz ölçümü (`/dev/sda`, `iflag=direct`, iki bağımsız tur):
+
+  | test | ölçülen | SSD'de beklenen |
+  |---|---|---|
+  | sıralı okuma | **1,0 MB/s** (512 MB→519 sn ve 64 MB→64,3 sn) | 300-2000 MB/s |
+  | rastgele 4K | **55 IOPS**, medyan 12 ms, p95 28 ms, en kötü 145 ms | 10.000+ IOPS, <1 ms |
+
+  ⚠️ **Bu bir DOYGUNLUK değil KISITLAMA (throttle):** iki turda da tam 1,0 MB/s çıktı
+  ve o sırada **disk meşguliyeti yalnızca %51**'di — disk yetişemiyor olsaydı %100
+  olurdu. `dmesg`'de tek I/O hatası yok (arızalı donanım değil), `lsblk` `QEMU HARDDISK`
+  + `rotational: 1` gösteriyor. Büyük olasılıkla sağlayıcı tarafında IOPS/bant genişliği
+  kotası tükenmiş (burst kredisi bitince trickle'a düşen tipik VPS davranışı).
+  ⚠️ **Sonuç: bu, kodla çözülemez.** Ölçülen 12 ms rastgele okuma gecikmesinde
+  `ekap_tender`in 14 GB'lık çalışma kümesi (3,3 GB heap + 2,3 GB indeks + TOAST) 2 GB
+  `shared_buffers`a sığmadığı için her soğuk sayfa 12-60 ms bekleme demek: cache isabeti
+  ölçüldü **heap %74 / indeks %72** (olması gereken >%99), yani her dört erişimden biri
+  diske gidiyor. Bu yüzden aynı uç sıcakken 30-250 ms, soğukken 20-125 **saniye** sürüyor.
+  ⚠️ Bir tek satırlık `UPDATE ekap_tender` üretimde **64 saniye** koşarken yakalandı
+  (`IO/DataFileRead`, kaynak `ekap-mobil-worker`): 35 indeks × 2,3 GB üzerinde yazma
+  çoğaltması + HOT oranı yalnızca **%70,5** → güncellemelerin ~%30'u tüm indeksleri
+  dolaşıyor.
+  → **Gerçek çözüm sağlayıcı tarafında**: kota/oversubscription sorgulanmalı ya da plan
+  değiştirilmeli. Ölçüm çıktısı yukarıda, kanıt olarak sunulabilir.
+  → Kod tarafında yapılabilen tek şey **diske hiç gitmemek**: bkz. `_cached_rapor` +
+  `_tek_ucus` (rapor uçları) ve `_cached_count` (arama sayıları).
+  ⚠️ **Bu donanımda iki ayar YANLIŞ temelde duruyor** (SSD varsayımıyla konmuş):
+  `random_page_cost=1.1` planlayıcıya rastgele okumanın bedava olduğunu söylüyor (gerçek:
+  12 ms) ve `effective_io_concurrency=200` 55 IOPS'luk bir diskte agresif prefetch
+  yaptırıp o küçük bütçeyi harcıyor. Disk düzelmezse bunlar ölçümle yeniden ayarlanmalı
+  — ⚠️ ama önce disk, çünkü 1 MB/s'de sıralı tarama da rastgele erişim kadar kötüdür.
   Ayarlar buna göredir (`shared_buffers=2GB`, `effective_cache_size=5GB`,
   paralel sorgu 4 çekirdeğe göre). Donanım değişirse tabloya bakın.
   ⚠️ Bu ayarlar **db konteynerinin yeniden başlamasını** gerektirir (~30 sn);

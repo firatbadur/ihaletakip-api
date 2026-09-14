@@ -1,6 +1,5 @@
 """accounts serializer'ları."""
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -21,8 +20,6 @@ class UserSerializer(serializers.ModelSerializer):
             "username",
             "email",
             "display_name",
-            "first_name",
-            "last_name",
             "photo_url",
             "provider",
             "preferences",
@@ -30,9 +27,6 @@ class UserSerializer(serializers.ModelSerializer):
             "is_premium",
             "subscription_tier",
             "subscription_expires_at",
-            "age_range",
-            "onboarding_status",
-            "onboarding_completed_at",
         ]
         read_only_fields = [
             "id",
@@ -42,18 +36,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_premium",
             "subscription_tier",
             "subscription_expires_at",
-            "onboarding_completed_at",
         ]
-
-    def update(self, instance, validated_data):
-        # Tamamlanma anı sunucuda damgalanır (istemci saati güvenilmez).
-        # Sihirbaz sonradan yeniden tamamlanırsa ilk tarih korunur.
-        if (
-            validated_data.get("onboarding_status") == User.OnboardingStatus.COMPLETED
-            and instance.onboarding_completed_at is None
-        ):
-            instance.onboarding_completed_at = timezone.now()
-        return super().update(instance, validated_data)
 
 
 class RegisterSerializer(serializers.ModelSerializer):

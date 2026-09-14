@@ -438,7 +438,7 @@
                 ""
               ]
             },
-            "description": "Kısmi güncelleme. Yazılabilir: `display_name`, `first_name`, `last_name`, `email`, `photo_url`, `preferences`, `age_range` (`18_24|25_34|35_44|45_54|55_plus`) ve `onboarding_status` (`pending|skipped|completed`). `completed`'a ilk geçişte `onboarding_completed_at` sunucuda damgalanır. `id`, `username`, `provider` ve `date_joined` salt okunurdur.\n\n---\n\n### Alternatif gövde örnekleri\n\n**TanışmaSihirbazınıTamamla**\n\n```json\n{\n  \"first_name\": \"Fırat\",\n  \"last_name\": \"Badur\",\n  \"age_range\": \"25_34\",\n  \"onboarding_status\": \"completed\"\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Kısmi güncelleme. Yalnızca `display_name`, `email`, `photo_url` ve `preferences` yazılabilir; `id`, `username`, `provider` ve `date_joined` salt okunurdur.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"display_name\": \"Fırat Badur\"\n}",

@@ -36,36 +36,6 @@ class User(AbstractUser):
     fcm_token = models.CharField("FCM token", max_length=500, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
-    # ── Tanışma sihirbazı (mobil `Onboarding` ekranı) ───────
-    # Mobil, girişten sonra `onboarding_status == "pending"` olan kullanıcıya
-    # sihirbazı BİR KEZ açar. "Şimdilik geç" → `skipped` (bir daha zorlanmaz),
-    # bitiş → `completed`. Durum sunucuda tutulur ki cihaz değişince tekrar sorulmasın.
-    # Şirket bilgisi burada DEĞİL, `assistant.CompanyProfile`'dadır (asistanla ortak).
-    class AgeRange(models.TextChoices):
-        R18_24 = "18_24", "18-24"
-        R25_34 = "25_34", "25-34"
-        R35_44 = "35_44", "35-44"
-        R45_54 = "45_54", "45-54"
-        R55_PLUS = "55_plus", "55+"
-
-    class OnboardingStatus(models.TextChoices):
-        PENDING = "pending", "Bekliyor"
-        SKIPPED = "skipped", "Atlandı"
-        COMPLETED = "completed", "Tamamlandı"
-
-    age_range = models.CharField(
-        "yaş aralığı", max_length=8, choices=AgeRange.choices, blank=True
-    )
-    onboarding_status = models.CharField(
-        "tanışma sihirbazı",
-        max_length=10,
-        choices=OnboardingStatus.choices,
-        default=OnboardingStatus.PENDING,
-    )
-    onboarding_completed_at = models.DateTimeField(
-        "sihirbaz tamamlanma", null=True, blank=True
-    )
-
     # ── Etkinlik izi (MAU/DAU ölçümü) ──────────────────────
     # ⚠️ `last_login` bu projede İŞE YARAMAZ: JWT uçları (`serializers.issue_tokens`)
     # `django.contrib.auth.login()` çağırmaz ve `SIMPLE_JWT["UPDATE_LAST_LOGIN"]`

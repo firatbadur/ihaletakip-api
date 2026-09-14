@@ -136,8 +136,19 @@ app.conf.beat_schedule = {
     # buraya geri eklenerek çalıştırılabilir.
     # ⚠️ Kodda girdiyi silmek YETMEZ: `DatabaseScheduler` DB'deki `PeriodicTask`
     # satırını kendiliğinden kaldırmaz → satır ayrıca **devre dışı bırakılmalıdır**
-    # (admin → Periodic Tasks, ya da `PeriodicTask.objects.filter(
-    #  name="ekap-backfill").update(enabled=False)`).
+    # (admin → Periodic Tasks, ya da aşağıdaki tarif).
+    # ⚠️⚠️ **`queryset.update()` VE ham SQL İŞE YARAMAZ — sessizce.** `DatabaseScheduler`
+    # değişikliği `PeriodicTask` satırından değil ayrı bir `PeriodicTasks.last_update`
+    # damgasından izler; o damgayı **model sinyali** bumplar. `.update()` ve `UPDATE`
+    # sinyal atmadığı için zamanlayıcı önbelleğindeki eski takvimle devam eder: satır
+    # `enabled=false` görünür ama görev koşmaya devam eder (ya da tersi — `true`
+    # yapılır, hiç koşmaz). Yaşandı (2026-09-14) ve teşhisi geciktirdi.
+    # Doğrusu `save()` (sinyal atar) + emniyet kemeri:
+    #   t = PeriodicTask.objects.get(name="ekap-backfill")
+    #   t.enabled = False; t.save()
+    #   from django_celery_beat.models import PeriodicTasks; PeriodicTasks.update_changed()
+    # (Beat'i yeniden başlatmak da takvimi DB'den tazeler — ham SQL'le yapılan
+    #  değişikliklerin "işe yaramış" görünmesinin sebebi genelde budur.)
     # OKAS kodları — haftalık (Pazartesi 05:00)
     # Sözleşmeleri firmalara bağlar. EKAP'a gitmez (detail_raw arşivinden çalışır) →
     # `celery` kuyruğuna yönlendirilir (bkz. settings.CELERY_TASK_ROUTES) ve EKAP

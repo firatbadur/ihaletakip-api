@@ -1058,6 +1058,18 @@ kirlenir (ölçülen: bir `COUNT(*)` için `max_exec_time` **3.359 sn**, cache i
 
 **Yetim temizliği**: `pg_cancel_backend(pid)` yeter (`terminate` gerekmedi) — istemci
 zaten ölü, `sync_contracts_from_raw` idempotent, veri kaybı olmaz.
+⚠️ Öldürülen turlar `SyncRun`'da sonsuza dek `running` kalır (`finally` çalışmadı);
+teşhis bu tabloya baktığı için yanıltmasınlar diye elle kapatılmalı. Bu arızada
+**245 satır** birikmişti → sorun bugün başlamamış, günlerdir tırmanıyordu.
+
+⚠️⚠️ **Beat görevini açıp kapatırken `queryset.update()` VE ham SQL İŞE YARAMAZ.**
+`DatabaseScheduler` değişikliği `PeriodicTask` satırından değil ayrı bir
+`PeriodicTasks.last_update` damgasından izler ve o damgayı **model sinyali** bumplar;
+`.update()`/`UPDATE` sinyal atmaz → zamanlayıcı eski takvimle devam eder. Satır
+`enabled=false` görünürken görev koşmaya devam edebilir (ya da tersi). Bu arızada
+ham SQL'le kapatmak "işe yaramış" göründü ama aslında **hemen sonraki deploy'un beat'i
+yeniden başlatması** etkili olmuştu; geri açarken aynı yöntem hiç çalışmadı.
+Doğrusu `t.save()` + `PeriodicTasks.update_changed()` (bkz. `config/celery.py`).
 
 ⚠️⚠️ **ARTÇI ŞOK: fırtına bitince uçlar HÂLÂ yavaştır ve bu ayrı bir arıza sanılır.**
 Sekiz yetim 2 GB'lık buffer cache'i tamamen süpürdüğü için her istek diskten okuyordu.

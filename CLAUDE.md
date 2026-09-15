@@ -2846,8 +2846,13 @@ scripts/db_tasima.sh dogrula         # base.tar'ı yeniden almadan geri yükle +
     kurallarını düşürebilirdi; kural `iptables -I` ile canlı eklendi.
     ⚠️ tinyfect'in `docker-compose.yml`'indeki *"http://173.249.43.236:8000 ile erişim"*
     yorumu artık **geçersiz**; birisi 8000'i dışarıdan kullanmaya kalkarsa bu kural engeller.
-  - ⚠️ UFW'de `3389 ALLOW Anywhere` (RDP) kuralı var ama 3389'u dinleyen süreç yok —
-    muhtemelen artık kural; ileride bir şey dinlemeye başlarsa anında internete açılır.
+  - **3389 (RDP) izni kaldırıldı** (`ufw delete allow 3389`, v4+v6; yedek
+    `user.rules.bak-*`). Önce doğrulandı: dinleyen süreç yok (TCP/UDP), DNAT/FORWARD
+    yok, RDP/VNC servisi kurulu değil, WireGuard noktadan noktaya (PostUp/NAT yok).
+    ⚠️ Journal'daki 110 "3389" eşleşmesi **yanlış alarmdı** — sshd satırlarında port/PID
+    numarasının içinden eşleşiyordu. `ufw delete` fail2ban'ın `f2b-sshd` ve DOCKER-USER
+    kurallarına dokunmadı (kontrol edildi). Kalan UFW: 22, 80, 443, 51820/udp,
+    1433 (yalnız Docker + VPN).
 - **Yapılacak (kurulum bitince)**: tinyfect'in veritabanı yedekleri bir **FTP sunucusuna
   otomatik** gönderiliyor; aynı düzen ihaletakip için de kurulacak.
 

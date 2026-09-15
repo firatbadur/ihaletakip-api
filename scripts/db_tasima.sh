@@ -107,7 +107,9 @@ pgq() {
   printf '%s\n' "$1" | docker exec -i "$DB_KONTEYNER" \
     psql -U "$DB_KULLANICI" -d "$DB_ADI" -XtAq -v ON_ERROR_STOP=1 -f -
 }
-hedef() { ssh "${SSH_KUCUK[@]}" "$HEDEF" "$@"; }
+# ⚠️ -n: stdin'i OKUMAZ. Betik `bash -s < betik` ile beslenirse, stdin okuyan bir
+#  ssh betiğin GERİ KALANINI yutar ve sessizce durur (prova sırasında yaşandı).
+hedef() { ssh -n "${SSH_KUCUK[@]}" "$HEDEF" "$@"; }
 hpgq() {
   printf '%s\n' "$1" | ssh "${SSH_KUCUK[@]}" "$HEDEF" \
     "docker exec -i $DOGRULA_KONTEYNER psql -U $DB_KULLANICI -d $DB_ADI -XtAq -v ON_ERROR_STOP=1 -f -"
@@ -181,17 +183,18 @@ slot_sil() {
   local i
   for i in 1 2 3 4 5 6; do
     if [ "$(pgq "SELECT count(*) FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null)" = 0 ]; then
+      [ "$SLOT_ACIK" = 1 ] && log "slot '$SLOT' silindi"
       SLOT_ACIK=0
       return 0
     fi
     # aktif slot silinemez; walsender az önce sonlandırıldıysa birkaç saniye sürer
     pgq "SELECT pg_drop_replication_slot('$SLOT') FROM pg_replication_slots
           WHERE slot_name = '$SLOT' AND NOT active" >/dev/null 2>&1 || true
-    sleep 5
+    [ "$i" -gt 1 ] && sleep 5
   done
   if [ "$(pgq "SELECT count(*) FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null)" = 0 ]; then
-    SLOT_ACIK=0
     log "slot '$SLOT' silindi"
+    SLOT_ACIK=0
     return 0
   fi
   log "✗ UYARI: slot '$SLOT' SİLİNEMEDİ — WAL birikir, ELLE silin:"
@@ -239,6 +242,13 @@ temizlik() {
   local rc=$?
   set +e
   trap - ERR
+  # ⚠️⚠️ Temizlik yarıda KESİLEMEZ olmalı. systemd durdururken (`iptal`) SIGTERM'i tee
+  #  DAHİL tüm süreçlere yollar; tee ölünce ilk `log` kırık boruya yazar ve SIGPIPE
+  #  betiği temizliğin ortasında öldürür → slot SİLİNMEZ, worker'lar KAPALI kalır.
+  #  Prova sırasında bulundu (2026-09-15): log'da "SONUÇ" satırı yoktu.
+  #  Çözüm: SIGPIPE/INT/TERM yok say + çıktıyı tee'yi atlayıp doğrudan dosyaya yaz.
+  trap '' PIPE INT TERM
+  [ -n "${LOG:-}" ] && exec >>"$LOG" 2>&1
   [ -n "$BEKCI_PID" ] && kill "$BEKCI_PID" 2>/dev/null
   if [ "$YEDEK_SURUYOR" = 1 ]; then
     log "yarım kalan pg_basebackup durduruluyor"
@@ -544,6 +554,7 @@ dogrula() {
   mkdir -p "$CALISMA_DIZINI/log"
   LOG="$CALISMA_DIZINI/log/dogrula-$(date -u +%Y%m%d-%H%M%S).log"
   exec > >(tee -a "$LOG") 2>&1
+  ln -sfn "$LOG" "$CALISMA_DIZINI/son.log"
   exec 9>"$CALISMA_DIZINI/kilit"
   flock -n 9 || die "başka bir taşıma zaten çalışıyor"
   trap temizlik EXIT
@@ -605,7 +616,7 @@ durum() {
               coalesce(pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), '-')
          FROM pg_replication_slots" 2>/dev/null || true
   echo "=== worker / beat ==="
-  docker ps -a --format '{{.Names}}  {{.Status}}' | grep -E 'worker|beat' || true
+  docker ps -a --format '{{.Names}}  {{.Status}}' | grep -E '^ihaletakip-api-.*(worker|beat)' || true
 }
 
 iptal() {

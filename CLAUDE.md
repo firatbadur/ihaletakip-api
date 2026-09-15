@@ -2769,6 +2769,70 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
 - **Dağıtım sonrası doğrulama**: `docker compose exec web python manage.py ekap_probe`
   (imza + canlı EKAP), `curl -I https://<domain>/health/` → `200`.
 
+### Sunucu taşıma — `scripts/db_tasima.sh` (veritabanı → tinyfect)
+
+Hedef: `ssh tinyfect` (173.249.43.236, Contabo Lauterbourg/FR, fiziksel Supermicro,
+**251 GB RAM**, 461 MB/s · 22.966 IOPS). Prod diski ~1,5 MB/s'e kısıtlı olduğu için
+(bkz. "Üretim donanımı") veritabanı buraya taşınıyor. Betik **prod'da** çalışır,
+`pg_basebackup`'ı SSH ile doğrudan hedefe akıtıp orada doğrular.
+
+```bash
+scripts/db_tasima.sh on-kontrol      # gündüz de güvenli, hiçbir şey kopyalamaz
+scripts/db_tasima.sh zamanla 00:30   # TR saati; donmuş kopya + systemd timer
+scripts/db_tasima.sh durum           # timer / son log / slot / worker durumu
+scripts/db_tasima.sh iptal           # timer'ı kaldırır, çalışıyorsa temizce durdurur
+scripts/db_tasima.sh dogrula         # base.tar'ı yeniden almadan geri yükle + doğrula
+```
+Çıktı: hedefte `ihaletakip-api_pgdata` volume'u (compose'un bekleyeceği ad) +
+`/root/ihaletakip-tasima/base.tar` (sunucu dışı tam yedek). Log: `/root/db_tasima/son.log`.
+
+- ⚠️⚠️ **BU BİR KESME DEĞİL.** Web açık kalır; yedek bittikten sonra prod'a yazılan
+  veri kopyada yoktur. Kesme ayrı bir adımdır (`SLOTU_KORU=1` + replika ya da kısa
+  bakım penceresinde tekrar).
+- ⚠️ **`pg_dump` DEĞİL `pg_basebackup`**: pg_dump TOAST'ı (12,7 GB) rastgele erişimle
+  okur ve saatlerce snapshot açık tutup vacuum'u bloklar. Bedeli: **aynı PG ana sürümü
+  + aynı libc** → imaj digest'i prod konteynerinden okunup hedefte digest ile çekilir
+  (farklı collation metin indekslerini **sessizce** bozar).
+- ⚠️ **Replikasyon slotu şart**: prod'da `wal_keep_size=0` → `-X fetch` slotsuz saatler
+  sonra "WAL segment already removed" ile düşerdi. WAL üretimi ~61 MB/sa. Slot trap'te
+  her durumda silinir; bekçi prod boş diski 5 GB altına inerse yedeği durdurur.
+  `local replication all trust` mevcut → **pg_hba değişikliği gerekmez**.
+- ⚠️ **beat + worker'lar duraklatılır** (beat de: yoksa biriken `tik` görevleri dönüşte
+  EKAP'a art arda gider); sabah bildirimleri kaçmasın diye **06:30 TR**'de kopya sürse
+  bile geri açılır (`WORKER_DONUS_TR`).
+- ⚠️ **Yalnızca çekirdek `docker`**, `docker compose` değil: disk doygunken compose
+  eklentisi yüklenemiyor (`unknown shorthand flag: 'T' in -T`, üretimde görüldü).
+- ⚠️⚠️ **Temizlik yarıda kesilemez olmalı** (provada bulundu): systemd durdururken
+  SIGTERM'i `tee` dahil tüm süreçlere yollar; tee ölünce temizliğin ilk `log`'u kırık
+  boruya yazıp **SIGPIPE ile betiği öldürüyordu** → slot silinmez, worker'lar kapalı
+  kalırdı. Temizlik artık PIPE/INT/TERM'i yok sayıp doğrudan dosyaya yazar.
+- ⚠️ **ERR trap aktarım borusunda kapalı**: açık kalsa `PIPESTATUS`'u okunmadan ezip
+  başarısız yedeği başarılı sayabilirdi.
+- ⚠️ **`bash -s < betik` ile uzaktan çalıştırılan betikte stdin okuyan her komut
+  (`ssh`, `docker exec -i`) betiğin geri kalanını yutar** ve iş sessizce durur — bugün
+  üç kez ısırdı. `hedef()` bu yüzden `ssh -n` kullanır; uzaktan komut yazarken
+  `</dev/null` ekleyin ya da betiği önce `scp` ile kopyalayıp dosyadan çalıştırın.
+- **Doğrulama zinciri** (hepsi hedefte, prod'a dokunmaz): `pg_verifybackup` (stdout
+  tar'ına manifest dahil — doğrulandı) → `--network none` + bellek sınırlı geçici
+  Postgres → tablo karşılaştırması (küçük tablo tam sayım, büyükte `max(id)`; prod
+  referansı yedek biter bitmez alınır) → `pg_amcheck` (`amcheck` eklentisini kopyada
+  oluşturur).
+- **Prova edildi** (tinyfect'te sahte kaynak DB ile, sonra tamamen söküldü): başarılı
+  yol · akış sürerken `systemctl stop` · doğrulama sırasında iptal · `dogrula` · `durum`.
+- `-c spread` ilk checkpoint'i ~4,5 dk'ya yayar — bilinçli, kısıtlı diskte yazma fırtınası
+  olmasın. Ağ prod→tinyfect **15,1 MB/s** (ölçüldü) → darboğaz disk.
+- ⚠️ **SSH anahtarı**: prod `/root/.ssh/ihaletakip_tasima` → tinyfect root,
+  `from="91.241.49.109"` + yönlendirme kısıtlı. Prod ele geçirilirse tinyfect'e (başka
+  proje + SQL Server) root erişim demek → **taşıma bitince kaldırın**:
+  tinyfect'te `sed -i '/ihaletakip-prod-to-tinyfect-tasima/d' /root/.ssh/authorized_keys`,
+  prod'da `~/.ssh/config`'teki `Host tinyfect-tasima` bloğu + anahtar dosyaları.
+- **Hedef sunucu notları**: tinyfect nginx yalnızca **80**'i dinler (`entegration.tinyfect.com`,
+  Cloudflare Flexible → origin:80) → sunucunun **443'ü boş**, bizim nginx bugünkü gibi
+  443'te çalışabilir. ⚠️ Orada **SQL Server 1433** ve tinyfect **8000** internete açık;
+  üretim verisi oraya gitmeden kapatılmalı. Tek disk, **RAID yok**.
+- **Yapılacak (kurulum bitince)**: tinyfect'in veritabanı yedekleri bir **FTP sunucusuna
+  otomatik** gönderiliyor; aynı düzen ihaletakip için de kurulacak.
+
 ### İlk kurulum akışı (Ubuntu, özet)
 
 1. Sistem güncelle + reboot: `apt update && apt upgrade -y` → `reboot`.

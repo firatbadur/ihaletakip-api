@@ -2828,8 +2828,26 @@ scripts/db_tasima.sh dogrula         # base.tar'ı yeniden almadan geri yükle +
   prod'da `~/.ssh/config`'teki `Host tinyfect-tasima` bloğu + anahtar dosyaları.
 - **Hedef sunucu notları**: tinyfect nginx yalnızca **80**'i dinler (`entegration.tinyfect.com`,
   Cloudflare Flexible → origin:80) → sunucunun **443'ü boş**, bizim nginx bugünkü gibi
-  443'te çalışabilir. ⚠️ Orada **SQL Server 1433** ve tinyfect **8000** internete açık;
-  üretim verisi oraya gitmeden kapatılmalı. Tek disk, **RAID yok**.
+  443'te çalışabilir. Tek disk, **RAID yok**.
+- **Güvenlik duvarı (2026-09-15 ölçüldü/düzeltildi)**: UFW aktif, `INPUT` politikası `DROP`.
+  - **1433 (SQL Server) zaten kapalıydı** — UFW yalnızca `172.16.0.0/12` (Docker) ve
+    `10.66.66.0/24` (**WireGuard** `wg0`, eş 10.66.66.2) için izin veriyor. ⚠️ "`ss`'te
+    `0.0.0.0:1433` dinliyor → internete açık" okuması **yanlıştı**: dinlenen port ile
+    erişilebilir port aynı şey değil; dışarıdan `nc` ile denenmeli. Daha da kapatmak VPN
+    istemcisini koparır — **dokunmayın**.
+  - **8000 (tinyfect-web) açıktı ve kapatıldı**: Docker'ın yayınladığı portlar UFW'yi
+    **atlar**. 7 günlük logda doğrudan 8000'e gelen isteklerin **tamamı** tarayıcı/saldırı
+    trafiğiydi (`/v1/models`, `POST /fetch`, `/boaform/admin/formLogin`); gerçek trafik
+    nginx'ten Docker ağıyla geliyor. Kural `DOCKER-USER` zincirinde, **yalnızca `eth0`**:
+    `-i eth0 -p tcp -m conntrack --ctorigdstport 8000 --ctdir ORIGINAL -j DROP`
+    (nginx→web ve WireGuard erişimi sürer). Kalıcılık `/etc/ufw/after.rules` sonundaki
+    `BEGIN tinyfect-web-8000-kapat` bloğu (yedek `after.rules.bak-*`); sözdizimi
+    `iptables-restore --test` ile doğrulandı. ⚠️ `ufw reload` YAPILMADI — fail2ban'ın SSH
+    kurallarını düşürebilirdi; kural `iptables -I` ile canlı eklendi.
+    ⚠️ tinyfect'in `docker-compose.yml`'indeki *"http://173.249.43.236:8000 ile erişim"*
+    yorumu artık **geçersiz**; birisi 8000'i dışarıdan kullanmaya kalkarsa bu kural engeller.
+  - ⚠️ UFW'de `3389 ALLOW Anywhere` (RDP) kuralı var ama 3389'u dinleyen süreç yok —
+    muhtemelen artık kural; ileride bir şey dinlemeye başlarsa anında internete açılır.
 - **Yapılacak (kurulum bitince)**: tinyfect'in veritabanı yedekleri bir **FTP sunucusuna
   otomatik** gönderiliyor; aynı düzen ihaletakip için de kurulacak.
 

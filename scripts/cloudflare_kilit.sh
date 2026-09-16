@@ -130,8 +130,13 @@ kalici_yaz() {
   local araliklar="$1" gecici blok
   gecici=$(mktemp); blok=$(mktemp)
   # Eski bloğu çıkar
+  # ⚠️⚠️ ÖNEK eşleşmesi, tam eşitlik DEĞİL: yazdığımız başlık satırı
+  # "# BEGIN cf-kilit-443 (2026-09-16)" biçiminde, yani sonuna tarih ekliyor.
+  # Tam eşitlikle arayan ilk sürüm eski bloğu HİÇ bulamadı ve her koşuda bloğu
+  # yeniden ekledi (after.rules 18 satırdan 36'ya çıktı; fark edilmezse dosya
+  # sonsuza kadar büyürdü).
   awk -v b="$BLOK_BAS" -v s="$BLOK_SON" '
-    $0==b {atla=1} !atla {print} $0==s {atla=0}' "$AFTER_RULES" > "$gecici"
+    index($0,b)==1 {atla=1} !atla {print} index($0,s)==1 {atla=0}' "$AFTER_RULES" > "$gecici"
   {
     printf '\n%s (%s)\n' "$BLOK_BAS" "$(date +%Y-%m-%d)"
     cat <<EOF
@@ -158,7 +163,7 @@ EOF
   # blok tek başına ayıklanıp `iptables-restore --test` ile denenir (--test hiçbir
   # şey uygulamaz, yalnızca ayrıştırır).
   awk -v b="$BLOK_BAS" -v s="$BLOK_SON" '
-    $0==b {icinde=1; next} $0==s {icinde=0} icinde && !/^#/ {print}' "$gecici" > "$blok"
+    index($0,b)==1 {icinde=1; next} index($0,s)==1 {icinde=0} icinde && !/^#/ {print}' "$gecici" > "$blok"
   if ! iptables-restore --test < "$blok" 2>/dev/null; then
     rm -f "$gecici" "$blok"
     uyari "üretilen blok iptables-restore testini geçemedi → after.rules DEĞİŞTİRİLMEDİ"
@@ -175,10 +180,10 @@ EOF
 # ── Geri al ──────────────────────────────────────────────────────────────────
 mod_geri_al() {
   canli_temizle
-  if grep -q "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null; then
+  if grep -qF "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null; then
     cp -a "$AFTER_RULES" "${AFTER_RULES}.bak-$(date +%Y%m%d-%H%M%S)"
     awk -v b="$BLOK_BAS" -v s="$BLOK_SON" '
-      $0==b {atla=1} !atla {print} $0==s {atla=0}' "$AFTER_RULES" > "${AFTER_RULES}.yeni"
+      index($0,b)==1 {atla=1} !atla {print} index($0,s)==1 {atla=0}' "$AFTER_RULES" > "${AFTER_RULES}.yeni"
     mv "${AFTER_RULES}.yeni" "$AFTER_RULES"; chmod 640 "$AFTER_RULES"
     oldu "kalıcı blok da kaldırıldı"
   fi
@@ -200,7 +205,7 @@ mod_durum() {
   else
     hata "TUTARSIZ durum (izin=$izin drop=$drop) → 'uygula' ile yeniden kurun"
   fi
-  grep -q "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null \
+  grep -qF "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null \
     && oldu "kalıcılık var (yeniden başlatmada korunur)" \
     || uyari "kalıcılık YOK — yeniden başlatmada kilit kaybolur"
   printf '  isabet sayacı:\n'

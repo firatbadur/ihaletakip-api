@@ -1,0 +1,102 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# tinyfect sunucusu için Postgres ayar katmanı (2026-09-16)
+#
+# Kullanım — BU DOSYA TEK BAŞINA ÇALIŞMAZ, üst üste bindirilir:
+#   docker compose -f docker-compose.yml -f docker-compose.tinyfect.yml up -d
+#
+# ⚠️⚠️ NEDEN AYRI DOSYA: bu değerler **251 GB RAM · 20 çekirdek · gerçek NVMe/SSD**
+# içindir. `docker-compose.yml`'deki değerler ise eski Bursa sunucusunun donanımına
+# (8 GB RAM · 4 çekirdek · 1 MB/s'e kısıtlı disk) göredir. Doğrudan ana dosyaya
+# yazılsaydı eski sunucu bir daha deploy edildiğinde `shared_buffers=32GB` ile
+# **açılmazdı** (8 GB RAM'de Postgres başlamaz). Geçiş tamamlanıp eski sunucu
+# kapatılınca bu dosya ana dosyaya katlanabilir.
+#
+# ⚠️ `command:` bir LİSTE olduğu için override ana dosyadaki listeyi **tamamen
+# değiştirir**, birleştirmez → aşağıda tüm parametreler yeniden sayılmıştır.
+# Ana dosyada bir parametre eklenirse buraya da eklenmeli.
+#
+# Donanım ölçümü (2026-09-15/16): sıralı okuma 209-461 MB/s, 22.966 IOPS,
+# 0,04 ms gecikme. Eski sunucu: 1,0 MB/s, 55 IOPS, 12 ms. Bkz. CLAUDE.md
+# → "Üretim donanımı" ve "Sunucu taşıma".
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  db:
+    # Paralel sorgu ve büyük hash/sort için; 64 MB varsayılanı
+    # "could not resize shared memory segment" veriyor.
+    shm_size: 2gb
+    command:
+      - postgres
+      # ── Ölçüm ──────────────────────────────────────────────────────────────
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - track_io_timing=on
+      # ── Bellek ─────────────────────────────────────────────────────────────
+      # ⚠️⚠️ TAŞIMANIN ASIL KAZANCI BURADA. Veritabanı 25 GB; shared_buffers=32GB
+      # ile **tamamı belleğe sığar** → soğuk sayfa okuması diye bir şey kalmaz.
+      # Eski sunucudaki 2 GB'a 14 GB'lık çalışma kümesi sığmadığı için cache
+      # isabeti heap %74 / indeks %72'ye düşüyor, her dört erişimden biri 12 ms'lik
+      # diske gidiyordu (aynı uç sıcakken 30-250 ms, soğukken 20-125 SANİYE).
+      # ⚠️ 32 GB'ın üstüne çıkmak anlamsız: veritabanından büyük shared_buffers
+      # boşa ayrılmış RAM'dir. Veritabanı büyürse (>28 GB) bu değer artırılmalı.
+      # ⚠️ Sunucu yalnız değil: tinyfect stack'i + host'ta SQL Server var (ölçüm:
+      # ~5 GB kullanımda, 181 GB boş). 32 GB rahatça güvenli.
+      - -c
+      - shared_buffers=32GB
+      # Planlayıcıya "shared_buffers + OS sayfa cache'i" toplamını söyler,
+      # bellek AYIRMAZ — yalnızca tahmindir.
+      - -c
+      - effective_cache_size=160GB
+      # Sıralama/hash düğümü başına. ⚠️ Bağlantı başına DEĞİL düğüm başına ayrılır;
+      # 100 bağlantı × birkaç düğüm en kötü hâlde onlarca GB eder — 251 GB'de kabul
+      # edilebilir, 8 GB'de edilemezdi (orada 16 MB).
+      - -c
+      - work_mem=64MB
+      # VACUUM / CREATE INDEX hızı. Gece bakım pencerelerini kısaltır.
+      - -c
+      - maintenance_work_mem=4GB
+      - -c
+      - max_connections=100
+      # ── Planlayıcı ─────────────────────────────────────────────────────────
+      # ⚠️ Bu iki değer eski sunucuda YANLIŞ TEMELDE duruyordu (CLAUDE.md'de
+      # belgelendi): random_page_cost=1.1 planlayıcıya rastgele okumanın bedava
+      # olduğunu söylüyordu ama gerçek 12 ms'ydi; effective_io_concurrency=200 ise
+      # 55 IOPS'luk bir diskte agresif prefetch yaptırıp o küçük bütçeyi harcıyordu.
+      # BURADA İKİSİ DE DOĞRU: ölçülen gecikme 0,04 ms, 22.966 IOPS.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - default_statistics_target=200
+      # ── Paralel sorgu — 20 çekirdek ────────────────────────────────────────
+      # ⚠️ Tüm çekirdekler verilmez: sunucu paylaşımlı (tinyfect stack + SQL Server)
+      # ve tek bir ağır sorgu diğer istekleri bekletmemeli. per_gather=4 → bir
+      # COUNT/tarama en çok 4 çekirdek kullanır.
+      - -c
+      - max_worker_processes=16
+      - -c
+      - max_parallel_workers=12
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - max_parallel_maintenance_workers=4
+      # ── WAL ────────────────────────────────────────────────────────────────
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - checkpoint_completion_target=0.9
+      # ⚠️⚠️ BU SATIR BİR ARIZANIN DERSİDİR. Eski sunucuda `wal_keep_size=0` idi;
+      # 15 Eylül gecesi alınan 25 GB'lık kopya ertesi sabah replikaya çevrilemedi
+      # çünkü aradaki WAL **silinmişti** (`archive_mode=off` + pg_wal'da 5 dosya) →
+      # kesme için 7,5 saatlik kopyanın baştan alınması gerekti. 4 GB ≈ 65 saatlik
+      # WAL (ölçülen üretim hızı ~61 MB/sa) → bir gecelik gecikme asla veri
+      # kaybına ya da yeniden kopyalamaya yol açmaz.
+      - -c
+      - wal_keep_size=4GB
+      # ── Log ────────────────────────────────────────────────────────────────
+      # ⚠️ Eşik 1000 ms'de BIRAKILDI (düşürülmedi): burada sorgular 100 kat
+      # hızlanacağı için 1 sn'yi aşan bir sorgu artık gerçekten patolojiktir ve
+      # log tam olarak onu yakalamalı. Eşiği düşürmek logu gürültüye boğardı.
+      - -c
+      - log_min_duration_statement=1000

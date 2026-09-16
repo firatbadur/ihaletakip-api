@@ -2750,10 +2750,50 @@ blok `iptables-restore --test`'ten geçmeden `after.rules`'a yazılmaz — bozuk
 → Ders: idempotent olduğu **iddia edilen** bir betik, iki kez koşturulup kural
 sayısı sayılarak doğrulanmalı. Üç kez koşturuldu: 16/18/1 sabit kaldı.
 
-**Kilitten SONRA dışarıya açık kalanlar** (bilinçli): **22** (SSH, fail2ban
-korumalı) ve **80** (tinyfect'in nginx'i, `entegration.tinyfect.com`).
-⚠️ 80 aynı atlatma açığını taşıyor — o proje Cloudflare Flexible kullanıyor,
-istenirse aynı betik `PORT=80` ile ona da uygulanabilir.
+✅ **80 de kilitlendi (2026-09-16)** — `PORT=80 scripts/cloudflare_kilit.sh uygula`.
+tinyfect'in nginx'i (`entegration.tinyfect.com` + `tinyfect.com`) aynı atlatma
+açığını taşıyordu: doğrudan `Host` başlığıyla **HTTP 200** dönüyordu.
+Kilitlemeden önce trafik incelendi — **son 3000 isteğin 2856'sı Cloudflare'den**;
+CF dışı 5 kaynağın tamamı tarayıcı/saldırı ve hepsi **400** alıyordu
+(`GET /SDK/webLanguage` bilinen bir zafiyet taraması, bir kaynak 80'e ham TLS
+baytları göndermişti). Tek 200 dönen CF-dışı istek bizim test isteğimizdi.
+⚠️ Önce `certbot`/ACME olmadığı doğrulandı: HTTP-01 doğrulaması 80'i kullanır ve
+kilit onu kırardı. Cloudflare Flexible olduğu için origin'de sertifika yok → sorun yok.
+⚠️ Her port **ayrı etiket ve ayrı blok** kullanır (`cf-kilit-80` / `cf-kilit-443`)
+→ biri uygulanırken diğerinin kuralları silinmez (doğrulandı: 16/16/1 sabit).
+
+**Kilitten SONRA dışarıya açık kalan tek port: 22** (SSH, fail2ban korumalı).
+Belirli IP'lere kilitlemek bilinçli olarak YAPILMADI: kullanıcının IP'si değişirse
+kendisi de giremez.
+
+⚠️⚠️ **`after.rules`'ta blok olması KALICILIK DEĞİLDİR** — o dosyayı UFW yükler.
+UFW kapalıysa dosya hiç okunmaz ve kural yeniden başlatmada kaybolur. Betik
+başta bu durumu "kalıcılık var" diye raporluyordu, yani **yanlış güvence**
+veriyordu; eski Bursa sunucusunda UFW kapalı olduğu için tam bu duruma düşüldü.
+Artık UFW durumu kontrol edilip açıkça uyarılıyor.
+
+### Eski Bursa sunucusu — 1 hafta bekletiliyor (2026-09-23'e kadar)
+
+Kullanıcı kararı (2026-09-16): sunucu **bir hafta daha duracak**, sonra kapatılacak.
+Amacı iki şey: **geri dönüş yolu** ve **Türkiye'de kalan son veri kopyası**.
+
+- Çalışan: `db`, `redis`, `web`, `nginx` (4 konteyner). **Worker/beat DURDURULDU**
+  → arka planda iş üretmiyor, EKAP'a gitmiyor, bildirim göndermiyor.
+- Veri donmuş durumda: `ekap_tender max(id) = 1099017` (16 Eylül 09:10 TR).
+- ✅ **443'ü Cloudflare'e kilitlendi** — doğrudan erişim `HTTP 000`. Böylece
+  "duruyor ama dışarıdan kurcalanamıyor" durumunda. Geri dönüş yine çalışır:
+  CF aralıklarına izin verildiği için Cloudflare A kaydı geri çevrilirse site
+  hemen ayağa kalkar.
+  ⚠️ Bu kural **yeniden başlatmada kaybolur** (UFW kapalı). Sunucu yeniden
+  başlatılırsa `scripts/cloudflare_kilit.sh uygula` tekrar koşturulmalı.
+- **Geri dönüş (gerekirse)**: Cloudflare A kaydı → `91.241.49.109`. Worker'ları da
+  açmak gerekir: `docker start` ile 6 konteyner.
+  ⚠️ Geri dönüş **yeni sunucuda yapılmış tüm yazmaları kaybeder** — zaman geçtikçe
+  bu maliyet büyüyor, bir haftalık bekleme bunun için üst sınır.
+- **Kapatma sırası (2026-09-23 civarı)**: (1) son bir kez veri farkını kontrol et,
+  (2) prod→tinyfect SSH anahtarını kaldır (tinyfect `authorized_keys` + eski
+  sunucudaki `Host tinyfect-tasima` bloğu ve anahtar dosyaları), (3) sunucuyu
+  kapat/iptal et. ⚠️ Kapatınca Türkiye'de veri kalmaz — KVKK notu kalıcı hâle gelir.
 - **Güvenli çerez zinciri**: `DEBUG=False` → `SESSION_COOKIE_SECURE=True`
   (`settings.py`). TLS + `X-Forwarded-Proto: https` olmadan **admin'e giriş yapılamaz**
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.

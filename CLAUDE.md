@@ -2691,11 +2691,69 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   yok; `server: cloudflare` başlığı gelir). Çözüm: zone genelini değiştirmeden **Rules →
   Configuration Rules** ile *yalnızca* `ihale-takip.envisoft.com.tr` hostname'i için
   **SSL = Full (strict)** override et (Page Rule ile de olur). Diğer siteler Flexible kalır.
-- **Origin'i CF'e kilitle** (yapılacak hardening): Origin IP'sine internetten sürekli bot
-  taraması gelir. nginx'te Authenticated Origin Pulls (mTLS — `default.conf`'ta hazır,
-  bkz. README) veya iptables ile 443'ü yalnızca Cloudflare IP aralıklarına aç.
+- ✅ **Origin CF'e KİLİTLENDİ (2026-09-16)** — `scripts/cloudflare_kilit.sh`.
+  443 yalnızca Cloudflare'in 15 IPv4 aralığına açık, gerisi `DROP`. Haftalık cron
+  (`tazele`, Pazartesi 05:17) aralıkları yeniler. Ayrıntı ve tuzaklar için bkz.
+  "Origin'i Cloudflare'e kilitleme" bölümü.
+  ⚠️⚠️ **Bu, IP'yi GİZLEMEZ — IP'yi İŞE YARAMAZ hâle getirir.** Origin IP'si
+  sertifika şeffaflık kayıtları, eski DNS kayıtları ve toplu taramalarla zaten
+  bulunabilir; gizlemeye çalışmak kırılgan bir savunmadır. Güvenlik artık
+  **erişim denetimine** dayanıyor: IP elde olsa bile 443'e bağlantı düşürülür.
   **Uyarı**: Docker yayınlanan portları **UFW'yi BYPASS eder** → UFW allow/deny 443'ü
-  kısıtlamaz; `DOCKER-USER` iptables zinciri ya da nginx-seviyesi AOP kullan.
+  kısıtlamaz; `DOCKER-USER` iptables zinciri kullanılır.
+
+### Origin'i Cloudflare'e kilitleme — `scripts/cloudflare_kilit.sh`
+
+```bash
+scripts/cloudflare_kilit.sh durum     # kural sayısı + engellenen paket
+scripts/cloudflare_kilit.sh uygula    # kilidi kur (idempotent)
+scripts/cloudflare_kilit.sh tazele    # CF aralıklarını yenile (haftalık cron)
+scripts/cloudflare_kilit.sh geri-al   # kilidi kaldır
+```
+
+**Neden gerekliydi (ölçüldü):** alan adı Cloudflare arkasındaydı ama origin IP'si
+443'te herkese açıktı. `curl --resolve ihale-takip.envisoft.com.tr:443:<origin-ip>`
+ile **HTTP 200** alındı — yani IP'yi bilen biri doğru `Host` başlığıyla
+Cloudflare'in WAF'ını, hız sınırını ve DDoS soğurmasını **tümüyle atlayabiliyordu**.
+⚠️ `ALLOWED_HOSTS` bunu engellemez: yalnızca **yanlış** Host başlığını eler
+(logda `DisallowedHost` olarak görülüyordu), doğru başlıkla geleni elemez.
+Kilit sonrası aynı istek `HTTP 000` (bağlantı düşürüldü); ilk saatte **430 paket**
+engellendi.
+
+⚠️ **`--ctorigdstport` kullanılır, `--dport` DEĞİL**: Docker yayınlanan portu
+DNAT'ladığı için paket FORWARD'a geldiğinde hedef port **konteynerin** portudur.
+conntrack isteğin ORİJİNAL hedef portuna bakar → port eşlemesi değişse bile kural
+doğru kalır.
+⚠️ Kurallar `-i eth0` ile sınırlı → konteynerler arası (nginx→web), loopback
+(`https://localhost/health/`) ve WireGuard **etkilenmez** (doğrulandı).
+⚠️ `ufw reload` YAPILMAZ (fail2ban zincirlerini düşürebiliyor); kurallar canlıya
+`iptables -A` ile eklenir, kalıcılık `/etc/ufw/after.rules`'a yazılır.
+
+**Doğrulama katmanı bu betiğin en kritik parçası**: eksik/bozuk bir CF listesiyle
+"yalnızca CF'e izin ver" yazmak siteyi **tamamen** kapatmaktır. Bu yüzden tek
+geçersiz CIDR işi durdurur, asgari aralık sayısı (10) kontrol edilir ve üretilen
+blok `iptables-restore --test`'ten geçmeden `after.rules`'a yazılmaz — bozuk bir
+`after.rules`, sunucu yeniden başladığında UFW'nin **hiç açılmaması** demektir.
+⚠️ İzin kuralları DROP'tan **önce** eklenir; ters sıra kısa bir kesinti yaratırdı.
+
+⚠️⚠️ **İKİ SESSİZ HATA YAŞANDI, ikisi de doğrulamayla bulundu:**
+1. **`iptables -S` yorumu yalnızca boşluk içeriyorsa tırnaklar.** Etikette boşluk
+   olmadığı için tırnaksız basılıyor; kod tırnaklı biçimi arıyordu → `durum`
+   kuralları "YOK" sandı (16 kural ve 96 engellenmiş paket varken **yanlış
+   güvence**) ve temizlik hiç çalışmadığı için haftalık `tazele` her koşuda
+   **16 kural daha** ekleyecekti.
+2. **Blok silme tam eşitlik arıyordu** ama yazılan başlık satırı
+   `# BEGIN cf-kilit-443 (2026-09-16)` biçiminde (sonuna tarih ekleniyor) →
+   eski blok hiç bulunamadı, `after.rules` her koşuda büyüdü (18 → 36 satır).
+   Artık **önek** eşleşmesi kullanılıyor. Aynı kalıbı taşıyan 8000 bloğu da
+   tarihli başlık kullanıyor; oraya dokunan kod yazarken dikkat.
+→ Ders: idempotent olduğu **iddia edilen** bir betik, iki kez koşturulup kural
+sayısı sayılarak doğrulanmalı. Üç kez koşturuldu: 16/18/1 sabit kaldı.
+
+**Kilitten SONRA dışarıya açık kalanlar** (bilinçli): **22** (SSH, fail2ban
+korumalı) ve **80** (tinyfect'in nginx'i, `entegration.tinyfect.com`).
+⚠️ 80 aynı atlatma açığını taşıyor — o proje Cloudflare Flexible kullanıyor,
+istenirse aynı betik `PORT=80` ile ona da uygulanabilir.
 - **Güvenli çerez zinciri**: `DEBUG=False` → `SESSION_COOKIE_SECURE=True`
   (`settings.py`). TLS + `X-Forwarded-Proto: https` olmadan **admin'e giriş yapılamaz**
   (login olur, geri login'e atar). Cloudflare + nginx bu header'ı sağladığı için çalışır.

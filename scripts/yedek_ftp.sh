@@ -45,6 +45,14 @@ SIKISTIRMA="${SIKISTIRMA:-6}"           # pg_dump -Z
 YUKLEME_DENEME="${YUKLEME_DENEME:-3}"
 FTP_ZAMAN_ASIMI="${FTP_ZAMAN_ASIMI:-7200}"
 
+# ⚠️⚠️ ALAN KORUMASI. FTP'nin kotası sabittir (Contabo yedek alanı: 250 GB) ve
+# **sorgulanabilir bir kota API'si YOK** — ProFTPD `SITE QUOTA`/`AVBL` desteklemiyor
+# (denendi). Kota dolduğunda yükleme yarıda kesilir, curl bazen başarı döner ve
+# yedekleme **sessizce bozulur**. Bu yüzden kullanım her turda dosya boyutları
+# toplanarak hesaplanır ve yeni dump'a yer yoksa önce temizlik yapılır.
+FTP_KOTA_GB="${FTP_KOTA_GB:-250}"
+FTP_UYARI_ORAN="${FTP_UYARI_ORAN:-90}"  # yüzde; aşılırsa log'a uyarı düşer
+
 # ⚠️ ŞİFRELİ FTP (FTPS) VARSAYILAN. Ölçüldü (2026-09-16): sunucu ProFTPD ve
 # `AUTH SSL` çalışıyor ("234 AUTH SSL successful"). tinyfect'in betiği düz
 # `ftp://` kullanıyor → şifre VE veritabanının tamamı ağda **açık metin** akıyor.
@@ -69,6 +77,39 @@ curl_args() {
   _d=(--silent --show-error --user "${FTP_USER:?FTP_USER tanımsız}:${FTP_PASS:?FTP_PASS tanımsız}"
       --connect-timeout 30 --max-time "$FTP_ZAMAN_ASIMI" --ftp-create-dirs)
   [ "$FTPS" = "1" ] && _d+=(--ssl-reqd)
+}
+
+# FTP'de kullanılan toplam bayt (kök + alt dizinlerimiz). ⚠️ `ls -R` yok →
+# kök ve kendi dizinimiz ayrı ayrı toplanır; başka projenin alt dizinleri varsa
+# eksik sayar, bu yüzden sonuç **alt sınırdır** (temkinli tarafta hata yapar).
+ftp_kullanim_bayt() {
+  local A; curl_args A
+  local kok bizim
+  kok=$(curl "${A[@]}" "ftp://${FTP_HOST}/" 2>/dev/null | tr -d '\r' | awk '$5 ~ /^[0-9]+$/ {s+=$5} END {print s+0}')
+  bizim=$(curl "${A[@]}" "$(ftp_tabani)" 2>/dev/null | tr -d '\r' | awk '$5 ~ /^[0-9]+$/ {s+=$5} END {print s+0}')
+  echo $(( ${kok:-0} + ${bizim:-0} ))
+}
+
+# Yeni dump için yer var mı? Yoksa ÖNCE temizlik dener, sonra tekrar bakar.
+# ⚠️ Temizlik normalde yüklemeden SONRA yapılır (yeni yedek sağlamken eskiyi
+# silmek doğru sıra). Burada sıra bilinçli olarak tersine çevrilir: yer yoksa
+# yükleme zaten başarısız olacağı için eskiyi tutmanın bir faydası kalmaz.
+yer_var_mi() {
+  local gereken="$1" kullanim kota_bayt esik
+  kota_bayt=$(( FTP_KOTA_GB * 1073741824 ))
+  kullanim=$(ftp_kullanim_bayt)
+  esik=$(( kota_bayt * FTP_UYARI_ORAN / 100 ))
+  kayit "  FTP kullanımı: $(numfmt --to=iec "$kullanim" 2>/dev/null || echo "$kullanim")/${FTP_KOTA_GB}G"
+  [ "$kullanim" -gt "$esik" ] && uyari "FTP kullanımı %${FTP_UYARI_ORAN} eşiğini aştı — saklama süresini kısaltmayı düşünün"
+  if [ $(( kullanim + gereken )) -lt "$kota_bayt" ]; then return 0; fi
+  uyari "yeni yedek için yer yetersiz — önce temizlik deneniyor"
+  mod_temizle
+  kullanim=$(ftp_kullanim_bayt)
+  if [ $(( kullanim + gereken )) -lt "$kota_bayt" ]; then
+    oldu "temizlikten sonra yer açıldı"; return 0
+  fi
+  hata "temizlikten sonra da yer yok (kullanım $(numfmt --to=iec "$kullanim" 2>/dev/null), gereken $(numfmt --to=iec "$gereken" 2>/dev/null))"
+  return 1
 }
 
 # Durumu hem dosyaya hem `core_appsetting`'e yazar → admin panelinden görünür
@@ -142,6 +183,12 @@ mod_al() {
     durum_yaz "HATA" "dump doğrulaması başarısız"; return 1
   fi
   oldu "dump doğrulandı ($girdi nesne)"
+
+  # ── yer kontrolü (yüklemeden ÖNCE) ──
+  if ! yer_var_mi "$boyut"; then
+    hata "FTP'de yer olmadığı için yüklenmedi — yerel kopya duruyor: $dosya"
+    durum_yaz "HATA" "FTP kotası dolu"; return 1
+  fi
 
   # ── yükleme (yeniden denemeli) ──
   local A; curl_args A
@@ -221,6 +268,14 @@ mod_durum() {
   fi
   printf '  yerel kopyalar:\n'
   ls -lah "$YEREL_DIZIN"/${ONEK}_*.dump 2>/dev/null | awk '{printf "    %s  %s %s %s\n", $5,$6,$7,$8}' || printf '    (yok)\n'
+  # ⚠️ Kota kullanımı durumun parçasıdır: alan dolmaya başladığında bunu yedek
+  # BAŞARISIZ olduğu gün değil, öncesinde görmek gerekir.
+  local k; k=$(ftp_kullanim_bayt 2>/dev/null)
+  if [ -n "$k" ] && [ "$k" -gt 0 ] 2>/dev/null; then
+    printf '  FTP kullanımı : %s / %sG  (%%%d)\n' \
+      "$(numfmt --to=iec "$k" 2>/dev/null || echo "$k")" "$FTP_KOTA_GB" \
+      "$(( k * 100 / (FTP_KOTA_GB * 1073741824) ))"
+  fi
 }
 
 MOD="${1:-durum}"

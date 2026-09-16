@@ -175,6 +175,9 @@ EOF
   cat "$gecici" > "$AFTER_RULES"     # sahiplik/izinleri koru (mv yerine)
   rm -f "$gecici"
   oldu "kalıcılık yazıldı ($AFTER_RULES, yedek alındı)"
+  if ! (command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "^Status: active"); then
+    uyari "UFW KAPALI → after.rules açılışta yüklenmeyecek; kural yalnızca bu oturumda geçerli"
+  fi
 }
 
 # ── Geri al ──────────────────────────────────────────────────────────────────
@@ -205,9 +208,19 @@ mod_durum() {
   else
     hata "TUTARSIZ durum (izin=$izin drop=$drop) → 'uygula' ile yeniden kurun"
   fi
-  grep -qF "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null \
-    && oldu "kalıcılık var (yeniden başlatmada korunur)" \
-    || uyari "kalıcılık YOK — yeniden başlatmada kilit kaybolur"
+  # ⚠️⚠️ after.rules'ta blok OLMASI kalıcılık anlamına GELMEZ: o dosyayı UFW
+  # yükler. UFW kapalıysa dosya hiç okunmaz ve kural yeniden başlatmada kaybolur.
+  # Bunu "kalıcılık var" diye raporlamak yanlış güvence olurdu (eski Bursa
+  # sunucusunda UFW kapalıydı ve tam bu duruma düşüldü).
+  if grep -qF "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null; then
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "^Status: active"; then
+      oldu "kalıcılık var (after.rules + UFW aktif → yeniden başlatmada korunur)"
+    else
+      uyari "after.rules yazılı AMA UFW KAPALI → dosya açılışta yüklenmez, kural yeniden başlatmada KAYBOLUR"
+    fi
+  else
+    uyari "kalıcılık YOK — yeniden başlatmada kilit kaybolur"
+  fi
   printf '  isabet sayacı:\n'
   iptables -L DOCKER-USER -n -v 2>/dev/null | grep "$ETIKET" | awk '$1!="0"{n++; p+=$1} END{printf "    engellenen paket: %s\n", (p+0)}'
 }

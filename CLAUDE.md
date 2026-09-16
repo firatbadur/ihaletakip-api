@@ -3055,12 +3055,55 @@ rastlanan arızadır.
 Sunucu **Europe/Berlin** (CEST), uygulamanın gece pencereleri ise **TR** saatine
 göre (00:00-07:00 TR = 23:00-06:00 CEST) — ikisini karıştırmayın.
 
-**Yedekte OLMAYAN ve restore için gereken şeyler**: `.env.prod`, `credentials/`
-(FCM + TTS), `docker/nginx/certs/`. ⚠️ Bunlar bilinçli olarak FTP'ye
-**gönderilmiyor** (şifresiz saklanan alanda sır tutmamak için) → **parola
-yöneticisinde durmaları gerekir**. Yalnızca veritabanıyla tam bir kurtarma
-yapılamaz; `DJANGO_SECRET_KEY` kaybı tüm oturumları düşürür, origin sertifikası
-Cloudflare'den yeniden üretilebilir.
+#### Sırların yedeği — şifreli (`ayar` / `ayar-coz`)
+
+`.env.prod` + `credentials/` (FCM + TTS) + `docker/nginx/certs/` de yedeklenir.
+⚠️ Yalnızca veritabanıyla kurtarma **yapılamaz**: `.env.prod` olmadan konteynerler
+açılmaz, origin sertifikası olmadan Cloudflare **522** verir.
+
+```bash
+scripts/yedek_ftp.sh ayar       # yalnızca sır yedeğini al (test için)
+scripts/yedek_ftp.sh ayar-coz   # FTP'deki en yenisini indir + çöz (kurtarma)
+```
+
+- **GPG simetrik AES256.** Anahtar çifti değil parola: felaket anında elde bir
+  parola olması, özel anahtar dosyası aramaktan kolaydır. Arşiv ~20 KB, günlük
+  yüklenir, 30 kopya saklanır (`AYAR_SAKLA`).
+- ⚠️⚠️ **ŞİFRESİZ ASLA YÜKLENMEZ.** `AYAR_SIFRE` boşsa yedek **atlanır** ve
+  uyarı düşer. FTP alanı paylaşımlıdır ve dosyalar orada açık metin durur;
+  "sırları yedekledim" diye şifresiz göndermek yedeksizlikten kötüdür.
+- ⚠️ Parola **komut satırına yazılmaz** (`ps` ile görünürdü) → `--passphrase-file`
+  ile 600 izinli geçici dosyadan okunur.
+- ⚠️ **Çözülebilirlik yüklemeden ÖNCE doğrulanır** (şifrele → hemen çöz → tar
+  içindekileri say). Açılamayan şifreli bir yedek, yedeği olmamaktan kötüdür
+  çünkü **var sanılır**. Aynı ilke DB dump'ındaki `pg_restore -l` kontrolüdür.
+- ⚠️ **Ayar yedeğinin başarısızlığı DB yedeğini `HATA` yapmaz** — ikisi ayrı
+  başarısızlık modudur; sırlar yüklenemediği için veritabanı yedeğini geçersiz
+  saymak gerçek arızayı gölgelerdi.
+- ⚠️ `ayar-coz` sırları **diske açar** → iş bitince çözülen dizini silin.
+- ✅ **Tam tur test edildi (2026-09-16)**: şifrele → FTPS yükle → indir → çöz →
+  çıkar sonunda 5 kritik dosyanın **sha256'sı birebir aynı**.
+
+⚠️⚠️ **PAROLA SUNUCUDA VE PAROLA YÖNETİCİSİNDE OLMALI.** `AYAR_SIFRE`
+`/etc/ihaletakip-yedek.env`'de (600) duruyor; **yalnızca orada durursa sunucu
+kaybolduğunda yedek de okunamaz** — yani hiç yedek almamışla aynı olur.
+Okumak için: `ssh tinyfect 'grep AYAR_SIFRE /etc/ihaletakip-yedek.env'`.
+
+#### SQL Server kapatıldı (2026-09-16)
+
+tinyfect'in MSSQL'den Postgres'e geçişinden kalan `mssql-server` servisi
+**durduruldu ve `disable` edildi** (kullanıcı kullanılmadığını teyit etti).
+Kazanç: **5 GB RAM** (8 GB → 3 GB kullanım) + 95 GB FTP.
+⚠️ **Kapatmadan önce soğuk yedek alındı**: servis durdurulduktan sonra
+`/var/opt/mssql` arşivlendi (580 MB, `spark.mdf` + log dahil) ve FTP'ye
+`mssql_kapanis_20260916.tar.gz` olarak yüklendi (boyut doğrulandı).
+Soğuk yedek **şifre gerektirmez** — servis kapalıyken veri dosyaları
+tutarlıdır, `sqlcmd`/`sa` parolası aramaya gerek yoktu (eski `backup_mssql.sh`
+silinmişti, parola elde değildi).
+⚠️ Veri **silinmedi**, servis yalnızca durduruldu → geri açmak
+`systemctl enable --now mssql-server`.
+⚠️ 1433 için UFW kuralı duruyor (Docker + VPN'e açık); artık dinleyen yok, yani
+zararsız — MSSQL geri açılırsa gerekecek diye bırakıldı.
 
 #### Aynı FTP alanını paylaşan tinyfect yedeği (2026-09-16'da düzeltildi)
 

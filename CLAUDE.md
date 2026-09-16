@@ -2970,8 +2970,71 @@ yapılır, tablo sayımıyla değil.
     numarasının içinden eşleşiyordu. `ufw delete` fail2ban'ın `f2b-sshd` ve DOCKER-USER
     kurallarına dokunmadı (kontrol edildi). Kalan UFW: 22, 80, 443, 51820/udp,
     1433 (yalnız Docker + VPN).
-- **Yapılacak (kurulum bitince)**: tinyfect'in veritabanı yedekleri bir **FTP sunucusuna
-  otomatik** gönderiliyor; aynı düzen ihaletakip için de kurulacak.
+### Gecelik veritabanı yedeği — `scripts/yedek_ftp.sh`
+
+✅ **KURULDU (2026-09-16).** Her gece **04:00 CEST (05:00 TR)**, cron. Hedef
+Contabo yedek alanı (`backup-n-3.contabo.net`, ProFTPD), uzak dizin
+`ihaletakip/`. Log `/var/log/ihaletakip-yedek.log`.
+
+```bash
+scripts/yedek_ftp.sh test      # bağlantı/yetki denemesi, yedek ALMAZ
+scripts/yedek_ftp.sh al        # cron bunu çağırır
+scripts/yedek_ftp.sh durum     # son yedek + TAZELİK kontrolü
+scripts/yedek_ftp.sh liste     # FTP'deki kendi yedeklerimiz
+```
+
+**Ölçülen değerler (2026-09-16):** 25 GB veritabanı → **5,3 GB** dump
+(`-Fc -Z6`), **13 dk 40 sn**, 610 nesne. Eski Bursa sunucusunda bu iş
+saatler sürer ve vacuum'u bloklardı (CLAUDE.md o yüzden `pg_dump`'a karşı
+uyarıyordu); 209 MB/s'lik diskte artık rutin bir gece işi.
+
+**Ayarlar `/etc/ihaletakip-yedek.env`** (chmod 600, repo'da DEĞİL): `FTP_HOST`,
+`FTP_USER`, `FTP_PASS`, `UZAK_DIZIN`, `GUNLUK_SAKLA`, `AYLIK_SAKLA`.
+⚠️ **Şifre betiğe GÖMÜLMEZ** — betik repo'da, gömmek onu git geçmişine yazmak olurdu.
+
+**tinyfect'in `backup_postgres.sh`'i örnek alındı ama üç yerde bilinçli ayrıldı:**
+
+1. ⚠️⚠️ **FTPS zorunlu** (`--ssl-reqd`). Mevcut betik düz `ftp://` kullanıyor →
+   şifre **ve veritabanının tamamı** ağda açık metin akıyor. Yedek 146
+   kullanıcının kişisel verisini taşıdığı için bu KVKK açısından da önemli.
+   Ölçüldü: sunucu `AUTH SSL`'i destekliyor ("234 AUTH SSL successful"), yani
+   şifresiz gitmesinin teknik bir gerekçesi yoktu. `--ssl-reqd` TLS kurulamazsa
+   **başarısız olur** — sessizce düz metne düşmek en kötü hâl olurdu.
+2. ⚠️⚠️ **Uzak temizlik var.** Mevcut betikte **hiç yok** → FTP'de 31 Mart'tan
+   beri **171 dosya / 97 GB** birikmiş, neredeyse tamamı artık kullanılmayan
+   MSSQL `.bak` dosyaları (1,5-2 GB'lık). 250 GB'lık kotanın dolması, yedeklemenin
+   **sessizce durması** demekti. Saklama: **7 günlük + 6 aylık** (ayın 1'i) ≈ 69 GB.
+   ⚠️⚠️ **SİLME YALNIZCA `^ihaletakip_[0-9]{8}_[0-9]{4}\.dump$` kalıbına uyar**
+   ve ayrı bir dizinde çalışır — tinyfect'in `spark_*` dosyalarına ve tanınmayan
+   hiçbir şeye dokunmaz. Yanlış silme geri alınamaz, bu yüzden koruma iki katmanlı.
+   ⚠️ 97 GB'lık eski `.bak` yığını **silinmedi**: kullanıcının yedekleri, kararı onun.
+   Silinirse saklama oranı yükseltilebilir (`GUNLUK_SAKLA`).
+3. ⚠️ **Doğrulama zinciri.** Yüklemeden **önce** `pg_restore -l` ile içindekiler
+   listesi okunur (tinyfect'in `gzip -t`'sinin `-Fc` karşılığı) ve boyut alt sınırı
+   kontrol edilir. Yüklemeden **sonra** uzak dosyanın boyutu yerelle karşılaştırılır:
+   ⚠️ yarıda kesilen bir FTP yüklemesinde curl **başarı dönebiliyor** ve uzak dosya
+   sessizce kısa kalır — sağlam sanılan bozuk yedek, yedeği olmamaktan kötüdür.
+
+⚠️ **Durum `core_appsetting`'e de yazılır** (`key='yedek_durumu'`) → admin
+panelinden görülebilir. Gerekçe: **sessiz yedek arızası bu işin klasik
+felaketidir**; SSH gerektirmeyen bir görünürlük şart. `durum` modu ayrıca
+**tazeliğe** bakar (30 saatten eskiyse uyarır) — "TAMAM" yazması yetmez, o
+TAMAM'ın ne zaman yazıldığı önemlidir, çünkü cron'un sessizce durması en sık
+rastlanan arızadır.
+
+⚠️ `flock` ile üst üste binme engellenir: iki eşzamanlı dump hem disk hem
+**uzun snapshot** (vacuum blokajı) demektir.
+
+⚠️ Saat seçimi: tinyfect'in kendi yedeği 03:00 CEST'te koşuyor → bizimki 04:00.
+Sunucu **Europe/Berlin** (CEST), uygulamanın gece pencereleri ise **TR** saatine
+göre (00:00-07:00 TR = 23:00-06:00 CEST) — ikisini karıştırmayın.
+
+**Yedekte OLMAYAN ve restore için gereken şeyler**: `.env.prod`, `credentials/`
+(FCM + TTS), `docker/nginx/certs/`. ⚠️ Bunlar bilinçli olarak FTP'ye
+**gönderilmiyor** (şifresiz saklanan alanda sır tutmamak için) → **parola
+yöneticisinde durmaları gerekir**. Yalnızca veritabanıyla tam bir kurtarma
+yapılamaz; `DJANGO_SECRET_KEY` kaybı tüm oturumları düşürür, origin sertifikası
+Cloudflare'den yeniden üretilebilir.
 
 ### İlk kurulum akışı (Ubuntu, özet)
 

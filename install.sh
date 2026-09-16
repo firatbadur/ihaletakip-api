@@ -34,10 +34,26 @@ if [ ! -d .git ]; then
   exit 1
 fi
 
+# ── Sunucuya özel ayar katmanı ───────────────────────────────────────────────
+# ⚠️⚠️ TEK DOSYAYLA DEPLOY ETMEK AYARLARI SESSİZCE GERİ ALIR. Üretim 2026-09-16'da
+# tinyfect'e taşındı ve Postgres ayarları `docker-compose.tinyfect.yml`'de duruyor
+# (251 GB RAM için `shared_buffers=32GB` + imajın digest'e sabitlenmesi). Bu dosya
+# hesaba katılmazsa `up -d` konteyneri ana dosyanın **eski 8 GB'lık sunucuya ait**
+# değerleriyle yeniden yaratır: shared_buffers 2 GB'a düşer (soğuk okuma sorunu geri
+# gelir) ve `postgres:16-alpine` **hareketli etiketinden** farklı bir libc/ICU taşıyan
+# imaj inip metin indekslerini sessizce bozabilir.
+# Dosya varsa otomatik eklenir → elle bayrak vermeyi hatırlamak gerekmez.
+COMPOSE=(docker compose -f docker-compose.yml)
+if [ -f docker-compose.tinyfect.yml ]; then
+  COMPOSE+=(-f docker-compose.tinyfect.yml)
+  say "tinyfect ayar katmanı bulundu → docker-compose.tinyfect.yml da uygulanacak"
+fi
+dc() { "${COMPOSE[@]}" "$@"; }
+
 # ── Yalnızca migrate (ağır data-migration senaryosu) ──
 if [ "${1:-}" = "--migrate" ]; then
   say "Migration'lar worker konteynerinde çalıştırılıyor (healthcheck baskısı yok)"
-  docker compose exec worker python manage.py migrate
+  dc exec worker python manage.py migrate
   say "Bitti. Şimdi normal güncelleme için './install.sh' çalıştırabilirsiniz."
   exit 0
 fi
@@ -50,7 +66,7 @@ if ! git pull --ff-only; then
 fi
 
 say "Konteynerler yeniden derlenip başlatılıyor (docker compose up -d --build)"
-docker compose up -d --build
+dc up -d --build
 
 # ⚠️ nginx MUTLAKA yeniden başlatılmalı — yaşanmış arıza (502).
 # `docker/nginx/default.conf` upstream'i statiktir (`upstream django_app { server web:8000; }`).
@@ -59,10 +75,10 @@ docker compose up -d --build
 # değişmediği için compose onu yeniden başlatmaz ve nginx ÖLÜ IP'ye proxy'lemeye devam
 # eder → tüm site 502. Restart ucuzdur (~1 sn) ve bu sınıf arızayı kökten kapatır.
 say "nginx yeniden başlatılıyor (upstream IP önbelleği tazelensin)"
-docker compose restart nginx
+dc restart nginx
 
 say "Servis durumu"
-docker compose ps
+dc ps
 
 say "Sağlık kontrolü (web /health/)"
 ok=0
@@ -82,5 +98,5 @@ say "Güncelleme tamamlandı."
 
 if [ "${1:-}" = "--logs" ]; then
   say "Web logları (Ctrl-C ile çık)"
-  docker compose logs -f web
+  dc logs -f web
 fi

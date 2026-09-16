@@ -869,7 +869,22 @@ ve konan korumalar:
   DEĞİL: compose'un `${VAR}` ikamesi `env_file:`'dan okumaz (o yalnızca konteyner içi
   ortam değişkeni tanımlar), kabuk ortamından ya da `.env`'den okur. Oraya yazılan bir
   `PG_*` sessizce yok sayılırdı. RAM'e göre değer tablosu dosyadaki yorumda.
-  **Üretim donanımı: 8 GB RAM · 4 çekirdek · 100 GB disk (KVM/QEMU VPS).**
+  ✅✅ **2026-09-16: ÜRETİM ARTIK tinyfect SUNUCUSUNDA — bu bölümün tamamı TARİHSELDİR.**
+  Güncel donanım: **251 GB RAM · 20 çekirdek · gerçek SSD (209-461 MB/s, 22.966 IOPS,
+  0,04 ms)**, Contabo Lauterbourg/FR. Ayarlar `docker-compose.tinyfect.yml`'de
+  (`shared_buffers=32GB` → 25 GB'lık veritabanının **tamamı belleğe sığıyor**).
+  Aşağıdaki "1 MB/s" ölçümleri ve onların doğurduğu her karar (gece pencereleri,
+  düşük duty cycle, `COUNT(*)` yasağı, `random_page_cost` tartışması) **eski Bursa
+  sunucusuna** aittir; teşhis yaparken bugünün donanımıyla karıştırmayın.
+  ⚠️ **Ama o kararlar KODDA HÂLÂ DURUYOR ve bilinçli olarak dokunulmadı**: taşıma
+  gecesinde bir sürü ayarı birden değiştirmek, bir arıza çıkarsa sebebi ayırt
+  edilemez hâle getirirdi. Gece pencerelerini/duty cycle'ı gevşetmek ayrı ve
+  **ölçümle** yapılacak bir iştir (bkz. "Taşıma tamamlandı" → kalan işler).
+  ⚠️ Panonun `reltuples` yaklaşımı ve `_cached_rapor`/`_tek_ucus` **kaldırılmamalı**:
+  ikisi de artık "ucuz" görünse de doğru mühendisliktir ve ölçüm olmadan sökülürse
+  regresyon riski taşır.
+
+  **(TARİHSEL) Eski üretim donanımı: 8 GB RAM · 4 çekirdek · 100 GB disk (KVM/QEMU VPS).**
   ⚠️⚠️ **"RAID10 SSD" İDDİASI ÖLÇÜMLE ÇÜRÜTÜLDÜ (2026-09-14) — TUNING BUNA DAYANIYORDU.**
   Ham cihaz ölçümü (`/dev/sda`, `iflag=direct`, iki bağımsız tur):
 
@@ -2785,6 +2800,91 @@ scripts/db_tasima.sh dogrula         # base.tar'ı yeniden almadan geri yükle +
 ```
 Çıktı: hedefte `ihaletakip-api_pgdata` volume'u (compose'un bekleyeceği ad) +
 `/root/ihaletakip-tasima/base.tar` (sunucu dışı tam yedek). Log: `/root/db_tasima/son.log`.
+
+#### ✅✅ TAŞIMA TAMAMLANDI — 2026-09-16 09:16 TR
+
+Uygulama **tinyfect sunucusunda** çalışıyor. Cloudflare A kaydı
+`91.241.49.109` → **`173.249.43.236`**. Kesinti **sıfır**: yeni stack DNS
+çevrilmeden önce ayakta, sağlıklı ve toplama yaparken bekletildi.
+
+⚠️⚠️ **KESME İÇİN 7,5 SAATLİK KOPYA TEKRAR ALINMADI — gerek olmadığı ÖLÇÜLDÜ.**
+İlk plan taze bir basebackup + WAL yakalamasıydı; ölçüm bunu gereksiz gösterdi.
+`pg_basebackup -X fetch` **yedeğin BİTTİĞİ ana** kadar WAL oynatıyor, yani
+15 Eylül kopyası 23:01'de değil **06:24'te** donmuştu (kanıt: 23:41'de kaydolan
+kullanıcı kopyada vardı). Geriye kalan 3 saatlik farkın kullanıcı verisi
+**sıfırdı** — kaydedilen ihale, filtre, favori, alarm, sohbet, profil, destek
+talebi: hepsi 0. Yalnızca 2 bildirim satırı + 126 ihale (EKAP'tan yeniden gelir).
+→ Kesme, 7,5 saatlik ikinci bir kopya yerine **dakikalar süren bir fark
+aktarımıyla** yapıldı (`scripts/gecis_delta.sh`).
+⚠️ **Ders: "kopya bayat" varsayımını ölçmeden kabul etmeyin.** `-X fetch`'in
+semantiği yüzünden kopya sanıldığından 7,5 saat daha tazeydi; bu tek ölçüm bir
+günlük yavaşlığı ve ikinci bir gece nöbetini ortadan kaldırdı.
+
+**Kesme sırası (tekrar gerekirse aynen uygulanabilir):**
+1. Yeni sunucuda stack'i kur, **worker'lar ve beat KAPALI** aç, kapalı kapılar
+   ardında gerçek veriyle test et (⚠️ beat açık olsa kullanıcılara çift bildirim
+   giderdi — iki sunucu aynı bildirimi üretir).
+2. Eski sunucuda **yalnızca** beat + worker'ları durdur; web/nginx AÇIK kalsın
+   (site çalışmaya devam eder, arka plan durumu donar).
+3. `scripts/gecis_delta.sh uygula` — beat damgaları + bildirim satırları +
+   Redis mükerrerlik kilitleri.
+4. Yeni sunucuda tüm servisleri aç, logları hata ve **istenmeyen bildirim
+   tetiklemesi** için tara.
+5. Cloudflare A kaydını çevir (turuncu bulut açık kalır; SSL kuralı hostname'e
+   bağlı olduğu için IP değişimi onu bozmaz).
+6. İki sunucunun nginx logundan trafiğin gerçekten yer değiştirdiğini doğrula.
+7. Eski sunucuyu **geri dönüş yolu olarak AÇIK BIRAK**.
+
+**Ölçülen sonuç (aynı istek, aynı an, iki origin'e doğrudan):**
+
+| istek | eski (Bursa) | yeni (Fransa) |
+|---|---|---|
+| firma arama | 6,92 sn | **0,22 sn** |
+| idare arama | 2,00 sn | **0,60 sn** |
+| idare raporu (soğuk) | 113 sn | **0,47 sn** |
+| fiyat analizi (soğuk) | 18,4 sn | **0,23 sn** |
+| hafif uç (iller) | 0,15-0,24 sn | 0,17 sn |
+
+⚠️ **Ağ gecikmesi arttı ama görünmüyor**: Bursa→Fransa taşınmasıyla RTT 27 ms'den
+52 ms'ye çıktı; buna rağmen hafif uçlarda fark ölçülemiyor çünkü Cloudflare
+edge'i (bu bağlantıda Milano) yeni origin'e eski origin'den **daha yakın**.
+Kullanıcının Cloudflare üzerinden yaşadığı firma araması: 6,9 sn → **0,29 sn**.
+
+⚠️ **EKAP Fransa'dan çalışıyor — ölçüldü, varsayılmadı.** Taşımanın en büyük
+riski buydu (toplamanın tamamı EKAP mobil API'sine bağlı, hız sınırı IP tabanlı).
+Aynı istek iki ülkeden atıldı: **her ikisi de HTTP 200, 148.951 bayt, ~1,5 sn**.
+Coğrafi engel yok, onay IP'ye bağlı değil. Taşıma sonrası doğrulandı: keşif
+turları 250'lik dilimler yazıyor, bugünün ihaleleri `ilan_tarihi` ile geliyor,
+idare eşleştirmesi (`tam`) tutuyor, hata sıfır.
+⚠️ Yeni IP EKAP'ta **yeni bir hız bütçesi** demektir; Redis'teki günlük sayaçlar
+da sıfırdan başladı → bu tutarlı, müdahale gerekmez.
+
+⚠️⚠️ **KVKK — ÇÖZÜLMÜŞ DEĞİL, BİLDİRİLMİŞ.** Eski sunucu **Bursa/Türkiye**
+(Genc BT), yeni sunucu **Fransa**. Yani 146 kullanıcının kişisel verisi artık
+yurt dışında ve bu, KVKK md. 9 kapsamında **yurt dışına aktarım**dır (standart
+sözleşme / taahhütname + KVKK bildirimi gerektirir). Kullanıcıya açıkça
+söylendi ve taşımaya rağmen devam etme kararı onun. **Hukuki adım atılmadı** —
+bunu "yapıldı" sanmayın.
+
+**Kalan işler (sırayla):**
+1. **FTP yedekleme** — kullanıcının sırada gördüğü iş; tinyfect'in kendi
+   yedekleri bir FTP sunucusuna otomatik gidiyor, aynı düzen ihaletakip için
+   kurulacak (önce tinyfect'in mevcut düzenine bakılmalı).
+2. **Eski sunucuyu kapatma** — geri dönüş yolu olarak açık; kapatılınca
+   Türkiye'de kalan son kopya da gider, o yüzden FTP yedeklemesinden SONRA.
+3. **SSH anahtarını kaldır** — prod→tinyfect anahtarı (`ihaletakip_tasima`)
+   hâlâ duruyor; eski sunucu kapatılırken silinir (yol yukarıda).
+4. **443'ü Cloudflare IP'lerine kilitle** — eski sunucuda da hiç yapılmamış bir
+   sertleştirme; yeni sunucuda origin IP'si artık DNS'te görünmese de
+   taranabilir. `DOCKER-USER` zinciri kullanılır (Docker UFW'yi atlar).
+5. **Gece pencerelerini / duty cycle'ı yeniden ayarla** — ölçümle, tek tek.
+
+⚠️ `docker compose` komutları bu sunucuda **iki dosyayla** çağrılır:
+`docker compose -f docker-compose.yml -f docker-compose.tinyfect.yml …`
+Tek dosyayla çağırmak `shared_buffers`ı 2 GB'a ve imajı hareketli etikete
+düşürür. `install.sh` bunu henüz bilmiyor — elle deploy ederken dikkat.
+
+#### (TARİHSEL) Kopya gecesi — 2026-09-15
 
 ✅ **GERÇEK KOPYA ALINDI (2026-09-15 23:01 → 2026-09-16 06:27 TR, 7 sa 27 dk).**
 Tahmin (~7 sa, 25 GB ÷ ~1,5 MB/s) tuttu; darboğaz beklendiği gibi prod diski oldu

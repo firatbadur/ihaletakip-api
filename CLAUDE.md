@@ -2984,9 +2984,35 @@ scripts/yedek_ftp.sh liste     # FTP'deki kendi yedeklerimiz
 ```
 
 **Ölçülen değerler (2026-09-16):** 25 GB veritabanı → **5,3 GB** dump
-(`-Fc -Z6`), **13 dk 40 sn**, 610 nesne. Eski Bursa sunucusunda bu iş
-saatler sürer ve vacuum'u bloklardı (CLAUDE.md o yüzden `pg_dump`'a karşı
-uyarıyordu); 209 MB/s'lik diskte artık rutin bir gece işi.
+(`-Fc -Z6`), **13 dk 40 sn**, 610 nesne. FTPS yüklemesi **49 sn** (~110 MB/s,
+Contabo iç ağı). Eski Bursa sunucusunda bu iş saatler sürer ve vacuum'u
+bloklardı (CLAUDE.md o yüzden `pg_dump`'a karşı uyarıyordu); 209 MB/s'lik
+diskte artık rutin bir gece işi.
+
+✅ **GERİ YÜKLEME TEST EDİLDİ** (izole `--network none` konteyner,
+`pg_restore -j 8`): **14 dk 35 sn, sıfır hata**; indeks **312=312**, kısıt
+**152=152**, sabit tablolar birebir. ⚠️ Hiç geri yüklenmemiş bir yedek, yedek
+değildir — şema değiştikçe bu test tekrarlanmalı.
+
+**Saklama: 14 günlük + 12 aylık** (≈138 GB). Kararlı durumda toplam FTP
+kullanımı ~140/250 GB. ⚠️ Veritabanı büyüdükçe dump da büyür; kota koruması
+(aşağıda) devreye girerse ilk düğme `GUNLUK_SAKLA`dır.
+
+⚠️⚠️ **KOTA KORUMASI — FTP'nin sorgulanabilir kota API'si YOK.** ProFTPD
+`SITE QUOTA`/`AVBL`/`STAT` desteklemiyor (hepsi denendi). Kota dolduğunda
+yükleme yarıda kesilir, **curl bazen başarı döner** ve yedekleme sessizce
+bozulur. Bu yüzden kullanım her turda dosya boyutları toplanarak hesaplanır;
+yeni dump'a yer yoksa **önce temizlik denenir**, yine yoksa yükleme hiç
+başlamaz ve durum `HATA` yazılır. Ayarlar `FTP_KOTA_GB` (250),
+`FTP_UYARI_ORAN` (%90). `durum` çıktısı kullanımı da basar.
+
+⚠️ **Ayar dosyası ortam değişkenini EZMEZ.** `/etc/ihaletakip-yedek.env`
+değerleri `"${VAR:-değer}"` biçimindedir. Önce düz atama (`GUNLUK_SAKLA=7`)
+yazılmıştı ve dosya betikten **sonra** source edildiği için
+`GUNLUK_SAKLA=3 ./yedek_ftp.sh temizle` **sessizce yok sayılıyordu** — yani
+betik elle test edilemiyordu. Saklama mantığı bu düzeltmeden sonra sahte
+dosyalarla doğrulandı: doğru dosyalar silindi, kalıba uymayanlar (elle alınmış
+yedek, `onemli_dosya.txt`, tinyfect'in `spark_*`'ı) **korundu**.
 
 **Ayarlar `/etc/ihaletakip-yedek.env`** (chmod 600, repo'da DEĞİL): `FTP_HOST`,
 `FTP_USER`, `FTP_PASS`, `UZAK_DIZIN`, `GUNLUK_SAKLA`, `AYLIK_SAKLA`.
@@ -3035,6 +3061,38 @@ göre (00:00-07:00 TR = 23:00-06:00 CEST) — ikisini karıştırmayın.
 yöneticisinde durmaları gerekir**. Yalnızca veritabanıyla tam bir kurtarma
 yapılamaz; `DJANGO_SECRET_KEY` kaybı tüm oturumları düşürür, origin sertifikası
 Cloudflare'den yeniden üretilebilir.
+
+#### Aynı FTP alanını paylaşan tinyfect yedeği (2026-09-16'da düzeltildi)
+
+`/opt/tinyfect/scripts/backup_postgres.sh`, cron 03:00 CEST. **Sağlam olduğu
+doğrulandı** — 9 MB'lık dump küçük göründüğü için şüphelenildi ama veritabanı
+gerçekten küçük: diskte 182 MB, SQL metni 93 MB, 390.521 satır, 60 tablo.
+Dump'ta 60 `CREATE TABLE` + 60 `COPY` bloğu var; izole geri yükleme **5 sn,
+sıfır hata**, geri yüklenen satır sayısı dump'la birebir.
+⚠️ "İndeks 124 vs 218" farkı **sahte alarmdı**: `pg_dump` kısıt kaynaklı
+indeksleri `CREATE INDEX` değil `ADD CONSTRAINT` olarak yazar
+(124 + 60 PK + 34 UNIQUE = 218 ✓). Benzer bir karşılaştırma yapan herkes
+bu tuzağa düşer.
+
+Aynı betikte üç şey düzeltildi (orijinali `backup_postgres.sh.bak-*`):
+1. **Sırlar `/etc/tinyfect-yedek.env`'e taşındı** — betik **755** idi, yani
+   sunucudaki her kullanıcı FTP şifresini okuyabiliyordu. Artık betik 700.
+2. **FTPS zorunlu** (düz `ftp://` → `--ssl-reqd`).
+3. **Uzak temizlik eklendi** (30 günlük + 12 aylık). Yoktu → FTP'de 31 Mart'tan
+   beri 171 dosya birikmişti.
+
+⚠️⚠️ **SQL Server hâlâ çalışıyor ama KULLANILMIYOR** (kullanıcı teyit etti;
+tinyfect eskiden MSSQL üzerindeydi). Kanıt: 1433'teki iki ESTAB soketin ikisi de
+`sqlservr`ın **kendi kendine** bağlantısı, tinyfect'in `.env`'inde ve web
+konteynerinde MSSQL sürücüsü/izi yok, `backup_mssql.sh` silinmiş ve cron'da
+karşılığı yok. 4,1 GB RAM tutuyor; kapatılması ayrı bir karar (RAM bol olduğu
+için acil değil).
+→ 96,8 GB'lık **133 eski `.bak`** dosyasından **132'si silindi (95 GB boşaldı)**.
+⚠️ **En yenisi (`spark_20260810_0300.bak`, 2 GB) bilinçli KORUNDU**: bunlar o
+veritabanının tek yedeğiydi, 2 GB'lık bir sigortayı tutmak 95 GB kazanmaya engel
+değil. Hepsini silmek geri alınamaz bir karar olurdu.
+⚠️ MSSQL'in **5 haftadır yedeği alınmıyor** (son `.bak` 9 Ağustos). Kullanılmadığı
+için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 
 ### İlk kurulum akışı (Ubuntu, özet)
 

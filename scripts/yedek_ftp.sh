@@ -10,7 +10,8 @@
 #   scripts/yedek_ftp.sh durum     # son yedeğin durumu ve tazeliği
 #   scripts/yedek_ftp.sh liste     # FTP'deki kendi yedeklerimiz
 #   scripts/yedek_ftp.sh temizle   # yalnızca saklama kuralını uygula
-#   scripts/yedek_ftp.sh ayar-coz  # şifreli sır yedeğini çöz (kurtarmada)
+#   scripts/yedek_ftp.sh ayar        # yalnızca şifreli sır yedeğini al
+#   scripts/yedek_ftp.sh ayar-coz    # şifreli sır yedeğini çöz (kurtarmada)
 #
 # AYARLAR: /etc/ihaletakip-yedek.env (chmod 600 — FTP şifresi içerir).
 # ⚠️ Şifre BETİĞE GÖMÜLMEZ: tinyfect'in betiği `--user kullanici:sifre` diye
@@ -396,6 +397,9 @@ case "$MOD" in
   # (ikisi birlikte hem disk hem uzun snapshot demek).
   al)      exec 9>"$KILIT"; flock -n 9 || { kayit "başka bir yedek çalışıyor — atlandı"; exit 0; }; mod_al ;;
   temizle) exec 9>"$KILIT"; flock -n 9 || { kayit "kilit meşgul"; exit 0; }; mod_temizle ;;
+  # ⚠️ Ayar yedeğini TEK BAŞINA alabilmek şart: aksi hâlde onu test etmek için
+  # 14 dakikalık bir veritabanı dump'ı beklemek gerekirdi.
+  ayar)    exec 9>"$KILIT"; flock -n 9 || { kayit "kilit meşgul"; exit 0; }; ayar_yedegi ;;
   ayar-coz) mod_ayar_coz "${2:-}" ;;
-  *) echo "kullanım: $0 [test|al|durum|liste|temizle|ayar-coz [dosya]]" >&2; exit 2 ;;
+  *) echo "kullanım: $0 [test|al|durum|liste|temizle|ayar|ayar-coz [dosya]]" >&2; exit 2 ;;
 esac

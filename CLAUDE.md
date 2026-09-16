@@ -2786,9 +2786,26 @@ scripts/db_tasima.sh dogrula         # base.tar'ı yeniden almadan geri yükle +
 Çıktı: hedefte `ihaletakip-api_pgdata` volume'u (compose'un bekleyeceği ad) +
 `/root/ihaletakip-tasima/base.tar` (sunucu dışı tam yedek). Log: `/root/db_tasima/son.log`.
 
+✅ **GERÇEK KOPYA ALINDI (2026-09-15 23:01 → 2026-09-16 06:27 TR, 7 sa 27 dk).**
+Tahmin (~7 sa, 25 GB ÷ ~1,5 MB/s) tuttu; darboğaz beklendiği gibi prod diski oldu
+(ağ 15,1 MB/s ölçülmüştü). Doğrulama zincirinin **tamamı temiz**: `pg_verifybackup`,
+kopya açılıp `pg_is_in_recovery()=f`, **60 tablonun 60'ı eşleşti**
+(`/root/db_tasima/karsilastirma.txt`), `pg_amcheck` temiz. Hedefte volume 25 GB /
+PG 16, `base.tar` 26,5 GB. Prod sağlıklı döndü: slot silindi, worker'lar 06:25'te
+açıldı, `pg_wal` 80 MB'a indi, `/health/` 200.
+⚠️ Ertesi sabah denetiminde 91 satır `status='running'` + `finished_at` boş görüldü;
+**hepsi Ağustos/Eylül'deki eski arızalardan kalma** (en yenisi 06:26'daki
+`refresh_keyword_df`), taşımayla ilgisi yok — bkz. "Yetim sorgu sarmalı".
+⚠️⚠️ **Denetim sorgusu ÜRETİMİ YAVAŞLATIR.** `SELECT count(*) FROM ekap_tender
+WHERE created_at >= …` teşhis amacıyla koşuldu ve 3 paralel worker'la **3 dk 41 sn**
+sürüp iowait'i **%94,5**'e çıkardı (iptal edilince anında %0). Bu diskte
+`ekap_tender` üzerinde `COUNT(*)` **yasaktır** (panonun `reltuples` kullanmasının
+sebebi); "gece taşıma nasıl gitti" kontrolü `SyncRun` + `pg_stat_activity` ile
+yapılır, tablo sayımıyla değil.
 - ⚠️⚠️ **BU BİR KESME DEĞİL.** Web açık kalır; yedek bittikten sonra prod'a yazılan
   veri kopyada yoktur. Kesme ayrı bir adımdır (`SLOTU_KORU=1` + replika ya da kısa
-  bakım penceresinde tekrar).
+  bakım penceresinde tekrar). 2026-09-16 itibarıyla uygulama **hâlâ eski sunucuda**;
+  kopya 15 Eylül 23:01'de dondu.
 - ⚠️ **`pg_dump` DEĞİL `pg_basebackup`**: pg_dump TOAST'ı (12,7 GB) rastgele erişimle
   okur ve saatlerce snapshot açık tutup vacuum'u bloklar. Bedeli: **aynı PG ana sürümü
   + aynı libc** → imaj digest'i prod konteynerinden okunup hedefte digest ile çekilir

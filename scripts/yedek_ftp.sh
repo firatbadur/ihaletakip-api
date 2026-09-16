@@ -10,6 +10,7 @@
 #   scripts/yedek_ftp.sh durum     # son yedeğin durumu ve tazeliği
 #   scripts/yedek_ftp.sh liste     # FTP'deki kendi yedeklerimiz
 #   scripts/yedek_ftp.sh temizle   # yalnızca saklama kuralını uygula
+#   scripts/yedek_ftp.sh ayar-coz  # şifreli sır yedeğini çöz (kurtarmada)
 #
 # AYARLAR: /etc/ihaletakip-yedek.env (chmod 600 — FTP şifresi içerir).
 # ⚠️ Şifre BETİĞE GÖMÜLMEZ: tinyfect'in betiği `--user kullanici:sifre` diye
@@ -52,6 +53,18 @@ FTP_ZAMAN_ASIMI="${FTP_ZAMAN_ASIMI:-7200}"
 # toplanarak hesaplanır ve yeni dump'a yer yoksa önce temizlik yapılır.
 FTP_KOTA_GB="${FTP_KOTA_GB:-250}"
 FTP_UYARI_ORAN="${FTP_UYARI_ORAN:-90}"  # yüzde; aşılırsa log'a uyarı düşer
+
+# ── Ayar/sır yedeği ──────────────────────────────────────────────────────────
+# ⚠️⚠️ Yalnızca veritabanıyla kurtarma YAPILAMAZ: `.env.prod` olmadan konteynerler
+# açılmaz, `credentials/` olmadan push ve TTS çalışmaz, origin sertifikası olmadan
+# Cloudflare 522 verir. Bu yüzden onlar da yedeklenir — ama **şifreli**.
+# ⚠️⚠️ ŞİFRESİZ ASLA YÜKLENMEZ: FTP alanı paylaşımlı ve dosyalar orada açık metin
+# durur. `AYAR_SIFRE` boşsa yedek ATLANIR (sessizce açık göndermek yerine).
+REPO_DIZINI="${REPO_DIZINI:-$(cd "$(dirname "$0")/.." && pwd)}"
+AYAR_YEDEK="${AYAR_YEDEK:-1}"
+AYAR_SAKLA="${AYAR_SAKLA:-30}"          # küçük dosyalar (~20 KB) → comert
+# Yedeklenecek yollar (repo köküne göre).
+AYAR_YOLLARI="${AYAR_YOLLARI:-.env.prod credentials docker/nginx/certs}"
 
 # ⚠️ ŞİFRELİ FTP (FTPS) VARSAYILAN. Ölçüldü (2026-09-16): sunucu ProFTPD ve
 # `AUTH SSL` çalışıyor ("234 AUTH SSL successful"). tinyfect'in betiği düz
@@ -127,6 +140,91 @@ durum_yaz() {
     || uyari "durum core_appsetting'e yazılamadı (yedek yine de geçerli)"
 }
 
+# ── Ayar/sır yedeği (GPG AES256, simetrik) ───────────────────────────────────
+# Simetrik şifre (anahtar çifti değil) bilinçli: felaket kurtarmada elinizde
+# yalnızca bir parola olması, bir özel anahtar dosyası aramaktan kolaydır.
+# ⚠️ PAROLA SUNUCUDA VE PAROLA YÖNETİCİSİNDE OLMALI. Yalnızca sunucuda durursa,
+# sunucu kaybolduğunda yedek de okunamaz — yani hiç yedek almamışla aynı olur.
+ayar_yedegi() {
+  [ "$AYAR_YEDEK" = "1" ] || { oldu "ayar yedeği kapalı (AYAR_YEDEK=0)"; return 0; }
+  if [ -z "${AYAR_SIFRE:-}" ]; then
+    uyari "AYAR_SIFRE tanımsız → ayar yedeği ATLANDI (şifresiz yüklenmez)"
+    return 0
+  fi
+  local ad="${ONEK}-ayar_$(date +%Y%m%d_%H%M).tar.gz.gpg"
+  local gecici sifre_dosyasi
+  gecici=$(mktemp "$YEREL_DIZIN/.ayar.XXXXXX") || return 1
+  sifre_dosyasi=$(mktemp) || { rm -f "$gecici"; return 1; }
+  chmod 600 "$gecici" "$sifre_dosyasi"
+  # ⚠️ Parola komut satırına YAZILMAZ (`ps` ile görünürdü) → dosyadan okunur.
+  printf '%s' "$AYAR_SIFRE" > "$sifre_dosyasi"
+
+  local yollar=() p
+  for p in $AYAR_YOLLARI; do [ -e "$REPO_DIZINI/$p" ] && yollar+=("$p"); done
+  if [ "${#yollar[@]}" -eq 0 ]; then
+    uyari "ayar dosyası bulunamadı ($REPO_DIZINI) → atlandı"
+    rm -f "$gecici" "$sifre_dosyasi"; return 0
+  fi
+
+  if ! tar czf - -C "$REPO_DIZINI" "${yollar[@]}" 2>/dev/null \
+       | gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \
+             --passphrase-file "$sifre_dosyasi" -o "$gecici" 2>/dev/null; then
+    hata "ayar yedeği şifrelenemedi"; rm -f "$gecici" "$sifre_dosyasi"; return 1
+  fi
+
+  # ⚠️ ŞİFRE ÇÖZÜLEBİLİRLİĞİ HEMEN DOĞRULANIR. Açılamayan şifreli bir yedek,
+  # yedeği olmamaktan kötüdür (var sanılır). Aynı ilke DB dump'ında da var.
+  local icerik
+  icerik=$(gpg --batch --quiet --decrypt --passphrase-file "$sifre_dosyasi" "$gecici" 2>/dev/null | tar tzf - 2>/dev/null | wc -l)
+  rm -f "$sifre_dosyasi"
+  if [ "${icerik:-0}" -lt 3 ]; then
+    hata "ayar yedeği çözülemedi ($icerik girdi) — yüklenmedi"; rm -f "$gecici"; return 1
+  fi
+
+  local A; curl_args A
+  if curl "${A[@]}" -T "$gecici" "$(ftp_tabani)$ad" >/dev/null 2>&1; then
+    oldu "ayar yedeği yüklendi ve çözülebilirliği doğrulandı ($ad, $icerik dosya)"
+  else
+    hata "ayar yedeği yüklenemedi"; rm -f "$gecici"; return 1
+  fi
+  rm -f "$gecici"
+
+  # Kendi saklama kuralı — ⚠️ DB yedeğinin kalıbıyla çakışmaz (`-ayar_` öneki).
+  local liste; liste=$(curl "${A[@]}" --list-only "$(ftp_tabani)" 2>/dev/null \
+    | tr -d '\r' | grep -E "^${ONEK}-ayar_[0-9]{8}_[0-9]{4}\.tar\.gz\.gpg$" | sort)
+  local koru; koru=$(printf '%s\n' "$liste" | tail -n "$AYAR_SAKLA")
+  local d
+  while read -r d; do
+    [ -z "$d" ] && continue
+    printf '%s\n' "$koru" | grep -qxF "$d" && continue
+    curl "${A[@]}" -Q "DELE /${UZAK_DIZIN#/}/$d" "$(ftp_tabani)" >/dev/null 2>&1
+  done <<< "$liste"
+}
+
+# Şifreli ayar yedeğini çözer — kurtarma anında kullanılır.
+#   scripts/yedek_ftp.sh ayar-coz [dosya-adi]   (boşsa FTP'deki en yenisi)
+mod_ayar_coz() {
+  local ad="${1:-}" A; curl_args A
+  if [ -z "$ad" ]; then
+    ad=$(curl "${A[@]}" --list-only "$(ftp_tabani)" 2>/dev/null | tr -d '\r' \
+         | grep -E "^${ONEK}-ayar_[0-9]{8}_[0-9]{4}\.tar\.gz\.gpg$" | sort | tail -1)
+  fi
+  [ -n "$ad" ] || { hata "FTP'de ayar yedeği bulunamadı"; return 1; }
+  [ -n "${AYAR_SIFRE:-}" ] || { hata "AYAR_SIFRE tanımsız — parola olmadan çözülemez"; return 1; }
+  local hedef="$YEREL_DIZIN/coz-$(date +%s)" sd; sd=$(mktemp); chmod 600 "$sd"
+  printf '%s' "$AYAR_SIFRE" > "$sd"
+  mkdir -p "$hedef"
+  if curl "${A[@]}" "$(ftp_tabani)$ad" 2>/dev/null \
+     | gpg --batch --quiet --decrypt --passphrase-file "$sd" 2>/dev/null \
+     | tar xzf - -C "$hedef" 2>/dev/null; then
+    rm -f "$sd"
+    oldu "çözüldü → $hedef"
+    find "$hedef" -type f | sed 's|^|    |'
+  else
+    rm -f "$sd"; rm -rf "$hedef"; hata "çözme başarısız ($ad)"; return 1
+  fi
+}
+
 # ── test ─────────────────────────────────────────────────────────────────────
 mod_test() {
   local A; curl_args A
@@ -147,6 +245,11 @@ mod_test() {
   rm -f "$gecici"
   docker exec "$DB_KONTEYNER" pg_dump --version >/dev/null 2>&1 \
     && oldu "pg_dump erişilebilir ($DB_KONTEYNER)" || { hata "pg_dump çalıştırılamadı"; return 1; }
+  if [ "$AYAR_YEDEK" = "1" ]; then
+    command -v gpg >/dev/null 2>&1 || { hata "gpg kurulu değil — ayar yedeği alınamaz"; return 1; }
+    [ -n "${AYAR_SIFRE:-}" ] && oldu "ayar yedeği için parola tanımlı" \
+      || uyari "AYAR_SIFRE tanımsız → sırlar yedeklenmeyecek"
+  fi
 }
 
 # ── al ───────────────────────────────────────────────────────────────────────
@@ -210,6 +313,11 @@ mod_al() {
     durum_yaz "HATA" "uzak boyut eşleşmiyor"; return 1
   fi
   oldu "FTP'ye yüklendi ve boyut doğrulandı ($ad)"
+
+  # ⚠️ Ayar yedeği DB yedeğinden SONRA ve kendi başarısı DB'yi etkilemeyecek
+  # şekilde alınır: sırlar yüklenemezse bu bir uyarıdır, ama veritabanı yedeği
+  # yine geçerlidir ve "HATA" yazmak gerçek arızayı gölgelerdi.
+  ayar_yedegi || uyari "ayar yedeği alınamadı (veritabanı yedeği geçerli)"
 
   mod_temizle
   find "$YEREL_DIZIN" -name "${ONEK}_*.dump" -mtime "+$YEREL_SAKLA_GUN" -delete 2>/dev/null
@@ -288,5 +396,6 @@ case "$MOD" in
   # (ikisi birlikte hem disk hem uzun snapshot demek).
   al)      exec 9>"$KILIT"; flock -n 9 || { kayit "başka bir yedek çalışıyor — atlandı"; exit 0; }; mod_al ;;
   temizle) exec 9>"$KILIT"; flock -n 9 || { kayit "kilit meşgul"; exit 0; }; mod_temizle ;;
-  *) echo "kullanım: $0 [test|al|durum|liste|temizle]" >&2; exit 2 ;;
+  ayar-coz) mod_ayar_coz "${2:-}" ;;
+  *) echo "kullanım: $0 [test|al|durum|liste|temizle|ayar-coz [dosya]]" >&2; exit 2 ;;
 esac

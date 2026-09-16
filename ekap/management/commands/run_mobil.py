@@ -57,6 +57,8 @@ class Command(BaseCommand):
         yigin = (cp.extra or {}).get("yigin") if cp else None
         self.stdout.write(self.style.MIGRATE_HEADING("Keşif"))
         self.stdout.write(f"  bekleyen dilim : {len(yigin or [])}")
+        bolumleme = (cp.extra or {}).get("son_bolumleme") if cp else None
+        self.stdout.write(f"  son bölümleme  : {len(bolumleme or [])} yaprak")
         self.stdout.write(f"  son tur        : {(cp.extra or {}).get('son_tur') if cp else '—'}")
 
         self.stdout.write(self.style.MIGRATE_HEADING("CAPTCHA"))

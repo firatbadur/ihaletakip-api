@@ -472,8 +472,15 @@ EKAP_MOBIL_IDARE_ESIK = env.float("EKAP_MOBIL_IDARE_ESIK", default=0.90)
 # ⚠️ **Pencereyi daraltmak çözüm DEĞİL**: mobil liste `ihaleTarihi`ne göre filtreliyor
 # ve bugün yayımlanan bir ihalenin tarihi 2-6 hafta ileride olabiliyor → dar pencere
 # yeni ilanları kaçırır. Çözüm turu seyrekleştirmek.
-# 240 dk = günde 6 tur ≈ 310 istek; kalanı detaya (günde ~300 yeni ihale) yeter.
-EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=240)
+# ⚠️ 2026-09-16: tur artık **önceki turun bölümlemesinden** başlıyor
+# (`ekap/mobil/tasks.py::_yapraklardan_yigin`) → 48 isteğin 20'sini oluşturan kesilmiş
+# ara dilimler yeniden istenmiyor, tur ~24 isteğe iniyor. Bu yüzden aralık 240 → 120:
+# günde 12 tur × ~24 ≈ 290 istek, yani eski 6 × 48 ile AYNI maliyet.
+# ⚠️ Asıl sınır tik kapasitesidir (2 dk'da 1 istek = günde en çok 720): keşif ~290 +
+# detay ~210 (hafta içi ölçülen yeni ihale/gün) → ~200 istek sonuç ilanı + tazelemeye
+# kalır. Aralığı daha da düşürmek o ikisini aç bırakır — sözleşme verisinin tek
+# kaynağı sonuç ilanıdır (v2 kapalı).
+EKAP_MOBIL_KESIF_ARALIK_DK = env.int("EKAP_MOBIL_KESIF_ARALIK_DK", default=120)
 # ⚠️ Bütçenin son dilimi **detaya ayrılır**: kalan hak bu eşiğin altına inince keşif
 # durur, yalnızca detay/sonuç çalışır. Keşif kaçarsa bir tur gecikir; detay kaçarsa
 # o ihalenin `ilan_tarihi`si hiç dolmaz ve bildirimler onu göremez.

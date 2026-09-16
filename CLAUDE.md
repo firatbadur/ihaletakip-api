@@ -136,12 +136,26 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
 - ⚠️ **`SyncRun` satırı yalnızca keşif turlarında yazılır.** Tik 2 dk'da bir koşuyor;
   her tur satır yazmak admin'i günde ~720 kayıtla doldururdu. Teşhis
   `Tender.detail_synced_at` / `ilan_tarihi` sayımlarıyla yapılır.
-- ⚠️⚠️ **KEŞİF TURU PAHALI: ~52 istek/tur** (ölçüldü 2026-09-12). Saatlik tur
-  ~1.250 istek/gün eder — günlük tavanın (600) iki katı → bütçe öğlene doğru biter ve
+- ⚠️⚠️ **KEŞİF TURU PAHALI: ~52 istek/tur** (ölçüldü 2026-09-12; bölümleme yeniden
+  kullanımıyla ~23 — bkz. aşağıda). Saatlik tur ~1.250 istek/gün eder — günlük
+  tavanın (600) iki katı → bütçe öğlene doğru biter ve
   **detaylar aç kalır**; detay `ilan_tarihi`nin tek kaynağı olduğu için bu doğrudan
   **bildirimlerin susması** demektir. Belirti: sabah saatlerinde `butce_ozet()`
   kullanılanın çoğu `kesif` sayacında, `detay=0`.
-  → `EKAP_MOBIL_KESIF_ARALIK_DK` **240** (günde 6 tur ≈ 310 istek).
+  → `EKAP_MOBIL_KESIF_ARALIK_DK` **120** (2026-09-16'ya kadar 240; aşağıdaki bölümleme
+  yeniden kullanımı turu ~23 isteğe indirdiği için günde 12 tur ≈ 290 istek — eski
+  6 × 48 ile aynı maliyet).
+  ⚠️⚠️ **Asıl sınır TİK KAPASİTESİDİR, bütçe değil**: tik 2 dk'da bir tek istek →
+  günde en çok **720**. Hafta içi ~210 yeni ihale/gün (ölçüldü) → keşif ~290 +
+  detay ~210 = ~500, kalan ~200 **sonuç ilanı + tazelemeye** gider. Aralığı
+  düşürmek ya da bölümleme yeniden kullanımını kaldırmak o ikisini **tümüyle aç
+  bırakır** — ve v2 kapalı olduğu için **sözleşme verisinin tek kaynağı sonuç
+  ilanıdır** (ölçüldü 2026-09-16: 12 Eylül'den beri tek yeni sözleşme yoktu, bugün
+  `sonuc=0 tazeleme=0`). Bölümlemesiz 2 saatlik tur: `12 × 48 + 210 = 786 > 720`.
+  ⚠️ **Tur süresi aralıktan ayrı düşünülmeli**: detay borcu varken keşif her 3 tikte
+  bir (6 dk) koşar → 48 isteklik tur **4 sa 40 dk** sürdü (09:13 → 13:53). Yeni tur
+  ayrıca yalnızca **detay borcu boşken** başlar (`_tur_yap`). Aralığı tur süresinin
+  altına indirmek hiçbir şey kazandırmaz.
   ⚠️ **Pencereyi daraltmak çözüm DEĞİL**: mobil liste `ihaleTarihi`ne göre filtreliyor
   ve bugün yayımlanan ihalenin tarihi 2-6 hafta ileride olabiliyor → dar pencere yeni
   ilanları kaçırır. Seyrekleştirmek doğru düğmedir.
@@ -154,6 +168,25 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   ızgarasıyla değil. ⚠️ `ilanTarihi*` parametreleri **yok sayılıyor** → pencere
   `ihaleTarihi` üzerinden ve **ileriye** kurulur (v2'deki `sync_recent`ten farklı
   semantik).
+- ⚠️⚠️ **Her tur tüm pencereyi (~4.000 açık ihale) BAŞTAN listeler** — yayım tarihi
+  filtresi olmadığı için "son 2 saatte gelenler" sorulamaz; yeni ihale, DB'de
+  olmayandır. 2026-09-16 turu 48 istekte ~4.000 kayıt tarayıp 177 yeni buldu.
+  → **Bölümleme yeniden kullanılır** (`_yapraklardan_yigin`): 48 isteğin **20'si**
+  250'de kesilip bölünen ara dilimdi, oysa bölünmeden biten 28 **yaprak** pencereyi
+  zaten kapsıyordu. Tur bitince yapraklar `extra["son_bolumleme"]`e
+  (`[bas, bit, tür, 0, kayıt_sayısı]`) yazılır; sonraki tur onları yeni pencereye
+  kaydırır, toplamı `BIRLESTIR_ESIK`i (200) aşmayan komşuları birleştirir, dolanı
+  yine uyarlamalı bölmeyle ayırır → aynı veriyle **48 → 23 istek**.
+  ⚠️ **Kapsama garantisi kesim noktalarındadır**: dilim sınırları yalnızca yaprak
+  **bitiş** tarihleridir, ilk dilim pencere başından başlar, son dilim pencere sonuna
+  uzatılır → delik/örtüşme olamaz. Delik **sessizdir** (o aralıktaki ilanlar hiç
+  keşfedilmez, hata yok) — `ekap/tests/test_mobil_kesif.py` her senaryoda önce bunu
+  doğrular. ⚠️ Kayıt bozuk/eksikse sayım eksik kalır, dilim tavana takılıp bölünür:
+  maliyet artar, **ilan kaçmaz**. Önceki tur yoksa eski davranış (tür başına tam pencere).
+  ⚠️ Yarıda kalan turun yaprakları (`extra["yapraklar"]`) yeni tur başında silinir;
+  `son_bolumleme` yalnızca **tamamlanan** turdan yazılır. İl dilimleri gün düzeyinde
+  "dolu" (250) kaydedilir → o gün sonraki turda da tek istekle denenip ile bölünür.
+  Durum: `run_mobil --is durum` → "son bölümleme: N yaprak".
 - **Adapter deseni**: `ekap/mobil/adapt.py` mobil payload'ı **v2 detay şekline**
   çevirir (`{"item": ..., "_kaynak": "mobil", "_ham": ...}`), sonrası
   (`upsert_tender_detail` → `apply_pro_fields` → `sync_contracts_from_raw` →

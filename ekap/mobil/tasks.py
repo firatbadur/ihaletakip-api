@@ -60,6 +60,10 @@ _SONUC_YOK_TTL = 7 * 86400
 # Keşif her N turda bir önceliklidir; aksi hâlde büyük bir detay borcu keşfi
 # tümüyle aç bırakır ve yeni ihaleler hiç görünmezdi.
 KESIF_PAYI = 3
+# Önceki turdan kalan komşu yapraklar, toplamları bu eşiği aşmıyorsa tek dilimde
+# birleştirilir. Tavanın (250) altında pay bırakılır: iki tur arasında gelen
+# ilanlar dilimi hemen taşırıp fazladan bölme isteği harcatmasın.
+BIRLESTIR_ESIK = 200
 
 
 # ── Sayaçlar (SyncRun yerine) ──────────────────────────
@@ -155,9 +159,9 @@ def _tur_yap(cli, tur: int):
     kesif_hazir = _kesif_yigini(olustur=False)
     detay_ikn = _sirada_detay()
 
-    # ⚠️ **Bütçenin son dilimi detaya ayrılır.** Keşif turu pahalı (~52 istek); bütçeyi
-    # bitirirse o gün gelen ihalelerin detayı hiç çekilemez ve `ilan_tarihi` boş kalır
-    # — bildirimlerin tamamı o alana bağlı. Keşfin gecikmesi bir turluk gecikmedir,
+    # ⚠️ **Bütçenin son dilimi detaya ayrılır.** Keşif turu pahalı (~24 istek; önceki
+    # bölümleme yoksa ~50); bütçeyi bitirirse o gün gelen ihalelerin detayı hiç
+    # çekilemez ve `ilan_tarihi` boş kalır — bildirimlerin tamamı o alana bağlı. Keşfin gecikmesi bir turluk gecikmedir,
     # detayın kaçması kalıcı bir boşluktur.
     rezerv = getattr(settings, "EKAP_MOBIL_DETAY_REZERV", 150)
     if kesif_hazir and throttle.butce_kalan() <= rezerv:
@@ -253,19 +257,84 @@ def _kesif_yigini(olustur: bool):
     bas = bugun - timedelta(days=settings.EKAP_MOBIL_KESIF_GERI_GUN)
     bit = bugun + timedelta(days=settings.EKAP_MOBIL_KESIF_ILERI_GUN)
     # Dilim biçimi: [baslangic, bitis, ihale_turu, il_plaka(0=tümü)]
-    yigin = [[bas.isoformat(), bit.isoformat(), tur, 0] for tur in C.IHALE_TURU_DILIMLERI]
+    yigin = _yapraklardan_yigin(extra.get("son_bolumleme") or [], bas, bit)
     extra["yigin"] = yigin
+    # Yarım kalmış bir turun yaprakları yeni turun bölümlemesine karışmasın.
+    extra["yapraklar"] = []
     extra["son_tur"] = timezone.now().isoformat()
     cp.extra = extra
     cp.save(update_fields=["extra", "updated_at"])
-    logger.info("mobil keşif turu başladı: %s → %s", bas, bit)
+    logger.info("mobil keşif turu başladı: %s → %s (%s dilim)", bas, bit, len(yigin))
     return yigin
 
 
-def _yigin_yaz(yigin):
+def _yapraklardan_yigin(onceki, bas: date, bit: date):
+    """
+    Yeni turun yığınını **önceki turun yapraklarından** kurar.
+
+    Yaprak = tavanın altında kalıp bölünmeden tamamlanan dilim:
+    `[baslangic, bitis, ihale_turu, 0, kayit_sayisi]`.
+
+    ⚠️ Neden: yığın her turda tür başına tek tam pencereyle başlasaydı, 250'ye
+    takılıp bölünen her ara düğüm her turda yeniden istenirdi. Ölçüm (2026-09-16):
+    48 isteklik turun **20'si** kesilmiş ara düğümdü, oysa yapraklar pencerenin
+    tamamını zaten kapsıyordu. Önceki bölümleme yeni pencereye kaydırılıp yeniden
+    kullanılınca tur ~24 isteğe iner; iki tur arasında dolan dilim yine uyarlamalı
+    bölmeyle ikiye ayrılır.
+
+    ⚠️ Kapsama garantisi: kesim noktaları yalnızca yaprak **bitiş** tarihleridir; ilk
+    dilim `bas`tan başlar, son dilim `bit`e uzatılır → pencerede delik ya da örtüşme
+    kalmaz. Kayıt eksik ya da bozuksa sayım eksik kalır, dilim tavana takılır ve
+    bölünür — maliyet artar ama ilan kaçmaz. Önceki tur yoksa (ilk tur) eski
+    davranışa düşülür: tür başına tek tam pencere.
+    """
+    yigin = []
+    for tur in C.IHALE_TURU_DILIMLERI:
+        try:
+            parcalar = []
+            for y in sorted((y for y in onceki if y[2] == tur), key=lambda y: y[1]):
+                son = min(date.fromisoformat(y[1]), bit)
+                if son < bas:
+                    continue            # pencereden düşen geçmiş günler
+                n = int(y[4]) if len(y) > 4 else C.LISTE_TAVAN
+                if parcalar and parcalar[-1][0] == son:
+                    parcalar[-1][1] += n
+                else:
+                    parcalar.append([son, n])
+        except (TypeError, ValueError, IndexError) as e:
+            logger.warning("mobil keşif bölümlemesi okunamadı (tür=%s): %s", tur, e)
+            parcalar = []
+        if not parcalar:
+            yigin.append([bas.isoformat(), bit.isoformat(), tur, 0])
+            continue
+        # Pencereye yeni giren günler son dilime düşer.
+        parcalar[-1][0] = bit
+        basla, toplam, onceki_son = bas, 0, None
+        for son, n in parcalar:
+            if toplam and toplam + n > BIRLESTIR_ESIK:
+                yigin.append([basla.isoformat(), onceki_son.isoformat(), tur, 0])
+                basla, toplam = onceki_son + timedelta(days=1), 0
+            toplam += n
+            onceki_son = son
+        yigin.append([basla.isoformat(), bit.isoformat(), tur, 0])
+    return yigin
+
+
+def _yigin_yaz(yigin, yaprak=None):
     cp, _ = SyncCheckpoint.objects.get_or_create(name=CHECKPOINT)
     extra = cp.extra if isinstance(cp.extra, dict) else {}
     extra["yigin"] = yigin
+    if yaprak is not None:
+        yapraklar = extra.get("yapraklar") or []
+        # İl dilimleri aynı günü 81 kez bildirir → tek kayıt yeter.
+        if not (yapraklar and yapraklar[-1][:3] == yaprak[:3]):
+            yapraklar.append(yaprak)
+        extra["yapraklar"] = yapraklar
+    if not yigin:
+        # Tur bitti → bu bölümleme bir sonraki turun başlangıcı olur.
+        if extra.get("yapraklar"):
+            extra["son_bolumleme"] = extra["yapraklar"]
+        extra["yapraklar"] = []
     cp.extra = extra
     cp.save(update_fields=["extra", "updated_at"])
 
@@ -323,7 +392,13 @@ def kesif_adimi(cli=None):
                 bas, tur, il,
             )
 
-    _yigin_yaz(kalan)
+    yaprak = None
+    if bolundu is None:
+        # Yaprak: dilim tavanın altında kaldı (ya da artık bölünemiyor). İl dilimleri
+        # gün düzeyinde ve "dolu" sayılarak kaydedilir → sonraki tur o günü tek
+        # istekle dener, tavana takılırsa yine ile böler (bugünkü maliyetin aynısı).
+        yaprak = [bas_s, bit_s, tur, 0, C.LISTE_TAVAN if il else len(satirlar)]
+    _yigin_yaz(kalan, yaprak)
     _say("kesif")
     return {"is": "kesif", "aralik": [str(bas), str(bit)], "tur": tur, "il": il,
             "kayit": len(satirlar), "yazilan": yeni, "hata": hata,

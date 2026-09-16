@@ -74,13 +74,19 @@ cf_araliklari() {
 }
 
 # ── Canlı kuralları temizle (etiketli olanlar) ───────────────────────────────
+# ⚠️⚠️ `iptables -S` yorumu YALNIZCA boşluk içeriyorsa tırnaklar. Etiketimizde
+# boşluk yok → tırnaksız basılır. Yalnızca tırnaklı biçimi aramak, kuralları
+# "yok" sanmaya yol açtı (durum yanlış rapor etti) ve daha kötüsü temizlik hiç
+# çalışmadığı için haftalık `tazele` her koşuda 16 kural DAHA eklerdi.
+ETIKET_DESEN="--comment \"?${ETIKET}\"?( |$)"
+
 canli_temizle() {
   local n=0
   # ⚠️ Silme ETİKETE göre yapılır: elle eklenmiş ya da başka amaçlı kuralları
   # (ör. 8000 DROP kuralı) kazara silmemek için.
-  while iptables -S DOCKER-USER 2>/dev/null | grep -q -- "--comment \"$ETIKET\""; do
+  while iptables -S DOCKER-USER 2>/dev/null | grep -qE -- "$ETIKET_DESEN"; do
     local kural
-    kural=$(iptables -S DOCKER-USER | grep -m1 -- "--comment \"$ETIKET\"" | sed 's/^-A DOCKER-USER //')
+    kural=$(iptables -S DOCKER-USER | grep -m1 -E -- "$ETIKET_DESEN" | sed 's/^-A DOCKER-USER //')
     # shellcheck disable=SC2086
     iptables -D DOCKER-USER $kural 2>/dev/null || break
     n=$((n+1))
@@ -182,8 +188,8 @@ mod_geri_al() {
 # ── Durum ────────────────────────────────────────────────────────────────────
 mod_durum() {
   local izin drop
-  izin=$(iptables -S DOCKER-USER 2>/dev/null | grep -c -- "--comment \"$ETIKET\".*-j RETURN")
-  drop=$(iptables -S DOCKER-USER 2>/dev/null | grep -c -- "--comment \"$ETIKET\".*-j DROP")
+  izin=$(iptables -S DOCKER-USER 2>/dev/null | grep -cE -- "$ETIKET_DESEN.*-j RETURN")
+  drop=$(iptables -S DOCKER-USER 2>/dev/null | grep -cE -- "$ETIKET_DESEN.*-j DROP")
   printf '  port %s / %s\n' "$PORT" "$ARAYUZ"
   printf '  izin (RETURN) kuralı : %s\n' "$izin"
   printf '  engel (DROP) kuralı  : %s\n' "$drop"

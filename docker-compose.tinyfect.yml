@@ -21,6 +21,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   db:
+    # ⚠️⚠️ ETİKET DEĞİL DIGEST. Ana dosyadaki `postgres:16-alpine` etiketi registry'de
+    # **hareketli**: bugün `up` denince 16.14 yerine daha yeni bir 16.x inebilir ve o
+    # imaj farklı bir libc/ICU sürümü taşıyabilir. `pg_basebackup` fiziksel bir kopya
+    # olduğu için collation değişikliği metin indekslerini **sessizce** bozar — sorgu
+    # hata vermez, yanlış sonuç döndürür (CLAUDE.md → "Sunucu taşıma").
+    # Bu digest, eski sunucunun O AN çalıştırdığı imajdan okundu (PG 16.14, doğrulandı
+    # 2026-09-16: prod ve tinyfect'te aynı sha256).
+    # ⚠️ Postgres'i yükseltmek ayrı ve planlı bir iştir: taşımayla birlikte yapılmaz.
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     # Paralel sorgu ve büyük hash/sort için; 64 MB varsayılanı
     # "could not resize shared memory segment" veriyor.
     shm_size: 2gb

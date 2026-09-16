@@ -3117,12 +3117,26 @@ indeksleri `CREATE INDEX` değil `ADD CONSTRAINT` olarak yazar
 (124 + 60 PK + 34 UNIQUE = 218 ✓). Benzer bir karşılaştırma yapan herkes
 bu tuzağa düşer.
 
-Aynı betikte üç şey düzeltildi (orijinali `backup_postgres.sh.bak-*`):
+Aynı betikte dört şey düzeltildi (orijinalleri `backup_postgres.sh.bak-*`):
 1. **Sırlar `/etc/tinyfect-yedek.env`'e taşındı** — betik **755** idi, yani
    sunucudaki her kullanıcı FTP şifresini okuyabiliyordu. Artık betik 700.
 2. **FTPS zorunlu** (düz `ftp://` → `--ssl-reqd`).
 3. **Uzak temizlik eklendi** (30 günlük + 12 aylık). Yoktu → FTP'de 31 Mart'tan
    beri 171 dosya birikmişti.
+4. **Sırların şifreli yedeği eklendi** (`tinyfect-ayar_*.tar.gz.gpg`, 7 dosya):
+   `tinyfect/.env` (SECRET_KEY, DB + e-posta şifresi, Cloudflare R2 anahtarları),
+   `firebase_service_key.json`, `nginx.conf`, `docker-compose.yml`,
+   `tinyfect-bot/.env` (Twitter token'ları), `bot/config.json`,
+   `bot/data/cookies.json`. ihaletakip'le **aynı tasarım**: GPG AES256, parola
+   dosyadan okunur, çözülebilirlik yüklemeden önce doğrulanır, şifresiz asla
+   yüklenmez, kendi saklama kuralı (30).
+   ✅ Tam tur test edildi: 7 dosyanın **sha256'sı birebir aynı**.
+   ⚠️ **Parola ihaletakip ile AYNI** — bilinçli: iki arşiv de aynı FTP hesabında
+   duruyor, ayrı parola gerçek bir izolasyon sağlamaz ama kaybetme riskini ikiye
+   katlardı. Tek parola sakla, iki projeyi de açar.
+   ⚠️ **İzinler düzeltildi**: `firebase_service_key.json`, bot `.env`,
+   `config.json` ve `cookies.json` **644** idi (sunucudaki herkes okuyabiliyordu)
+   → 600. Konteynerler root çalıştığı için etkilenmediler (doğrulandı).
 
 ⚠️⚠️ **SQL Server hâlâ çalışıyor ama KULLANILMIYOR** (kullanıcı teyit etti;
 tinyfect eskiden MSSQL üzerindeydi). Kanıt: 1433'teki iki ESTAB soketin ikisi de

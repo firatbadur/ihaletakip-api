@@ -1691,15 +1691,6 @@ class AuthoritySearchView(APIView):
 
 @extend_schema(
     tags=["ekap"],
-    summary="İl listesi",
-    description=(
-        "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve "
-        "`GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır."
-    ),
-    responses={200: CitySerializer(many=True)},
-)
-@extend_schema(
-    tags=["ekap"],
     summary="Sektör listesi",
     description=(
         "Deterministik sınıflandırmada kullanılan sektör kodları ve adları.\n\n"
@@ -1723,6 +1714,15 @@ class SectorListView(APIView):
         return api_response(data=ogeler)
 
 
+@extend_schema(
+    tags=["ekap"],
+    summary="İl listesi",
+    description=(
+        "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve "
+        "`GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır."
+    ),
+    responses={200: CitySerializer(many=True)},
+)
 class CityListView(APIView):
     """GET /ekap/cities/ — il listesi."""
 

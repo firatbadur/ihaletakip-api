@@ -7,6 +7,7 @@ Alan envanteri mobil ekran tüketiminden çıkarıldı (bkz. plan dosyası).
 """
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import F
 
 
 # ── Lookup: Şehir ──────────────────────────────────────
@@ -278,6 +279,29 @@ class Tender(models.Model):
             # ⚠️ Sıralama kolonu bileşiğin İKİNCİ elemanı: baş kolon yapılsaydı
             # "ORDER BY tarih DESC LIMIT N + seçici filtre" tuzağı olurdu.
             models.Index(fields=["sektor", "-ihale_tarihi"], name="ekap_tender_sektor_tarih_idx"),
+            # ── İlan tarihine göre sıralama (0027) ──────────────────────────────
+            # ⚠️⚠️ Liste ucu `order=ilan_tarihi` için `ORDER BY ilan_tarihi DESC
+            # NULLS LAST, id DESC` sorar. **`NULLS LAST` katıdır**: düz
+            # `db_index` btree'si `DESC NULLS FIRST` sırasında olduğu için bu
+            # sorguya sıralı çıktı veremez → planlayıcı paralel seq scan + tam
+            # sort seçiyordu (EXPLAIN'le doğrulandı, 2026-09-22).
+            # ⚠️ `NULLS LAST`'ın kendisi vazgeçilemez: `ilan_tarihi` kolonunun
+            # **%48,2'si NULL** (506.902/1.051.946) ve Postgres `DESC` sıralamada
+            # NULL'ları BAŞA koyar → "en yeni ilan" istenince ilk yarım milyon
+            # satır ilan tarihi *boş* kayıtlardı. Ürün açısından: sıralama
+            # çalışmıyor görünüyordu.
+            # ⚠️ `id DESC` tie-break indeksin İÇİNDE olmalı: `ilan_tarihi`
+            # damgası gün başıdır (00:00) ve tek günü 897 ihale paylaşıyor;
+            # tie-break'siz sayfalama aynı kaydı iki sayfada gösterip başkasını
+            # hiç göstermez. Indeks içinde olunca sort adımı tamamen kalkar.
+            # ⚠️ ASC yönü için ayrı indeks GEREKMEZ: `ASC NULLS LAST` Postgres'in
+            # varsayılan ASC sırasıdır → mevcut `db_index` ileri taramayla
+            # karşılıyor (ölçüldü: Incremental Sort + Index Scan).
+            models.Index(
+                F("ilan_tarihi").desc(nulls_last=True),
+                F("id").desc(),
+                name="ekap_tender_ilantarih_sira",
+            ),
             # NOT: `Index(fields=["-ilan_tarihi"])` KALDIRILDI — `ilan_tarihi` zaten
             # `db_index=True` (yukarıda) ve Postgres btree'yi geriye doğru tarayabildiği
             # için birebir kopyaydı. Backfill sürekli INSERT/UPDATE attığından iki kat

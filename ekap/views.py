@@ -377,6 +377,67 @@ def _tek_ucus(key, hesapla):
     return None
 
 
+# ── İhale listesi sıralaması ──────────────────────────────────────────────────
+# ⚠️ `order`/`siralamaTipi` HER İKİSİ DE normalize edilir. Eski kod ham string'i
+# birebir karşılaştırıyordu (`order == "ilan_tarihi"`, `direction == "asc"`) →
+# beklenenden ufak bir sapma **sessizce** başka bir sıralama veriyordu:
+#   · `order=ilanTarihi`  → ihale_tarihi'ye düşüyordu (bu uç yanıtı EKAP'ın
+#     camelCase alan adlarıyla döndürdüğü için mobilin camelCase göndermesi doğal)
+#   · `siralamaTipi=ASC`  → desc'e düşüyordu (büyük harf)
+# İkisi de üretimde ölçüldü (2026-09-22). Hata sınıfı "yanlış sonuç, hata yok".
+_SIRA_ALANLARI = {
+    "ilantarihi": "ilan_tarihi",
+    "ilantarihsaat": "ilan_tarihi",
+    "ihaletarihi": "ihale_tarihi",
+    "ihaletarihsaat": "ihale_tarihi",
+}
+_SIRA_ARTAN_SOZCUKLERI = frozenset({"asc", "ascending", "artan"})
+
+# ⚠️ `ilan_tarihi` alanında NULL oranı %48,2 (506.902/1.051.946 — ölçüldü
+# 2026-09-22): EKAP liste yanıtı bu alanı boş döndürür, değer yalnızca detaydan
+# gelir ve ilanı hiç yayımlanmamış ihalelerde hiç gelmez.
+_SIRA_NULLS_LAST = frozenset({"ilan_tarihi"})
+
+
+def tender_sira_alani(deger) -> str:
+    """`order` parametresini model alan adına çevirir (bilinmeyen → ihale_tarihi)."""
+    anahtar = re.sub(r"[^a-z]", "", str(deger or "").lower())
+    return _SIRA_ALANLARI.get(anahtar, "ihale_tarihi")
+
+
+def tender_sira_artan(deger) -> bool:
+    """`siralamaTipi` artan mı? (varsayılan azalan — en yeni ihale önce)."""
+    return str(deger or "").strip().lower() in _SIRA_ARTAN_SOZCUKLERI
+
+
+def tender_sira_ifadesi(alan: str, artan: bool) -> tuple:
+    """
+    Sıralama ifadesi + **deterministik tie-break**.
+
+    ⚠️⚠️ **TIE-BREAK ŞART, süs değil.** Aynı tarih damgasını yüzlerce ihale
+    paylaşıyor (ölçüldü: `ilan_tarihi` için tek günde 897, `ihale_tarihi` için tek
+    saatte 420 kayıt — `ilan_tarihi` damgası gün başıdır, saat taşımaz). Tek
+    kolonlu `ORDER BY` bu grupların iç sırasını Postgres'e bırakır ve o sıra
+    **plan değişince değişir** (indeks taraması ↔ paralel seq scan). Sayfalama
+    `OFFSET` tabanlı olduğu için sonuç: aynı ihale iki sayfada tekrar eder,
+    başkası hiç görünmez. Kullanıcıya bu "sıralama bozuk" diye görünür ama
+    sıralama değil **sayfalama** bozuktur.
+
+    ⚠️ `nulls_last` YALNIZCA `ilan_tarihi` için verilir. Postgres `DESC`
+    sıralamada NULL'ları varsayılan olarak BAŞA koyar (`NULLS FIRST`) → "en yeni
+    ilan" istenince ilk yarım milyon satır ilan tarihi **boş** kayıtlardı.
+    ⚠️ `ihale_tarihi`'ye EKLENMEZ: o kolonda NULL yok (ölçüldü: 0) ve
+    `NULLS LAST` istemek `(il_id, -ihale_tarihi)` gibi **tüm mevcut bileşik
+    indeksleri devre dışı bırakır** — EXPLAIN'le doğrulandı: indeks taraması
+    yerine paralel seq scan + tam sort. Fayda sıfır, bedel tablonun tamamı.
+    """
+    if alan in _SIRA_NULLS_LAST:
+        birincil = F(alan).asc(nulls_last=True) if artan else F(alan).desc(nulls_last=True)
+    else:
+        birincil = alan if artan else f"-{alan}"
+    return (birincil, "pk" if artan else "-pk")
+
+
 def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):
     """
     Filtrelenmiş Tender queryset'ine sıralama + sayfalama uygular.
@@ -388,11 +449,9 @@ def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):
     Dönen: `(items_queryset, page, page_size)`. COUNT çağıran tarafta (`_cached_count`),
     çünkü asistan bazı çağrılarda toplamı hiç istemiyor.
     """
-    order = params.get("order", "ihale_tarihi")
-    direction = params.get("siralamaTipi", "desc")
-    field = "ilan_tarihi" if order == "ilan_tarihi" else "ihale_tarihi"
-    prefix = "" if direction == "asc" else "-"
-    qs = qs.order_by(f"{prefix}{field}")
+    alan = tender_sira_alani(params.get("order"))
+    artan = tender_sira_artan(params.get("siralamaTipi"))
+    qs = qs.order_by(*tender_sira_ifadesi(alan, artan))
 
     try:
         page = max(1, int(params.get("page", 1)))
@@ -906,11 +965,21 @@ _TENDER_KEY_PARAM = OpenApiParameter(
         *_PRO_SCHEMA_PARAMS,
         OpenApiParameter(
             "order", str, enum=["ihale_tarihi", "ilan_tarihi"], default="ihale_tarihi",
-            description="Sıralama alanı.",
+            description=(
+                "Sıralama alanı. camelCase yazım da kabul edilir "
+                "(`ihaleTarihi`, `ilanTarihi`); büyük/küçük harf ve alt çizgi "
+                "önemsizdir. Tanınmayan değer varsayılana (`ihale_tarihi`) düşer. "
+                "⚠️ `ilan_tarihi` alanı ihalelerin bir bölümünde boştur (EKAP bu "
+                "tarihi yalnızca detayda verir, ilansız usullerde hiç vermez); bu "
+                "kayıtlar her iki yönde de listenin SONUNDA döner."
+            ),
         ),
         OpenApiParameter(
             "siralamaTipi", str, enum=["desc", "asc"], default="desc",
-            description="Sıralama yönü.",
+            description=(
+                "Sıralama yönü. `asc` (eş anlamlı: `ascending`, `artan`) dışındaki "
+                "her değer azalan sayılır; büyük/küçük harf önemsizdir."
+            ),
         ),
         OpenApiParameter("page", int, default=1, description="Sayfa numarası (1'den başlar)."),
         OpenApiParameter(

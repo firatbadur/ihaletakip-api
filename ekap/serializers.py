@@ -23,6 +23,14 @@ class EkapTenderListSerializer(serializers.Serializer):
             "idareAdi": t.idare_adi,
             "ihaleIlAdi": t.ihale_il_adi,
             "ihaleTarihSaat": t.ihale_tarih_saat,
+            # ⚠️ `order=ilan_tarihi` ile sıralanan liste, sıralama anahtarını
+            # göstermeden dönüyordu: istemci yalnızca `ihaleTarihSaat` görüyor ve
+            # sıralamanın doğru olup olmadığını ekranda ayırt edemiyordu (kullanıcı
+            # bildirimi, 2026-09-22). Alan `_LIST_FIELDS`'ta zaten çekiliyor → bedava.
+            # ⚠️ NULL olabilir (kolonun %48,2'si boş): EKAP bu tarihi liste yanıtında
+            # hiç vermez, yalnızca detaydan gelir ve ilanı yayımlanmamış ihalelerde
+            # hiç gelmez. İstemci "tarih yok"u ayırt edebilsin diye `null` döner.
+            "ilanTarihi": t.ilan_tarihi.isoformat() if t.ilan_tarihi else None,
             "ihaleTip": str(t.ihale_tip) if t.ihale_tip is not None else None,
             "ihaleTipAciklama": t.ihale_tipi_aciklama,
             "ihaleUsulAciklama": t.ihale_usul_aciklama,

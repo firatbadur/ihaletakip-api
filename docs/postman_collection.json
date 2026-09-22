@@ -734,7 +734,7 @@
                 {
                   "key": "order",
                   "value": "ihale_tarihi",
-                  "description": "Sıralama alanı. Geçerli değerler: `ihale_tarihi`, `ilan_tarihi`.",
+                  "description": "Sıralama alanı. camelCase yazım da kabul edilir (`ihaleTarihi`, `ilanTarihi`); büyük/küçük harf ve alt çizgi önemsizdir. Tanınmayan değer varsayılana (`ihale_tarihi`) düşer. ⚠️ `ilan_tarihi` alanı ihalelerin bir bölümünde boştur (EKAP bu tarihi yalnızca detayda verir, ilansız usullerde hiç vermez); bu kayıtlar her iki yönde de listenin SONUNDA döner. Geçerli değerler: `ihale_tarihi`, `ilan_tarihi`.",
                   "disabled": true
                 },
                 {
@@ -776,7 +776,7 @@
                 {
                   "key": "siralamaTipi",
                   "value": "desc",
-                  "description": "Sıralama yönü. Geçerli değerler: `asc`, `desc`.",
+                  "description": "Sıralama yönü. `asc` (eş anlamlı: `ascending`, `artan`) dışındaki her değer azalan sayılır; büyük/küçük harf önemsizdir. Geçerli değerler: `asc`, `desc`.",
                   "disabled": true
                 },
                 {

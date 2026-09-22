@@ -2150,7 +2150,11 @@ paths:
           - ihale_tarihi
           - ilan_tarihi
           default: ihale_tarihi
-        description: Sıralama alanı.
+        description: Sıralama alanı. camelCase yazım da kabul edilir (`ihaleTarihi`,
+          `ilanTarihi`); büyük/küçük harf ve alt çizgi önemsizdir. Tanınmayan değer
+          varsayılana (`ihale_tarihi`) düşer. ⚠️ `ilan_tarihi` alanı ihalelerin bir
+          bölümünde boştur (EKAP bu tarihi yalnızca detayda verir, ilansız usullerde
+          hiç vermez); bu kayıtlar her iki yönde de listenin SONUNDA döner.
       - in: query
         name: ozellik
         schema:
@@ -2206,7 +2210,8 @@ paths:
           - asc
           - desc
           default: desc
-        description: Sıralama yönü.
+        description: 'Sıralama yönü. `asc` (eş anlamlı: `ascending`, `artan`) dışındaki
+          her değer azalan sayılır; büyük/küçük harf önemsizdir.'
       - in: query
         name: sonuclanmis
         schema:

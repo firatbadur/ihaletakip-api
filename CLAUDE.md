@@ -2707,6 +2707,14 @@ Bu proje için her oturumda uyulması ZORUNLU kurallar:
    istek adı `api_v1_saved_filters_list` gibi görünür. Herkese açık uçlara `auth=[]`
    ekleyin — üreteç bunu Postman'de `noauth` olarak işaretler.
 
+   ⚠️⚠️ **Yeni view'ı VAR OLAN bir dekoratörün altına yazmayın.** Yaşandı
+   (2026-09-22): `SectorListView`, `CityListView`'ın `@extend_schema` bloğunun
+   **altına** eklendi → dekoratör kendinden sonraki ilk sınıfa bağlandığı için
+   "İl listesi" şeması sektör ucuna geçti, `CityListView` dokümansız kaldı
+   (`tags: api`, "No response body"). ⚠️ **Belirti sessiz**: iki uç da ÇALIŞIR,
+   testler geçer, yalnızca mobilin okuduğu Postman/OpenAPI yanlıştır. Yeni uç
+   eklerken `docs/openapi.yaml` farkına bakın — hook zaten üretiyor.
+
 Commit mesajı sonuna şunu ekle:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 

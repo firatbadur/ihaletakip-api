@@ -8,6 +8,7 @@ from drf_spectacular.views import (
 )
 
 from core.views import health_check
+from ekap.admin_views import sektor_ekrani
 from ekap.mobil.admin_views import captcha_ekrani
 
 admin.site.site_header = "IhaleTakip Yönetim"
@@ -27,6 +28,13 @@ api_v1 = [
 urlpatterns = [
     # ⚠️ `admin/` include'undan ÖNCE: aksi hâlde admin URL çözücüsü yakalar ve 404 verir.
     # `admin_view` sarmalayıcısı staff kontrolünü ve giriş yönlendirmesini sağlar.
+    # ⚠️ `sektor`ün kayıtlı bir modeli YOK (kapalı taksonomi, ayrı tablosu yok) →
+    # admin'de hazır liste ekranı da yok. Bu sayfa onun yerine geçer.
+    path(
+        "admin/ekap/sektorler/",
+        admin.site.admin_view(sektor_ekrani),
+        name="ekap_sektorler",
+    ),
     path(
         "admin/ekap/mobil-captcha/",
         admin.site.admin_view(captcha_ekrani),

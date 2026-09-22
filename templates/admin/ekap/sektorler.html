@@ -1,0 +1,126 @@
+{% extends "admin/base_site.html" %}
+{% load dashboard_tags %}
+{% comment %}
+Sektör dağılımı ekranı.
+
+⚠️ Renkler **sabit hex YAZILMAZ**: jazzmin temayı `<html data-bs-theme>` üzerinden
+çalışma anında değiştiriyor (bkz. CLAUDE.md → Anasayfa panosu). Bootstrap'ın kendi
+`text-body-secondary` / `table` sınıfları iki temada da doğru okunur.
+
+⚠️ Sayılar `|tr_sayi`'den geçer — `humanize.intcomma` virgül basar ve Türkçe'de
+virgül ondalık ayracıdır.
+{% endcomment %}
+{% block content %}
+<div class="sektor-ekrani">
+
+  <h1>Sektör Dağılımı</h1>
+
+  <p class="text-body-secondary">
+    Sektör <b>kapalı bir taksonomidir</b> ({{ toplam.sektor }} etiket kullanımda) ve
+    ayrı bir tablosu yoktur; ihale adı kalıbından üretilip
+    <code>Tender</code>, <code>Contract</code> ve <code>TenderNamePattern</code>
+    satırlarına yazılır. Bu özet canlı hesaplanır.
+    <span title="Sorgu süresi">({{ sure_ms }} ms{% if onbellek %}, önbellekten{% endif %})</span>
+    &middot; <a href="?yenile=1">yenile</a>
+  </p>
+
+  <div class="row mb-3">
+    <div class="col-6 col-md-3 mb-2">
+      <div class="card h-100"><div class="card-body py-2">
+        <div class="text-body-secondary small">Kalıp</div>
+        <div class="h4 mb-0">{{ toplam.kalip|tr_sayi }}</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+      <div class="card h-100"><div class="card-body py-2">
+        <div class="text-body-secondary small">İhale</div>
+        <div class="h4 mb-0">{{ toplam.ihale|tr_sayi }}</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+      <div class="card h-100"><div class="card-body py-2">
+        <div class="text-body-secondary small">Sözleşme</div>
+        <div class="h4 mb-0">{{ toplam.sozlesme|tr_sayi }}</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+      <div class="card h-100"><div class="card-body py-2">
+        <div class="text-body-secondary small">Toplam bedel</div>
+        <div class="h4 mb-0">{{ toplam.bedel|floatformat:0|tr_sayi }} ₺</div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Sektör</th>
+        <th class="text-end">Kalıp</th>
+        <th class="text-end">İhale</th>
+        <th style="width:140px">Pay</th>
+        <th class="text-end">Sözleşme</th>
+        <th class="text-end">Toplam bedel</th>
+        <th class="text-end">Ort. indirim</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in satirlar %}
+      <tr{% if s.bos_mu %} class="text-body-secondary"{% endif %}>
+        <td>
+          {% if s.bos_mu %}
+            {{ s.ad }}
+            <div class="small">kalıbı ayırt edici değil ya da henüz işlenmedi</div>
+          {% else %}
+            <a href="{% url 'admin:ekap_tender_changelist' %}?sektor={{ s.kod }}">{{ s.ad }}</a>
+            <div class="small text-body-secondary">
+              <code>{{ s.kod }}</code>
+              &middot;
+              <a href="{% url 'admin:ekap_tendernamepattern_changelist' %}?sektor={{ s.kod }}">kalıplar</a>
+            </div>
+          {% endif %}
+        </td>
+        <td class="text-end">{{ s.kalip|tr_sayi }}</td>
+        <td class="text-end">{{ s.ihale|tr_sayi }}</td>
+        <td>
+          {# Pay çubuğu: genişlik sunucuda hesaplanan yüzde. #}
+          <div class="progress" style="height:8px" title="%{{ s.pay }}">
+            <div class="progress-bar" role="progressbar" style="width:{{ s.pay }}%"
+                 aria-valuenow="{{ s.pay }}" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <div class="small text-body-secondary">%{{ s.pay }}</div>
+        </td>
+        <td class="text-end">{{ s.sozlesme|tr_sayi }}</td>
+        <td class="text-end">
+          {% if s.bedel %}{{ s.bedel|floatformat:0|tr_sayi }} ₺{% else %}—{% endif %}
+        </td>
+        <td class="text-end">
+          {% comment %}
+          ⚠️ Örneklem eşiğinin altında ortalama GÖSTERİLMEZ (veri katmanı `None` döner);
+          "veri yok" demek, az örnekten hesaplanmış bir oranı göstermekten doğrudur.
+          {% endcomment %}
+          {% if s.indirim %}
+            %{{ s.indirim|floatformat:1 }}
+            <div class="small text-body-secondary">n={{ s.indirim_ornek|tr_sayi }}</div>
+          {% else %}
+            <span class="text-body-secondary">—</span>
+            {% if s.indirim_ornek %}
+              <div class="small text-body-secondary">n={{ s.indirim_ornek|tr_sayi }} (yetersiz)</div>
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <p class="text-body-secondary small">
+    Sektör etiketini ihale adı kalıbından yapay zekâ üretir; üretemezse
+    <code>ekap/constants.py</code> içindeki anahtar kelime sözlüğü devreye girer
+    (<code>keywords.sektor_tahmin</code>). Taksonomi <code>SEKTORLER</code>'de
+    sabittir — yeni etiket eklemek kod değişikliği ister.
+  </p>
+
+</div>
+{% endblock %}

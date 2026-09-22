@@ -1,6 +1,7 @@
 """ekap admin — ihale verisi ve senkron gözlemi."""
 from django.contrib import admin
 
+from .constants import SEKTORLER
 from .models import (
     Announcement,
     Authority,
@@ -20,6 +21,46 @@ from .models import (
     TenderNamePattern,
     TenderDate,
 )
+
+
+class SektorFilter(admin.SimpleListFilter):
+    """
+    Sektör filtresi — seçenekler **sabit taksonomiden** gelir, DB'den değil.
+
+    ⚠️ Django'nun varsayılanı (`list_filter = ["sektor"]` → `AllValuesFieldListFilter`)
+    her sayfa açılışında o kolonda `SELECT DISTINCT` koşar; `ekap_tender` 1M,
+    `ekap_contract` 1,4M satır. Taksonomi zaten kapalı ve koddan biliniyor → sorguya
+    gerek yok.
+    ⚠️ Ayrıca varsayılan filtre ham kodu basar (`saglik_tibbi_malzeme`); burada
+    Türkçe ad gösterilir.
+    ⚠️ `parameter_name` **"sektor" olmalı**: sektör özeti ekranı bu ada göre
+    `?sektor=<kod>` bağlantısı üretiyor.
+    """
+
+    title = "sektör"
+    parameter_name = "sektor"
+    # Boş sektörü de seçilebilir yapan sentetik değer — `?sektor=` (boş) Django
+    # tarafından "filtre yok" sayıldığı için ayrı bir işaret gerekiyor.
+    BOS = "__bos__"
+
+    def lookups(self, request, model_admin):
+        return [(self.BOS, "(sektörsüz)")] + [(k, v) for k, v in SEKTORLER.items()]
+
+    def queryset(self, request, queryset):
+        deger = self.value()
+        if not deger:
+            return queryset
+        if deger == self.BOS:
+            return queryset.filter(sektor="")
+        return queryset.filter(sektor=deger)
+
+
+@admin.display(description="Sektör", ordering="sektor")
+def sektor_adi(obj):
+    """Ham kod yerine Türkçe ad (`saglik_tibbi_malzeme` → `Tıbbi Sarf Malzeme`)."""
+    if not obj.sektor:
+        return "—"
+    return SEKTORLER.get(obj.sektor, obj.sektor)
 
 
 class TenderDateInline(admin.TabularInline):
@@ -46,8 +87,9 @@ class ContractInline(admin.TabularInline):
 
 @admin.register(Tender)
 class TenderAdmin(admin.ModelAdmin):
-    list_display = ["ikn", "ihale_adi_kisa", "ihale_il_adi", "ihale_tip", "ihale_durum", "detail_synced_at", "sync_status"]
-    list_filter = ["ihale_tip", "ihale_durum", "sync_status", "e_ihale"]
+    list_display = ["ikn", "ihale_adi_kisa", "ihale_il_adi", "ihale_tip",
+                    sektor_adi, "ihale_durum", "detail_synced_at", "sync_status"]
+    list_filter = ["ihale_tip", "ihale_durum", "sync_status", "e_ihale", SektorFilter]
     search_fields = ["ikn", "ekap_id", "ihale_adi", "idare_adi"]
     readonly_fields = ["created_at", "updated_at", "list_synced_at", "detail_synced_at", "detail_raw", "list_raw"]
     inlines = [TenderDateInline, OkasItemInline, AnnouncementInline, ContractInline]
@@ -64,7 +106,7 @@ class ContractAdmin(admin.ModelAdmin):
         "tender", "yuklenici_adi", "sozlesme_bedeli_num", "yaklasik_maliyet_num",
         "indirim_orani", "sozlesme_tarihi", "yuklenici",
     ]
-    list_filter = ["yaklasik_maliyet_kaynak", "ihale_tip"]
+    list_filter = ["yaklasik_maliyet_kaynak", "ihale_tip", SektorFilter]
     search_fields = ["tender__ikn", "yuklenici_adi", "ekap_sozlesme_id"]
     raw_id_fields = ["tender", "yuklenici"]
     date_hierarchy = "sozlesme_tarihi"
@@ -197,9 +239,9 @@ class TenderNamePatternAdmin(admin.ModelAdmin):
     `skipped` çoksa model "bu ad hiçbir şey söylemiyor" diyor (jenerik adlar).
     """
 
-    list_display = ["kalip_kisa", "ihale_sayisi", "durum", "sektor", "guven",
+    list_display = ["kalip_kisa", "ihale_sayisi", "durum", sektor_adi, "guven",
                     "keyword_adet", "islendi_at"]
-    list_filter = ["durum", "sektor", "model"]
+    list_filter = ["durum", SektorFilter, "model"]
     search_fields = ["kalip_norm", "ornek_ad", "kalip_hash"]
     readonly_fields = ["kalip_hash", "kalip_norm", "ornek_ad", "ihale_sayisi",
                        "keyword_ids", "guven", "batch", "model", "islendi_at"]

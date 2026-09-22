@@ -711,6 +711,8 @@ JAZZMIN_SETTINGS = {
         # ⚠️ Operatör yolu: OCR captcha'yı çözemezse toplama durur ve resim burada
         # gösterilir. Menüde görünür olması şart — gizli bir sayfa, "sistem sessizce
         # durmasın" tasarımını işlevsiz bırakır.
+        {"name": "Sektörler", "url": "ekap_sektorler",
+         "permissions": ["ekap.view_tender"]},
         {"name": "EKAP Captcha", "url": "ekap_mobil_captcha",
          "permissions": ["ekap.view_tender"]},
         {"model": "accounts.User"},

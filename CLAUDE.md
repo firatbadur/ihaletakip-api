@@ -1624,6 +1624,39 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   kardinalite → kopya DOĞRU tercih (0014'ün `okas_bucket`'i gibi). Keyword'ler
   çok-değerli olduğu için onlara aynısı yapılamaz. `grup` kademesinden önce gelir ve
   **OKAS'ı olmayan %19 için** `idare_tur`'den çok daha iyi bir geniş kademedir.
+  ⚠️⚠️ **İNGEST-KOPYASI GEÇMİŞE YAYILMAZ — `Contract.sektor` %0,04 doluydu.**
+  Ölçüldü (2026-09-22): 1.412.457 sözleşmenin yalnızca **553**'ünde dolu; 1.354.944'ünde
+  ihalede sektör var ama kopyalanmamış. Sebep: kopya yalnızca **yazma yolunda** dolar
+  (bir ihalenin sözleşmeleri ancak detayı yeniden senkronlandığında güncellenir), keyword
+  katmanı ise arşive **sonradan** yayıldı. Sonuç: "Aynı sektör" kademesi yazıldığı
+  günden beri **pratikte ölüydü** — hata vermiyor, yalnızca hiç eşleşmiyor ve merdiven
+  daha genel/alakasız bir kademeye düşüyordu.
+  ⚠️ **Genel kural**: bir ingest-kopyası kolonu eklerken "yeni kayıtlar dolar" YETMEZ;
+  geçmiş için ayrı bir doldurma adımı gerekir (`okas_ana_kod`/`okas_bucket` 0014'te
+  bunu doğru yapmıştı, `sektor` atlandı).
+  Onarım: `python manage.py fix_contract_sektor [--dry-run] [--max-seconds N]`.
+  ⚠️ **Tek dev `UPDATE ... FROM` YAZILAMAZ**: `DB_STATEMENT_TIMEOUT_MS` (240 sn) onu
+  iptal eder ve işin tamamı boşa gider → PK aralıklı parçalar (20k), her parça ayrı
+  deyim, kesilirse `--from-pk` ile devam.
+
+- **Sektör admin ekranı**: `/admin/ekap/sektorler/` (üst menü → *Sektörler*).
+  Sektör başına kalıp / ihale / sözleşme sayısı, toplam bedel, ortalama indirim ve
+  pay çubuğu; satırlar ihale listesine ve kalıp sözlüğüne filtreli bağlantı verir.
+  ⚠️ **Kayıtlı bir model YOK** (kapalı taksonomi, ayrı tablosu yok) → kenar çubuğunda
+  kendiliğinden görünemez; `config/urls.py`'de `admin.site.admin_view` ile bağlanır
+  (captcha ekranıyla aynı desen) + `topmenu_links`.
+  ⚠️ **Materyalize EDİLMEDİ, canlı hesaplanır** (`ekap/sektor_ozet.py`, 10 dk cache).
+  Ölçüldü: `Tender` 212 ms · `TenderNamePattern` 86 ms · `Contract`+bedel 146 ms —
+  üçü de indeksli. 37 satırlık bir tabloyu tazeleyen bir görev yazmak yalnızca
+  bayatlık ve tutarlılık sorunu eklerdi.
+  ⚠️ **Sektörsüz satır GİZLENMEZ** (ihalelerin ~%4,6'sı) — pazar panosundaki
+  `okas_bucket=""` kuralının aynısı; sessizce düşürmek toplamları yanlış gösterirdi.
+  ⚠️ **`indirim_orani` 0-1 aralığında saklanır** → yüzdeye çevirme veri katmanında
+  yapılır; şablonda çarpma yapılamaz ve ham değer "%0,2" diye görünürdü.
+  ⚠️ **`list_filter = ["sektor"]` KULLANILMAZ** → `SektorFilter` (`ekap/admin.py`).
+  Django'nun varsayılanı her sayfa açılışında `SELECT DISTINCT` koşar (1M/1,4M satır)
+  ve ham kodu basar; kapalı taksonomi zaten koddan biliniyor → sorgu yok, Türkçe ad var.
+  `parameter_name="sektor"` olmalı — özet ekranı `?sektor=<kod>` bağlantısı üretiyor.
   ⚠️ AI "diger" derse `sektor_tahmin` sözlüğü devreye girer — ölçümde bazı örneklerde
   deterministik daha isabetliydi ("istinat duvarı" → AI *İnşaat*, sözlük *Yol/Altyapı*).
 - **Bütçe korumaları**: `KEYWORD_AI_ENABLED` (kill switch, **varsayılan False**),

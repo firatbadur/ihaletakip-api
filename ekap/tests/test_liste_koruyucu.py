@@ -130,3 +130,32 @@ class IlanVarMiTuretmeTest(TestCase):
         """⚠️ `False` yazmak, v2'den gelmiş `True`'yu silmek olurdu."""
         govde = adapt.detaydan("2026/4", {"ihaleAdi": "İş", "idareAdi": "İdare"})
         self.assertNotIn("ilanVarMi", govde["item"])
+
+
+class OnYeterlikDurumuTest(TestCase):
+    """
+    "Ön yeterlik henüz yapılmamış" → **Katılıma Açık (2)**.
+
+    ⚠️ Ürün kararı (2026-09-22): "Belli İstekliler Arasında" usulünde ihale iki
+    aşamalıdır ve "henüz yapılmamış" demek başvuruların hâlâ alındığı anlamına gelir
+    → firma açısından ihale katılıma açıktır. EKAP'ın bu aşama için ayrı bir sayısal
+    kodu arşivde hiç görülmedi, bu yüzden kod boş bırakılıyordu ve 13 açık ihale
+    "Katılıma Açık" filtresinin dışında kalıyordu.
+    """
+
+    def test_on_yeterlik_katilima_acik(self):
+        for metin in ("Ön yeterlik henüz yapılmamış",
+                      "ÖN YETERLİK HENÜZ YAPILMAMIŞ",
+                      "Ön Yeterlik Henüz Yapılmamıştır"):
+            with self.subTest(metin=metin):
+                self.assertEqual(adapt.durum_kodu(metin), 2)
+
+    def test_on_yeterlik_tamamlanmis_acik_SAYILMAZ(self):
+        """
+        ⚠️ Eşleme YALNIZCA "henüz" hâli içindir: ön yeterlik **değerlendirmesi
+        tamamlanmış** ihale artık katılıma açık değildir (davet aşaması). Geniş bir
+        ("on yeterlik", 2) kuralı bunu da açık gösterip filtreyi sessizce yanlışlardı
+        — bu test o genişlemeyi engeller.
+        """
+        self.assertIsNone(adapt.durum_kodu("Ön yeterlik değerlendirmesi tamamlanmış"))
+        self.assertIsNone(adapt.durum_kodu("Ön yeterlik sonuçlandı"))

@@ -30,6 +30,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--batch", type=int, default=500)
+        # ⚠️ Varsayılan AÇIK: liste upsert'i kaynağa bakmadan siliyordu, dolayısıyla
+        # onarımın da kaynağa bakmaması doğrudur. Bayrak yalnızca kapsamı daraltmak
+        # (mobil satırlarla sınırlamak) isteyen için var.
+        parser.add_argument("--yalniz-mobil", dest="tum_kaynaklar",
+                            action="store_false", default=True,
+                            help="yalnızca detay_kaynak='mobil' satırları onar")
 
     def handle(self, *args, **o):
         self._html(o)
@@ -77,10 +83,26 @@ class Command(BaseCommand):
         ⚠️ Boş değer YAZILMAZ: ham gövdede anahtar yoksa kolona dokunulmaz —
         "bilmiyoruz" ile "yok" aynı şey değil.
         """
+        from django.db.models import F, Q
+
         from ekap.sync import _as_int, detay_govdesi
 
         alanlar = ("ihale_durum", "ihale_usul", "ilan_var_mi")
-        qs = Tender.objects.filter(detay_kaynak="mobil").only(
+        # ⚠️⚠️ **`detay_kaynak='mobil'` FİLTRESİ YETMEZ — ilk sürüm burada eksikti.**
+        # Silme mobil **liste** yolundan geliyor, ama dokunduğu kaydın detayı v2'den
+        # gelmiş olabilir; o satırlarda `detay_kaynak` boştur. Ölçüldü (2026-09-22,
+        # ilk onarım turundan sonra): `detay_kaynak` boş **4.163** satırda
+        # `ihale_durum` NULL, üstelik hepsinde `detail_raw` durumu taşıyor ve
+        # hepsinde `list_synced_at > detail_synced_at` — yani liste, detaydan SONRA
+        # çalışıp değeri silmiş. Bunların 1.682'si **gelecek tarihli**, yani
+        # kullanıcının en çok isteyeceği açık ihaleler (mobil ekip bildirdi).
+        # ⚠️ Kapsam bu yüzden **kaynağa değil, ARIZANIN İZİNE** bakar.
+        kapsam = Q(detay_kaynak="mobil") | Q(
+            ihale_durum__isnull=True, detail_synced_at__isnull=False
+        )
+        if not o["tum_kaynaklar"]:
+            kapsam = Q(detay_kaynak="mobil")
+        qs = Tender.objects.filter(kapsam).only(
             "id", "detail_raw", *alanlar
         ).iterator(chunk_size=o["batch"])
         bakilan = onarilan = 0

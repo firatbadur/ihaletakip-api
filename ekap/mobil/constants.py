@@ -84,12 +84,29 @@ DURUM_METIN = _n({
     "Sözleşme İmzalanmış": 5,
     "İptal Edilmiş": 6,
     "Sonuç İlanı Yayımlanmış": 15,
+    # ⚠️ Ön yeterlik aşaması = **katılıma açık** (kullanıcı kararı, 2026-09-22).
+    # "Belli İstekliler Arasında" usulünde ihale iki aşamalıdır: önce ön yeterlik
+    # başvurusu alınır, yeterli bulunanlar teklife davet edilir. "henüz yapılmamış"
+    # demek başvuruların **hâlâ alındığı** anlamına gelir → firma açısından bu ihale
+    # katılıma açıktır ve arama sonuçlarında görünmelidir.
+    # ⚠️ EKAP'ın bu aşama için ayrı bir sayısal kodu **arşivde hiç görülmedi**
+    # (ölçüldü: v2 satırlarında "yeterlik" metni 0 kayıt) → kod türetilemiyor. Onu
+    # boş bırakmak, 13 açık ihaleyi "Katılıma Açık" filtresinin dışında tutuyordu.
+    # ⚠️ Bu eşleme YALNIZCA "henüz yapılmamış" hâli içindir. Ön yeterlik
+    # **değerlendirmesi tamamlanmış** bir ihale artık katılıma açık DEĞİLDİR (davet
+    # aşaması); o metin haritaya eklenmemeli — bilinmeyen olarak loglanıp fark
+    # edilmesi doğrudur.
+    "Ön yeterlik henüz yapılmamış": 2,
 })
 
 # ⚠️ Yedek eşleştirme: EKAP metni ufak farklarla döndürebiliyor (noktalama, ek).
 # Sıra ÖNEMLİ — daha belirgin olan önce denenir. Yine de eşleşme yoksa kod
 # yazılmaz; "bilmiyoruz" demek, yanlış kod yazmaktan iyidir.
 DURUM_PARCA = [
+    # ⚠️ **DAR tutulmalı**: yalnızca "henüz" içeren hâl katılıma açıktır. Geniş bir
+    # ("on yeterlik", 2) girişi, ön yeterlik **değerlendirmesi tamamlanmış**
+    # ihaleleri de açık gösterip filtreyi sessizce yanlışlardı.
+    ("on yeterlik henuz", 2),
     ("sonuc ilani", 15),
     ("sozlesme imzalan", 5),
     ("iptal", 6),

@@ -16,6 +16,7 @@ from .views import (
     MarketBucketView,
     MarketOverviewView,
     OkasSearchView,
+    SectorListView,
     RecurringSeriesListView,
     TenderAnnouncementsView,
     TenderBenchmarkView,
@@ -51,6 +52,7 @@ urlpatterns = [
     # İKN'deki gibi `path:` gerekmez.
     path("market/", MarketOverviewView.as_view(), name="ekap-market"),
     path("market/<str:okas_bucket>/", MarketBucketView.as_view(), name="ekap-market-bucket"),
+    path("sektorler/", SectorListView.as_view(), name="ekap-sektorler"),
     path("cities/", CityListView.as_view(), name="ekap-cities"),
     # İnsan doğrulaması çerezini tarayıcı eklentisinden alır (bkz. verification_views).
     path("verification-cookie/", DogrulamaCereziView.as_view(), name="ekap-verification-cookie"),

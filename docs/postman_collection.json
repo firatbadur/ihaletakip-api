@@ -762,6 +762,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "sektor",
+                  "value": "yol_altyapi",
+                  "description": "Sektör kodu listesi (virgülle). Kodlar: `GET /ekap/sektorler/`. Boş sektör (sınıflandırılmamış) bu filtreye dahil edilmez.",
+                  "disabled": true
+                },
+                {
                   "key": "seri_anahtar",
                   "value": "ornek",
                   "description": "Tekrar eden ihale serisi anahtarı — aynı idarenin yıldan yıla tekrarladığı işler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
@@ -1191,7 +1197,7 @@
           }
         },
         {
-          "name": "İl listesi",
+          "name": "api_v1_ekap_cities_retrieve",
           "request": {
             "method": "GET",
             "header": [
@@ -1213,7 +1219,7 @@
                 ""
               ]
             },
-            "description": "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve `GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "GET /ekap/cities/ — il listesi.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
@@ -1542,6 +1548,32 @@
               ]
             },
             "description": "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\nSeriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi önlemek için kasıtlı olarak muhafazakâr).\n\n⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "İl listesi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/sektorler/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "sektorler",
+                ""
+              ]
+            },
+            "description": "81 ili döner. Buradaki `id` alanı **EKAP'ın il kodudur** (plaka değil) ve `GET /ekap/tenders/` ucundaki `il` filtresinde kullanılır. Plaka ayrı bir alandır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

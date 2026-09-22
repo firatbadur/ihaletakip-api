@@ -36,7 +36,7 @@ from core.response import api_response
 
 from . import authority_profile, benchmark as benchmark_mod, market as market_mod
 
-from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP
+from .constants import CITIES, DURUM_IPTAL, IHALE_TURU, OZELLIK_MAP, SEKTORLER
 from .detsis_tree import annotate_paths, descendant_idare_ids, tender_idare_id_set
 from .models import (
     RecurringTenderSeries,
@@ -548,6 +548,16 @@ def apply_tender_filters(qs, params):
     if yasa_kapsami:
         qs = qs.filter(Q(yasa_kapsami__in=yasa_kapsami) | Q(yasa_kapsami__isnull=True))
 
+    # ── Sektör (deterministik sınıflandırma; `ekap.keywords.sektor_tahmin`) ──
+    # ⚠️ `Tender.sektor` ingest'te doldurulan DENORMALİZE kolondur ve
+    # (sektor, -ihale_tarihi) indeksi vardır → `q` ile kelime aramaktan hem hızlı
+    # hem isabetlidir ("yol yapımı" metni geçmeyen asfalt ihalesi de yakalanır).
+    # Boş sektör ("" = sınıflandırılmamış) FİLTREYE GİRMEZ: kullanıcı bir sektör
+    # seçtiyse sınıflandırılmamışları görmek istemiyordur.
+    sektor = _as_str_list(params.get("sektor"))
+    if sektor:
+        qs = qs.filter(sektor__in=[k for k in sektor if k])
+
     # ── OKAS branş kodu / adı (ihaleye özel OkasItem üzerinden) ──
     okas_kod = _as_str_list(params.get("okas_kod"))
     if okas_kod:
@@ -852,6 +862,12 @@ _TENDER_KEY_PARAM = OpenApiParameter(
             "yasa_kapsami", str,
             description="Yasa kapsamı id listesi (1=4734, 2=4734 dışı, 3=istisna). "
             "Detayı gelmemiş ihaleler (kapsam boş) dışlanmaz.",
+        ),
+        OpenApiParameter(
+            "sektor", str,
+            description="Sektör kodu listesi (virgülle). Kodlar: `GET /ekap/sektorler/`. "
+            "Boş sektör (sınıflandırılmamış) bu filtreye dahil edilmez.",
+            examples=[OpenApiExample("Yol ve asfalt", value="yol_altyapi")],
         ),
         OpenApiParameter(
             "okas_kod", str,
@@ -1682,6 +1698,31 @@ class AuthoritySearchView(APIView):
     ),
     responses={200: CitySerializer(many=True)},
 )
+@extend_schema(
+    tags=["ekap"],
+    summary="Sektör listesi",
+    description=(
+        "Deterministik sınıflandırmada kullanılan sektör kodları ve adları.\n\n"
+        "`GET /ekap/tenders/?sektor=<kod>` ve mobil tanışma sihirbazının sektör "
+        "seçimi bu listeyi kullanır. Liste koda göre DEĞİL ada göre (Türkçe) sıralı "
+        "döner; `diger` (Diğer) her zaman sonda kalır."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+)
+class SectorListView(APIView):
+    """GET /ekap/sektorler/ — sektör kodu + adı listesi."""
+
+    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
+
+    def get(self, request):
+        ogeler = [
+            {"kod": kod, "ad": ad} for kod, ad in SEKTORLER.items() if kod != "diger"
+        ]
+        ogeler.sort(key=lambda x: normalize_tr(x["ad"]))
+        ogeler.append({"kod": "diger", "ad": SEKTORLER["diger"]})
+        return api_response(data=ogeler)
+
+
 class CityListView(APIView):
     """GET /ekap/cities/ — il listesi."""
 
@@ -1951,6 +1992,12 @@ class ContractorDetailView(APIView):
                 base.exclude(sozlesme_tarihi__isnull=True)
                 .annotate(yil=ExtractYear("sozlesme_tarihi")), "yil"
             ),
+            # Firmanın sektörleri — mobil sihirbaz bunları ÖN SEÇİLİ gösterir.
+            # Boş sektör ("" sınıflandırılmamış) dışarıda: seçilecek bir şey değil.
+            "sektor": [
+                {**r, "ad": SEKTORLER.get(r["sektor"], "")}
+                for r in rows(base.exclude(sektor=""), "sektor")
+            ],
             "idare": [
                 {
                     **r,

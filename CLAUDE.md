@@ -1832,6 +1832,35 @@ dağılımı, beklenen rekabet ve karşılaştırma listesi. Mantık `ekap/bench
   Seq Scan** yaptırıyordu (487.244 satır elendi, 1,7 GB okundu) → uç başına **4,5 sn**.
   Bu, ürünün en çok ödeme isteği yaratan özelliğiydi.
 
+#### Açık ihale ölçütü — `teklif_verilebilir` (TEMEL filtre)
+
+⚠️⚠️ **`ihale_durum` "teklif verilebilir mi" sorusunu TEK BAŞINA YANITLAMAZ.** EKAP bir
+ihalenin durumunu **Sonuç İlanı yayımlanana kadar** "Katılıma Açık"ta tutuyor. Ölçüldü
+(2026-09-22, mobil ekip bildirdi): durumu 2/3 olan **14.228** ihalenin **%86'sının
+teklif süresi dolmuştu** → mobil alt tab "İhaleler" kullanıcıya çoğunlukla teklif
+veremeyeceği ihaleleri gösteriyordu.
+
+Ölçüt **`ihale_tarihi`** (teklif son anı; kolon %100 dolu) **+ iptal dışlaması**:
+`teklif_verilebilir=true` → 3.672 ihale (ölçüldü; `false` ile toplamı tam 1.051.946).
+- ⚠️ **İptal dışlaması şart**: gelecek tarihli **4** iptal ihale var. Yalnızca tarihe
+  bakan bir ölçüt onları "açık" gösterir ve kullanıcıya boşa teklif hazırlatır.
+- ⚠️ **`ihale_tarihi IS NULL` = "bilinmiyor" → açık tarafta DAHİL edilir.** Veri
+  eksikliği yüzünden gerçek bir ihaleyi gizlemek, fazladan bir kayıt göstermekten
+  kötüdür (kaçan ihale geri gelmez).
+- ⚠️ Durumu **bilinmeyen** ihale de iptal sayılmaz ve listede kalır. Django bunu
+  kendiliğinden doğru yapıyor: `~Q(x__in=[…])` ve `exclude(x__in=[…])` **aynı** SQL'i
+  üretir (`NOT (x IN (…) AND x IS NOT NULL)`) ve NULL satırlar korunur (`.query`
+  çıktısıyla ölçüldü). ⚠️ Bu, CLAUDE.md'deki **üç-değerli bayrak tuzağının TERSİ
+  yönüdür**: orada sorun `exclude(bayrak=True)`ın NULL'ları *dahil etmesi*; burada
+  dahil etmek tam olarak istenen şey. Yön karıştırılmamalı.
+- ⚠️ **Semantik istemciye bırakılmadı**: aynı tanım bildirim görevlerinde de
+  kullanılabilsin ve iki yerde ayrışmasın (`apply_tender_filters` view + bildirim
+  ortak filtresidir). Mobil tarafta "bugünden sonrası" mantığını tekrar kurmak,
+  ölçütün zamanla iki yerde farklılaşması demekti.
+- ⚠️ **Pro DEĞİL** (`_PRO_PARAMS`'a eklenmemeli): alt tab herkese açık; Pro listesine
+  girerse ücretsiz kullanıcı 403 alır ve sekme tümüyle kapanır. Test bunu tutuyor
+  (`test_teklif_verilebilir.py`, ayrıca `_PRO_PARAMS ^ _PRO_SCHEMA_PARAMS` farkı boş).
+
 #### Pro arama filtreleri (`_PRO_PARAMS`)
 
 Gelişmiş filtreler Pro'ya kilitlidir; **temel arama herkese açık kalır** (uç hâlâ

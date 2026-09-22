@@ -197,3 +197,47 @@ daima `false`.
 - **`dokumanSayisi` mobil kaynaklı ihalelerde 0 kalıyor**: mobil API bu sayıyı detayda
   vermiyor, doküman listesi ayrı bir uçtan geliyor. Kartta "doküman var" göstergesi bu
   ihalelerde yanmaz — dokümanın kendisi `documents/` ucundan normal şekilde iniyor.
+
+---
+
+## 8. Yeni: `teklif_verilebilir` filtresi (alt tab "İhaleler" için)
+
+Mobil ekibin tespiti doğruydu: `ihale_durum=2,3` ölçütü teklif süresi dolmuş ihaleleri
+de gösteriyor, çünkü **EKAP durumu Sonuç İlanı yayımlanana kadar "Katılıma Açık"ta
+tutuyor** (ölçüm: durumu 2/3 olanların %86'sının süresi dolmuş).
+
+Sunulan iki seçenek yerine backend'e tek bir temel filtre eklendi — gerekçe: aynı
+"açık ihale" tanımı bildirim görevlerinde de kullanılıyor, iki yerde ayrışmaması için
+semantik sunucuda tutuldu.
+
+```
+GET /api/v1/ekap/tenders/?teklif_verilebilir=true
+```
+
+- Ölçüt: **teklif son anı (`ihale_tarihi`) geçmemiş VE iptal edilmemiş**.
+- Üretimde şu an **3.672** ihale döner (`false` ile toplamı tam kayıt sayısına eşit).
+- **Pro gerektirmez** — temel filtre, alt tab herkese açık kalır.
+
+**Mobil tarafta önerilen** (`TenderList/helpers.js:24`):
+
+```js
+export const OPEN_TENDER_FILTERS = {
+  teklif_verilebilir: true,
+};
+```
+
+Neden "sadece tarih" yerine bu:
+
+- **İptaller elenir.** Gelecek tarihli 4 iptal edilmiş ihale var; `ihale_tarihi_min`
+  tek başına onları da açık gösterirdi (3.676 yerine 3.672 doğru sayı).
+- **`ihale_durum` boş kalsa bile kırılmaz.** Durumu bilinmeyen ihale iptal sayılmaz ve
+  listede kalır — yani bugün düzeltilen silme arızası tekrarlarsa liste eksilmez.
+  `ihale_durum: [2,3]` ölçütünün açığı tam olarak buydu.
+- **Tarihi bilinmeyen ihale gizlenmez.** `ihale_tarihi` boş olan bir kayıt (şu an yok)
+  listede kalır; veri eksikliği yüzünden gerçek bir ihaleyi saklamak istemiyoruz.
+
+Onarım artığı da giderildi: `ihale_durum` boş kayıt **0** (önce 4.176), kodu dolu ama
+açıklaması boş kayıt **0** (önce 4.163). Bugün ilan edilen 256 ihalenin **256'sı**
+"Katılıma Açık". Onarım kapsamı artık kaynağa değil arızanın izine bakıyor — silme
+mobil liste yolundan geliyordu ama dokunduğu kayıtların detayı v2'den gelmişti, bu
+yüzden ilk tur onlara değmemişti.

@@ -810,6 +810,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "teklif_verilebilir",
+                  "value": "True",
+                  "description": "`true` → yalnızca **teklif verilebilir** ihaleler: teklif son anı (`ihale_tarihi`) geçmemiş ve iptal edilmemiş olanlar. `false` → tersi. ⚠️ `ihale_durum` bu soruyu tek başına yanıtlamaz: EKAP durumu Sonuç İlanı yayımlanana kadar \"Katılıma Açık\"ta tutuyor (ölçüm: durumu 2/3 olan ihalelerin %86'sının süresi dolmuş). Temel filtredir, Pro gerektirmez.",
+                  "disabled": true
+                },
+                {
                   "key": "yaklasik_maliyet_max",
                   "value": "ornek",
                   "description": "Yaklaşık maliyet üst sınırı (TL). 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",

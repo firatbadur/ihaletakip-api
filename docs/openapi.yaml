@@ -2243,6 +2243,19 @@ paths:
         description: 'Rekabet: en az bu kadar teklif verilmiş ihaleler. 🔒 **Pro**
           — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.'
       - in: query
+        name: teklif_verilebilir
+        schema:
+          type: boolean
+        description: '`true` → yalnızca **teklif verilebilir** ihaleler: teklif son
+          anı (`ihale_tarihi`) geçmemiş ve iptal edilmemiş olanlar. `false` → tersi.
+          ⚠️ `ihale_durum` bu soruyu tek başına yanıtlamaz: EKAP durumu Sonuç İlanı
+          yayımlanana kadar "Katılıma Açık"ta tutuyor (ölçüm: durumu 2/3 olan ihalelerin
+          %86''sının süresi dolmuş). Temel filtredir, Pro gerektirmez.'
+        examples:
+          AçıkIhaleler:
+            value: true
+            summary: Açık ihaleler
+      - in: query
         name: yaklasik_maliyet_max
         schema:
           type: string

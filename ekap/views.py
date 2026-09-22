@@ -517,6 +517,9 @@ def apply_tender_filters(qs, params):
     `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`, `idare_id`, `idare_detsis`,
     `ihale_tarihi_min/max`, `ilan_tarihi_min/max`, `okas_kod`, `okas_adi`, `ozellik`.
 
+    `teklif_verilebilir` (temel filtre): teklif son anı geçmemiş + iptal edilmemiş.
+    ⚠️ `ihale_durum` bunu tek başına vermez — bkz. gövdedeki not.
+
     `idare_id` doğrudan `Tender.idare_id` ile eşleşir (yaprak seçim). `idare_detsis`
     ise DETSIS ağaç düğümlerinin `detsis_no`'sudur; üst düğüm seçilince tüm alt
     birimlerin `idare_id`'lerine genişletilir (bkz. `detsis_tree.descendant_idare_ids`).
@@ -726,6 +729,39 @@ def apply_tender_filters(qs, params):
         mx = _as_decimal(params.get(f"{param}_max"))
         if mx is not None:
             qs = qs.filter(_contract_exists(Q(**{f"{field}__lte": mx})))
+
+    # ── "Teklif verilebilir" — TEMEL filtre (Pro DEĞİL) ──────────────────────
+    # ⚠️⚠️ **`ihale_durum` tek başına "açık mı" sorusunu YANITLAMAZ.** EKAP bir
+    # ihalenin durumunu Sonuç İlanı yayımlanana kadar "Katılıma Açık"ta tutuyor;
+    # üretimde ölçüldü (2026-09-22, mobil ekip bildirdi): durumu 2/3 olan 14.228
+    # ihalenin **%86'sının teklif süresi dolmuş**. Yani "İhaleler" sekmesi durum
+    # filtresiyle beslendiğinde kullanıcıya çoğunlukla teklif veremeyeceği ihaleleri
+    # gösteriyordu.
+    # Ölçüt bu yüzden **tarih**: `ihale_tarihi` teklif son anıdır ve %100 dolu.
+    # ⚠️ İptal edilmişler ayrıca elenir — gelecek tarihli 4 iptal ihale ölçüldü;
+    # onları "açık" göstermek, kullanıcıya boşa teklif hazırlatmak olurdu.
+    # ⚠️ Semantiği istemciye bırakmak yerine BURADA tutmanın sebebi: aynı tanım
+    # bildirim görevlerinde de kullanılabilsin ve iki yerde ayrışmasın
+    # (`apply_tender_filters` view + bildirim ortak filtresidir).
+    teklif_verilebilir = _as_bool(params.get("teklif_verilebilir"))
+    if teklif_verilebilir is not None:
+        simdi = timezone.now()
+        # ⚠️ `ihale_tarihi IS NULL` = "bilinmiyor". Açık tarafta **dahil edilir**:
+        # veri eksikliği yüzünden gerçek bir ihaleyi gizlemek, fazladan bir kayıt
+        # göstermekten kötüdür (kaçan ihale geri gelmez, fazlalık göz ardı edilir).
+        zamani_var = Q(ihale_tarihi__gte=simdi) | Q(ihale_tarihi__isnull=True)
+        # ⚠️ Durumu **bilinmeyen** ihale iptal sayılmaz → listede kalır. Django bunu
+        # kendiliğinden doğru yapıyor: `~Q(x__in=[…])` ve `exclude(x__in=[…])` aynı
+        # SQL'i üretir — `NOT (x IN (…) AND x IS NOT NULL)` — ve NULL satırlar
+        # korunur (ölçüldü 2026-09-22, `.query` çıktısıyla).
+        # ⚠️ Bu, CLAUDE.md'deki üç-değerli bayrak tuzağının **tersi** yöndür: orada
+        # sorun `exclude(bayrak=True)`ın NULL'ları *dahil etmesi*; burada NULL'ları
+        # dahil etmek tam olarak istediğimiz şey. Yön karıştırılmamalı.
+        iptal_degil = ~Q(ihale_durum__in=sorted(DURUM_IPTAL))
+        if teklif_verilebilir is True:
+            qs = qs.filter(zamani_var & iptal_degil)
+        else:
+            qs = qs.exclude(zamani_var & iptal_degil)
 
     # Sonuçlanma / iptal
     sonuclanmis = _as_bool(params.get("sonuclanmis"))
@@ -960,6 +996,18 @@ _TENDER_KEY_PARAM = OpenApiParameter(
         OpenApiParameter(
             "ilan_tarihi_max", str, description=f"İlan (yayın) tarihi üst sınırı. {_DATE_HINT}",
             examples=[OpenApiExample("Tarih", value="31.12.2026")],
+        ),
+        OpenApiParameter(
+            "teklif_verilebilir", bool,
+            description=(
+                "`true` → yalnızca **teklif verilebilir** ihaleler: teklif son anı "
+                "(`ihale_tarihi`) geçmemiş ve iptal edilmemiş olanlar. `false` → "
+                "tersi. ⚠️ `ihale_durum` bu soruyu tek başına yanıtlamaz: EKAP "
+                "durumu Sonuç İlanı yayımlanana kadar \"Katılıma Açık\"ta tutuyor "
+                "(ölçüm: durumu 2/3 olan ihalelerin %86'sının süresi dolmuş). "
+                "Temel filtredir, Pro gerektirmez."
+            ),
+            examples=[OpenApiExample("Açık ihaleler", value=True)],
         ),
         # ── Pro filtreler (403 premium_required) ──────────────────────────────
         *_PRO_SCHEMA_PARAMS,

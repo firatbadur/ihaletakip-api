@@ -161,3 +161,39 @@ kapsıyor. API sözleşmesi değişmedi. `ihale_tarihi` hiçbir kayıtta boş de
 | Yeni alan | `ilanTarihi` (ISO, `null` olabilir) |
 | Bozulan sözleşme | **Yok** — mevcut alanların adı/formatı değişmedi |
 | Backend commit | `bb0f6d2` + `ekap/tests/test_tender_sirala.py` (12 test) |
+
+---
+
+## 7. Ek bulgu: "Katılıma Açık" filtresi yeni ihaleleri göstermiyordu
+
+Sıralama incelemesi sırasında **ikinci ve bağımsız** bir hata bulundu: bugün ilan edilen
+256 ihalenin yalnızca 1'i "Katılıma Açık" görünüyordu. Aynı gün düzeltildi ve geçmiş
+kayıtlar onarıldı.
+
+**Sebep:** EKAP mobil API'sinin liste yanıtı yalnızca altı alan döndürüyor, durum
+bilgisini vermiyor. Backend'in liste kaydetme yolu bu alanları koşulsuz yazdığı için,
+ihale detayından gelen durum bilgisi **her keşif turunda siliniyordu** (2 saatte bir,
+tüm açık ihaleler).
+
+**Ölçülen etki:** mobil kaynaklı 1.991 ihalenin 1.990'ında `ihaleDurum` boştu;
+`ihaleDurumAciklama`, `ihaleUsulAciklama`, `ihaleTipiAciklama` da boş, `ilanVarMi`
+daima `false`.
+
+**Mobil taraf için anlamı** (yine kod değişikliği gerekmiyor):
+
+| Alan | Önce | Şimdi |
+|---|---|---|
+| `ihaleDurum` | mobil kaynaklı ihalelerde `null` | dolu (örn. `"2"`) |
+| `ihaleDurumAciklama` | boş string | "İhale İlanı Yayımlanmış, Katılıma Açık" |
+| `ihaleUsulAciklama` / `ihaleTipAciklama` | boş string | dolu |
+| `ilanVarMi` | daima `false` | gerçek değer |
+| `ihale_durum=2` filtresi | yeni ihaleleri **göstermiyordu** | gösteriyor |
+
+İki istisna şeffaflık için:
+
+- **13 ihale** "Ön yeterlik henüz yapılmamış" aşamasında; bu durumun EKAP'taki sayısal
+  karşılığı arşivde hiç görülmediği için kod **boş bırakıldı** (uydurma kod yazmaktansa).
+  Bu ihaleler "Katılıma Açık" filtresine girmez.
+- **`dokumanSayisi` mobil kaynaklı ihalelerde 0 kalıyor**: mobil API bu sayıyı detayda
+  vermiyor, doküman listesi ayrı bir uçtan geliyor. Kartta "doküman var" göstergesi bu
+  ihalelerde yanmaz — dokümanın kendisi `documents/` ucundan normal şekilde iniyor.

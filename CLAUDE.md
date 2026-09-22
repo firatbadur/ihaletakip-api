@@ -202,6 +202,41 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   `sozlesmeBilgiList`); `_bulk_upsert_children(..., buda=False)` → kısmi kaynak
   görünmeyen satırları **budayamaz**. Regresyon testi:
   `ekap/tests/test_mobil_adapt.py::KoruyucuYazmaTest`.
+- ⚠️⚠️ **LİSTE UPSERT'İ DE KORUYUCU OLMAK ZORUNDAYDI — kaçırılmıştı (2026-09-22).**
+  Yukarıdaki koruma **detay** yoluna kurulmuştu; **liste** yolu (`upsert_tender_from_list`)
+  koşulsuz yazmaya devam ediyordu. Mobil liste yanıtı yalnızca **altı alan** doldurur
+  (`liste_satirindan`) → keşif turu (2 sa'de bir, ~4.000 açık ihale) detay senkronunun
+  yazdığı değerleri **her turda siliyordu**.
+  ⚠️⚠️ **`_LISTE_EZMEZ` bunu YAKALAMADI çünkü yalnızca `None`'ı süzüyor**; mobilin hiç
+  vermediği alanlar `defaults`'a `""`, `0` ve `False` olarak giriyordu. Yani arızayı
+  gizleyen şey **boş değerin tipiydi** — aynı hata sınıfı, farklı kılık.
+  **Üretim ölçümü**: mobil kaynaklı 1.991 satırın **1.990'ında `ihale_durum` NULL**;
+  `ihale_durum_aciklama` / `ihale_usul_aciklama` / `ihale_tipi_aciklama` boş,
+  `dokuman_sayisi=0`, `ilan_var_mi=false` (hepsi **0/1991** dolu).
+  ⚠️ **Ürün etkisi sessiz ve büyüktü**: mobil uygulamanın "Katılıma Açık" filtresi
+  (`ihale_durum=2`) mobil kaynaklı ihaleleri **hiç göstermiyordu** — kullanıcı bildirdi:
+  "bugün ilan edilen 256 ihalenin yalnızca 1'i katılıma açık görünüyor".
+  `DURUM_SONUCLANMIS` üstüne kurulu `should_refresh_detail` ve "İhale Sonuçlandı"
+  alarmı da kör kalıyordu (durum NULL hiçbir kümeye girmez).
+  → `upsert_tender_from_list(..., koruyucu=True)` + **`sync._LISTE_KAYNAK_ANAHTARI`**
+  (alan → onu besleyen liste anahtarları): anahtar `item`'da hiç yoksa alan
+  `defaults`'tan çıkarılır. ⚠️ v2 yolu `koruyucu=False` **kalmalı** — v2 listesi bu
+  alanları gerçekten doldurur, orada boş değer "gerçekten boş" demektir.
+  ⚠️ `defaults`'a yeni alan eklerken **haritaya da ekleyin**; unutulursa arıza sessizce
+  geri döner (`test_liste_koruyucu.py::KaynakHaritasiTest` bunu tutar).
+  ⚠️ `ilanVarMi` mobil detayda da yok → `adapt.detaydan` onu **ilan HTML'inden
+  türetir**, ama **yalnızca pozitif yönde**: ilan bulunmaması "ilan yok" demek değil,
+  `False` yazmak v2'den gelmiş `True`'yu silmek olurdu.
+  Geriye dönük: `python manage.py fix_mobil_veri` (yeni `_durumlar` bölümü,
+  `detail_raw`'dan geri yazar — ⚠️ **sıra önemli**: açıklamalar koddan türetildiği için
+  kodlar önce yazılır). Sonuç: 1.991 satır onarıldı, **1.978**'inde durum+açıklama dolu.
+  ⚠️ Kalan **13** satır "Ön yeterlik henüz yapılmamış" metnini taşıyor; bu metnin v2
+  karşılığı **arşivde hiç yok** (ölçüldü: 0 satır) → kanonik kodu bilinmiyor ve
+  **uydurulmadı** (boş bırakıldı). O ihaleler "Katılıma Açık" filtresine girmez.
+  ⚠️ **`dokuman_sayisi` mobil hattında HİÇ dolmuyor** (0/1991): mobil detay bu sayıyı
+  vermiyor, doküman listesi ayrı uçtan geliyor (hız bütçesi). Artık en azından
+  v2'den gelmiş değeri silmiyor. Mobil kartta "doküman var" göstergesi bu yüzden
+  mobil kaynaklı ihalelerde yanmaz.
 - ⚠️⚠️ **`idare_id` MOBİLDE YOK — hiçbir uçta** (ölçüldü 2026-09-10, tüm uçlar tek
   tek tarandı). ⚠️ Doküman adlarındaki `{76DC25C0…}` **belge GUID'i**, şartnamedeki
   `3231941` ise **telefon numarası** — ikisi de idare kimliği DEĞİL. v2 liste yanıtı

@@ -43,6 +43,7 @@ class Command(BaseCommand):
         # kodlar geri yazılmadan çalıştırılırsa hiçbir şey onarmaz.
         self._durumlar(o)
         self._aciklamalar(o)
+        self._bos_aciklamalar(o)
 
     def _html(self, o):
         qs = Announcement.objects.filter(
@@ -85,6 +86,7 @@ class Command(BaseCommand):
         """
         from django.db.models import F, Q
 
+        from ekap.mobil.adapt import durum_kodu
         from ekap.sync import _as_int, detay_govdesi
 
         alanlar = ("ihale_durum", "ihale_usul", "ilan_var_mi")
@@ -114,6 +116,14 @@ class Command(BaseCommand):
             degisti = False
 
             durum = _as_int(data.get("ihaleDurum") or bilgi.get("ihaleDurum"))
+            # ⚠️ Sentetik gövdede kod YOKSA ham metinden çözülür. Gerekçe: adapter o
+            # satırı yazdığı anda metni tanımıyordu (ör. "Ön yeterlik henüz
+            # yapılmamış" haritaya sonradan eklendi) ve kod çözülemediği için anahtarı
+            # hiç koymadı. Harita büyüdükçe bu satırlar onarılabilir hâle gelir.
+            # ⚠️ Bu **ikinci bir çıkarım yolu DEĞİL**: adapter'ın kendi `durum_kodu`
+            # fonksiyonu çağrılır, dolayısıyla tek çıkarım kaynağı korunur.
+            if not durum:
+                durum = durum_kodu((t.detail_raw or {}).get("_ham", {}).get("ihaleDurumu"))
             if durum and t.ihale_durum != durum:
                 t.ihale_durum = durum
                 degisti = True
@@ -136,6 +146,41 @@ class Command(BaseCommand):
             Tender.objects.bulk_update(yigin, list(alanlar))
         self.stdout.write(
             f"durum/usul: bakılan={bakilan} onarılan={onarilan}"
+            + (" (dry-run, yazılmadı)" if o["dry_run"] else "")
+        )
+
+    def _bos_aciklamalar(self, o):
+        """
+        Kodu dolu ama açıklaması **boş** satırlarda metni koddan doldurur.
+
+        ⚠️ Gerekçe (mobil ekip bildirdi, 2026-09-22): liste upsert'i açıklama
+        kolonlarını `""` ile eziyordu ve bu, kaynağı v2 olan satırlarda da oldu —
+        `_durumlar` kodu geri yazdıktan sonra **4.163 satırda kod dolu, açıklama
+        boştu**. Mobil uygulama bu metni doğrudan gösterdiği için kart durum
+        etiketsiz kalıyordu.
+        ⚠️ `_aciklamalar`'dan farkı: o, **mobil** satırların metnini v2'nin kanonik
+        metniyle hizalar (kaynaklar arası tutarlılık). Bu bölüm kaynağa bakmaz ama
+        **yalnızca BOŞ** olanı doldurur — EKAP'tan gelmiş dolu bir metni kanonik
+        metinle değiştirmek bu bölümün işi değil, o sessiz bir veri değişikliği olurdu.
+        """
+        esler = (
+            ("ihale_durum", "ihale_durum_aciklama", C.DURUM_ACIKLAMA),
+            ("ihale_tip", "ihale_tipi_aciklama", C.TIP_ACIKLAMA),
+            ("ihale_usul", "ihale_usul_aciklama", C.USUL_ACIKLAMA),
+        )
+        toplam = 0
+        for kod_kolonu, metin_kolonu, harita in esler:
+            for kod, metin in harita.items():
+                if not metin:
+                    continue
+                n = Tender.objects.filter(**{
+                    kod_kolonu: kod, metin_kolonu: "",
+                })
+                toplam += n.count() if o["dry_run"] else n.update(**{
+                    metin_kolonu: metin,
+                })
+        self.stdout.write(
+            f"boş metin : doldurulan={toplam}"
             + (" (dry-run, yazılmadı)" if o["dry_run"] else "")
         )
 

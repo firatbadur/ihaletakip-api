@@ -134,15 +134,16 @@ done | grep -o '"ikn": "[^"]*"' | sort | uniq -d
 
 ---
 
-## 6. Veri onarımı (arka planda, mobil tarafı etkilemez)
+## 6. Veri onarımı (tamamlandı — mobil tarafı etkilemez)
 
 Boş `ilan_tarihi` değerlerinin sebebi **Temmuz 2026'daki ilk arşiv doldurmasıydı**: o dönemde
 liste senkronu, detaydan gelen ilan tarihini boş değerle eziyordu. Kök neden Ağustos 2026'da
 giderildi — **yeni gelen ihalelerde bu sorun yok** (son 14 günde eklenen 2.518 ihalenin
 %0'ında boş; `ihale_tarihi` ise hiçbir kayıtta boş değil).
 
-Geçmiş kayıtlar `detail_raw` arşivinden onarılıyor (bu not yazılırken sürüyor). Onarım
-ilerledikçe ilan tarihine göre sıralanabilen ihale sayısı artar; API sözleşmesi değişmez.
+Geçmiş kayıtlar `detail_raw` arşivinden onarıldı: **506.831 kayıt düzeltildi**, boş kalan
+yalnızca **71** (1.051.946 ihalede). İlan tarihine göre sıralama artık arşivin tamamını
+kapsıyor. API sözleşmesi değişmedi. `ihale_tarihi` hiçbir kayıtta boş değildi.
 
 > ⚠️ **Doğruluk notu:** onarılan kayıtların ~%66'sında yazılan tarih gerçek **İhale İlanı**
 > tarihidir. Kalan ~%34'ünde ihalenin İhale İlanı hiç yayımlanmamış (ilansız usuller) ve

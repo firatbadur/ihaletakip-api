@@ -1220,7 +1220,10 @@ olabilir.) Mobil entegrasyon notu: `docs/mobil-siralama.md`.
 DB'ye giren** kayıtlarda %95,6, 2026-08'de %0,4, 2026-09'da **%0**. Yani Temmuz'daki ilk
 arşiv doldurmasında liste upsert'i detaydan gelen değeri eziyordu (`sync._LISTE_EZMEZ`
 düzeltmesi Ağustos'ta geldi). Geçmiş satırlar `manage.py fix_ilan_tarihi --tumu` ile
-`detail_raw`'dan onarıldı (%99,98'inde tarih bulunuyor).
+`detail_raw`'dan onarıldı: **bakılan 506.902, onarılan 506.831, 578 sn**; boş kalan **71**.
+⚠️ Ardından `VACUUM (ANALYZE) ekap_tender` koşuldu — 500k satırlık UPDATE istatistikleri
+bayatlatır ve `ilan_tarihi` indeksli olduğu için HOT update olmaz (bkz. "önce
+VACUUM (ANALYZE), sonra indeks eklemeyi düşünün").
 ⚠️ Onarımın ~%34'ünde yazılan tarih **İhale İlanı değil** en erken ilan (genelde Sonuç
 İlanı) tarihidir — `_publish_date_from_ilanlar`'ın `min(dates)` fallback'i. Bu bilinçli:
 ingest de aynı fallback'i kullanıyor, ayrı bir kural yazmak arşiv ile yeni kayıtları

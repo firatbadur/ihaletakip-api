@@ -66,6 +66,36 @@ def extract_list(resp):
 # ise liste upsert'i bu alanlara **dokunmaz** (bkz. upsert_tender_from_list).
 _LISTE_EZMEZ = ("ilan_tarihi", "il_id", "ihale_tarihi")
 
+# Liste alanı → onu besleyen EKAP liste anahtarları. **Yalnızca `koruyucu=True`**
+# modunda kullanılır: anahtar `item`'da hiç yoksa alan `defaults`'tan çıkarılır.
+# ⚠️⚠️ Neden gerekli (üretimde ölçüldü 2026-09-22): mobil liste yanıtı **yalnızca
+# altı alan** doldurur (`liste_satirindan`), gerisini hiç vermez. `_LISTE_EZMEZ`
+# yalnızca `None` olan değerleri koruyordu; `""`, `0` ve `False` süzgeçten geçip
+# koşulsuz yazılıyordu → her keşif turu, detay senkronunun yazdığı durumu/usul ve
+# tip açıklamalarını **siliyordu**. Mobil kaynaklı 1.991 satırın 1.990'ında
+# `ihale_durum` NULL, açıklamalar boştu; sonuç: mobil uygulamanın "Katılıma Açık"
+# filtresi bu ihaleleri hiç göstermiyordu ve `DURUM_SONUCLANMIS` üstüne kurulu
+# tazeleme/alarm mantığı da kördü.
+# ⚠️ `ilan_tarihi` bu arızanın ilk hâliydi (2026-08-27) ve `_LISTE_EZMEZ` ile
+# çözülmüştü; buradaki harita aynı ilkenin **boş-değer tipinden bağımsız** hâli.
+# ⚠️ v2 listesi bu alanları gerçekten doldurduğu için v2 yolu `koruyucu=False`
+# kalır: orada boş değer "gerçekten boş" demektir.
+_LISTE_KAYNAK_ANAHTARI = {
+    "ihale_adi": ("ihaleAdi",),
+    "ihale_adi_norm": ("ihaleAdi",),
+    "idare_adi": ("idareAdi",),
+    "idare_adi_norm": ("idareAdi",),
+    "ihale_il_adi": ("ihaleIlAdi",),
+    "ihale_tarih_saat": ("ihaleTarihSaat",),
+    "ihale_tip": ("ihaleTip",),
+    "ihale_tipi_aciklama": ("ihaleTipAciklama",),
+    "ihale_usul_aciklama": ("ihaleUsulAciklama",),
+    "ihale_durum": ("ihaleDurum",),
+    "ihale_durum_aciklama": ("ihaleDurumAciklama",),
+    "dokuman_sayisi": ("dokumanSayisi",),
+    "ilan_var_mi": ("ilanVarMi",),
+}
+
 
 def _resolve_il_id(item):
     il_id = item.get("ihaleIlId") or item.get("ilId")
@@ -83,8 +113,15 @@ def _resolve_il_id(item):
 
 
 # ── Liste satırı upsert ────────────────────────────────
-def upsert_tender_from_list(item) -> Tender | None:
-    """Arama listesi item'ından Tender liste-seviyesi alanlarını upsert eder."""
+def upsert_tender_from_list(item, *, koruyucu: bool = False) -> Tender | None:
+    """
+    Arama listesi item'ından Tender liste-seviyesi alanlarını upsert eder.
+
+    ⚠️ **`koruyucu=True` kısmi kaynaklar içindir** (mobil liste — bkz.
+    `ekap/mobil/adapt.liste_satirindan`): `item`'da **anahtarı hiç bulunmayan** alan
+    yazılmaz. `upsert_tender_detail(koruyucu=True)` ile birebir aynı sözleşme —
+    "anahtar yok" = "veri yok", "değeri sil" DEĞİL (bkz. `_LISTE_KAYNAK_ANAHTARI`).
+    """
     ekap_id = item.get("id")
     ikn = item.get("ikn")
     if ekap_id is None or not ikn:
@@ -126,6 +163,13 @@ def upsert_tender_from_list(item) -> Tender | None:
     for alan in _LISTE_EZMEZ:
         if defaults.get(alan) is None:
             defaults.pop(alan, None)
+    # ⚠️ Kısmi kaynak: anahtarı hiç gelmeyen alanı yazmak, onu SİLMEK olurdu.
+    # `_LISTE_EZMEZ`'den farkı, boş değerin tipine bakmaması: mobil liste `""`/`0`/
+    # `False` üreten alanları da hiç vermiyor ve o değerler süzgeçten geçiyordu.
+    if koruyucu:
+        for alan, anahtarlar in _LISTE_KAYNAK_ANAHTARI.items():
+            if not any(a in item for a in anahtarlar):
+                defaults.pop(alan, None)
 
     # İKN kanonik ihale kimliğidir (bir ihale = bir İKN). EKAP'ın iç `id`'si aynı
     # İKN için değişebildiğinden (yeniden yayım vb.) upsert İKN'ye göre yapılır;

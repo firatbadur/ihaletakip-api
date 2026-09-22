@@ -9,7 +9,12 @@ Mobil kaynaklı satırlarda **sonradan düzeltilen** iki alanı geriye dönük o
    Katılıma Açık"). Mobil uygulama bu alanı doğrudan gösterdiği için kaynağa göre
    değişmesi kullanıcıya görünen bir tutarsızlık.
 
-İkisi de ingest'te düzeltildi; bu komut **daha önce yazılmış** satırlar içindir.
+3. **Durum/usul kolonları** — mobil liste yanıtı bu alanları hiç vermiyor ama
+   `upsert_tender_from_list` onları koşulsuz yazdığı için her keşif turu, detay
+   senkronunun yazdığı değeri siliyordu (1.991 mobil satırın 1.990'ında
+   `ihale_durum` NULL'dı → "Katılıma Açık" filtresi bu ihaleleri göstermiyordu).
+
+Üçü de ingest'te düzeltildi; bu komut **daha önce yazılmış** satırlar içindir.
 Saf DB işidir: EKAP'a hiç gidilmez.
 """
 from django.core.management.base import BaseCommand
@@ -28,6 +33,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **o):
         self._html(o)
+        # ⚠️ SIRA ÖNEMLİ: `_aciklamalar` metinleri **koddan** türetiyor, dolayısıyla
+        # kodlar geri yazılmadan çalıştırılırsa hiçbir şey onarmaz.
+        self._durumlar(o)
         self._aciklamalar(o)
 
     def _html(self, o):
@@ -49,6 +57,65 @@ class Command(BaseCommand):
         if yigin and not o["dry_run"]:
             Announcement.objects.bulk_update(yigin, ["veri_html"])
         self.stdout.write(f"ilan html : bakılan={bakilan} onarılan={onarilan}")
+
+    def _durumlar(self, o):
+        """
+        Liste upsert'inin sildiği kolonları `detail_raw`'dan geri yazar.
+
+        ⚠️⚠️ Kök neden (üretimde ölçüldü 2026-09-22): mobil liste yanıtı **altı
+        alan** doldurup gerisini hiç vermiyor; `upsert_tender_from_list` o alanları
+        koşulsuz yazdığı için **her keşif turu** detay senkronunun yazdığı durumu ve
+        usul kodunu siliyordu. Mobil kaynaklı 1.991 satırın 1.990'ında `ihale_durum`
+        NULL kalmıştı → mobil uygulamanın "Katılıma Açık" filtresi bu ihaleleri hiç
+        göstermiyor, `DURUM_SONUCLANMIS` üstüne kurulu tazeleme/alarm mantığı da
+        kör kalıyordu. Kök neden `upsert_tender_from_list(koruyucu=True)` ile
+        kapatıldı; bu bölüm **daha önce yazılmış** satırlar içindir.
+
+        ⚠️ Değer yeniden ÇIKARILMAZ, `detail_raw`'dan **okunur**: adapter onu zaten
+        oraya yazmış (`item.ihaleDurum`). İkinci bir çıkarım yolu yazmak, tek
+        çıkarım kaynağı kuralının ihlali olurdu (bkz. CLAUDE.md, mobil adapter).
+        ⚠️ Boş değer YAZILMAZ: ham gövdede anahtar yoksa kolona dokunulmaz —
+        "bilmiyoruz" ile "yok" aynı şey değil.
+        """
+        from ekap.sync import _as_int, detay_govdesi
+
+        alanlar = ("ihale_durum", "ihale_usul", "ilan_var_mi")
+        qs = Tender.objects.filter(detay_kaynak="mobil").only(
+            "id", "detail_raw", *alanlar
+        ).iterator(chunk_size=o["batch"])
+        bakilan = onarilan = 0
+        yigin = []
+        for t in qs:
+            bakilan += 1
+            data = detay_govdesi(t.detail_raw or {}) or {}
+            bilgi = data.get("ihaleBilgi") or {}
+            degisti = False
+
+            durum = _as_int(data.get("ihaleDurum") or bilgi.get("ihaleDurum"))
+            if durum and t.ihale_durum != durum:
+                t.ihale_durum = durum
+                degisti = True
+            usul = _as_int(data.get("ihaleUsul"))
+            if usul and t.ihale_usul != usul:
+                t.ihale_usul = usul
+                degisti = True
+            # ⚠️ Yalnızca pozitif yön: `ilanList` yokluğu "ilan yok" demek değil.
+            if data.get("ilanList") and not t.ilan_var_mi:
+                t.ilan_var_mi = True
+                degisti = True
+
+            if degisti:
+                onarilan += 1
+                yigin.append(t)
+            if len(yigin) >= o["batch"] and not o["dry_run"]:
+                Tender.objects.bulk_update(yigin, list(alanlar))
+                yigin = []
+        if yigin and not o["dry_run"]:
+            Tender.objects.bulk_update(yigin, list(alanlar))
+        self.stdout.write(
+            f"durum/usul: bakılan={bakilan} onarılan={onarilan}"
+            + (" (dry-run, yazılmadı)" if o["dry_run"] else "")
+        )
 
     def _aciklamalar(self, o):
         # ⚠️ Yalnızca mobil kaynaklı satırlar: v2'nin metni zaten kanoniktir.

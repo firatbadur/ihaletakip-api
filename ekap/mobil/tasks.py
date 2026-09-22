@@ -413,7 +413,7 @@ def _satirlari_yaz(satirlar):
             continue
         try:
             v2 = adapt.liste_satirindan(item, adapt.ekap_id_coz(ikn))
-            if sync_mod.upsert_tender_from_list(v2):
+            if sync_mod.upsert_tender_from_list(v2, koruyucu=True):
                 yazilan += 1
         except Exception as e:                          # noqa: BLE001
             # Tek bozuk satır turu düşürmesin (v2'deki `_upsert_item_safe` gerekçesi).

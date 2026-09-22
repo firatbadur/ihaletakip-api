@@ -229,6 +229,13 @@ def detaydan(ikn: str, detay: dict, *, okas_list=None, idare_id: str = "") -> di
     ilan = _ihale_ilani(detay)
     if ilan:
         item["ilanList"] = [ilan]
+        # ⚠️ Mobil detay `ilanVarMi` bayrağını vermiyor ama ilan HTML'ini veriyor →
+        # bayrak buradan **türetilir**. Aksi hâlde alan liste upsert'inin yazdığı
+        # `False`'ta kalıyordu ve mobil kartta "ilan var" göstergesi hiç yanmıyordu.
+        # ⚠️ Yalnızca POZİTİF yön türetilir: ilan bulunamaması "ilan yok" demek
+        # değil, "bu yanıtta yok" demektir → anahtar konmaz, v2'den gelmiş değer
+        # `koruyucu=True` sayesinde korunur.
+        item["ilanVarMi"] = True
     if okas_list:
         item["ihtiyacKalemiOkasList"] = list(okas_list)
 

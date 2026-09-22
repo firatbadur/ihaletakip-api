@@ -1180,6 +1180,59 @@ baskısı bu ucu 12 saniyelik hâle çeviriyor.
 `statement_timeout` artık yetim bırakmasını engelliyor, ama `LIMIT` yine bütçesinin
 (270 sn) tüketebileceğinden kat kat büyük. Aynı arıza tekrarlarsa ilk bakılacak yer burası.
 
+#### ⚠️⚠️ Liste sıralaması — `views.tender_sira_*` (NULLS LAST + tie-break)
+
+Kullanıcı bildirimi (2026-09-22): "ihale tarihi / ilan tarihine göre sıralama hatalı
+çalışıyor". Üç ayrı hata bulundu; **üçü de hata vermiyor, yanlış sıra döndürüyordu.**
+Mobil taraf masumdu (`order=ilan_tarihi&siralamaTipi=desc` doğru gönderiliyor).
+
+1. ⚠️⚠️ **`ORDER BY x DESC` Postgres'te NULLS FIRST'tür** ve `ilan_tarihi` kolonunun
+   **%48,2'si NULL**'dü (506.902/1.051.946) → "en yeni ilan" istenince ilk yarım milyon
+   satır **tarihsiz** kayıtlardı. Ürün açısından sıralama hiç çalışmıyordu.
+   → `F(alan).desc(nulls_last=True)`. ⚠️ **Yalnızca `ilan_tarihi` için**: `ihale_tarihi`'de
+   NULL yok (ölçüldü: 0) ve `NULLS LAST` istemek `(il_id, -ihale_tarihi)` gibi **tüm
+   bileşik indeksleri devre dışı bırakıyor** (EXPLAIN: Index Scan → Parallel Seq Scan +
+   tam sort). Fayda sıfır, bedel tablonun tamamı.
+2. ⚠️ **Tie-break yoktu.** Aynı damgayı yüzlerce ihale paylaşıyor: `ilan_tarihi` **saat
+   taşımaz** (gün başı) → tek gün 897 kayıt; `ihale_tarihi` → tek saat 420 kayıt. Eşit
+   grupların iç sırası plana kalır ve **plan değişince değişir** → `OFFSET` sayfalamasında
+   kayıt tekrarı/kaybı. Kullanıcıya "sıralama bozuk" görünür ama bozuk olan **sayfalama**.
+   → ikincil `pk`. ⚠️ Sayfalamayı `OFFSET`'ten keyset'e çevirmek gerekmedi; tie-break
+   yeterli çünkü indeks sıralamayı zaten karşılıyor.
+3. ⚠️ **Ham string karşılaştırması sessiz düşme üretiyordu**: `order=ilanTarihi`
+   (camelCase — bu uç yanıtı EKAP'ın camelCase adlarıyla döndürdüğü için doğal bir yazım)
+   → `ihale_tarihi`; `siralamaTipi=ASC` → `desc`. İkisi de canlı uçta ölçüldü.
+   → `tender_sira_alani`/`tender_sira_artan` normalize eder.
+
+⚠️ **İndeks ŞART, yoksa düzeltme pahalıya gelir**: `ORDER BY ilan_tarihi DESC NULLS LAST,
+id DESC` mevcut btree ile karşılanamaz (o indeks `DESC NULLS FIRST` sırasında) → ölçülen
+plan `Gather Merge (4 worker) → Sort → Parallel Seq Scan`. `0027` ifadeli indeks
+(`ilan_tarihi DESC NULLS LAST, id DESC`) sorguyu **Index Only Scan / 0,29 ms**'ye indirdi.
+⚠️ ASC yönü için ikinci indeks GEREKMEZ — `ASC NULLS LAST` Postgres'in varsayılan ASC
+sırasıdır, mevcut `db_index` ileri taramayla karşılar (Incremental Sort).
+
+⚠️ **`ilanTarihi` liste yanıtına eklendi**: sıralama anahtarı yanıtta hiç dönmüyordu,
+istemci yalnızca `ihaleTarihSaat` görüp sıralamanın doğruluğunu **ekranda ayırt
+edemiyordu**. Alan `_LIST_FIELDS`'ta zaten çekiliyordu → bedava. (Sözleşme: ISO, `null`
+olabilir.) Mobil entegrasyon notu: `docs/mobil-siralama.md`.
+
+⚠️ **`ilan_tarihi` boşluğunun sebebi ölçüldü, kök neden KAPALI**: boşluk **2026-07'de
+DB'ye giren** kayıtlarda %95,6, 2026-08'de %0,4, 2026-09'da **%0**. Yani Temmuz'daki ilk
+arşiv doldurmasında liste upsert'i detaydan gelen değeri eziyordu (`sync._LISTE_EZMEZ`
+düzeltmesi Ağustos'ta geldi). Geçmiş satırlar `manage.py fix_ilan_tarihi --tumu` ile
+`detail_raw`'dan onarıldı (%99,98'inde tarih bulunuyor).
+⚠️ Onarımın ~%34'ünde yazılan tarih **İhale İlanı değil** en erken ilan (genelde Sonuç
+İlanı) tarihidir — `_publish_date_from_ilanlar`'ın `min(dates)` fallback'i. Bu bilinçli:
+ingest de aynı fallback'i kullanıyor, ayrı bir kural yazmak arşiv ile yeni kayıtları
+ayrıştırırdı (tek çıkarım kaynağı ilkesi).
+⚠️ Onarım **bildirim fırtınası doğurmaz** — ölçüldü: dolacak en yeni tarih 43 gün
+öncesine ait, bildirim penceresi (`NOTIF_LOOKBACK_DAYS=1`) bunu kapsamıyor. Benzer bir
+toplu tarih doldurmasında bu kontrolü **önce** yapın.
+
+Testler: `ekap/tests/test_tender_sirala.py` — dişleri doğrulandı (düzeltme geri alınınca
+7 test kırılıyor). ⚠️ SQLite ile Postgres'in NULL sıralaması **farklıdır** (SQLite ASC'de
+NULL'ları başa koyar); `nulls_last` her ikisinde de aynı davranışı garanti eder.
+
 #### Ağır rapor uçlarının önbelleği — `_cached_rapor` (fiyat analizi + idare profili)
 
 Kullanıcı bildirimi (2026-09-14): "idare raporu, fiyat analizi, benzer ihaleler hâlâ

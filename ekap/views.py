@@ -1929,6 +1929,15 @@ class ContractorDetailView(APIView):
         idare_adlari = dict(
             base.exclude(idare_id="").values_list("idare_id", "tender__idare_adi")[:200]
         )
+        # DETSIS karşılığı: mobil tanışma sihirbazı firmanın çalıştığı idareleri
+        # doğrudan favoriye ekliyor; `FavoriteAuthority`nin doğal anahtarı
+        # `detsis_no`'dur (idare_id DEĞİL) → burada çözülür, istemci ad araması yapmaz.
+        # Eşleşmeyen idare_id'lerde None döner; mobil o satırı takip edilebilir saymaz.
+        detsis_map = dict(
+            Authority.objects.exclude(idare_id="")
+            .filter(idare_id__in=list(idare_adlari.keys()))
+            .values_list("idare_id", "detsis_no")
+        )
         return {
             "ihale_tipi": [
                 {**r, "ad": IHALE_TURU.get(r["ihale_tip"], "")}
@@ -1943,7 +1952,11 @@ class ContractorDetailView(APIView):
                 .annotate(yil=ExtractYear("sozlesme_tarihi")), "yil"
             ),
             "idare": [
-                {**r, "ad": idare_adlari.get(r["idare_id"], "")}
+                {
+                    **r,
+                    "ad": idare_adlari.get(r["idare_id"], ""),
+                    "detsis_no": detsis_map.get(r["idare_id"]),
+                }
                 for r in rows(base.exclude(idare_id=""), "idare_id")[:10]
             ],
         }

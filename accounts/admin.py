@@ -93,6 +93,8 @@ class UserAdmin(BaseUserAdmin):
         "subscription_period_type",
         HasFcmTokenFilter,
         "provider",
+        "onboarding_status",
+        "age_range",
         "is_active",
         "is_staff",
         "is_superuser",
@@ -112,6 +114,9 @@ class UserAdmin(BaseUserAdmin):
                     "preferences",
                     "fcm_token",
                     "deactivated_at",
+                    "age_range",
+                    "onboarding_status",
+                    "onboarding_completed_at",
                 )
             },
         ),

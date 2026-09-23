@@ -51,6 +51,10 @@ MIN_PAY = 0.50          # uzlaşı: komşuların en az yarısında geçmeli
 MIN_LIFT = 100.0        # pilotta ölçüldü: altında isabet ~%50, üstünde ~%90
 TRIGRAM_ESIK = 0.45
 DOGRULAMA_GRUP = 40     # istek başına öneri sayısı
+# ⚠️ Toplu iş saatlerce sürer (667k kalıp × ~330 ms). Öneriler sonuna kadar bellekte
+# biriktirilseydi tek bir çökme bütün taramayı çöpe atardı. Bu eşikte doğrulanır,
+# uygulanır ve liste boşaltılır → iş her zaman kaldığı yerden değerli.
+BOSALTMA = 300
 
 _SISTEM = """Türk kamu ihaleleri (EKAP) üzerinde çalışan bir sınıflandırma denetçisisin.
 
@@ -174,6 +178,7 @@ class Command(BaseCommand):
         pk_listesi = pk_listesi[o["atla"]:]
         yaz(f"  tranş         : {len(pk_listesi):,} kalıp (atlanan {o['atla']:,})")
         yaz(self.style.MIGRATE_HEADING("\n═══ AD UZLAŞISI — KEYWORD ONARIMI ═══"))
+        self.toplam = {"oneri": 0, "kabul": 0, "red": 0, "uygulanan": 0, "usd": 0.0}
         oneriler, bakilan, basla = [], 0, time.monotonic()
         with connection.cursor() as cur:
             cur.execute("SET pg_trgm.similarity_threshold = %s", [TRIGRAM_ESIK])
@@ -193,6 +198,9 @@ class Command(BaseCommand):
                         continue
                     if one and one["lift"] >= o["min_lift"]:
                         oneriler.append(one)
+                        if len(oneriler) >= BOSALTMA:
+                            self._isle(oneriler, o)
+                            oneriler = []
                     if o["pilot"] and len(oneriler) >= o["pilot"]:
                         dur = True
                         break
@@ -203,28 +211,33 @@ class Command(BaseCommand):
                         break
         sure = time.monotonic() - basla
         yaz(f"  bakılan kalıp : {bakilan:,}  ({sure:.0f} sn, {1000*sure/max(bakilan,1):.0f} ms/kalıp)")
-        yaz(f"  ÖNERİ         : {len(oneriler):,}  (%{100*len(oneriler)/max(bakilan,1):.1f})")
-        if not oneriler:
-            return
+        if oneriler:
+            self._isle(oneriler, o)
+        t = self.toplam
+        yaz(self.style.SUCCESS(
+            f"\n  TOPLAM: öneri {t['oneri']:,} · AI kabul {t['kabul']:,} · "
+            f"AI red {t['red']:,} · uygulanan {t['uygulanan']:,} · ≈${t['usd']:.3f}"))
 
+    # ── doğrula + uygula + raporla (boşaltma birimi) ─────
+    def _isle(self, oneriler, o):
+        yaz = self.stdout.write
+        self.toplam["oneri"] += len(oneriler)
         onay = {}
         if o["dogrula"]:
-            t0 = time.monotonic()
             onay, it, ot = self._dogrula(oneriler)
-            usd = (it * 1.0 + ot * 5.0) / 1_000_000      # Haiku 4.5 normal fiyat
-            yaz(f"  AI doğrulama  : {len(onay)}/{len(oneriler)} yanıt, "
-                f"{time.monotonic()-t0:.0f} sn, {it:,} in + {ot:,} out tok ≈ ${usd:.3f}")
+            # Haiku 4.5 senkron fiyatı ($1 / $5 per 1M).
+            self.toplam["usd"] += (it * 1.0 + ot * 5.0) / 1_000_000
             kabul = sum(1 for v in onay.values() if v)
-            yaz(f"  AI kabul      : {kabul}  ·  AI RED: {len(onay)-kabul}")
-
-        yaz("\n" + "=" * 96)
+            self.toplam["kabul"] += kabul
+            self.toplam["red"] += len(onay) - kabul
+            yaz(f"  · öneri {len(oneriler)} → AI kabul {kabul}, red {len(onay)-kabul}")
         for i, one in enumerate(oneriler):
             damga = "" if not onay else ("  ✓AI" if onay.get(i) else "  ✗AI RED")
             yaz(f"lift{one['lift']:>7} | {one['ad'][:44]:44} | "
                 f"{', '.join(one['mevcut'])[:30]:30} → {one['yeni']}{damga}")
-
         if o["uygula"] and onay:
-            self._uygula([one for i, one in enumerate(oneriler) if onay.get(i)])
+            self.toplam["uygulanan"] += self._uygula(
+                [one for i, one in enumerate(oneriler) if onay.get(i)])
 
     def _uygula(self, kabuller):
         """Onaylanan keyword'ü kalıba ve onu paylaşan ihalelere yazar."""
@@ -245,4 +258,5 @@ class Command(BaseCommand):
                 keyword_ids=idler, uzlasi_eklenen=iz)
             _bekleyen_ihalelere_uygula([(kalip.kalip_hash, idler, kalip.sektor)])
             yazilan += 1
-        self.stdout.write(self.style.SUCCESS(f"\n  uygulanan kalıp: {yazilan:,}"))
+        self.stdout.write(f"  · uygulanan kalıp: {yazilan:,}")
+        return yazilan

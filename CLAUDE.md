@@ -1837,6 +1837,48 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   Testler `ekap/tests/test_kavram_capasi.py`; **dişleri doğrulandı** (lift eşiği
   kaldırılınca 2 test, üretken-kavram kontrolü kaldırılınca 1 test kırılıyor).
 
+- ⚠️⚠️ **AD UZLAŞISI ONARIMI — yanlış etiketlenmiş kalıpları düzeltir**
+  (`manage.py keyword_uzlasi`, 2026-09-23). Çapa, keyword'leri **tutarsız** olan
+  ihaleleri kurtarır; keyword'leri **yanlış** olanları kurtaramaz, çünkü yanlış
+  mahalleden başlar. Ölçülen örnek: "Sürekli Atıksu İzleme Sistemi (SAİS) Kabini
+  Bakım Hizmeti" → keyword'leri `atiksu aritma` + `atiksu analizi`, benzer işler
+  *Ödemiş Atıksu Arıtma Tesisi Havalandırma Havuzu*, *Atıksu Analizi Yaptırılması*.
+  Doğru keyword geçici olarak eklenince liste **SAİS kabini alımlarına** döndü.
+  **Yöntem**: kalıbın **ad komşuları** (trigram, `ekap_tender_ihale_adi_norm_trgm`)
+  zaten doğru etiketlenmişse uzlaşıları eksik olanı söyler → AI'ya **keyword
+  ÜRETTİRİLMEZ**, yalnızca *"bu ihaleye bu kelime uyar mı"* diye sorulur.
+  ⚠️ **Kendi kalıbı komşuluktan DIŞLANIR** (`kalip_hash <> ...`): aynı kalıbı paylaşan
+  ihalelerin keyword'leri birebir aynıdır, dahil edilseydi kalıp kendi yanlışını
+  kendine onaylatırdı — sessiz ve tam ters yönde bir hata.
+  ⚠️⚠️ **DETERMİNİSTİK ÖNERİ TEK BAŞINA UYGULANAMAZ.** Ölçüldü: öneriler içinde
+  OTOKAR otobüs ihalesine `temsa yedek parca`, "2021 YILI KİTAP ALIMI"na `dizel`,
+  "ekmeklik un"a `ekmek`, "1 KALEM MOTORİN"e `benzin` vardı. En çarpıcısı:
+  **"Dış Laboratuvar" ihalesine `dis protez`** — Türkçe'de *dış* ve *diş*
+  `normalize_tr`'den sonra aynı dizgeye (`dis`) düşer, yani frekans bu ikisini
+  **yapısal olarak** ayıramaz. Semantik yargı şart.
+  ⚠️ AI aynı keyword'ü bağlama göre ayırıyor: `otokar yedek parca` OTOKAR ihalesinde
+  **kabul**, TEMSA ihalesinde **red**.
+  **Üretim tranşı (2026-09-24)**: en sık 30.000 kalıp tarandı (694 ms/kalıp, 5,5 sa) →
+  **3.371 öneri** (%11,7) → AI **2.267 kabul / 1.104 red** (%33 red) → **2.367 kalıp
+  onarıldı, 22.021 ihale** (arşivin %2,1'i). **Maliyet $0,52.**
+  ⚠️ **Etkisi ALAKADA, istatistikte değil** (45 onarılmış kalıpta önce/sonra ölçüldü):
+  indirim örneği medyanı 51→51, manşet sayı 1 kayıp/1 kazanç (net sıfır), ama kademe
+  dağılımı 42 `anahtar`+2 `ulke`+1 `il` → **45 `anahtar`** ve listeler daralıp
+  isabetlendi ("Muhtelif Süt ve Süt Ürünleri" artık gerçekten süt ürünleriyle
+  karşılaştırılıyor). Beklenti buna göre kurulmalı: bu onarım yanlış listeyi düzeltir,
+  olmayan indirim verisini yaratmaz.
+  ⚠️ **Provenans ZORUNLU**: `TenderNamePattern.uzlasi_eklenen` hangi keyword'ün bu işle
+  eklendiğini tutar (`idare_kaynak`/`yaklasik_maliyet_kaynak` ile aynı ilke) →
+  yanlış bir ekleme fark edilirse yalnızca onlar geri alınabilir. Migration DB
+  seviyesinde default verir (0023'ün dersi).
+  ⚠️ **Hiçbir keyword SİLİNMEZ**, yalnızca eklenir.
+  ⚠️ **Tüm arşivi taramak ÖNERİLMEZ**: 694 ms/kalıp × 667k = **~123 saat** sürekli DB
+  yükü ve kuyruk kalıpları 1-2 ihale taşıdığı için kalıp başına kazanç çok düşük.
+  Kalıplar `-ihale_sayisi` sırasıyla işlenir; değer baştaki tranşlardadır.
+  ⚠️ Sınırdaki kararlar **kararsız**: aynı öneri ("MEYVE VE SEBZE ALIMI" → `meyve`)
+  pilotta reddedilip üretimde kabul edildi. Düşük riskli vakalarda zararsız; kritik
+  bir eşik gerekirse aynı öneriyi iki kez sorup ikisinde de "evet" arayın.
+
 - ⚠️ **Kalan kök sorun: keyword kalitesi.** Skorlama bunu örter, çözmez. Kalıcı çözüm
   prompt'u "aynı iş için hep aynı terimi kullan, jenerik varyant üretme" diye
   sıkılaştırıp kalıpları yeniden üretmektir (~$120, birkaç gün).

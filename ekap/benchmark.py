@@ -456,9 +456,15 @@ def _uyari(n, n_indirim):
     # ⚠️ Metin `indirim_orani`nın gerçekte hesaplanıp hesaplanmadığıyla uyumlu olmalı:
     # `MUTLAK_MIN_ORNEK` altında değer `null` döner, "hesaplandı" demek yanlış olurdu.
     if n_indirim < MUTLAK_MIN_ORNEK:
+        # ⚠️ Kullanıcıya **bulunan benzer iş sayısı da** söylenir. Yalnızca "az örnek"
+        # demek, analizin tümüyle başarısız olduğu izlenimi veriyordu; oysa liste ve
+        # bedel dağılımı geçerli, eksik olan tek şey indirim oranı. Dar bir iş
+        # kolunda (ör. sürekli atıksu izleme) benzer iş bol ama Sonuç İlanı seyrek
+        # olabiliyor — ikisi ayrı şeydir ve kullanıcı ayırt edebilmeli.
         return (
-            f"Bu kümede indirim oranı bilinen yalnızca {n_indirim} sözleşme var; "
-            "dağılım gösterilemeyecek kadar az örnek."
+            f"{n} benzer sözleşme bulundu ama yalnızca {n_indirim} tanesinde yaklaşık "
+            "maliyet yayımlanmış; indirim oranı bu kadar az örnekten hesaplanmaz. "
+            "Bedel dağılımı ve benzer iş listesi geçerlidir."
         )
     if n_indirim < MIN_INDIRIM_ORNEK:
         return (

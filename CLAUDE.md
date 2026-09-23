@@ -1808,6 +1808,31 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   ⚠️ **Çapa adı kullanıcıya GÖSTERİLİR** (`kapsam.aciklama` → *"Benzer işler: atıksu
   izleme sistemi"*). Fiyat analizinin en kırılgan yanı "bu sayı nereden geldi"
   sorusuna cevap verememesiydi; yanlış çapa seçilirse kullanıcı **anında** görür.
+  ⚠️⚠️ **DAR BİR AİLEDEN ÇIKARILAN SONUÇ KORPUSA GENELLENEMEZ — az kalsın yanlış
+  bir "düzeltme" yapılıyordu.** SAİS ailesinde (35 ihale) çapa açılınca **6 ihale
+  gösterilen indirim sayısını kaybetti** (kazanan yok): kademe `sektor`'den
+  `anahtar`'a geçiyor, küme daha alakalı ama indirim örneği `MUTLAK_MIN_ORNEK`in
+  altında kalıyor. Bundan yola çıkıp `indirim_orani` için pencereyi 5→10 yıla
+  genişletmek üzereyken **korpus geneli ölçüldü** (rastgele 100 ihale):
+
+  | | eski | çapa |
+  |---|---|---|
+  | indirim sayısını kaybeden | — | **3** |
+  | indirim sayısını kazanan | — | **3** |
+  | indirim örneği (medyan) | 38 | **44** |
+  | `anahtar` kademesi | 80 | **86** |
+
+  Yani kayıp **o dar aileye özgü**; korpusta net etki sıfır, örneklem ve alaka artıyor.
+  Pencereyi değiştirmek dar bir gözlemden geniş bir semantik değişiklik çıkarmak
+  olurdu (indirim medyanı yıllar arası %17-24 bandında oynuyor; 10 yılı harmanlamak
+  sessiz bir yanlılık ekler). **YAPILMADI.** Bunun yerine `_uyari` netleştirildi:
+  "N benzer sözleşme bulundu ama yalnızca M tanesinde yaklaşık maliyet yayımlanmış" —
+  liste ve bedel dağılımı geçerli, eksik olan yalnızca indirim oranı.
+  ⚠️ Bu ölçümü tekrarlamadan pencereye dokunmayın.
+  ⚠️ Çapa genişliği denetlendi (rastgele 60 ihale): en geniş kümeler gerçekten geniş
+  iş kollarıydı ve çapalar isabetliydi (`sebze meyve` · `kilitli parke, beton parke` ·
+  `sut urun, peynir` · `yol cizgi boyasi, asfalt`), en darları `plywood`, `sirup`,
+  `drum unite`. Jenerik çöp çapa gözlenmedi.
   ⚠️ Geri alma: `KEYWORD_CAPA_ENABLED=False` → eski eşik tabanlı yol, deploy'suz.
   Testler `ekap/tests/test_kavram_capasi.py`; **dişleri doğrulandı** (lift eşiği
   kaldırılınca 2 test, üretken-kavram kontrolü kaldırılınca 1 test kırılıyor).

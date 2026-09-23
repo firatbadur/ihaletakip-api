@@ -1730,6 +1730,31 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   iptal eder ve işin tamamı boşa gider → PK aralıklı parçalar (20k), her parça ayrı
   deyim, kesilirse `--from-pk` ile devam.
 
+- **Keyword'ler admin'de GÖRÜNÜR** (2026-09-23). Bağlar kuruluydu ama hiçbir ekranda
+  görünmüyordu: `KeywordAdmin` yalnızca global listeydi, kalıp sözlüğü ham id listesi
+  (`[12, 489, …]`) basıyordu, ihale ekranında ise hiç yoktu — yani "bu ihale neden şuna
+  benzer çıktı" sorusu admin'den **cevaplanamıyordu**.
+  → İhale listesinde **Anahtar kelimeler** kolonu (ilk 4 + `+N`), ihale detayında salt
+  okunur `TenderKeywordInline`, her keyword tıklanınca o keyword'ün ihaleleri.
+  ⚠️ Sıralama **`kullanim_sayisi` ARTAN** — `probe_keywordleri`nin kullandığı sıra
+  (en düşük df = en ayırt edici). Ekranda başka bir sıra göstermek, benzerliği
+  açıklamak için bakılan ekranı yanıltıcı yapardı.
+  ⚠️ **Kolon PREFETCH'siz yazılamaz**: satır başına bir sorgu = sayfa başına 50 ekstra
+  sorgu (belgeli sessiz N+1). `Prefetch` sayfalama slice'ından sonra koştuğu için
+  yalnızca görünen satırları çeker.
+  ⚠️ **`KeywordFilter` seçenek listesi ÜRETMEZ** (`lookups()` seçili değilken boş →
+  Django filtreyi gizler): 125 bin keyword kenar çubuğuna basılamaz. Seçiliyken tek
+  seçenek döner ki filtreden çıkış yolu olsun. Tek keyword'e filtrelendiği için JOIN
+  satır çoğaltmaz → `.distinct()` gerekmez.
+  ⚠️ `TenderAdmin.show_full_result_count = False`: Django filtre uygulandığında
+  filtrelenmiş sayımın yanında bir de **filtresiz** `COUNT(*)` koşuyordu — bu tabloda
+  yasak (bkz. Anasayfa panosu, `reltuples`).
+  ⚠️ Inline **salt okunur**: satırlar makine üretimi (`TenderNamePattern.keyword_ids` +
+  `propagate_tender_keywords`); elle silinen bir bağ kalıp sözlüğüyle sessizce ayrışır.
+  ⚠️ Boş keyword kolonu **arıza değil**: ihalelerin ~%4,6'sında keyword yok
+  (ölçüldü 2026-09-23: 1.052.151 ihalenin 1.003.945'inde var; 31.102'sinde `kalip_hash`
+  boş = ad 2 anlamlı token'dan kısa, 5.148 kalıp `skipped` = model uydurmadı).
+
 - **Sektör admin ekranı**: `/admin/ekap/sektorler/` (üst menü → *Sektörler*).
   Sektör başına kalıp / ihale / sözleşme sayısı, toplam bedel, ortalama indirim ve
   pay çubuğu; satırlar ihale listesine ve kalıp sözlüğüne filtreli bağlantı verir.

@@ -1,5 +1,8 @@
 """ekap admin — ihale verisi ve senkron gözlemi."""
 from django.contrib import admin
+from django.db.models import Prefetch
+from django.urls import reverse
+from django.utils.html import format_html, format_html_join
 
 from .constants import SEKTORLER
 from .models import (
@@ -18,9 +21,20 @@ from .models import (
     SyncCheckpoint,
     SyncRun,
     Tender,
+    TenderKeyword,
     TenderNamePattern,
     TenderDate,
 )
+
+
+def _kw_ad(kw):
+    """Gösterim metni — `metin_ham` boşsa kanonik `metin`e düşer."""
+    return kw.metin_ham or kw.metin
+
+
+def _kw_ihale_url(keyword_id):
+    """O keyword'e sahip ihalelerin changelist bağlantısı (bkz. `KeywordFilter`)."""
+    return f"{reverse('admin:ekap_tender_changelist')}?{KeywordFilter.parameter_name}={keyword_id}"
 
 
 class SektorFilter(admin.SimpleListFilter):
@@ -55,6 +69,39 @@ class SektorFilter(admin.SimpleListFilter):
         return queryset.filter(sektor=deger)
 
 
+class KeywordFilter(admin.SimpleListFilter):
+    """
+    "Bu anahtar kelimeye sahip ihaleler" filtresi.
+
+    ⚠️ **Seçenek listesi ÜRETİLMEZ.** 125 bin keyword var; `AllValuesFieldListFilter`
+    ya da dolu bir `lookups()` kenar çubuğuna 125 bin satır basmaya kalkardı. Bu filtre
+    yalnızca **bağlantıyla** kullanılır (keyword listesinden ya da ihale satırındaki
+    keyword'e tıklayarak) ve seçili değilken kendini hiç göstermez: `lookups()` boş
+    dönünce Django `has_output()` üzerinden filtreyi gizler.
+    ⚠️ Seçiliyken **tek** seçenek döndürülür — kenar çubuğunda "Tümü / <keyword>"
+    görünür, yani filtreyi kaldırma yolu var. Boş liste döndürmek filtreyi gizler ve
+    kullanıcıyı filtreden çıkamaz hâle sokardı.
+    ⚠️ Tek keyword'e filtrelendiği için JOIN satır çoğaltmaz → `.distinct()` gerekmez
+    (bkz. CLAUDE.md → "`.distinct()` KULLANMAYIN").
+    """
+
+    title = "anahtar kelime"
+    parameter_name = "kw"
+
+    def lookups(self, request, model_admin):
+        deger = self.value()
+        if not deger:
+            return []
+        kw = Keyword.objects.filter(pk=deger).only("metin", "metin_ham").first()
+        return [(deger, _kw_ad(kw) if kw else f"#{deger}")]
+
+    def queryset(self, request, queryset):
+        deger = self.value()
+        if not deger:
+            return queryset
+        return queryset.filter(keyword_baglari__keyword_id=deger)
+
+
 @admin.display(description="Sektör", ordering="sektor")
 def sektor_adi(obj):
     """Ham kod yerine Türkçe ad (`saglik_tibbi_malzeme` → `Tıbbi Sarf Malzeme`)."""
@@ -85,19 +132,106 @@ class ContractInline(admin.TabularInline):
     fields = ["yuklenici_adi", "sozlesme_bedeli", "yaklasik_maliyet", "sozlesme_tarih"]
 
 
+class TenderKeywordInline(admin.TabularInline):
+    """
+    İhalenin AI keyword'leri — **salt okunur**.
+
+    ⚠️ Satırlar makine üretimi: kaynak `TenderNamePattern.keyword_ids` ve yayma görevi
+    (`propagate_tender_keywords`). Elle eklenen/silinen bir bağ kalıp sözlüğüyle
+    sessizce ayrışır ve kimse fark etmez → ekleme/değiştirme/silme kapalı.
+    Düzeltme gerekiyorsa kalıp sözlüğünden yapılmalı.
+    """
+
+    model = TenderKeyword
+    extra = 0
+    fields = ["keyword_baglantisi", "derece", "df", "pasif"]
+    readonly_fields = fields
+    can_delete = False
+    verbose_name_plural = "Anahtar kelimeler (AI)"
+
+    def get_queryset(self, request):
+        # ⚠️ Sıralama `kullanim_sayisi` ARTAN: benzerlik sorgusunun (`probe_keywordleri`)
+        # kullandığı sıra budur — en düşük df = en ayırt edici. Ekranda da aynı sırayı
+        # görmek, "neden bu ihale şuna benzer çıktı" sorusunu cevaplanabilir kılar.
+        return (super().get_queryset(request)
+                .select_related("keyword")
+                .order_by("keyword__kullanim_sayisi"))
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Anahtar kelime")
+    def keyword_baglantisi(self, obj):
+        return format_html('<a href="{}">{}</a>',
+                           _kw_ihale_url(obj.keyword_id), _kw_ad(obj.keyword))
+
+    @admin.display(description="Derece")
+    def derece(self, obj):
+        return obj.keyword.derece
+
+    @admin.display(description="Kaç ihalede (df)")
+    def df(self, obj):
+        return f"{obj.keyword.kullanim_sayisi:,}".replace(",", ".")
+
+    @admin.display(description="Pasif", boolean=True)
+    def pasif(self, obj):
+        return obj.keyword.pasif
+
+
 @admin.register(Tender)
 class TenderAdmin(admin.ModelAdmin):
-    list_display = ["ikn", "ihale_adi_kisa", "ihale_il_adi", "ihale_tip",
+    list_display = ["ikn", "ihale_adi_kisa", "keywordler", "ihale_il_adi", "ihale_tip",
                     sektor_adi, "ihale_durum", "detail_synced_at", "sync_status"]
-    list_filter = ["ihale_tip", "ihale_durum", "sync_status", "e_ihale", SektorFilter]
+    list_filter = ["ihale_tip", "ihale_durum", "sync_status", "e_ihale", SektorFilter,
+                   KeywordFilter]
     search_fields = ["ikn", "ekap_id", "ihale_adi", "idare_adi"]
     readonly_fields = ["created_at", "updated_at", "list_synced_at", "detail_synced_at", "detail_raw", "list_raw"]
-    inlines = [TenderDateInline, OkasItemInline, AnnouncementInline, ContractInline]
+    inlines = [TenderKeywordInline, TenderDateInline, OkasItemInline,
+               AnnouncementInline, ContractInline]
     date_hierarchy = "ihale_tarihi"
+    # ⚠️ `ekap_tender`'da `COUNT(*)` YASAK (bkz. CLAUDE.md → Anasayfa panosu: pano bu
+    # yüzden `reltuples` kullanıyor). Django varsayılanı filtre uygulandığında
+    # filtrelenmiş sayımın YANINDA bir de **filtresiz** `COUNT(*)` koşar ("N / toplam M")
+    # — 1M satırda bedava değil ve hiçbir teşhise yaramıyor.
+    show_full_result_count = False
+
+    def get_queryset(self, request):
+        # ⚠️ Prefetch OLMADAN `keywordler` kolonu satır başına bir sorgu atar (sayfa
+        # başına 50 ekstra sorgu — belgeli "sessiz N+1" tuzağının aynısı).
+        # Sayfalama slice'tan SONRA çalıştığı için yalnızca görünen satırlar çekilir.
+        return super().get_queryset(request).prefetch_related(
+            Prefetch("keyword_baglari",
+                     queryset=(TenderKeyword.objects
+                               .select_related("keyword")
+                               .order_by("keyword__kullanim_sayisi"))))
 
     @admin.display(description="İhale Adı")
     def ihale_adi_kisa(self, obj):
         return (obj.ihale_adi or "")[:70]
+
+    @admin.display(description="Anahtar kelimeler")
+    def keywordler(self, obj):
+        """
+        İlk 4 keyword (en ayırt ediciden başlayarak) + kalanın sayısı.
+
+        ⚠️ Boş olması arıza DEĞİL: ihalelerin ~%4,6'sında keyword yok — adı 2 anlamlı
+        token'dan kısa (`kalip_hash` boş) ya da model "bu ad hiçbir şey söylemiyor"
+        demiş (`durum="skipped"`). Uydurulmamış olması doğrudur.
+        """
+        baglar = list(obj.keyword_baglari.all())
+        if not baglar:
+            return format_html('<span style="opacity:.5">—</span>')
+        govde = format_html_join(
+            format_html(' <span style="opacity:.4">·</span> '),
+            '<a href="{}">{}</a>',
+            ((_kw_ihale_url(b.keyword_id), _kw_ad(b.keyword)) for b in baglar[:4]))
+        if len(baglar) > 4:
+            govde = format_html('{} <span style="opacity:.5">+{}</span>',
+                                govde, len(baglar) - 4)
+        return govde
 
 
 @admin.register(Contract)
@@ -207,11 +341,22 @@ admin.site.register(ContractSection)
 
 @admin.register(Keyword)
 class KeywordAdmin(admin.ModelAdmin):
-    list_display = ["metin", "derece", "kullanim_sayisi", "pasif"]
+    list_display = ["metin", "metin_ham", "derece", "kullanim_sayisi", "pasif",
+                    "ihaleler"]
     list_filter = ["derece", "pasif"]
-    search_fields = ["metin"]
+    search_fields = ["metin", "metin_ham"]
     readonly_fields = ["kullanim_sayisi", "pasif", "created_at"]
     ordering = ["-kullanim_sayisi"]
+
+    @admin.display(description="İhaleler")
+    def ihaleler(self, obj):
+        """
+        ⚠️ `kullanim_sayisi` (df) **yayma anındaki** sayımdır (`refresh_keyword_df`
+        günceller), bağlantının açacağı listenin canlı sayısı değil. İkisi arasında
+        küçük bir fark görülmesi normaldir.
+        """
+        return format_html('<a href="{}">{} ihale</a>', _kw_ihale_url(obj.pk),
+                           f"{obj.kullanim_sayisi:,}".replace(",", "."))
 
 
 @admin.register(KeywordBatch)
@@ -244,7 +389,8 @@ class TenderNamePatternAdmin(admin.ModelAdmin):
     list_filter = ["durum", SektorFilter, "model"]
     search_fields = ["kalip_norm", "ornek_ad", "kalip_hash"]
     readonly_fields = ["kalip_hash", "kalip_norm", "ornek_ad", "ihale_sayisi",
-                       "keyword_ids", "guven", "batch", "model", "islendi_at"]
+                       "keywordler", "keyword_ids", "guven", "batch", "model",
+                       "islendi_at"]
     ordering = ["-ihale_sayisi"]
 
     @admin.display(description="Kalıp")
@@ -254,3 +400,21 @@ class TenderNamePatternAdmin(admin.ModelAdmin):
     @admin.display(description="Keyword")
     def keyword_adet(self, obj):
         return len(obj.keyword_ids or [])
+
+    @admin.display(description="Anahtar kelimeler")
+    def keywordler(self, obj):
+        """
+        `keyword_ids` ham id listesidir (`[12,489,…]`) ve ekranda hiçbir şey ifade
+        etmiyordu. Burada metinlere çözülür; ham liste de altta duruyor (bir id
+        çözülemezse — silinmiş keyword — fark edilebilsin diye).
+        """
+        idler = obj.keyword_ids or []
+        if not idler:
+            return "—"
+        kelimeler = {k.pk: k for k in Keyword.objects.filter(pk__in=idler)
+                     .only("metin", "metin_ham")}
+        return format_html_join(
+            format_html(' <span style="opacity:.4">·</span> '),
+            '<a href="{}">{}</a>',
+            ((_kw_ihale_url(i), _kw_ad(kelimeler[i]) if i in kelimeler else f"#{i} (yok)")
+             for i in idler))

@@ -1628,6 +1628,62 @@ def recalc_keyword_costs(limit=1):
     return {"duzeltilen": len(sonuc), "batchler": sonuc}
 
 
+# Yeni çözülen bir kalıbın geriye uygulanacağı azami ihale sayısı. Yeni kalıplar
+# tanımı gereği az ihale taşır (tipik 1-3); tavan yalnızca patolojik bir durumda
+# (ör. elle `pending`'e çevrilmiş çok yaygın bir kalıp) turun şişmesini engeller.
+_GERI_UYGULA_TAVAN = 500
+
+
+def _bekleyen_ihalelere_uygula(cozulenler, tavan=_GERI_UYGULA_TAVAN):
+    """
+    Yeni `ok` olmuş kalıpları, o kalıbı **bekleyen** ihalelere yazar.
+
+    ⚠️⚠️ **BU ADIM OLMADAN YENİ İHALELER KEYWORD ALMIYORDU** (ölçüldü 2026-09-23):
+    yeni bir ihale geldiğinde kalıbı henüz sözlükte olmaz → `keywords.uygula` onu
+    `pending` açıp **False** döner, yani keyword yazılmaz. Kalıp saatler sonra AI ile
+    `ok` olur ama o sırada bekleyen ihaleye **geri dönen kimse yoktu**:
+    `propagate_tender_keywords` arşivi bitirip `done=True` olmuş (11 Eylül'den beri
+    hiç koşmuyor) ve `uygula` ancak detay YENİDEN senkronlanırsa tekrar çalışıyor —
+    mobil hatta tazeleme bütçesi çoğu zaman o noktaya hiç ulaşmıyor.
+    Ölçülen etki: son 7 günde DB'ye giren 1.174 ihalenin yalnızca **%33,6**'sında
+    keyword vardı; incelenen 294 bağsız ihalenin **294'ünde** kalıp detay
+    senkronundan SONRA çözülmüştü (tek karşı örnek yok).
+
+    ⚠️ Belirti sessizdir: hata yok, `SyncRun` temiz, kalıp sözlüğü `ok` dolu ve AI
+    parası harcanmış görünür — yalnızca fiyat analizi o ihalelerde `anahtar`
+    kademesini kullanamaz ve daha genel/alakasız bir kademeye düşer.
+
+    ⚠️ `.order_by()` ŞART: `Tender.Meta.ordering = ["-ihale_tarihi"]` + `LIMIT`
+    planlayıcıyı tarih indeksini geriye tarayıp filtrelemeye iter (CLAUDE.md'de üç kez
+    ısıran tuzak). Burada `ekap_tender_kalip_idx` üzerinde düz eşitlik istiyoruz.
+    """
+    from .models import Tender, TenderKeyword
+
+    toplam_ihale = toplam_bag = 0
+    for kalip_h, kw_idler, sektor in cozulenler:
+        if not kalip_h or not kw_idler:
+            continue
+        idler = list(Tender.objects.filter(kalip_hash=kalip_h)
+                     .order_by().values_list("pk", flat=True)[:tavan])
+        if not idler:
+            continue
+        # ⚠️ `ignore_conflicts` → tur tekrarı ve ingest hızlı yoluyla yarış zararsız.
+        TenderKeyword.objects.bulk_create(
+            [TenderKeyword(tender_id=t, keyword_id=k) for t in idler for k in kw_idler],
+            ignore_conflicts=True, batch_size=1000)
+        # ⚠️ Yalnızca BOŞ sektör yazılır: ingest ya da başka bir yol daha doğru bir
+        # değer koymuşsa ezilmez (`_LISTE_EZMEZ` ile aynı ilke).
+        if sektor:
+            Tender.objects.filter(pk__in=idler, sektor="").update(sektor=sektor)
+        toplam_ihale += len(idler)
+        toplam_bag += len(idler) * len(kw_idler)
+
+    if toplam_ihale:
+        logger.info("keyword geri uygulama: %s kalıp → %s ihale, %s bağ",
+                    len(cozulenler), toplam_ihale, toplam_bag)
+    return toplam_ihale
+
+
 def _kalip_sonuclarini_yaz(sonuclar, kayit):
     """Bir isteğin sonuçlarını kalıplara yazar → yazılan kalıp sayısı."""
     from django.utils import timezone as tz
@@ -1641,9 +1697,13 @@ def _kalip_sonuclarini_yaz(sonuclar, kayit):
         return 0
     # ⚠️ Yalnızca BU batch'in kalıpları — model uydurma/başka bir id döndürürse
     # sonuç sessizce yanlış kalıba yazılırdı.
+    # ⚠️ `kalip_norm` ve `kalip_hash` `.only()`'e DAHİL: ikisi de aşağıda okunuyor
+    # (sektör fallback'i ve geri uygulama). Listede olmasalardı Django her kalıp için
+    # ayrı bir sorgu atardı — belgeli "deferred alan = sessiz N+1" tuzağı.
     mevcut = {k.pk: k for k in TenderNamePattern.objects.filter(
-        pk__in=idler, batch=kayit).only("id", "durum")}
+        pk__in=idler, batch=kayit).only("id", "durum", "kalip_norm", "kalip_hash")}
 
+    cozulenler = []
     yazilan = 0
     for s in sonuclar:
         kalip = mevcut.get(s.get("id"))
@@ -1673,10 +1733,17 @@ def _kalip_sonuclarini_yaz(sonuclar, kayit):
             continue
 
         eslesme = kw_mod.keyword_upsert(kanonikler)
+        kw_idler = [eslesme[m] for m in kanonikler if m in eslesme]
         TenderNamePattern.objects.filter(pk=kalip.pk).update(
-            durum="ok", keyword_ids=[eslesme[m] for m in kanonikler if m in eslesme],
+            durum="ok", keyword_ids=kw_idler,
             sektor=sektor, guven=guven, islendi_at=tz.now(), model=kayit.model)
+        cozulenler.append((kalip.kalip_hash, kw_idler, sektor))
         yazilan += 1
+
+    # ⚠️ Kalıbı yazmak YETMEZ — onu bekleyen ihalelere de uygulanmalı (bkz. fonksiyon
+    # docstring'i). Burada yapılır çünkü "kalıp az önce çözüldü" bilgisinin tek sahibi
+    # bu döngüdür; ayrı bir tarayıcı görev 1M satırı boşuna gezerdi.
+    _bekleyen_ihalelere_uygula(cozulenler)
     return yazilan
 
 

@@ -1575,6 +1575,30 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   model onu tekrar seçer ve hatalı keyword arşive yayılır (kendini besleyen döngü).
 - **İngest hızlı yolu**: `upsert_tender_detail` → `keywords.uygula(tender)`. Kalıp
   sözlüğünde `durum="ok"` varsa keyword'ler AI'ya **hiç gidilmeden** kopyalanır.
+  ⚠️⚠️ **HIZLI YOL TEK BAŞINA YETMİYORDU — yeni ihaleler keyword ALMIYORDU**
+  (bulundu 2026-09-23, sebep: admin'e keyword kolonu eklenince ilk sayfada 100 satırın
+  34'ü boş çıktı; arşiv geneli %4,6 iken). Zincir: yeni ihalenin kalıbı **tanımı gereği**
+  sözlükte yoktur → `uygula` onu `pending` açıp **False** döner (keyword yazmaz) → kalıp
+  saatler sonra AI ile `ok` olur → **ama bekleyen ihaleye geri dönen kimse yoktur.**
+  `propagate_tender_keywords` arşivi bitirip `done=True` olmuş (11 Eylül'den beri hiç
+  koşmuyor) ve `uygula` ancak detay YENİDEN senkronlanırsa tekrar çalışır — mobil hatta
+  tazeleme bütçesi oraya çoğu zaman hiç ulaşmaz.
+  **Ölçüm**: son 7 günde DB'ye giren 1.174 ihalenin yalnızca **%33,6**'sında keyword
+  vardı (30 günde %75,8 — boşluk yeni tarafta); incelenen 294 bağsız ihalenin
+  **294'ünde** kalıp, detay senkronundan **SONRA** çözülmüştü. Tek karşı örnek yok.
+  ⚠️ **Belirti tamamen sessiz**: hata yok, `SyncRun` temiz, kalıp sözlüğü `ok` dolu,
+  AI parası harcanmış görünüyor. Yalnızca fiyat analizi o ihalelerde `anahtar`
+  kademesini kullanamaz ve daha genel/alakasız bir kademeye düşer — yani özelliğin var
+  oluş sebebi olan şikâyet sessizce geri gelir.
+  → **`tasks._bekleyen_ihalelere_uygula`**: kalıp `ok` olur olmaz `kalip_hash` üzerinden
+  onu bekleyen ihalelere yazılır. Bu adım `_kalip_sonuclarini_yaz` içindedir çünkü
+  "kalıp az önce çözüldü" bilgisinin tek sahibi o döngüdür; ayrı bir tarayıcı görev 1M
+  satırı boşuna gezerdi. Geçmiş birikim: `python manage.py fix_bekleyen_keyword`.
+  ⚠️ **Genel kural (ikinci kez)**: bir değer "ingest'te dolar" demek **yetmez** —
+  değerin *sonradan* hazır olduğu bir yol varsa, o yolun geriye dönüp bekleyeni
+  doldurması gerekir. `Contract.sektor` (%0,04 doluydu) ile aynı hata sınıfı, farklı
+  kılık: orada kopya geçmişe hiç yayılmamıştı, burada gelecek her gün yeniden boşluk
+  üretiyordu.
 - **Model tasarımı**: `Keyword` (tekil) + `TenderKeyword` (dar M2M, ~6M satır) +
   `TenderNamePattern` (kalıp sözlüğü, kalıcı) + `KeywordBatch` (izleme/maliyet).
   ⚠️ **`int[] + GIN` REDDEDİLDİ**: aday satırları 11 GB'lık `ekap_tender` heap'inden

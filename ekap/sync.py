@@ -181,13 +181,23 @@ def upsert_tender_from_list(item, *, koruyucu: bool = False) -> Tender | None:
     # ⚠️ Hata YUTULUR: keyword bir zenginleştirmedir, ihalenin kaydedilmesini
     # engellememelidir (aynı gerekçe `upsert_tender_detail`'deki `uygula()` çağrısında).
     try:
-        defaults["kalip_hash"] = keywords_mod.kalip_hash(defaults.get("ihale_adi") or "")
+        liste_hash = keywords_mod.kalip_hash(defaults.get("ihale_adi") or "")
     except Exception as exc:                       # noqa: BLE001
         logger.warning("kalip_hash hesaplanamadı ikn=%s: %s", ikn, exc)
-        defaults["kalip_hash"] = ""
+        liste_hash = ""
 
+    # ⚠️⚠️ `kalip_hash` YALNIZCA YARATMADA yazılır (`create_defaults`, Django 5.0+).
+    # Liste ve detay adları aynı ihale için FARKLI olabiliyor — ölçüldü 2026-09-23:
+    # liste "MERSİNMUT İLÇESİ...", detay "MERSİN MUT İLÇESİ..." → iki ayrı hash. Kalıp
+    # sözlüğü detay adıyla anahtarlandığı için otorite detaydadır; bu alanı her keşif
+    # turunda (2 sa'de bir, ~4.000 açık ihale) liste değeriyle ezmek, ihaleyi kendi
+    # kalıbından koparıyordu. `_LISTE_EZMEZ` / `_LISTE_KAYNAK_ANAHTARI` ile aynı hata
+    # sınıfı — burada boş değer değil **yanlış** değer yazılıyordu, o yüzden ikisi de
+    # yakalamıyordu.
+    # ⚠️ Yaratmada yazmak ŞART: detayı hiç gelmeyen ihalenin de bir kalıbı olmalı.
     tender, _ = Tender.objects.update_or_create(
-        ikn=str(ikn), defaults=defaults
+        ikn=str(ikn), defaults=defaults,
+        create_defaults={**defaults, "kalip_hash": liste_hash},
     )
     return tender
 

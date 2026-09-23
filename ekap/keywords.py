@@ -818,6 +818,16 @@ def uygula(tender, kalip=None):
         return False
     norm = kalip_norm(tender.ihale_adi)
 
+    # ⚠️⚠️ Hash **KOŞULSUZ** yazılır — eskiden yalnızca başarı dalında yazılıyordu ve
+    # bu, ihaleyi kendi kalıbından kalıcı olarak kopardı. Üretimde ölçüldü
+    # (2026-09-23, İKN 2026/1791551): mobil LİSTE adı "MERSİNMUT İLÇESİ...", DETAY adı
+    # "MERSİN MUT İLÇESİ..." → iki farklı hash. Sözlük detay hash'iyle anahtarlanıyor
+    # (`durum="ok"`), `Tender.kalip_hash` ise liste hash'ini tutuyordu; kalıp `pending`
+    # iken bu fonksiyon erken dönünce kolon hiç düzelmiyordu ve geri uygulama
+    # (`tasks._bekleyen_ihalelere_uygula`) ihaleyi `kalip_hash` üzerinden **bulamıyordu**.
+    # Detay adı otoriterdir: sözlüğün anahtarı ondan türüyor, kolon da onu göstermeli.
+    tender.kalip_hash = h
+
     kayit = (TenderNamePattern.objects
              .filter(kalip_hash=h)
              .only("id", "durum", "keyword_ids", "sektor")
@@ -841,5 +851,4 @@ def uygula(tender, kalip=None):
     )
     if kayit.sektor and tender.sektor != kayit.sektor:
         tender.sektor = kayit.sektor
-    tender.kalip_hash = h
     return True

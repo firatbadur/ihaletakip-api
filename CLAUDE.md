@@ -1594,6 +1594,23 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   onu bekleyen ihalelere yazılır. Bu adım `_kalip_sonuclarini_yaz` içindedir çünkü
   "kalıp az önce çözüldü" bilgisinin tek sahibi o döngüdür; ayrı bir tarayıcı görev 1M
   satırı boşuna gezerdi. Geçmiş birikim: `python manage.py fix_bekleyen_keyword`.
+  ⚠️⚠️ **İKİNCİ KAT: liste adı ile detay adı AYNI İHALE İÇİN FARKLI olabiliyor.**
+  Ölçüldü (İKN 2026/1791551): mobil **liste** `"MERSİNMUT İLÇESİ…"`, **detay**
+  `"MERSİN MUT İLÇESİ…"` (il adı bitişik gelmiş) → iki ayrı `kalip_hash`. Sözlük
+  **detay** adıyla anahtarlanır (`uygula` oradan hesaplar), oysa `Tender.kalip_hash`
+  liste yolunda yazılıyor ve her keşif turunda (2 sa, ~4.000 açık ihale) yeniden
+  eziliyordu → ihale kendi kalıbına bir daha kavuşamıyor, geri uygulama onu
+  `kalip_hash` üzerinden **bulamıyordu**.
+  ⚠️ `_LISTE_EZMEZ` de `_LISTE_KAYNAK_ANAHTARI` de bunu **yakalamaz**: ikisi de
+  "boş değer dolu değeri ezmesin" diye kurulmuş, burada yazılan değer boş değil
+  **yanlış**. Aynı hata sınıfının üçüncü kılığı.
+  → `uygula` hash'i **koşulsuz** yazar (erken dönüşlerden önce) + liste yolu
+  `update_or_create(..., create_defaults=…)` ile `kalip_hash`'i **yalnızca yaratmada**
+  yazar (Django 5.0+). Yaratmada yazmak şart: detayı hiç gelmeyen ihalenin de kalıbı
+  olmalı.
+  ⚠️ Kuyruk vakası: arşiv genelinde **7** satır (ölçüldü) — ayrı bir onarım komutu
+  yazmaya değmez, elle düzeltildi.
+
   ⚠️ **Genel kural (ikinci kez)**: bir değer "ingest'te dolar" demek **yetmez** —
   değerin *sonradan* hazır olduğu bir yol varsa, o yolun geriye dönüp bekleyeni
   doldurması gerekir. `Contract.sektor` (%0,04 doluydu) ile aynı hata sınıfı, farklı

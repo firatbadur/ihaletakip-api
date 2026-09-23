@@ -1726,6 +1726,92 @@ görüyordu. Bu katman ihale ADINDAN AI ile keyword üretip üçüncü bir benze
   **Az ama gerçekten benzer > çok ama alakasız**; dürüstlüğü `guven` + `uyari` +
   `MUTLAK_MIN_ORNEK` altında gizlenen dağılım sağlıyor.
 
+- ⚠️⚠️ **KAVRAM ÇAPASI — "benzer iş" seçiminin tutarlılığı** (2026-09-23).
+  Kullanıcı bildirimi: *"fiyat analizi apisinde benzer işleri ararken keywordlere göre
+  aramak tam olarak tutarlı olmuyor"*. Teşhis: **bir ihalenin kendi keyword'leri, ait
+  olduğu işin güvenilmez bir ÖRNEĞİDİR.** Adında "sürekli atıksu izleme" geçen
+  **86 ihale** (birebir aynı iş) ölçüldü:
+
+  | keyword | ailedeki kapsam | global df |
+  |---|---|---|
+  | `atiksu izleme` | %47 | 41 |
+  | `atiksu` | %44 | 1.074 |
+  | `atiksu aritma` | %30 | 1.433 |
+  | `atiksu izleme sistemi` | %28 | 28 |
+
+  Toplam **40 farklı keyword**, hiçbiri ailenin yarısını kapsamıyor.
+  ⚠️⚠️ **Ürün etkisi ölçüldü ve büyüktü**: aynı işe 86 farklı ihaleden bakılınca
+  indirim medyanı **%2,8 ile %35,6** arasında değişiyordu (yayılım 32,9 puan,
+  std 7,6). Yani fiyat analizinin cevabı, kullanıcının hangi ihaleyi açtığına
+  bağlıydı — özelliğin en çok ödeme isteği yaratan yanı için kabul edilemez.
+
+  **Üç ayrı arıza mekanizması bulundu (hepsi ölçümle):**
+  1. ⚠️ **Nadir keyword zorbalığı**: eşik `en_iyi × KEYWORD_SIMILAR_MIN_ORAN` idi ve
+     `en_iyi` TÜM kavramlar üzerinden alınıyordu. İKN 2023/1225809'un keyword'leri
+     `atiksu izleme sistemi`(df=28) + `sais`(df=2) — mümkün olan en doğru terimler —
+     ama `sais` çıtayı 13,17'ye koyunca `atiksu izleme sistemi`(10,53) eleniyor ve
+     kademe **1 aday** döndürüyordu. df=1 bir keyword'de (İKN 2021/432357) aday
+     **0**'a düşüyor, kademe sessizce ölüyor, merdiven OKAS'a iniyordu.
+     → Eşik artık **yalnızca ÜRETKEN kavramlar** üzerinden (`_esikli_secim`).
+  2. ⚠️ **Jenerik keyword baskınlığı**: `atiksu aritma`(df=1.433) taşıyan ihale 962
+     aday getirip arıtma tesisi işlerine kayıyordu.
+  3. ⚠️ **Kavram grubu asimetrik**: `kavram_gruplari` ihalenin KENDİ terimini
+     genişletir; `atiksu izleme` ile `atiksu izleme sistemi`nin grupları farklı
+     çıkıyor → aynı ailenin iki üyesi farklı küme görüyordu.
+
+  → **Çözüm: pseudo-relevance feedback (klasik bilgi erişimi, AI GEREKMEZ).**
+  `keywords.capa_kavramlari`: (1) ihalenin kendi kavramlarıyla en çok örtüşen ilk
+  `KEYWORD_CAPA_TOHUM`(50) aday = **tohum**, (2) tohumda en çok ZENGİNLEŞEN keyword =
+  **çapa** (`lift = tohumdaki_oran / evrendeki_oran`), (3) çapa kendi kavram grubuna
+  açılır. Ayrım üretimde keskin:
+
+      atiksu izleme sistemi  df=28    23/50 tohumda  lift=17.285
+      atiksu izleme          df=41    26/50          lift=13.344
+      atiksu                 df=1074  20/50          lift=   392   ← gürültü
+      atiksu hatti           df=321    3/50          lift=   197
+
+  ⚠️ **Lift eşiği GÖRELİ olmalı** (`KEYWORD_CAPA_LIFT_ORAN × en_iyi_lift`), mutlak
+  değil: lift'in büyüklüğü kavramın nadirliğine bağlı ve sektörden sektöre kat kat
+  değişiyor. Mutlak eşik denendi → `atiksu`, `su kanalizasyon` da çapa seçildi,
+  isabet **%3,6**'ya düştü. Ayrıca **kapsam şartı** gerekli
+  (`KEYWORD_CAPA_MIN_KAPSAM`, tohumun %20'si): tek tohumda geçen nadir terim sonsuz
+  lift alır ama komşuluğu temsil etmez.
+  ⚠️ Ayrımı sağlayan şey **df ORANIDIR**, korpus büyüklüğü değil
+  (`atiksu`/`atiksu izleme sistemi` = 38 kat). Küçük bir test kurgusunda jenerik
+  terimin df'i yeterince büyümezse göreli eşik onu eleyemez ve test gerçeği
+  yansıtmaz — `test_kavram_capasi.py` bu yüzden 300 satırlık arka plan kurar.
+
+  ⚠️⚠️ **GEÇİŞLİ KÜMELEME (transitive closure) DENENDİ ve REDDEDİLDİ.** Tüm aktif
+  keyword'ler üzerinde union-find kuruldu (kapsama + ≥2 ortak token): 38.520 kümenin
+  en büyüğü **12.309 üye** — zincirleme birleşmeyle neredeyse tüm çok-kelimeli
+  keyword'ler tek kümeye aktı. Kavram kümeleri bu veride ancak **doğrudan komşuluk**
+  olarak anlamlı. Kalıcı bir `KeywordCluster` tablosu kurmaya kalkan herkes önce bunu
+  okusun.
+
+  **Ölçülen sonuç** (86 ihalelik SAİS ailesi):
+
+  | | recall ort | isabet | tutarlılık (aile içi Jaccard) | indirim yayılımı |
+  |---|---|---|---|---|
+  | eski | %57,7 | %88,7 | %32,5 | 32,9 puan (std 7,6) |
+  | çapa | **%73,0** | **%92,9** | **%52,3** | **20,2 puan (std 3,3)** |
+
+  **Yedi farklı sektörde doğrulandı** (overfit kontrolü): recall **7/7 ailede** arttı
+  (tıbbi sarf %0,1→%49,7 · araç kiralama %0,9→%28,1 · siber güvenlik %59,7→%75,4 ·
+  asfalt %35,5→%56,0 · jeneratör %4,6→%19,2), tutarlılık 6/7'de arttı. Seçilen
+  çapalar insanın seçeceği terimler: `siber guvenlik`, `tibbi sarf malzeme`,
+  `soforlu arac kiralama`, `dizel jenerator`, `gida catering`, `asfalt kaplama`.
+  ⚠️ Bu tablodaki "isabet" adı ad-kalıbıyla tanımlanmış bir aileye göredir ve
+  **karamsardır** (aile dışı ama gerçekten benzer işler yanlış sayılır); geniş
+  ailelerde mutlak değeri anlamsızdır, yalnızca eski/yeni karşılaştırması anlamlıdır.
+  ⚠️ Maliyet **+100 ms** (ikinci bir index-only scan). Rapor ucu 1 sa önbellekli ve
+  tek-uçuşlu olduğu için kullanıcıya yansımaz.
+  ⚠️ **Çapa adı kullanıcıya GÖSTERİLİR** (`kapsam.aciklama` → *"Benzer işler: atıksu
+  izleme sistemi"*). Fiyat analizinin en kırılgan yanı "bu sayı nereden geldi"
+  sorusuna cevap verememesiydi; yanlış çapa seçilirse kullanıcı **anında** görür.
+  ⚠️ Geri alma: `KEYWORD_CAPA_ENABLED=False` → eski eşik tabanlı yol, deploy'suz.
+  Testler `ekap/tests/test_kavram_capasi.py`; **dişleri doğrulandı** (lift eşiği
+  kaldırılınca 2 test, üretken-kavram kontrolü kaldırılınca 1 test kırılıyor).
+
 - ⚠️ **Kalan kök sorun: keyword kalitesi.** Skorlama bunu örter, çözmez. Kalıcı çözüm
   prompt'u "aynı iş için hep aynı terimi kullan, jenerik varyant üretme" diye
   sıkılaştırıp kalıpları yeniden üretmektir (~$120, birkaç gün).

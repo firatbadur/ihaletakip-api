@@ -707,21 +707,33 @@ def kavram_gruplari(tender_pk, limit=None):
         key=lambda x: -x[2],
     )[:limit]
 
-    gruplar = []
-    for kid, metin, agirlik in skorlu:
-        tokenlar = metin.split()
-        uyeler = {kid}
-        if len(tokenlar) >= 2:
-            qs = Keyword.objects.filter(pasif=False)
-            for w in tokenlar[:2]:          # iki token yeterli; kalanı Python'da elenir
-                qs = qs.filter(metin__contains=w)
-            kume = frozenset(tokenlar)
-            for pk2, metin2 in qs.values_list("pk", "metin")[:500]:
-                q = frozenset(metin2.split())
-                if len(kume & q) >= 2 and (kume < q or q < kume or kume == q):
-                    uyeler.add(pk2)
-        gruplar.append((sorted(uyeler), agirlik))
-    return gruplar
+    return [(sorted(kavram_grubu(kid, metin)), agirlik)
+            for kid, metin, agirlik in skorlu]
+
+
+def kavram_grubu(keyword_id, metin):
+    """
+    Tek bir keyword'ün kavram grubu: kapsama ilişkisi + ≥2 ortak token taşıyan
+    sözlük keyword'leri. `kavram_gruplari` ve **çapa genişletmesi** aynı kuralı
+    kullansın diye ayrı fonksiyon — iki yerde ayrı yazılsaydı zamanla ayrışırlardı.
+    """
+    from .models import Keyword
+
+    tokenlar = metin.split()
+    uyeler = {keyword_id}
+    if len(tokenlar) < 2:
+        # ⚠️ Tek token'lık keyword genişletilmez: `atiksu` her şeye bağlanır ve grup
+        # kavram olmaktan çıkar (bkz. `kavram_gruplari`).
+        return uyeler
+    qs = Keyword.objects.filter(pasif=False)
+    for w in tokenlar[:2]:              # iki token yeterli; kalanı Python'da elenir
+        qs = qs.filter(metin__contains=w)
+    kume = frozenset(tokenlar)
+    for pk2, metin2 in qs.values_list("pk", "metin")[:500]:
+        q = frozenset(metin2.split())
+        if len(kume & q) >= 2 and (kume < q or q < kume or kume == q):
+            uyeler.add(pk2)
+    return uyeler
 
 
 def benzer_ihale_idleri(tender_pk, gruplar, limit, min_grup=None):
@@ -760,18 +772,7 @@ def benzer_ihale_idleri(tender_pk, gruplar, limit, min_grup=None):
     if len(gruplar) < min_grup:
         return []
 
-    kmap, agirlik = {}, {}
-    for i, (uyeler, w) in enumerate(gruplar):
-        agirlik[i] = w
-        for kid in uyeler:
-            kmap.setdefault(kid, i)
-
-    bulunan = defaultdict(set)
-    satirlar = (TenderKeyword.objects.filter(keyword_id__in=list(kmap))
-                .exclude(tender_id=tender_pk)
-                .values_list("tender_id", "keyword_id"))
-    for tid, kid in satirlar.iterator(chunk_size=20000):
-        bulunan[tid].add(kmap[kid])
+    bulunan, agirlik = _aday_taramasi(tender_pk, gruplar)
 
     # ⚠️⚠️ **Kavram SAYISI tek başına yetmez, kavramın GÜCÜ de şarttır.**
     # Eşik = en ayırt edici kavramın ağırlığı: aday ya o kavramı paylaşır ya da
@@ -785,17 +786,15 @@ def benzer_ihale_idleri(tender_pk, gruplar, limit, min_grup=None):
     # (hepsi SAİS işi) yerine `ulke` n=37 (Pompa Motor Bakım, UPS Bakım) geliyordu.
     # Bu yüzden varsayılan `min_grup=1` + ağırlık eşiği: "ayırt edici kavramı paylaş"
     # şartı, "2 kelime ortak olsun" şartının hedeflediği isabeti zaten sağlıyor.
-    en_iyi = max(agirlik.values())
-    oran = getattr(settings, "KEYWORD_SIMILAR_MIN_ORAN", 1.0)
-    esik = en_iyi * oran
-    secilen = [
-        (tid, len(g), sum(agirlik[i] for i in g))
-        for tid, g in bulunan.items()
-        if len(g) >= min_grup and sum(agirlik[i] for i in g) >= esik
-    ]
-    # Önce kaç kavram örtüştü, sonra kanıtın ağırlığı.
-    secilen.sort(key=lambda x: (-x[1], -x[2]))
-    return [tid for tid, _, _ in secilen[:limit]]
+    # ⚠️⚠️ Eşik **yalnızca ÜRETKEN kavramlar** üzerinden hesaplanır. Ölçüldü
+    # (2026-09-23, İKN 2021/432357): ihalenin keyword'leri `atiksu izleme`(df=41) ve
+    # `atiksu aritim revizyonu`(**df=1**). df=1 bir kavram tanımı gereği HİÇBİR aday
+    # üretemez, ama `max()` içinde en yüksek IDF'e sahip olduğu için çıtayı
+    # ulaşılamaz bir yere koyuyordu → kademe **0 aday** döndürüp sessizce ölüyor,
+    # merdiven OKAS'a düşüyordu. Aday üretmeyen bir kavramın çıtayı belirlemesi
+    # anlamsızdır; `bilisim` gürültüsüne karşı konan koruma bundan etkilenmez
+    # (orada tüm kavramlar üretkendi).
+    return _esikli_secim(tender_pk, bulunan, agirlik, gruplar, limit, min_grup)
 
 
 def uygula(tender, kalip=None):
@@ -852,3 +851,215 @@ def uygula(tender, kalip=None):
     if kayit.sektor and tender.sektor != kayit.sektor:
         tender.sektor = kayit.sektor
     return True
+
+
+def _aday_taramasi(tender_pk, gruplar):
+    """
+    `(bulunan, agirlik)` — `bulunan[tender_id] = {kavram_indeksi}`.
+
+    ⚠️ Tek tarama: hem eşik tabanlı seçim hem çapa seçimi bunu kullanır. İki ayrı
+    tarama, `ekap_tenderkeyword` üzerindeki index-only scan'i iki kez ödemek olurdu.
+    """
+    from collections import defaultdict
+
+    from .models import TenderKeyword
+
+    kmap, agirlik = {}, {}
+    for i, (uyeler, w) in enumerate(gruplar):
+        agirlik[i] = w
+        for kid in uyeler:
+            kmap.setdefault(kid, i)
+
+    bulunan = defaultdict(set)
+    satirlar = (TenderKeyword.objects.filter(keyword_id__in=list(kmap))
+                .exclude(tender_id=tender_pk)
+                .values_list("tender_id", "keyword_id"))
+    for tid, kid in satirlar.iterator(chunk_size=20000):
+        bulunan[tid].add(kmap[kid])
+    return bulunan, agirlik
+
+
+def capa_kavramlari(tender_pk, bulunan, agirlik):
+    """
+    Komşuluğun **baskın kavramını** bulur → `[(keyword_id_kumesi, ad, agirlik)]`.
+
+    ## Neden gerekli
+
+    Bir ihalenin kendi keyword'leri, ait olduğu işin **güvenilmez bir örneğidir**:
+    modeli aynı iş için farklı terimler üretiyor. Ölçüldü (2026-09-23) — adında
+    "sürekli atıksu izleme" geçen **86** ihale, yani birebir aynı iş:
+
+        atiksu izleme          ailenin %47'sinde   (df=41)
+        atiksu                 %44                 (df=1.074)
+        atiksu aritma          %30                 (df=1.433)
+        atiksu izleme sistemi  %28                 (df=28)
+        … toplam 40 farklı keyword, hiçbiri ailenin yarısını kapsamıyor
+
+    Sonuç: hangi ihaleden bakıldığına göre bambaşka bir "benzer işler" kümesi ve
+    bambaşka bir fiyat analizi çıkıyordu. **İndirim medyanı aynı iş için
+    %2,8 ile %35,6 arasında değişiyordu** (86 ihale, yayılım 32,9 puan).
+
+    ## Çözüm: ihalenin keyword'lerine değil, KOMŞULUĞUN keyword'lerine bak
+
+    Klasik bilgi erişimi tekniği (pseudo-relevance feedback), AI gerekmez:
+
+    1. **Tohum** — ihalenin kendi kavramlarıyla en çok örtüşen ilk N aday.
+    2. **Çapa** — tohumda geçen keyword'ler arasında *zenginleşme* (lift) en yüksek
+       olan(lar): `lift = (tohumdaki_oran) / (evrendeki_oran)`. Üretim ölçümü aynı
+       aile için ayrımın ne kadar keskin olduğunu gösteriyor:
+
+           atiksu izleme sistemi  df=28   23/50 tohumda   lift=17.285
+           atiksu izleme          df=41   26/50           lift=13.344
+           atiksu                 df=1074 20/50           lift=   392   ← gürültü
+           atiksu hatti           df=321   3/50           lift=   197
+
+    3. **Genişletme** — çapa kendi kavram grubuna açılır (`kavram_grubu`), böylece
+       `atiksu izleme` ≡ `atiksu izleme sistemi` ≡ `sureli atiksu izleme` ≡
+       `atiksu izleme istasyonu` aynı kümeye girer.
+
+    ⚠️ **Eşik MUTLAK değil GÖRELİ** (`lift >= oran × en_iyi_lift`). Mutlak bir lift
+    eşiği denendi ve işe yaramadı: lift'in büyüklüğü kavramın nadirliğine bağlı,
+    yani sektörden sektöre iki-üç kat değişiyor. İlk denemede mutlak eşik `atiksu`
+    ve `su kanalizasyon` gibi geniş terimleri de çapa seçti → isabet %3,6'ya düştü.
+    ⚠️ **Kapsam şartı ayrıca gerekli** (`f >= KEYWORD_CAPA_MIN_KAPSAM`): tek bir
+    tohumda geçen nadir bir terim sonsuz lift alır ama komşuluğu temsil etmez.
+
+    ⚠️ **Geçişli kümeleme (transitive closure) DENENDİ ve REDDEDİLDİ.** Tüm aktif
+    keyword'ler üzerinde union-find kurulduğunda (kapsama + ≥2 ortak token) zincirleme
+    birleşme oldu: 38.520 kümenin en büyüğü **12.309 üye** — yani neredeyse tüm
+    çok-kelimeli keyword'ler tek bir kümeye aktı. Kavram kümeleri bu veride ancak
+    **doğrudan komşuluk** olarak anlamlı; geçişlilik yok.
+
+    Ölçülen etki (7 aile, farklı sektörler): aile içi geri getirme **hepsinde** arttı
+    (örn. tıbbi sarf %0,1→%49,7 · araç kiralama %0,9→%28,1 · siber güvenlik
+    %59,7→%75,4), tutarlılık 7 ailenin 6'sında arttı (%30,4→%60,6 gibi).
+    """
+    import math
+    from collections import Counter
+
+    from django.conf import settings
+    from django.core.cache import cache
+
+    from .models import Tender, TenderKeyword
+
+    if not bulunan:
+        return []
+    tohum_n = getattr(settings, "KEYWORD_CAPA_TOHUM", 50)
+    # Tohum = en çok kavram örtüşen, sonra en ağır kanıt taşıyan adaylar.
+    sirali = sorted(((len(g), sum(agirlik[i] for i in g), tid)
+                     for tid, g in bulunan.items()), reverse=True)
+    tohum = [tid for _, _, tid in sirali[:tohum_n]]
+    if len(tohum) < getattr(settings, "KEYWORD_CAPA_MIN_TOHUM", 5):
+        # ⚠️ Az tohumda frekans istatistiği gürültüdür; çapa aramak yerine
+        # eski yola düşmek dürüst davranıştır.
+        return []
+
+    # ⚠️ `metin` (kanonik) token mantığı için, `metin_ham` kullanıcıya gösterim için.
+    # Kanonik biçim aksansız ve küçük harflidir (`atiksu izleme sistemi`); ekranda
+    # onu basmak raporu özensiz gösterir.
+    sayac, dfler, adlar, goster = Counter(), {}, {}, {}
+    for kid, metin, ham, df in (TenderKeyword.objects
+                                .filter(tender_id__in=tohum)
+                                .values_list("keyword_id", "keyword__metin",
+                                             "keyword__metin_ham",
+                                             "keyword__kullanim_sayisi")):
+        sayac[kid] += 1
+        dfler[kid] = df
+        adlar[kid] = metin
+        goster[kid] = ham or metin
+
+    toplam = cache.get(_N_IHALE_ANAHTARI)
+    if not toplam:
+        toplam = Tender.objects.count() or 1
+        cache.set(_N_IHALE_ANAHTARI, toplam, timeout=86400)
+
+    asgari_kapsam = getattr(settings, "KEYWORD_CAPA_MIN_KAPSAM", 0.20)
+    asgari_sayi = max(3, int(asgari_kapsam * len(tohum)))
+    adaylar = []
+    for kid, f in sayac.items():
+        if f < asgari_sayi:
+            continue
+        df = max(dfler.get(kid, 1), 1)
+        adaylar.append(((f / len(tohum)) / (df / toplam), kid))
+    if not adaylar:
+        return []
+
+    en_iyi = max(l for l, _ in adaylar)
+    oran = getattr(settings, "KEYWORD_CAPA_LIFT_ORAN", 0.10)
+    secilen = sorted((a for a in adaylar if a[0] >= oran * en_iyi), reverse=True)
+    secilen = secilen[:getattr(settings, "KEYWORD_CAPA_SAYISI", 3)]
+
+    bonus = getattr(settings, "KEYWORD_DERECE_BONUS", 0.1)
+    out = []
+    for _, kid in secilen:
+        metin = adlar[kid]
+        derece = len(metin.split())
+        w = (1 + bonus * (max(derece, 1) - 1)) * math.log(
+            toplam / max(dfler.get(kid, 1), 1))
+        out.append((kavram_grubu(kid, metin), goster[kid], w))
+    return out
+
+
+def capali_benzer_idler(tender_pk, gruplar, limit):
+    """
+    Benzer ihale id'leri — **çapa yoluyla**. `(idler, capa_adlari)` döner.
+
+    Çapa kurulamazsa (tohum yetersiz, komşuluk dağınık) eski eşik tabanlı yola
+    düşer ve `capa_adlari` boş döner → davranış en kötü hâlde bugünküyle aynıdır.
+    ⚠️ `KEYWORD_CAPA_ENABLED=False` **deploy'suz geri alma** düğmesidir.
+    """
+    from collections import defaultdict
+
+    from django.conf import settings
+
+    from .models import TenderKeyword
+
+    if not gruplar:
+        return [], []
+    bulunan, agirlik = _aday_taramasi(tender_pk, gruplar)
+
+    if getattr(settings, "KEYWORD_CAPA_ENABLED", True):
+        capalar = capa_kavramlari(tender_pk, bulunan, agirlik)
+        if capalar:
+            kmap, cap_agirlik = {}, {}
+            for i, (uyeler, _ad, w) in enumerate(capalar):
+                cap_agirlik[i] = w
+                for kid in uyeler:
+                    kmap.setdefault(kid, i)
+            skor = defaultdict(set)
+            satirlar = (TenderKeyword.objects.filter(keyword_id__in=list(kmap))
+                        .exclude(tender_id=tender_pk)
+                        .values_list("tender_id", "keyword_id"))
+            for tid, kid in satirlar.iterator(chunk_size=20000):
+                skor[tid].add(kmap[kid])
+            if skor:
+                secilen = sorted(
+                    ((len(g), sum(cap_agirlik[i] for i in g), tid)
+                     for tid, g in skor.items()), reverse=True)[:limit]
+                return [tid for _, _, tid in secilen], [a for _, a, _ in capalar]
+
+    return _esikli_secim(tender_pk, bulunan, agirlik, gruplar, limit), []
+
+
+def _esikli_secim(tender_pk, bulunan, agirlik, gruplar, limit, min_grup=None):
+    """
+    Eşik tabanlı seçim — **tek uygulama**. `benzer_ihale_idleri` (genel API) ve
+    `capali_benzer_idler`in yedek yolu ikisi de buradan geçer; iki kopya zamanla
+    ayrışırdı. Kuralın gerekçesi `benzer_ihale_idleri` docstring'inde.
+    """
+    from django.conf import settings
+
+    if min_grup is None:
+        min_grup = getattr(settings, "KEYWORD_MIN_ORTAK_GRUP", 1)
+    if len(gruplar) < min_grup or not bulunan:
+        return []
+    uretken = {i for g in bulunan.values() for i in g}
+    if not uretken:
+        return []
+    esik = max(agirlik[i] for i in uretken) * getattr(
+        settings, "KEYWORD_SIMILAR_MIN_ORAN", 1.0)
+    secilen = [(tid, len(g), sum(agirlik[i] for i in g))
+               for tid, g in bulunan.items()
+               if len(g) >= min_grup and sum(agirlik[i] for i in g) >= esik]
+    secilen.sort(key=lambda x: (-x[1], -x[2]))
+    return [tid for tid, _, _ in secilen[:limit]]

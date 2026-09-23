@@ -106,12 +106,17 @@ def _keyword_kademesi(tender):
     # terimler üretmiş olabiliyor (`atiksu izleme` ≡ `atiksu izleme sistemi`).
     if len(gruplar) < 2:
         return None
-    ids = list(kw_mod.benzer_ihale_idleri(
-        tender.pk, gruplar, settings.KEYWORD_BENCHMARK_ADAY))
+    ids, capalar = kw_mod.capali_benzer_idler(
+        tender.pk, gruplar, settings.KEYWORD_BENCHMARK_ADAY)
     if not ids:
         return None
-    return Kademe("anahtar", "Benzer işler (ihale adı benzerliği)",
-                  Q(tender_id__in=ids), sira=ids)
+    # ⚠️ Çapa adı kullanıcıya GÖSTERİLİR. Fiyat analizinin en kırılgan yanı
+    # "bu sayı nereden geldi" sorusuna cevap verememesiydi; "Benzer işler:
+    # atıksu izleme sistemi" etiketi hesabı denetlenebilir kılıyor ve yanlış bir
+    # çapa seçildiğinde kullanıcı bunu ANINDA görüyor (sessiz hata olmuyor).
+    aciklama = ("Benzer işler: " + ", ".join(capalar) if capalar
+                else "Benzer işler (ihale adı benzerliği)")
+    return Kademe("anahtar", aciklama, Q(tender_id__in=ids), sira=ids)
 
 
 def _merdiven(tender):

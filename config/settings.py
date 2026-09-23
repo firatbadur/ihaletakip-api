@@ -625,6 +625,28 @@ KEYWORD_BENCHMARK_ENABLED = env.bool("KEYWORD_BENCHMARK_ENABLED", default=False)
 # en benzer 300 ihalenin çoğu sonuçlanmamış olabilir ve örneklem eşiğin altına düşer.
 KEYWORD_BENCHMARK_ADAY = env.int("KEYWORD_BENCHMARK_ADAY", default=2000)
 
+# ── Kavram çapası (benzer iş seçiminin tutarlılığı) ──────────────────────────
+# Bir ihalenin kendi keyword'leri, ait olduğu işin güvenilmez bir örneğidir (model
+# aynı iş için farklı terimler üretmiş). Çapa, komşulukta en çok ZENGİNLEŞEN kavramı
+# bulup benzerliği ona göre kurar → aynı işin farklı ihaleleri aynı cevabı verir.
+# Ölçüm ve gerekçe: `ekap.keywords.capa_kavramlari`.
+# ⚠️ Kapatmak deploy gerektirmez; kapalıyken eski eşik tabanlı yol çalışır.
+KEYWORD_CAPA_ENABLED = env.bool("KEYWORD_CAPA_ENABLED", default=True)
+# Çapa aranacak komşuluk büyüklüğü (pseudo-relevance feedback'in "top-k" belgesi).
+KEYWORD_CAPA_TOHUM = env.int("KEYWORD_CAPA_TOHUM", default=50)
+# Bundan az tohumda frekans istatistiği gürültüdür → çapa aranmaz.
+KEYWORD_CAPA_MIN_TOHUM = env.int("KEYWORD_CAPA_MIN_TOHUM", default=5)
+# Çapa en çok kaç kavram olabilir.
+KEYWORD_CAPA_SAYISI = env.int("KEYWORD_CAPA_SAYISI", default=3)
+# Çapa tohumun en az bu oranında geçmeli — tek tohumda geçen nadir terim sonsuz
+# lift alır ama komşuluğu temsil etmez.
+KEYWORD_CAPA_MIN_KAPSAM = env.float("KEYWORD_CAPA_MIN_KAPSAM", default=0.20)
+# ⚠️ Lift eşiği GÖRELİDİR (en iyi lift'in oranı), mutlak değil: lift'in büyüklüğü
+# kavramın nadirliğine bağlı ve sektörden sektöre kat kat değişiyor. Mutlak eşik
+# denendi → `atiksu`, `su kanalizasyon` gibi geniş terimler çapa seçildi, isabet
+# %3,6'ya düştü. Düşürmek gürültüyü geri getirir.
+KEYWORD_CAPA_LIFT_ORAN = env.float("KEYWORD_CAPA_LIFT_ORAN", default=0.10)
+
 # Süre bütçeleri — hepsi `CELERY_TASK_TIME_LIMIT`(300) ALTINDA olmalı; aşan görev
 # öldürülür, `finally` çalışmaz ve Redis kilidi TTL dolana kadar kalır (yaşanmış arıza).
 KEYWORD_KALIP_MAX_SECONDS = env.int("KEYWORD_KALIP_MAX_SECONDS", default=240)

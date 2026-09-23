@@ -1101,6 +1101,13 @@ class TenderNamePattern(models.Model):
     sektor = models.CharField(max_length=32, blank=True)
     # Yayma adımı bunu tek okumada alır — keyword'leri yeniden çözmeye gerek kalmaz.
     keyword_ids = models.JSONField(default=list, blank=True)
+    # ⚠️ Ad uzlaşısı onarımının (`manage.py keyword_uzlasi`) EKLEDİĞİ keyword id'leri.
+    # Provenans zorunlu: bu keyword'ler AI'nın ihale adından ÜRETTİĞİ değil, arşivin
+    # ad komşuluğundan ÇIKARILDIĞI ve ayrıca AI'ya doğrulattığımız değerlerdir. Yanlış
+    # bir ekleme fark edilirse yalnızca bunlar geri alınabilmeli — aynı ilke
+    # `Tender.idare_kaynak` ve `Contract.yaklasik_maliyet_kaynak`ta da var: tahminle
+    # dolan her alan, nereden geldiğini söylemek zorundadır.
+    uzlasi_eklenen = models.JSONField(default=list, blank=True)
     guven = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
     batch = models.ForeignKey(KeywordBatch, null=True, blank=True,
                               on_delete=models.SET_NULL, related_name="kaliplar")

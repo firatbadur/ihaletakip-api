@@ -86,7 +86,10 @@ class Command(BaseCommand):
                        help="Doğrulananları YAZ (varsayılan: yalnızca göster)")
         p.add_argument("--min-lift", type=float, default=MIN_LIFT)
         p.add_argument("--max-seconds", type=int, default=0)
-        p.add_argument("--from-pk", type=int, default=0)
+        p.add_argument("--kalip", type=int, default=0,
+                       help="En sık N kalıbı tara (0 = tümü)")
+        p.add_argument("--atla", type=int, default=0,
+                       help="Tranş içinde ilk N kalıbı atla (kesinti sonrası devam)")
 
     # ── öneri üretimi ────────────────────────────────────
     def _komsular(self, cur, ad_norm, kalip_hash):
@@ -162,26 +165,42 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         yaz = self.stdout.write
         n_ihale = Tender.objects.count() or 1
-        hedef = (TenderNamePattern.objects.filter(durum="ok", pk__gt=o["from_pk"])
-                 .exclude(ornek_ad="").order_by("-ihale_sayisi", "pk"))
+        # ⚠️ Sıralama `-ihale_sayisi` (en çok ihaleyi etkileyen kalıp önce) olduğu için
+        # `pk__gt` ile devam EDİLEMEZ — pk sırası bu sıralamayla ilgisiz. Tranşın pk
+        # listesi bir kez çıkarılır, kesinti sonrası `--atla` ile konumdan devam edilir.
+        pk_qs = (TenderNamePattern.objects.filter(durum="ok").exclude(ornek_ad="")
+                 .order_by("-ihale_sayisi", "pk").values_list("pk", flat=True))
+        pk_listesi = list(pk_qs[:o["kalip"]] if o["kalip"] else pk_qs)
+        pk_listesi = pk_listesi[o["atla"]:]
+        yaz(f"  tranş         : {len(pk_listesi):,} kalıp (atlanan {o['atla']:,})")
         yaz(self.style.MIGRATE_HEADING("\n═══ AD UZLAŞISI — KEYWORD ONARIMI ═══"))
         oneriler, bakilan, basla = [], 0, time.monotonic()
         with connection.cursor() as cur:
             cur.execute("SET pg_trgm.similarity_threshold = %s", [TRIGRAM_ESIK])
-            for kalip in hedef.iterator(chunk_size=200):
-                bakilan += 1
-                try:
-                    one = self._oneri(cur, kalip, n_ihale)
-                except Exception as exc:                       # noqa: BLE001
-                    self.stderr.write(f"  kalıp {kalip.pk}: {exc}")
-                    continue
-                if one and one["lift"] >= o["min_lift"]:
-                    oneriler.append(one)
-                if o["pilot"] and len(oneriler) >= o["pilot"]:
+            dur = False
+            # ⚠️ 200'lük bloklar: `pk__in` listesi ne çok büyük (planlayıcıyı bozar)
+            # ne de satır başına bir sorgu (N+1) olsun.
+            for basi in range(0, len(pk_listesi), 200):
+                if dur:
                     break
-                if o["max_seconds"] and time.monotonic() - basla >= o["max_seconds"]:
-                    yaz(self.style.WARNING(f"  Süre doldu. --from-pk {kalip.pk}"))
-                    break
+                for kalip in TenderNamePattern.objects.filter(
+                        pk__in=pk_listesi[basi:basi + 200]):
+                    bakilan += 1
+                    try:
+                        one = self._oneri(cur, kalip, n_ihale)
+                    except Exception as exc:                   # noqa: BLE001
+                        self.stderr.write(f"  kalıp {kalip.pk}: {exc}")
+                        continue
+                    if one and one["lift"] >= o["min_lift"]:
+                        oneriler.append(one)
+                    if o["pilot"] and len(oneriler) >= o["pilot"]:
+                        dur = True
+                        break
+                    if o["max_seconds"] and time.monotonic() - basla >= o["max_seconds"]:
+                        yaz(self.style.WARNING(
+                            f"  Süre doldu. Devam: --atla {o['atla'] + bakilan}"))
+                        dur = True
+                        break
         sure = time.monotonic() - basla
         yaz(f"  bakılan kalıp : {bakilan:,}  ({sure:.0f} sn, {1000*sure/max(bakilan,1):.0f} ms/kalıp)")
         yaz(f"  ÖNERİ         : {len(oneriler):,}  (%{100*len(oneriler)/max(bakilan,1):.1f})")
@@ -217,7 +236,13 @@ class Command(BaseCommand):
             if one["keyword_id"] in idler:
                 continue
             idler.append(one["keyword_id"])
-            TenderNamePattern.objects.filter(pk=kalip.pk).update(keyword_ids=idler)
+            # ⚠️ Provenans: bu keyword'ü AI ÜRETMEDİ, arşiv uzlaşısı önerdi ve AI
+            # onayladı. Yanlış bir ekleme fark edilirse yalnızca bunlar geri alınabilmeli.
+            iz = list(kalip.uzlasi_eklenen or [])
+            if one["keyword_id"] not in iz:
+                iz.append(one["keyword_id"])
+            TenderNamePattern.objects.filter(pk=kalip.pk).update(
+                keyword_ids=idler, uzlasi_eklenen=iz)
             _bekleyen_ihalelere_uygula([(kalip.kalip_hash, idler, kalip.sektor)])
             yazilan += 1
         self.stdout.write(self.style.SUCCESS(f"\n  uygulanan kalıp: {yazilan:,}"))

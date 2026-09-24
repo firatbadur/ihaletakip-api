@@ -3039,10 +3039,59 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   2. ⚠️ **"Son bildirimden beri" (`last_notified_at`) tabanlı pencere de ÇÖZMEZ** —
      öğlen DB'ye giren ihale de `00:00` damgası taşır, yani sabahki watermark'ın
      **altında** kalır ve yine kaçar. Bu yüzden watermark'a dönmeyin.
-  Çözüm: pencere **son `NOTIF_LOOKBACK_DAYS` gün** (vars. 1) + mükerrerliği
-  **abonelik-başına ihale işareti** engeller (`_yeni_ihaleler`, `cache.add`, TTL 7 gün).
-  Pencere yalnızca **arşiv gürültüsüne** karşıdır (backfill 2019 ihalesini bugün
-  ekleyebilir) → daraltmak "az bildirim" değil **kaçan bildirim** üretir.
+  O zamanki çözüm: pencereyi **son `NOTIF_LOOKBACK_DAYS` güne genişletmek** +
+  mükerrerliği **abonelik-başına ihale işaretiyle** engellemek (`_yeni_ihaleler`,
+  `cache.add`, TTL 7 gün).
+
+  ⚠️⚠️ **PENCERE 2026-09-24'TE GERİ DARALTILDI (vars. 0 = BUGÜN) — genişletmek
+  daha görünür bir arıza açmıştı.** Kullanıcı bildirdi: *"bazılarında ihale
+  olmamasına rağmen bildirim geldi; içme suyu kanalizasyon filtresinden sözde 10
+  ihale yazdı ama bugün yayınlanan 5 sonuç var"*. İkisi de doğrulandı.
+
+  **Kök neden: üretici ile tüketici farklı pencere kullanıyordu.**
+
+  | | pencere |
+  |---|---|
+  | Üretici (`tenders/tasks.py`) | `ilan_tarihi >= DÜN 00:00` (~36 saat) |
+  | Tüketici (mobil `notificationRouting.js`) | `ilan_tarihi == bildirimin günü` (tek gün) |
+
+  ⚠️ Mobil **zaten tek gün varsayımıyla** yazılmıştı — dosyadaki yorum aynen şöyle:
+  *"Backend filtre alarmını yalnızca `ilan_tarihi = o gün` olan eşleşmeler için
+  atar"*. Pencere genişletilirken o sözleşme sessizce bozulmuş.
+
+  **Ölçüm (2026-09-24, o günün 14 bildirimi):** 12'sinde sayı tutmadı, **3'ü BOŞ
+  liste açtı** (içeriğinin tamamı dünkü ihalelerdi). Kullanıcının örneği birebir:
+  12 aday = **5 bugün + 7 dün**, bildirim "10" dedi, liste 5 gösterdi.
+
+  ⚠️ **Genişletmenin gerekçesi (yukarıdaki madde 1) ÖLÇÜMLE ÇÜRÜTÜLDÜ:** son 14
+  günün 2.229 ihalesinin **%99,6'sının** detayı (dolayısıyla `ilan_tarihi`si) **aynı
+  gün** geldi ve bunların **%100'ü 18:00 turundan önce** görünür oldu. Ertesi güne
+  sarkan yalnızca **9 ihale (%0,3)**. Sebep: o madde yazıldığında birincil kaynak v2
+  idi ve gecede **tek tur** koşuyordu; bugün mobil hat 2 saatte bir keşif yapıyor ve
+  detay bütçede önceliklidir. Yani "daraltmak kaçan bildirim üretir" uyarısı **bugün
+  %0,3'lük bir bedele** inmiş durumda.
+  ⚠️ Pencereyi tekrar genişletmeden **mobilin gün kısıtını da değiştirin**;
+  `NOTIF_LOOKBACK_DAYS>0` tek başına bir ayar değişikliği DEĞİLDİR.
+
+  - ⚠️⚠️ **Gövdedeki sayı = O GÜNÜN TOPLAMI, "sana yeni olanlar" DEĞİL.** İkisi
+    ayrı büyüklüktür ve `len(new_list)` yazmak onları yapısal olarak ayırırdı:
+    14:00 turu "3 yeni" derken mobilin açtığı liste günün 8'ini gösterir. Üretimde
+    gözlendi (fid=60: bildirim 1, liste 3). Dedup **neyi bildireceğimizi** belirler,
+    **kaç diyeceğimizi** değil. Şablon da "bugün" diyor ki sayı doğrulanabilsin.
+  - ⚠️⚠️ **Taranan küme = işaretlenen küme.** Eski kod
+    `_yeni_ihaleler(...[:50])[:20]` yazıyordu: 50 ihaleyi "bildirildi" diye
+    **işaretliyor**, yalnızca 20'sini bildiriyordu → 20'den fazla yeni ihalesi olan
+    bir filtrede 30'a kadarı **7 gün boyunca sessizce kayboluyordu** (hata da vermez).
+    Ölçüldü: en yüksek sayım **19** — tavana bir yoğun gün kalmıştı. Artık tek tavan
+    var (`_TARAMA_TAVANI`=300) ve **takılınca uyarı loglanır**.
+  - ⚠️ **Pencerenin ÜST SINIRI da var.** `ilan_tarihi` ileri tarihli olabilir
+    (`_publish_date_from_ilanlar` ilan listesinin en erken tarihini alır) → açık uç,
+    henüz yayımlanmamış bir ihaleyi "bugün yayımlandı" diye bildirirdi.
+  - ⚠️⚠️ **`ilan_tarihi` UTC GECE YARISI saklanır** (ingest `parse_ekap_datetime`
+    kullanıyor), yerelde **03:00** görünür. Test fixture'ını `local_day_range(...)[0]`
+    (yerel gece yarısı = 21:00Z önceki gün) ile kurmak üretimde **olmayan** bir durum
+    yaratır ve sahte kırılma üretir — `test_filtre_bildirimi.py` yazılırken tam olarak
+    bu yaşandı.
   - **Gün-kilidi → tur kilidi** (`_TUR_KILIDI_TTL`=20 dk): görev artık gün içinde
     birkaç kez koştuğu için gün-kilidi ikinci/üçüncü turu tümüyle yutardı. Tur kilidi
     yalnızca **eşzamanlı** tetiklemeye karşıdır ve **beat aralığından KISA olmalı**.
@@ -3052,8 +3101,15 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   - ⚠️ İşaret Redis'te durur; Redis sıfırlanırsa nadiren mükerrer bildirim gidebilir.
     Bilinçli tercih: **kaçan bildirim, mükerrer bildirimden kötüdür.**
   - ⚠️ `ilan_tarihi` detay senkronundan dolar → detayı henüz gelmemiş ihale o turda
-    değil **sonraki turda** yakalanır. Dedup ihaleye bağlı olduğu için kaçmaz; zamana
-    bağlı olsaydı kaçardı.
+    değil **sonraki turda** yakalanır (10:00 → 14:00 → 18:00). Dedup ihaleye bağlı
+    olduğu için gün içinde kaçmaz. ⚠️ Pencere artık tek gün olduğu için **ertesi güne
+    sarkan %0,3** kaçar; bu bilinçli ve ölçülmüş bir bedeldir.
+  - ⚠️ Kullanıcının gün içinde "aynı" bildirimi birkaç kez alması **tasarım gereğidir**
+    (her turda yeni görünen ihaleler için yeni bildirim) ama başlık aynı olduğu için
+    mükerrer gibi görünüyor. Ölçüldü (2026-09-23): tek kullanıcı **18 filtre bildirimi**
+    aldı, 6 filtre aynı gün **2 kez**. `NOTIF_MIN_GAP_MINUTES=0` olduğu için 12 push
+    peş peşe gidebiliyor. Bu bir sonraki iyileştirme adayıdır (kullanıcı başına
+    birleşik özet ya da min-gap), **henüz yapılmadı**.
 - **Çoğalma önleme = abonelik-başına ATOMİK gün-kilidi** (`cache.add`, race-safe): her filtre/
   idare/alarm için `{"filter"|"authority"|"alarm"|"okasrec"}:{uid}:{item_id}:{date}` anahtarı
   öğe işlenmeden **atomik** rezerve edilir. Görev yinelenmiş/interval beat ile aynı gün çok kez

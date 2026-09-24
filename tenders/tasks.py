@@ -26,20 +26,47 @@ logger = logging.getLogger("ihaletakip")
 # aşması yeter; ~1.5 gün.
 _ROW_DEDUP_TTL = 36 * 3600
 
-# ⚠️ **Bildirim penceresi neden "bugün" DEĞİL, dedup neden zamana bağlı DEĞİL.**
-# Görevler eskiden `ilan_tarihi` BUGÜN olanları arıyor ve filtre/idare başına bir
-# **gün-kilidi** ile günde tek tura zorlanıyordu. İkisi birlikte iki arıza üretti:
-#   1. EKAP'ın yayım saati **bilinmiyor ve veriden okunamıyor** (`ilan_tarihi`
-#      damgası gün başıdır). Sabit saatte tek tur, o saatten sonra yayımlanan her
-#      ihaleyi kaçırıyordu — ertesi gün de "bugün" olmadıkları için hiç bildirilmiyorlardı.
-#   2. "Son bildirimden beri" (`last_notified_at`) tabanlı bir pencere de ÇÖZMEZ:
-#      öğlen DB'ye giren ihale de `00:00` damgası taşır, yani sabahki watermark'ın
-#      **altında** kalır ve yine kaçardı.
-# Çözüm: pencereyi genişlet (son `NOTIF_LOOKBACK_DAYS` gün) ve mükerrerliği zamana
-# değil **ihaleye** bağla — abonelik başına "bu ihaleyi bildirdim" işareti.
+# ⚠️⚠️ **Bildirim penceresi = O GÜN yayımlananlar (2026-09-24'te geri daraltıldı).**
+#
+# Tarihçe önemli, çünkü bu pencere bir kez genişletildi ve genişletmek ÜRÜNÜ BOZDU:
+#
+# (1) En başta pencere "bugün" idi ama görevler günde **tek tur** koşuyordu ve
+#     abonelik başına bir **gün-kilidi** vardı. EKAP'ın yayım saati bilinmiyor
+#     (`ilan_tarihi` damgası gün başıdır, kaydın ne zaman düştüğünü söylemez) →
+#     o saatten sonra yayımlanan ihaleler kaçıyor, ertesi gün de "bugün" olmadıkları
+#     için hiç bildirilmiyordu.
+# (2) Bunun üzerine pencere `NOTIF_LOOKBACK_DAYS` güne **genişletildi**. Arıza
+#     kapandı ama **yeni ve daha görünür bir arıza açtı**: mobil, bildirime basınca
+#     listeyi **bildirimin gününe** kısıyor (`notificationRouting.js` →
+#     `ilan_tarihi_min = ilan_tarihi_max = gün`). Üretici 36 saatlik pencereden
+#     sayıyor, tüketici tek gün gösteriyor → **sayı tutmuyor**.
+#     Ölçüldü (2026-09-24, o günün 14 bildirimi): **12'sinde sayı tutmadı, 3'ü
+#     BOŞ liste açtı** (içeriğinin tamamı dünkü ihalelerdi). Kullanıcı bildirdi:
+#     *"sözde 10 ihale yazdı ama bugün yayınlanan 5 sonuç var"* — birebir doğrulandı
+#     (12 aday = 5 bugün + 7 dün).
+# (3) Asıl soru: (1)'deki kaçırma riski hâlâ var mı? **ÖLÇÜLDÜ, büyük ölçüde yok:**
+#     son 14 günün 2.229 ihalesinin **%99,6'sının** detayı (dolayısıyla
+#     `ilan_tarihi`si) **aynı gün** geldi ve bunların **%100'ü 18:00 turundan önce**
+#     görünür oldu. Ertesi güne sarkan yalnızca **9 ihale (%0,3)**.
+#     Sebep: (1) yazıldığında birincil kaynak v2 idi ve gecede tek tur koşuyordu;
+#     bugün mobil hat 2 saatte bir keşif yapıyor ve detay bütçede önceliklidir.
+# → Pencere **o güne** döndü. Bedeli ölçülmüş %0,3; kazancı sayının doğru olması.
+#
+# ⚠️ Pencereyi tekrar genişletmeden önce mobil tarafın gün kısıtını da değiştirin,
+# yoksa (2) geri gelir. `NOTIF_LOOKBACK_DAYS>0` yapmak bu yüzden **tek başına
+# bir ayar değişikliği değildir**.
+#
+# ⚠️ Mükerrerlik zamana değil **İHALEYE** bağlıdır — abonelik başına "bu ihaleyi
+# bildirdim" işareti. Bu korunmalı: görev gün içinde 3 kez koşuyor ve gün-kilidine
+# dönmek ikinci/üçüncü turu tümüyle yutardı.
 # ⚠️ İşaret Redis'te (cache) durur; Redis sıfırlanırsa nadiren mükerrer bildirim
 # gidebilir. Bilinçli tercih: **kaçan bildirim, mükerrer bildirimden kötüdür.**
 _TENDER_DEDUP_TTL = 7 * 24 * 3600
+# Bir turda taranıp işaretlenecek azami ihale. Bir günün TÜM yayımı ~210 ihale
+# olduğu için tek filtrenin bunu aşması pratikte imkânsız; tavan yine de vardır
+# çünkü sınırsız bir döngü bozuk bir filtrede görevi kilitler.
+# ⚠️ Tavana takılmak **sessiz olmamalı**: aşağıdaki görevler uyarı loglar.
+_TARAMA_TAVANI = 300
 # Tur kilidi: yalnızca **eşzamanlı** tetiklemeye karşı (yinelenmiş beat girdisi,
 # elle tetikleme). Beat aralığından KISA olmalı, yoksa sonraki turu da yutar.
 _TUR_KILIDI_TTL = 20 * 60
@@ -57,14 +84,28 @@ def _yeni_ihaleler(prefix, sahip_id, tenders):
     return yeni
 
 
-def _bildirim_taban():
-    """Bildirim penceresinin alt sınırı: son `NOTIF_LOOKBACK_DAYS` günün başı.
+def _bildirim_penceresi():
+    """Bildirim penceresi `(taban, tavan)` — varsayılanı **bugün**.
 
-    ⚠️ Pencere yalnızca **arşiv gürültüsüne** karşıdır (backfill 2019 ihalesini bugün
-    ekleyebilir); mükerrerliği `_yeni_ihaleler` engeller. Bu yüzden geniş tutulabilir.
+    `NOTIF_LOOKBACK_DAYS` (vars. **0**) geriye kaç gün daha bakılacağını söyler.
+    ⚠️ Sıfırdan büyük yapmak mobilin gün kısıtıyla çelişir ve "bildirimdeki sayı
+    ekrandaki listeyle tutmuyor" arızasını geri getirir — bkz. yukarıdaki blok.
+
+    ⚠️ **ÜST SINIR ŞART.** Eskiden yalnızca `>= taban` vardı; pencere yukarıya
+    açıktı. `ilan_tarihi` ileri tarihli olabilen bir alandır (detaydaki ilan
+    listesinin en erken tarihinden türetiliyor, `_publish_date_from_ilanlar`) →
+    açık uç, henüz yayımlanmamış bir ihaleyi "bugün yayımlandı" diye bildirebilir.
+    Üst sınır ayrıca pencereyi mobilin `ilan_tarihi_min/max` aralığıyla **aynı
+    şekle** sokar.
+
+    ⚠️⚠️ `ilan_tarihi` **UTC gece yarısı** olarak saklanır (ingest `parse_ekap_datetime`
+    kullanıyor) → yerelde 03:00 görünür. Yerel gün sınırlarıyla karşılaştırmak bu
+    yüzden doğrudur ve `__date=` kullanmaya gerek yoktur (o kolonun üstüne fonksiyon
+    koyup indeksi öldürürdü — bkz. CLAUDE.md "local_day_range").
     """
-    gun = timezone.localdate() - timedelta(days=getattr(settings, "NOTIF_LOOKBACK_DAYS", 1))
-    return local_day_range(gun)[0]
+    bugun = timezone.localdate()
+    gun = bugun - timedelta(days=getattr(settings, "NOTIF_LOOKBACK_DAYS", 0))
+    return local_day_range(gun)[0], local_day_range(bugun)[1]
 
 # Rakip alarmı: `ilk_gorulme` bugün OLSA BİLE sözleşme bundan eskiyse bildirim gitmez.
 # Gerekçe: arşiv süpürmesi daha önce bağlanmamış eski sözleşmeleri bugün "ilk kez"
@@ -249,7 +290,7 @@ def check_saved_filter_matches():
     notified = 0
     pushed = 0
 
-    taban = _bildirim_taban()
+    taban, tavan = _bildirim_penceresi()
 
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
@@ -278,16 +319,36 @@ def check_saved_filter_matches():
             # mükerrerliği `_yeni_ihaleler` engeller. ⚠️ `ilan_tarihi` detay senkronundan
             # dolar → detayı henüz gelmemiş ihale bu turda değil, sonraki turda yakalanır
             # (dedup ihaleye bağlı olduğu için kaçmaz — zamana bağlı olsaydı kaçardı).
-            base = base.filter(ilan_tarihi__gte=taban)
+            base = base.filter(ilan_tarihi__gte=taban, ilan_tarihi__lt=tavan)
 
             sf.last_notified_at = now
             sf.save(update_fields=["last_notified_at"])
 
-            new_list = _yeni_ihaleler("nf", sf.id, base.order_by("-ilan_tarihi")[:50])[:20]
+            # ⚠️⚠️ **TARANAN ile SAYILAN aynı küme olmalı.** Eski kod
+            # `_yeni_ihaleler(...[:50])[:20]` yazıyordu: 50 ihaleyi "bildirildi" diye
+            # İŞARETLİYOR ama yalnızca 20'sini bildiriyordu → 20'den fazla yeni ihale
+            # olan bir filtrede 30'a kadarı **7 gün boyunca sessizce kayboluyordu**
+            # (hata da vermez). Ölçüldü: en yüksek sayım 19 — tavana bir yoğun gün
+            # kalmıştı. Artık taranan küme ne ise işaretlenen de odur.
+            gunun_hepsi = list(base.order_by("-ilan_tarihi")[:_TARAMA_TAVANI])
+            if len(gunun_hepsi) >= _TARAMA_TAVANI:
+                logger.warning(
+                    "check_saved_filter_matches: filtre %s tarama tavanına takıldı (%s)",
+                    sf.pk, _TARAMA_TAVANI,
+                )
+            new_list = _yeni_ihaleler("nf", sf.id, gunun_hepsi)
             if not new_list:
                 continue
 
-            title, body = templates.saved_filter_match(filter_name=sf.name, count=len(new_list))
+            # ⚠️⚠️ Gövdedeki sayı **o günün TOPLAMI**dır, "sana yeni olanlar" DEĞİL.
+            # Mobil bildirime basınca listeyi o güne kısıyor ve kullanıcı gördüğü
+            # sayıyla bildirimdeki sayıyı karşılaştırıyor. `len(new_list)` yazmak
+            # ikisini yapısal olarak ayırırdı: 14:00 turu "3 yeni" derken liste
+            # günün 8'ini gösterir. Üretimde tam bu yaşandı (fid=60: bildirim 1,
+            # liste 3). Dedup **neyi bildireceğimizi** belirler, **kaç diyeceğimizi**
+            # değil.
+            title, body = templates.saved_filter_match(
+                filter_name=sf.name, count=len(gunun_hepsi))
             notify.record_notification(
                 sf.user,
                 type=Notification.Type.TENDER,
@@ -339,7 +400,7 @@ def check_favorite_authority_matches():
     notified = 0
     pushed = 0
 
-    taban = _bildirim_taban()
+    taban, tavan = _bildirim_penceresi()
 
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
         # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
@@ -359,21 +420,29 @@ def check_favorite_authority_matches():
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__gte=taban)
+                .filter(ilan_tarihi__gte=taban, ilan_tarihi__lt=tavan)
                 .order_by("-ilan_tarihi")
             )
 
             fav.last_notified_at = now
             fav.save(update_fields=["last_notified_at"])
 
-            new_list = _yeni_ihaleler("na", fav.id, base[:50])[:20]
+            # Taranan = işaretlenen = sayılan (bkz. check_saved_filter_matches'teki
+            # aynı gerekçe: 50 işaretleyip 20 bildirmek sessiz kayıp üretiyordu).
+            gunun_hepsi = list(base[:_TARAMA_TAVANI])
+            if len(gunun_hepsi) >= _TARAMA_TAVANI:
+                logger.warning(
+                    "check_favorite_authority_matches: favori %s tarama tavanına takıldı (%s)",
+                    fav.pk, _TARAMA_TAVANI,
+                )
+            new_list = _yeni_ihaleler("na", fav.id, gunun_hepsi)
             if not new_list:
                 continue
 
             title, body = templates.authority_match(
                 authority_name=fav.ad or "Favori İdare",
-                count=len(new_list),
-                first_title=new_list[0].ihale_adi if len(new_list) == 1 else None,
+                count=len(gunun_hepsi),
+                first_title=gunun_hepsi[0].ihale_adi if len(gunun_hepsi) == 1 else None,
             )
             notify.record_notification(
                 fav.user,

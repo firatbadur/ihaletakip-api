@@ -332,7 +332,11 @@ REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 # ihalelere bakar. ⚠️ Pencere **arşiv gürültüsüne** karşıdır (backfill eski bir
 # ihaleyi bugün ekleyebilir); mükerrerliği ihale bazlı dedup engeller, bu yüzden
 # pencereyi daraltmak "az bildirim" değil yalnızca "kaçan bildirim" üretir.
-NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=1)
+# Bildirim penceresi: 0 = yalnızca BUGÜN yayımlananlar (varsayılan).
+# ⚠️ Artırmak tek başına bir ayar değişikliği DEĞİLDİR: mobil, bildirime basınca
+# listeyi bildirimin gününe kısıyor → pencere genişleyince bildirimdeki sayı
+# ekrandaki listeyle tutmaz (2026-09-24 arızası). Bkz. `tenders/tasks.py` başı.
+NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=0)
 NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
 NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 # Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).

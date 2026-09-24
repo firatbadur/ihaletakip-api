@@ -82,13 +82,18 @@ def alarm_summary(
 
 def saved_filter_match(*, filter_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:
     """
-    Bir filtreye uyan yeni ihale(ler) için bildirim. Başlık = filtre adı, gövde =
-    "{filtre} filtrenize uygun N adet ihale bulundu." (ör. "Otomasyon filtrenize uygun
-    5 adet ihale bulundu."). `first_title` artık kullanılmaz (bildirime basınca tek ihale
-    DEĞİL, filtrenin sonuç listesi açılır — bkz. `filter_id` derin bağlantısı).
+    Bir filtreye uyan, **bugün yayımlanan** ihaleler için bildirim. Başlık = filtre adı.
+
+    ⚠️ Metin "bugün" diyor çünkü sayı **doğrulanabilir** olmalı: bildirime basınca
+    mobil listeyi o güne kısıyor (`notificationRouting.js`) ve kullanıcı iki sayıyı
+    karşılaştırıyor. Belirsiz bir "bulundu" ifadesi, kullanıcının hangi kümeye
+    bakacağını bilememesine yol açıyordu (üretimde bildirildi 2026-09-24).
+    ⚠️ `count` o günün TOPLAMIdır, "sana yeni olanlar" değil — bkz.
+    `tenders.tasks.check_saved_filter_matches`.
+    `first_title` kullanılmaz (bildirime basınca tek ihale DEĞİL, o günün listesi açılır).
     """
     name = clip(filter_name or "Kayıtlı Filtre")
-    body = f"{name} filtrenize uygun {count} adet ihale bulundu."
+    body = f"{name} filtrenize uygun bugün {count} ihale yayımlandı."
     return name, body
 
 
@@ -142,10 +147,14 @@ def free_teaser(*, ihale: int, filtre: int, idare: int) -> tuple[str, str]:
 # ── Favori idare: yeni ihale yayını ────────────────────
 
 def authority_match(*, authority_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:
-    """Favori idarenin yayınladığı yeni ihale(ler) için başlık = idare adı."""
+    """Favori idarenin **bugün** yayımladığı ihaleler için; başlık = idare adı.
+
+    ⚠️ "bugün" ifadesi bilinçli: `count` o günün toplamıdır ve kullanıcı bunu
+    listedeki tarihlerden doğrulayabilmelidir (bkz. `saved_filter_match`).
+    """
     title = clip(authority_name or "Favori İdare")
     if count == 1 and first_title:
-        body = f"Yeni ihale: {clip(first_title, 80)}"
+        body = f"Bugün yeni ihale: {clip(first_title, 80)}"
     else:
-        body = f"{count} yeni ihale yayımlandı"
+        body = f"Bugün {count} ihale yayımladı"
     return title, body

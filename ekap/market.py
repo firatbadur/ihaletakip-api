@@ -35,7 +35,28 @@ from decimal import Decimal
 from django.db.models import Count, Sum
 from django.utils import timezone
 
+from .constants import SEKTORLER
 from .models import Contract, MarketStat, MarketYearStat, OkasCode, Tender
+
+# ── Pano ekseni ───────────────────────────────────────────────────────────────
+# ⚠️⚠️ **Pano artık SEKTÖR ekseninde sunulur** (2026-09-24). Gerekçe ölçümle:
+#
+#   · `Contract.okas_bucket` doluluğu 2026'da **%78,7**, `Contract.sektor` **%98,3**.
+#     OKAS ekseninde "Sınıflandırılmamış" grubu, yılın **4. en büyük** kalemiydi
+#     (18.635 sözleşme) — panonun tepesinde bir "bilinmiyor" kutusu duruyordu.
+#   · OKAS etiketleri bürokratik ve kullanıcıya yabancı: listenin başı
+#     *"BI. ve BII. Grubu işlerin dışındaki bina işleri"*, *"Taşkın koruma tesisleri
+#     işleri"* gibi kalemlerdi. Sektör ekseninde aynı yer *"İnşaat ve Yapım İşi"*,
+#     *"Yol, Asfalt ve Altyapı"*, *"Gıda ve Yemek Hizmeti"*.
+#   · **Onboarding ekranı zaten bu taksonomiyi kullanıyor** → kullanıcı kendi seçtiği
+#     sektörü panoda aynı adla görür. İki ayrı kategori dili taşımak ürünün kendi
+#     içinde çelişmesiydi.
+#
+# ⚠️ OKAS ekseni **silinmedi, yazılmaya devam ediyor**: eski `/ekap/market/<4hane>/`
+# derin bağlantıları (mobil önbelleği, paylaşılmış linkler) çalışmaya devam etmeli.
+BOYUT_SEKTOR = "sektor"
+BOYUT_OKAS = "okas"
+VARSAYILAN_BOYUT = BOYUT_SEKTOR
 
 # Yoğunlaşma (HHI) hesabı için firma tavanı: aşılırsa sonuç `yaklasik: True` döner.
 # Kesilmiş bir küme üzerinden hesaplanan HHI tam değildir; sessizce vermek yanlış olur.
@@ -139,6 +160,53 @@ def _bucket_adlari(bucketlar):
     return adlar
 
 
+def _eksen_nesneleri(boyut, alan):
+    """Bir eksenin (yıl, grup) satırlarını `MarketStat` nesnelerine çevirir.
+
+    ``alan`` `Contract` üzerindeki gruplama kolonu (`sektor` ya da `okas_bucket`).
+
+    ⚠️ `.order_by()` ŞART: `Contract.Meta.ordering` GROUP BY'a sızarsa gruplama
+    bozulur (bu kod tabanında `detsis_tree.py:30` dersi).
+    ⚠️ `.values().annotate()` → `detail_raw` TOAST'ına hiç dokunulmaz.
+    """
+    satirlar = list(
+        Contract.objects.filter(sozlesme_tarihi__isnull=False)
+        .order_by()
+        .values("sozlesme_tarihi__year", alan)
+        .annotate(
+            adet=Count("id"),
+            bedel=Sum("sozlesme_bedeli_num"),
+            ind_top=Sum("indirim_orani"),
+            ind_n=Count("indirim_orani"),
+            tek_top=Sum("teklif_sayisi"),
+            tek_n=Count("teklif_sayisi"),
+        )
+    )
+    if boyut == BOYUT_SEKTOR:
+        # Kapalı taksonomi → ad sorgu gerektirmez.
+        adlar = dict(SEKTORLER)
+    else:
+        adlar = _bucket_adlari({r[alan] for r in satirlar})
+
+    return [
+        MarketStat(
+            yil=r["sozlesme_tarihi__year"],
+            boyut=boyut,
+            okas_bucket=r[alan] or "",
+            # ⚠️ `okas_bucket=""` / `sektor=""` GERÇEK veridir, sentinel değil —
+            # sessizce düşürmek pazar toplamlarını yanlış gösterir.
+            ad=adlar.get(r[alan], "") if r[alan] else SINIFLANDIRILMAMIS,
+            sozlesme_sayisi=r["adet"],
+            toplam_bedel=r["bedel"],
+            indirim_toplam=r["ind_top"],
+            indirim_ornek=r["ind_n"],
+            teklif_toplam=r["tek_top"],
+            teklif_ornek=r["tek_n"],
+        )
+        for r in satirlar
+    ]
+
+
 def refresh_market_stats():
     """
     `MarketStat` + `MarketYearStat`'ı sıfırdan yeniden hesaplar.
@@ -158,42 +226,13 @@ def refresh_market_stats():
     """
     simdi = timezone.now()
 
-    # ── 1) (yıl, iş grubu) ────────────────────────────────────────────────────
-    # ⚠️ `.order_by()` ŞART: `Contract.Meta.ordering` GROUP BY'a sızarsa gruplama
-    # bozulur (bu kod tabanında `detsis_tree.py:30` dersi).
-    satirlar = list(
-        Contract.objects.filter(sozlesme_tarihi__isnull=False)
-        .order_by()
-        .values("sozlesme_tarihi__year", "okas_bucket")
-        .annotate(
-            adet=Count("id"),
-            bedel=Sum("sozlesme_bedeli_num"),
-            ind_top=Sum("indirim_orani"),
-            ind_n=Count("indirim_orani"),
-            tek_top=Sum("teklif_sayisi"),
-            tek_n=Count("teklif_sayisi"),
-        )
-    )
-    adlar = _bucket_adlari({r["okas_bucket"] for r in satirlar})
-
-    nesneler = [
-        MarketStat(
-            yil=r["sozlesme_tarihi__year"],
-            okas_bucket=r["okas_bucket"] or "",
-            ad=adlar.get(r["okas_bucket"], "") if r["okas_bucket"] else SINIFLANDIRILMAMIS,
-            sozlesme_sayisi=r["adet"],
-            toplam_bedel=r["bedel"],
-            indirim_toplam=r["ind_top"],
-            indirim_ornek=r["ind_n"],
-            teklif_toplam=r["tek_top"],
-            teklif_ornek=r["tek_n"],
-        )
-        for r in satirlar
-    ]
+    # ── 1) (yıl, eksen, grup) — iki eksen: sektör + OKAS ─────────────────────
+    nesneler = _eksen_nesneleri(BOYUT_SEKTOR, "sektor") + \
+        _eksen_nesneleri(BOYUT_OKAS, "okas_bucket")
     MarketStat.objects.bulk_create(
         nesneler,
         update_conflicts=True,
-        unique_fields=["yil", "okas_bucket"],
+        unique_fields=["yil", "boyut", "okas_bucket"],
         update_fields=[
             "ad", "sozlesme_sayisi", "toplam_bedel",
             "indirim_toplam", "indirim_ornek", "teklif_toplam", "teklif_ornek",
@@ -273,7 +312,13 @@ def _ort_str(toplam, ornek):
 def _grup_satiri(s):
     ind_deger, ind_guven = _indirim(s.indirim_toplam, s.indirim_ornek, s.sozlesme_sayisi)
     return {
+        # ⚠️ Alan adı tarihsel; mobil bunu OPAK ANAHTAR olarak okuyup
+        # `/ekap/market/{okas_bucket}/` yoluna koyuyor → değiştirilemez.
+        # Sektör ekseninde burada sektör kodu (`gida_catering`) taşınır.
         "okas_bucket": s.okas_bucket,
+        # Yeni istemciler için açık adlandırma (mobil bugün yok sayar).
+        "kod": s.okas_bucket,
+        "boyut": s.boyut,
         "ad": s.ad or (SINIFLANDIRILMAMIS if not s.okas_bucket else ""),
         "sozlesme_sayisi": s.sozlesme_sayisi,
         "toplam_bedel": str(s.toplam_bedel) if s.toplam_bedel is not None else None,
@@ -300,8 +345,18 @@ def _yil_coz(istenen, yillar):
     return y if y in yillar else yillar[0]
 
 
-def genel_bakis(yil=None, limit=VARSAYILAN_LIMIT):
-    """Pano ana ekranı: yıl özeti + o yılın en büyük iş grupları."""
+def boyut_coz(istenen):
+    """Query param → geçerli eksen. Tanınmayan değer varsayılana düşer."""
+    b = (istenen or "").strip().lower()
+    return b if b in (BOYUT_SEKTOR, BOYUT_OKAS) else VARSAYILAN_BOYUT
+
+
+def genel_bakis(yil=None, limit=VARSAYILAN_LIMIT, boyut=None):
+    """Pano ana ekranı: yıl özeti + o yılın en büyük **sektörleri**.
+
+    ``boyut='okas'`` eski OKAS iş grubu eksenini döndürür (geriye dönük).
+    """
+    boyut = boyut_coz(boyut)
     yillar = mevcut_yillar()
     y = _yil_coz(yil, yillar)
     if y is None:
@@ -309,11 +364,13 @@ def genel_bakis(yil=None, limit=VARSAYILAN_LIMIT):
 
     ys = MarketYearStat.objects.filter(yil=y).first()
     limit = max(1, min(MAX_LIMIT, limit))
-    gruplar = MarketStat.objects.filter(yil=y).order_by("-toplam_bedel")[:limit]
+    gruplar = (MarketStat.objects.filter(yil=y, boyut=boyut)
+               .order_by("-toplam_bedel")[:limit])
 
     return {
         "yil": y,
         "yillar": yillar,
+        "boyut": boyut,
         "ozet": {
             "sozlesme_sayisi": ys.sozlesme_sayisi if ys else 0,
             # ⚠️ Bu iki sayı `MarketStat` satırlarından TÜRETİLEMEZ (toplanamaz) —
@@ -336,13 +393,19 @@ def genel_bakis(yil=None, limit=VARSAYILAN_LIMIT):
     }, None
 
 
-def _iller(bucket, yil, limit):
+def _kapsam(boyut, kod):
+    """Eksen + kod → `Contract` filtresi. İki eksen de indekslidir
+    (`ekap_contract_sektor_tarih_idx` / `ekap_contract_bucket_tip_idx`)."""
+    return {"sektor": kod} if boyut == BOYUT_SEKTOR else {"okas_bucket": kod}
+
+
+def _iller(boyut, kod, yil, limit):
     """İl kırılımı — CANLI (ölçüm 85 ms). Materialize edilmedi, bkz. modül başlığı."""
     from .models import City
 
     satir = list(
         Contract.objects.filter(
-            okas_bucket=bucket, sozlesme_tarihi__year=yil, il_id__isnull=False
+            **_kapsam(boyut, kod), sozlesme_tarihi__year=yil, il_id__isnull=False
         )
         .order_by()
         .values("il_id")
@@ -364,7 +427,7 @@ def _iller(bucket, yil, limit):
     ]
 
 
-def _firmalar(bucket, yil, limit):
+def _firmalar(boyut, kod, yil, limit):
     """
     Firma kırılımı + yoğunlaşma (HHI) — CANLI (ölçüm 103 ms).
 
@@ -375,7 +438,7 @@ def _firmalar(bucket, yil, limit):
     from .models import Contractor
 
     temel = Contract.objects.filter(
-        okas_bucket=bucket, sozlesme_tarihi__year=yil, yuklenici__isnull=False
+        **_kapsam(boyut, kod), sozlesme_tarihi__year=yil, yuklenici__isnull=False
     ).order_by()
 
     tum = list(
@@ -416,21 +479,37 @@ def _firmalar(bucket, yil, limit):
     )
 
 
-def grup_detayi(bucket, yil=None, limit=VARSAYILAN_LIMIT):
-    """Drill-down: bir iş grubunun yıllara göre seyri + il ve firma kırılımı."""
-    bucket = (bucket or "").strip()
-    seri = list(MarketStat.objects.filter(okas_bucket=bucket).order_by("yil"))
+def grup_detayi(kod, yil=None, limit=VARSAYILAN_LIMIT, boyut=None):
+    """Drill-down: bir grubun yıllara göre seyri + il ve firma kırılımı.
+
+    ⚠️ **Eksen koddan ÇÖZÜLÜR, istemciden istenmez.** Mobil yalnızca panodan aldığı
+    opak anahtarı geri gönderiyor (`/ekap/market/{kod}/`) ve eski sürümlerin
+    önbelleğinde/paylaşılmış linklerinde 4 haneli OKAS kodları var. `boyut`
+    verilmezse kod hangi eksende bulunuyorsa o kullanılır → **eski derin bağlantılar
+    çalışmaya devam eder.**
+    """
+    kod = (kod or "").strip()
+    qs = MarketStat.objects.filter(okas_bucket=kod)
+    if boyut:
+        qs = qs.filter(boyut=boyut_coz(boyut))
+    seri = list(qs.order_by("yil"))
     if not seri:
         return None, "İş grubu bulunamadı."
+    # Aynı kod iki eksende birden bulunamaz (sektör kodları harf, OKAS kodları rakam)
+    # ama yine de tek eksende kalmayı garanti ediyoruz.
+    boyut = seri[-1].boyut
+    seri = [x for x in seri if x.boyut == boyut]
 
     yillar = [s.yil for s in seri]
     y = _yil_coz(yil, sorted(yillar, reverse=True))
     limit = max(1, min(MAX_LIMIT, limit))
-    firmalar, yogunlasma = _firmalar(bucket, y, limit)
+    firmalar, yogunlasma = _firmalar(boyut, kod, y, limit)
 
     return {
-        "okas_bucket": bucket,
-        "ad": seri[-1].ad or (SINIFLANDIRILMAMIS if not bucket else ""),
+        "okas_bucket": kod,   # ⚠️ tarihsel ad; mobil sözleşmesi (bkz. `_grup_satiri`)
+        "kod": kod,
+        "boyut": boyut,
+        "ad": seri[-1].ad or (SINIFLANDIRILMAMIS if not kod else ""),
         "yillar": sorted(yillar, reverse=True),
         "yillara_gore": [
             {
@@ -448,7 +527,7 @@ def grup_detayi(bucket, yil=None, limit=VARSAYILAN_LIMIT):
             for s in seri
         ],
         "yil": y,
-        "iller": _iller(bucket, y, limit),
+        "iller": _iller(boyut, kod, y, limit),
         "firmalar": firmalar,
         "yogunlasma": yogunlasma,
         "guncelleme": seri[-1].guncelleme.isoformat(),

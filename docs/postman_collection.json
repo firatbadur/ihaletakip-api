@@ -1434,9 +1434,15 @@
               ],
               "query": [
                 {
+                  "key": "boyut",
+                  "value": "sektor",
+                  "description": "Pano ekseni. Varsayılan **sektör** (onboarding ile aynı taksonomi); `okas` eski OKAS iş grubu eksenini döndürür. Geçerli değerler: `okas`, `sektor`.",
+                  "disabled": true
+                },
+                {
                   "key": "limit",
                   "value": "20",
-                  "description": "İş grubu sayısı (en fazla 100).",
+                  "description": "Grup sayısı (en fazla 100).",
                   "disabled": true
                 },
                 {
@@ -1550,10 +1556,16 @@
                   "value": "3_aylik",
                   "description": "Geçerli değerler: `3_aylik`, `6_aylik`, `aylik`, `duzensiz`, `yillik`.",
                   "disabled": true
+                },
+                {
+                  "key": "sektor",
+                  "value": "ornek",
+                  "description": "Sektör kodu listesi (virgülle) — pazar panosu ve onboarding ile aynı kapalı taksonomi.",
+                  "disabled": true
                 }
               ]
             },
-            "description": "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\nSeriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi önlemek için kasıtlı olarak muhafazakâr).\n\n⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "Aynı idarenin yıldan yıla tekrarladığı işler ve **sıradaki ilanın beklenen tarihi**. Kullanıcı ilan çıkmadan önce hazırlanabilir.\n\nSeriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi önlemek için kasıtlı olarak muhafazakâr).\n\n⚠️ **`beklenen_ilan_tarihi: null` bir eksiklik DEĞİLDİR**: periyodu `duzensiz` çıkan seride tespit edilebilir bir tekrar aralığı yoktur ve tarih uydurulmaz. İstemci \"tahmin edilemiyor\" demeli, boş bırakmamalıdır. Seri yine de listelenir — \"bu idare bu işi tekrar tekrar alıyor\" gerçek bir bilgidir.\n\n⚠️ **`guven` DÖNEM sayısına bakar, ihale sayısına değil**: `yuksek` = en az 3 aralık (4 dönem) ve sapma/medyan ≤ 0,15. Kısım lotları ve iptal sonrası yeniden ihale ayrı tekrar SAYILMAZ (`donem_sayisi` ile `ihale_sayisi` bu yüzden farklıdır).\n\n⚠️ `gecikme_gun` dolu ise beklenen tarih geçmiştir; sıralama yaklaşanları önce verir, gecikenleri sonra.\n\n⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
@@ -1649,6 +1661,12 @@
               ],
               "query": [
                 {
+                  "key": "boyut",
+                  "value": "okas",
+                  "description": "Eksen (boşsa koddan çözülür). Geçerli değerler: `okas`, `sektor`.",
+                  "disabled": true
+                },
+                {
                   "key": "limit",
                   "value": "20",
                   "description": "Liste uzunluğu (en fazla 100).",
@@ -1665,7 +1683,7 @@
                 {
                   "key": "okas_bucket",
                   "value": "ornek",
-                  "description": "**Zorunlu.** 4 haneli OKAS iş grubu kodu."
+                  "description": "**Zorunlu.** Grup kodu: sektör kodu (`gida_catering`) ya da 4 haneli OKAS kodu (`4523`). Eksen koddan çözülür, istemcinin bilmesi gerekmez."
                 }
               ]
             },

@@ -378,9 +378,8 @@ def apply_pro_fields(tender: Tender, data: dict, *, koruyucu: bool = False) -> N
 
     # ── Seri anahtarı (Adım 7) ────────────────────────────────────────────────
     # Burada üretilir ki arşivin `detail_raw`'ı bir kez okunsun.
-    _yaz(tender, "seri_anahtar", series_key(
-        tender.idare_id, tender.okas_ana_kod, tender.ihale_adi
-    ), koruyucu)
+    _yaz(tender, "seri_anahtar",
+         series_key(tender.idare_id, tender.ihale_adi), koruyucu)
 
 
 def upsert_tender_detail(ekap_id, detail, announcements=None, *,

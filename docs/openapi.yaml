@@ -1600,11 +1600,21 @@ paths:
       summary: Pazar panosu — yıl özeti ve en büyük iş grupları
       parameters:
       - in: query
+        name: boyut
+        schema:
+          type: string
+          enum:
+          - okas
+          - sektor
+          default: sektor
+        description: Pano ekseni. Varsayılan **sektör** (onboarding ile aynı taksonomi);
+          `okas` eski OKAS iş grubu eksenini döndürür.
+      - in: query
         name: limit
         schema:
           type: integer
           default: 20
-        description: İş grubu sayısı (en fazla 100).
+        description: Grup sayısı (en fazla 100).
       - in: query
         name: yil
         schema:
@@ -1672,6 +1682,14 @@ paths:
       summary: Pazar panosu — iş grubu detayı
       parameters:
       - in: query
+        name: boyut
+        schema:
+          type: string
+          enum:
+          - okas
+          - sektor
+        description: Eksen (boşsa koddan çözülür).
+      - in: query
         name: limit
         schema:
           type: integer
@@ -1681,7 +1699,8 @@ paths:
         name: okas_bucket
         schema:
           type: string
-        description: 4 haneli OKAS iş grubu kodu.
+        description: 'Grup kodu: sektör kodu (`gida_catering`) ya da 4 haneli OKAS
+          kodu (`4523`). Eksen koddan çözülür, istemcinin bilmesi gerekmez.'
         required: true
       - in: query
         name: yil
@@ -1752,8 +1771,20 @@ paths:
         önlemek için kasıtlı olarak muhafazakâr).
 
 
-        ⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar;
-        `dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.
+        ⚠️ **`beklenen_ilan_tarihi: null` bir eksiklik DEĞİLDİR**: periyodu `duzensiz`
+        çıkan seride tespit edilebilir bir tekrar aralığı yoktur ve tarih uydurulmaz.
+        İstemci "tahmin edilemiyor" demeli, boş bırakmamalıdır. Seri yine de listelenir
+        — "bu idare bu işi tekrar tekrar alıyor" gerçek bir bilgidir.
+
+
+        ⚠️ **`guven` DÖNEM sayısına bakar, ihale sayısına değil**: `yuksek` = en az
+        3 aralık (4 dönem) ve sapma/medyan ≤ 0,15. Kısım lotları ve iptal sonrası
+        yeniden ihale ayrı tekrar SAYILMAZ (`donem_sayisi` ile `ihale_sayisi` bu yüzden
+        farklıdır).
+
+
+        ⚠️ `gecikme_gun` dolu ise beklenen tarih geçmiştir; sıralama yaklaşanları
+        önce verir, gecikenleri sonra.
 
 
         ⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır.'
@@ -1839,6 +1870,12 @@ paths:
           - aylik
           - duzensiz
           - yillik
+      - in: query
+        name: sektor
+        schema:
+          type: string
+        description: Sektör kodu listesi (virgülle) — pazar panosu ve onboarding ile
+          aynı kapalı taksonomi.
       tags:
       - ekap
       security:

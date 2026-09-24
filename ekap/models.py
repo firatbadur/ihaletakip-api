@@ -777,6 +777,12 @@ class RecurringTenderSeries(models.Model):
     ornek_ihale_adi = models.TextField(blank=True)   # en son üyenin adı
 
     ihale_sayisi = models.IntegerField(default=0)
+    # Kaç kez TEKRARLADI — `ihale_sayisi`'ndan farklıdır ve asıl anlamlı olan budur.
+    # Kısımlı bir alımın lotları ve iptal sonrası yeniden ihale aynı DÖNEME girer
+    # (bkz. `tasks._donemler`); periyot ve güven bu sayıdan türetilir.
+    donem_sayisi = models.IntegerField(default=0)
+    # Sektör (ingest-kopyası) — pazar panosu ve onboarding ile aynı kapalı taksonomi.
+    sektor = models.CharField(max_length=32, blank=True)
     ilk_ilan = models.DateTimeField(null=True, blank=True)
     son_ilan = models.DateTimeField(null=True, blank=True)
     son_ekap_id = models.CharField(max_length=255, blank=True)
@@ -889,7 +895,16 @@ class MarketStat(models.Model):
     """
 
     yil = models.IntegerField(db_index=True)
-    okas_bucket = models.CharField(max_length=4, blank=True)
+    # ⚠️ Hangi EKSENİN satırı: "sektor" (varsayılan pano) | "okas" (eski iş grubu).
+    # Tek tabloda iki eksen tutulur çünkü ikisi de aynı şekli döndürür ve eski
+    # `/ekap/market/<okas_bucket>/` derin bağlantılarının çalışmaya devam etmesi
+    # gerekir. Grain: (yil, boyut, okas_bucket).
+    boyut = models.CharField(max_length=8, default="okas", db_index=True)
+    # Eksenin kodu. Adı tarihseldir (önce yalnızca OKAS vardı) ve **bilerek
+    # değiştirilmedi**: mobil bu alanı opak anahtar olarak okuyup yol parametresine
+    # koyuyor (`/ekap/market/{okas_bucket}/`). Yeniden adlandırmak istemciyi kırardı.
+    # Yeni istemciler için yanıtta ayrıca `kod` + `boyut` alanları döner.
+    okas_bucket = models.CharField(max_length=32, blank=True)
     # Temsili grup adı (OkasCode'da 4 haneli karşılık varsa o, yoksa gruptaki en sık
     # kalem adı). Sunum içindir; filtreleme her zaman `okas_bucket` ile yapılır.
     ad = models.CharField(max_length=500, blank=True)
@@ -909,11 +924,13 @@ class MarketStat(models.Model):
         verbose_name_plural = "Pazar İstatistikleri"
         ordering = ["-yil", "-toplam_bedel"]
         constraints = [
-            models.UniqueConstraint(fields=["yil", "okas_bucket"], name="ekap_marketstat_uq"),
+            models.UniqueConstraint(fields=["yil", "boyut", "okas_bucket"],
+                                    name="ekap_marketstat_uq"),
         ]
         indexes = [
-            # Pano ana ekranı: bir yılın gruplarını bedele göre sırala
-            models.Index(fields=["yil", "-toplam_bedel"], name="ekap_market_yil_bedel_idx"),
+            # Pano ana ekranı: bir yılın (bir eksendeki) gruplarını bedele göre sırala
+            models.Index(fields=["yil", "boyut", "-toplam_bedel"],
+                         name="ekap_market_yil_bedel_idx"),
             # Drill-down: tek grubun yıllara göre seyri
             models.Index(fields=["okas_bucket", "yil"], name="ekap_market_bucket_yil_idx"),
         ]

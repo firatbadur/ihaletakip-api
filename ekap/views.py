@@ -13,7 +13,9 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import (
+    Case, Exists, F, IntegerField, OuterRef, Q, Value, When,
+)
 from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -623,10 +625,35 @@ def apply_tender_filters(qs, params):
     # ── OKAS branş kodu / adı (ihaleye özel OkasItem üzerinden) ──
     okas_kod = _as_str_list(params.get("okas_kod"))
     if okas_kod:
-        cond = Q()
-        for kod in okas_kod:
-            cond |= Q(kodu__startswith=kod)
-        qs = qs.filter(_okas_exists(cond))
+        # ⚠️⚠️ **Rakam olmayan değer SEKTÖR kodu sayılır.** Pazar panosu artık sektör
+        # ekseninde sunuluyor ve mobilin "bu gruptaki ihaleleri gör" düğmesi panodan
+        # aldığı opak anahtarı `okas_kod` olarak gönderiyor (istemci sürümü eski,
+        # değiştiremiyoruz). Yönlendirme olmasaydı arama **sessizce boş** dönerdi —
+        # bu kod tabanının en sevmediği hata sınıfı.
+        # Belirsizlik YOK: OKAS kodları saf rakam, sektör kodları saf harf/alt çizgi
+        # (`gida_catering`). Tanınmayan harfli değer hiçbir dala girmez ve
+        # `sektor__in` boş küme döndürerek dürüstçe 0 sonuç verir.
+        okas_sayisal = [k for k in okas_kod if k.isdigit()]
+        okas_sektor = [k for k in okas_kod if not k.isdigit()]
+        kalem_kosul = Q()
+        for kod in okas_sayisal:
+            kalem_kosul |= Q(kodu__startswith=kod)
+        if okas_sayisal and not okas_sektor:
+            qs = qs.filter(_okas_exists(kalem_kosul))
+        elif okas_sektor and not okas_sayisal:
+            qs = qs.filter(sektor__in=okas_sektor)
+        else:
+            # ⚠️ Liste ALTERNATİF demektir (kesişim değil) → iki dal OR'lanmalı. Ama
+            # dallar **ayrı tablolarda** (`ekap_okasitem` ↔ `ekap_tender.sektor`) ve bu
+            # kod tabanında ölçülmüş bir tuzak: tek `Exists | Q` yazmak planlayıcıyı
+            # tablolar arası OR'a sokar ve indeksleri devre dışı bırakır (`yuklenici`
+            # filtresinde 1,2 sn → 222 ms farkı buradan gelmişti).
+            # Doğrusu aynı çözüm: her dalı kendi indeksinden çöz, `UNION` ile birleştir.
+            by_okas = (OkasItem.objects.filter(kalem_kosul)
+                       .values("tender_id"))
+            by_sektor = (Tender.objects.filter(sektor__in=okas_sektor)
+                         .order_by().values("id"))
+            qs = qs.filter(pk__in=by_okas.union(by_sektor))
     okas_adi = _as_str_list(params.get("okas_adi"))
     if okas_adi:
         # ⚠️ `adi__icontains` KULLANMAYIN (eski hâliydi, iki ayrı hatası vardı):
@@ -2126,6 +2153,14 @@ class ContractorDetailView(APIView):
         }
 
 
+def _gecikme_gun(beklenen):
+    """Beklenen tarih geçtiyse gecikme günü, aksi hâlde `None`."""
+    if not beklenen:
+        return None
+    fark = (timezone.localdate() - beklenen).days
+    return fark if fark > 0 else None
+
+
 def _seri_dict(s):
     """`RecurringTenderSeries` → API sözlüğü."""
     return {
@@ -2137,8 +2172,13 @@ def _seri_dict(s):
         "okas_ana_kod": s.okas_ana_kod or None,
         "okas_ana_adi": s.okas_ana_adi or None,
         "ihale_tip": s.ihale_tip,
+        "sektor": s.sektor or None,
+        "sektor_adi": SEKTORLER.get(s.sektor) if s.sektor else None,
         "ornek_ihale_adi": s.ornek_ihale_adi,
         "ihale_sayisi": s.ihale_sayisi,
+        # ⚠️ Asıl anlamlı sayı budur: kaç kez TEKRARLADI. `ihale_sayisi` kısım
+        # lotlarını ve iptal sonrası yeniden ihaleleri de sayar (bkz. tasks._donemler).
+        "donem_sayisi": s.donem_sayisi,
         "ilk_ilan": s.ilk_ilan.isoformat() if s.ilk_ilan else None,
         "son_ilan": s.son_ilan.isoformat() if s.son_ilan else None,
         "son_ekap_id": s.son_ekap_id or None,
@@ -2146,10 +2186,16 @@ def _seri_dict(s):
         "periyot_gun": s.periyot_gun,
         "sapma_gun": s.sapma_gun,
         "guven": s.guven,
+        # ⚠️ `null` bir EKSİKLİK DEĞİL, bilinçli bir cevaptır: periyodu
+        # `duzensiz` çıkan seriye tarih yazmak uydurmaktır (bkz. tasks._beklenen).
+        # İstemci bunu "tahmin edilemiyor" diye göstermeli, boş bırakmamalı.
         "beklenen_ilan_tarihi": (
             s.beklenen_ilan_tarihi.isoformat() if s.beklenen_ilan_tarihi else None
         ),
         "beklenen_ay": s.beklenen_ay or None,
+        # Tahmin tarihi geçtiyse kaç gün gecikti (yoksa null). Gecikme bir arıza
+        # değil bilgidir: "bu iş normalde Mart'ta çıkardı, 40 gün gecikti".
+        "gecikme_gun": _gecikme_gun(s.beklenen_ilan_tarihi),
         "aktif": s.aktif,
         "ortalama_bedel": _dec(s.ortalama_bedel),
         "ortalama_indirim": _dec(s.ortalama_indirim),
@@ -2162,7 +2208,11 @@ def _seri_dict(s):
     tags=["ekap"],
     parameters=[
         OpenApiParameter("yil", int, description="Sözleşme yılı (boşsa en güncel yıl)."),
-        OpenApiParameter("limit", int, default=20, description="İş grubu sayısı (en fazla 100)."),
+        OpenApiParameter("limit", int, default=20, description="Grup sayısı (en fazla 100)."),
+        OpenApiParameter("boyut", str, enum=["sektor", "okas"], default="sektor",
+                         description="Pano ekseni. Varsayılan **sektör** (onboarding "
+                                     "ile aynı taksonomi); `okas` eski OKAS iş grubu "
+                                     "eksenini döndürür."),
     ],
     operation_id="ekap_market_overview",
     summary="Pazar panosu — yıl özeti ve en büyük iş grupları",
@@ -2221,7 +2271,10 @@ class MarketOverviewView(APIView):
         except (TypeError, ValueError):
             limit = market_mod.VARSAYILAN_LIMIT
 
-        veri, hata = market_mod.genel_bakis(request.query_params.get("yil"), limit=limit)
+        veri, hata = market_mod.genel_bakis(
+            request.query_params.get("yil"), limit=limit,
+            boyut=request.query_params.get("boyut"),
+        )
         if hata:
             return api_response(data=None, message=hata, success=False, status=503)
         return api_response(data=_market_maskele(request, veri))
@@ -2231,8 +2284,12 @@ class MarketOverviewView(APIView):
     tags=["ekap"],
     parameters=[
         OpenApiParameter("okas_bucket", str, location=OpenApiParameter.PATH,
-                         description="4 haneli OKAS iş grubu kodu."),
+                         description="Grup kodu: sektör kodu (`gida_catering`) ya da "
+                                     "4 haneli OKAS kodu (`4523`). Eksen koddan "
+                                     "çözülür, istemcinin bilmesi gerekmez."),
         OpenApiParameter("yil", int, description="İl/firma kırılımının yılı (boşsa en güncel)."),
+        OpenApiParameter("boyut", str, enum=["sektor", "okas"],
+                         description="Eksen (boşsa koddan çözülür)."),
         OpenApiParameter("limit", int, default=20, description="Liste uzunluğu (en fazla 100)."),
     ],
     operation_id="ekap_market_bucket",
@@ -2263,7 +2320,8 @@ class MarketBucketView(APIView):
             limit = market_mod.VARSAYILAN_LIMIT
 
         veri, hata = market_mod.grup_detayi(
-            okas_bucket, yil=request.query_params.get("yil"), limit=limit
+            okas_bucket, yil=request.query_params.get("yil"), limit=limit,
+            boyut=request.query_params.get("boyut"),
         )
         if hata:
             return api_response(data=None, message=hata, success=False, status=404)
@@ -2281,6 +2339,9 @@ class MarketBucketView(APIView):
         OpenApiParameter("ihale_tip", str, description="İhale türü listesi (virgülle)."),
         OpenApiParameter("periyot_tip", str,
                          enum=["yillik", "6_aylik", "3_aylik", "aylik", "duzensiz"]),
+        OpenApiParameter("sektor", str,
+                         description="Sektör kodu listesi (virgülle) — pazar panosu ve "
+                                     "onboarding ile aynı kapalı taksonomi."),
         OpenApiParameter("guven", str, enum=["yuksek", "orta", "dusuk"],
                          description="Tahmin güveni (üye sayısı + aralık düzenliliği)."),
         OpenApiParameter("aktif", bool, default=True,
@@ -2300,8 +2361,17 @@ class MarketBucketView(APIView):
         "Seriler ingest'te hesaplanan bir ad-iskeleti anahtarıyla gruplanır; aynı idare + "
         "aynı OKAS + en az 2 anlamlı ortak kelime şartı vardır (yanlış birleştirmeyi "
         "önlemek için kasıtlı olarak muhafazakâr).\n\n"
-        "⚠️ **`guven` alanına bakın**: `yuksek` = en az 4 üye ve düzenli aralıklar; "
-        "`dusuk` serilerde `beklenen_ilan_tarihi` bir tahminden ibarettir.\n\n"
+        "⚠️ **`beklenen_ilan_tarihi: null` bir eksiklik DEĞİLDİR**: periyodu "
+        "`duzensiz` çıkan seride tespit edilebilir bir tekrar aralığı yoktur ve "
+        "tarih uydurulmaz. İstemci \"tahmin edilemiyor\" demeli, boş bırakmamalıdır. "
+        "Seri yine de listelenir — \"bu idare bu işi tekrar tekrar alıyor\" gerçek "
+        "bir bilgidir.\n\n"
+        "⚠️ **`guven` DÖNEM sayısına bakar, ihale sayısına değil**: `yuksek` = en az "
+        "3 aralık (4 dönem) ve sapma/medyan ≤ 0,15. Kısım lotları ve iptal sonrası "
+        "yeniden ihale ayrı tekrar SAYILMAZ (`donem_sayisi` ile `ihale_sayisi` bu "
+        "yüzden farklıdır).\n\n"
+        "⚠️ `gecikme_gun` dolu ise beklenen tarih geçmiştir; sıralama yaklaşanları "
+        "önce verir, gecikenleri sonra.\n\n"
         "⚠️ `ortalama_indirim` her zaman `indirim_ornek_sayisi` ile birlikte okunmalıdır."
     ),
     responses={200: OpenApiTypes.OBJECT},
@@ -2360,10 +2430,34 @@ class RecurringSeriesListView(APIView):
                 beklenen_ilan_tarihi__lte=bugun + timedelta(days=int(gun)),
             )
 
+        sektorler = _as_str_list(qp.get("sektor"))
+        if sektorler:
+            qs = qs.filter(sektor__in=[k for k in sektorler if k])
+
         alan = self._ORDER.get(qp.get("order", "beklenen"), "beklenen_ilan_tarihi")
-        qs = qs.order_by(F(alan.lstrip("-")).desc(nulls_last=True)
-                         if alan.startswith("-")
-                         else F(alan).asc(nulls_last=True), "-ihale_sayisi")
+        if alan == "beklenen_ilan_tarihi":
+            # ⚠️⚠️ Düz `beklenen ASC` sıralaması listenin başına **en bayat** tahminleri
+            # koyuyordu: aktiflik penceresi periyot kadar geriye uzandığı için tarihi
+            # geçmiş tahminler en küçük değerlerdir. Üretimde ilk sayfa 2023-10-14,
+            # 2023-12-24, 2024-02-17 ile başlıyordu — kullanıcı "beklenen ihaleler"
+            # ekranını açtığında üç yıl önceki tarihleri görüyordu.
+            # Doğru sıra: ÖNCE yaklaşanlar (tarihe göre), SONRA gecikenler, EN SON
+            # tahmin edilemeyenler.
+            bugun = timezone.localdate()
+            qs = qs.annotate(_gecmis=Case(
+                When(beklenen_ilan_tarihi__lt=bugun, then=Value(1)),
+                default=Value(0), output_field=IntegerField(),
+            )).order_by("_gecmis", F("beklenen_ilan_tarihi").asc(nulls_last=True),
+                        "-donem_sayisi", "pk")
+        else:
+            # ⚠️ `pk` tie-break ŞART: eşit anahtarların sayfalar arası sırası plana
+            # kalırsa aynı seri iki sayfada birden düşer ve mobil "two children with
+            # the same key" ile patlar (istemcide elle tekilleştiriliyordu —
+            # bkz. RecurringTenders/index.js). Aynı ders `views.tender_sira_*`.
+            qs = qs.order_by(F(alan.lstrip("-")).desc(nulls_last=True)
+                             if alan.startswith("-")
+                             else F(alan).asc(nulls_last=True),
+                             "-donem_sayisi", "pk")
 
         return _paginate(request, qs, _SeriSerializer)
 

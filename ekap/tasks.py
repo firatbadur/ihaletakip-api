@@ -8,7 +8,7 @@ throttle + backoff uygular.
 """
 import logging
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from celery import shared_task
 from django.conf import settings
@@ -16,6 +16,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from .client import EkapDogrulamaError, EkapV2Client
+from .constants import DURUM_IPTAL
 from .models import SyncCheckpoint, SyncRun, Tender
 from . import session as ekap_session, sync as sync_mod
 from .series import series_skeleton
@@ -857,15 +858,42 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
     ⚠️ `.values()` kullanır → `detail_raw` TOAST'ına hiç dokunulmaz, dolayısıyla
     `sync_contractors`/`backfill_tender_fields` ile pencere çakışması sorunu yoktur.
 
-    Periyot tespiti: üye ilan tarihleri arasındaki aralıkların **medyanı** (ortalama değil
-    — tek bir sıra dışı aralık ortalamayı kaydırır). Güven, sapmanın medyana oranına göre.
+    ## ⚠️⚠️ Periyot ÜYELERDEN değil DÖNEMLERDEN hesaplanır (2026-09-24)
+
+    Eski sürüm ardışık **ihale** tarihleri arasındaki farkları alıyordu ve iki ayrı
+    yoldan uydurma üretiyordu:
+
+    1. **Aynı alımın parçaları ayrı tekrar sayılıyordu.** Kısımlı bir alımın lotları
+       aynı hafta yayımlanır; aradaki 0 günlük farklar `[a for a in araliklar if a > 0]`
+       ile **sessizce atılıyor**, geriye tek bir aralık kalıyordu. `pstdev([x]) == 0`
+       olduğu için `sapma_gun=0` yazılıyor ve `_seri_guven` bunu "kusursuz düzenli"
+       sanıp **`yuksek`** diyordu. Üretimde yakalandı: *"TIBBİ CİHAZ ALIMI (5 KALEM) ·
+       güven: yüksek · periyot 1020 gün · sapma 0"* — tek gözlemden üretilmiş bir güven.
+    2. **İptal edilip yeniden ihale edilen iş periyot sanılıyordu.** *"Abdi İpekçi Okulu
+       Zemin Altı Otopark Yapım İşi"* 2024-03-06 / 04-05 / 05-09'da üç kez yayımlanmıştı
+       (ilk ikisi iptal) → medyan ~32 gün → **"aylık otopark yapımı"** tahmini.
+
+    Artık ilanlar önce **dönemlere** bölünür (`_donemler`), periyot dönem başları
+    arasından hesaplanır ve seri için **en az `_MIN_DONEM` dönem** aranır. Böylece
+    `sapma_gun` daima ≥2 aralıktan gelir; tek gözlemli "yüksek güven" yapısal olarak
+    imkânsızdır.
+
+    Periyot tespiti: dönem aralıklarının **medyanı** (ortalama değil — tek bir sıra dışı
+    aralık ortalamayı kaydırır). Güven, sapmanın medyana oranına **ve aralık sayısına**
+    göre.
+
+    ⚠️ Görev süre bütçesini aşarsa kaldığı yerden devam eder (`SyncCheckpoint`) ve
+    **budama yalnızca tam tur bitince** yapılır. Bütçesiz/imleçsiz eski sürüm her turda
+    aynı `seri_anahtar` önekinden başlıyordu; kesilen turlar hep aynı grupları işleyip
+    gerisine hiç ulaşmıyor, budama da hiç koşmadığı için tablo **bayat bir karışım**
+    hâlinde donuyordu.
     """
     import statistics
     import time
 
-    from django.db.models import Avg, Count, Max, Min, Sum
+    from django.db.models import Count, Max, Min
 
-    from .models import Contract, RecurringTenderSeries
+    from .models import RecurringTenderSeries
 
     with _run("detect_recurring_series") as run:
         if run is None:
@@ -876,6 +904,10 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
         deadline = time.monotonic() + max_seconds
         basla = timezone.now()
 
+        cp, _ = SyncCheckpoint.objects.get_or_create(name="recurring_series")
+        imlec = (cp.extra or {}).get("imlec") or ""
+        tur_basi = (cp.extra or {}).get("tur_basi") or basla.isoformat()
+
         gruplar = (
             Tender.objects.exclude(seri_anahtar="")
             .filter(ilan_tarihi__isnull=False)
@@ -885,9 +917,13 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
             .filter(n__gte=min_uye)
             .order_by("seri_anahtar")
         )
+        if imlec:
+            gruplar = gruplar.filter(seri_anahtar__gt=imlec)
 
-        yazilacak, islenen, timed_out, para = [], 0, False, 0
+        yazilacak, islenen, atlanan, timed_out, para = [], 0, 0, False, 0
+        son_anahtar = imlec
         for g in gruplar.iterator(chunk_size=500):
+            son_anahtar = g["seri_anahtar"]
             uyeler = list(
                 Tender.objects.filter(
                     seri_anahtar=g["seri_anahtar"], idare_id=g["idare_id"],
@@ -895,22 +931,25 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
                 )
                 .order_by("ilan_tarihi")
                 .values("ilan_tarihi", "ihale_adi", "ekap_id", "il_id",
-                        "ihale_tip", "okas_ana_kod", "okas_ana_adi",
-                        "idare_adi", "en_ust_idare_kod")
+                        "ihale_tip", "ihale_durum", "okas_ana_kod", "okas_ana_adi",
+                        "idare_adi", "en_ust_idare_kod", "sektor")
             )
             if len(uyeler) < min_uye:
                 continue
 
-            tarihler = [u["ilan_tarihi"] for u in uyeler]
-            araliklar = [
-                (tarihler[i + 1] - tarihler[i]).days for i in range(len(tarihler) - 1)
-            ]
-            araliklar = [a for a in araliklar if a > 0]
-            if not araliklar:
+            donemler = _donemler(uyeler)
+            if len(donemler) < _MIN_DONEM:
+                # Tek bir alımın parçaları / iptal-yeniden ihale zinciri: tekrar DEĞİL.
+                atlanan += 1
                 continue
+
+            araliklar = [
+                (donemler[i + 1] - donemler[i]).days for i in range(len(donemler) - 1)
+            ]
             medyan = int(statistics.median(araliklar))
-            sapma = int(statistics.pstdev(araliklar)) if len(araliklar) > 1 else 0
+            sapma = int(statistics.pstdev(araliklar))
             son = uyeler[-1]
+            tip = _periyot_tipi(medyan)
 
             yazilacak.append(RecurringTenderSeries(
                 seri_anahtar=g["seri_anahtar"],
@@ -920,26 +959,26 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
                 il_id=son["il_id"],
                 okas_ana_kod=son["okas_ana_kod"] or "",
                 okas_ana_adi=son["okas_ana_adi"] or "",
+                sektor=son["sektor"] or "",
                 ihale_tip=son["ihale_tip"],
                 iskelet=series_skeleton(son["ihale_adi"])[:300],
                 ornek_ihale_adi=son["ihale_adi"] or "",
                 ihale_sayisi=len(uyeler),
-                ilk_ilan=tarihler[0],
-                son_ilan=tarihler[-1],
+                donem_sayisi=len(donemler),
+                ilk_ilan=uyeler[0]["ilan_tarihi"],
+                son_ilan=son["ilan_tarihi"],
                 son_ekap_id=son["ekap_id"] or "",
                 periyot_gun=medyan,
                 sapma_gun=sapma,
-                periyot_tip=_periyot_tipi(medyan),
-                guven=_seri_guven(len(uyeler), medyan, sapma),
-                **_beklenen(tarihler[-1], medyan),
+                periyot_tip=tip,
+                guven=_seri_guven(len(araliklar), medyan, sapma),
+                **_beklenen(donemler[-1], medyan, tip),
             ))
             islenen += 1
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
 
-        # Upsert + buda: tur içinde dokunulmayan eski seriler silinir (ör. iskelet
-        # değiştiği için artık oluşmayan gruplar).
         if yazilacak:
             RecurringTenderSeries.objects.bulk_create(
                 yazilacak,
@@ -947,72 +986,157 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
                 unique_fields=["seri_anahtar", "idare_id"],
                 update_fields=[
                     "idare_adi", "en_ust_idare_kod", "il_id", "okas_ana_kod",
-                    "okas_ana_adi", "ihale_tip", "iskelet", "ornek_ihale_adi",
-                    "ihale_sayisi", "ilk_ilan", "son_ilan", "son_ekap_id",
+                    "okas_ana_adi", "sektor", "ihale_tip", "iskelet", "ornek_ihale_adi",
+                    "ihale_sayisi", "donem_sayisi", "ilk_ilan", "son_ilan", "son_ekap_id",
                     "periyot_gun", "sapma_gun", "periyot_tip", "guven",
                     "beklenen_ilan_tarihi", "beklenen_ay", "aktif",
                     # ⚠️ `guncelleme` ŞART: `auto_now` yalnızca INSERT yolunda yazılır.
                     # Buradan çıkarılırsa zaten var olan seriler UPDATE edilirken
                     # `guncelleme` ESKİ değerinde kalır ve hemen aşağıdaki budama
-                    # (`guncelleme__lt=basla`) onları siler. Üretimde yaşandı: 19.527
+                    # (`guncelleme__lt=tur_basi`) onları siler. Üretimde yaşandı: 19.527
                     # seri yazıldı, 21.910 budandı, geriye yalnızca **yeni eklenen**
                     # 10.937 kaldı — yani her tur mevcut serilerin tamamı siliniyordu.
-                    # Aynı sebeple `_seri_para_agregalari` de onları atlıyordu.
                     "guncelleme",
                 ],
                 batch_size=1000,
             )
             para = _seri_para_agregalari(basla)
 
+        # ⚠️ Budama YALNIZCA tam tur bitince: yarıda budamak, henüz sıra gelmemiş
+        # (hâlâ geçerli) serileri silerdi. Tur bitmediyse imleç saklanır ve bir
+        # sonraki tetik kaldığı yerden devam eder.
         budanan = 0
-        if not timed_out:
+        if timed_out:
+            cp.extra = {**(cp.extra or {}), "imlec": son_anahtar, "tur_basi": tur_basi}
+            cp.done = False
+        else:
             budanan, _ = RecurringTenderSeries.objects.filter(
-                guncelleme__lt=basla
+                guncelleme__lt=datetime.fromisoformat(tur_basi)
             ).delete()
+            cp.extra = {**(cp.extra or {}), "imlec": "", "tur_basi": ""}
+            cp.done = True
+        cp.save(update_fields=["extra", "done", "updated_at"])
 
         run.items = islenen
         run.note = (
             f"{'süre doldu ' if timed_out else ''}seri={islenen} "
-            f"para={para} budanan={budanan}"
+            f"donem_az={atlanan} para={para} budanan={budanan}"
         )[:1000]
         return {"series": islenen, "pruned": budanan, "timed_out": timed_out}
 
 
+# ── Dönem (cycle) mantığı ─────────────────────────────────────────────────────
+# Bir "tekrar", ihtiyacın yeniden doğmasıdır; aynı ihtiyaç için arka arkaya yapılan
+# yayımlar (kısım lotları, iptal sonrası yeniden ihale) TEK dönemdir.
+#
+# ⚠️ Çapa DÖNEM BAŞIDIR, önceki ilan DEĞİL. Önceki ilana bakan bir kural zincirleme
+# birleştirir: 10 gün arayla yayımlanan 10 ilan tek döneme akar. (Keyword katmanında
+# geçişli kümelemenin 12.309 üyelik mega-küme üretmesiyle aynı tuzak.)
+_DONEM_PENCERE_GUN = 21
+# İptal edilmiş bir ihalenin ardından gelen yeniden-ihale aynı ihtiyaçtır. Pencere
+# ÖLÇÜMLE seçildi: 45/60/90/120 denendi, isabet hepsinde aynı (±30 gün %39,3-39,8).
+# 60 seçildi çünkü **3 aylık band 75 günde başlıyor** — 90+ bir pencere, iptal yaşamış
+# gerçek bir üç aylık seriyi yutup dönem sayısını düşürürdü.
+_IPTAL_PENCERE_GUN = 60
+# Periyottan söz edebilmek için en az 3 dönem (= 2 aralık) gerekir. Tek aralıktan
+# sapma hesaplanamaz; eski sürümün "güven: yüksek, sapma: 0" uydurması buradan geliyordu.
+_MIN_DONEM = 3
+# Serinin hâlâ canlı sayıldığı pencere: periyodun 1,5 katı, ama en çok _AKTIF_AZAMI_GUN.
+# ⚠️ Mutlak tavan ŞART: eski kural (2 × periyot) düzensiz serilerde 6 yıla kadar
+# uzuyordu — medyanı 1145 gün olan, 2020'de ölmüş bir seri 2026'da hâlâ "aktif"
+# görünüyor ve varsayılan `order=beklenen` sıralamasında **listenin başına** geçiyordu.
+_AKTIF_TOLERANS = 1.5
+_AKTIF_AZAMI_GUN = 800
+
+
+def _donemler(uyeler):
+    """Sıralı ihale kayıtlarını dönemlere böler; her dönemin **başlangıç tarihini** döner.
+
+    ``uyeler`` `ilan_tarihi` artan sırada, her biri `ilan_tarihi` ve `ihale_durum`
+    taşıyan sözlükler.
+    """
+    baslar = [uyeler[0]["ilan_tarihi"]]
+    onceki = uyeler[0]["ilan_tarihi"]
+    onceki_iptal = uyeler[0]["ihale_durum"] in DURUM_IPTAL
+    for u in uyeler[1:]:
+        t = u["ilan_tarihi"]
+        if onceki_iptal:
+            # ⚠️ İptal zinciri **sıralı bir olaydır** → ÖNCEKİ İLANDAN ölçülür, dönem
+            # başından değil. Dönem başından ölçmek iki kez iptal edilip üçüncüde
+            # yayımlanan bir işi (toplam 65 gün) ikiye bölüyordu. Zincirin kaçmama
+            # garantisi her halkanın **bir iptal şartına** bağlı olmasıdır.
+            ayni_donem = (t - onceki).days <= _IPTAL_PENCERE_GUN
+        else:
+            ayni_donem = (t - baslar[-1]).days <= _DONEM_PENCERE_GUN
+        if not ayni_donem:
+            baslar.append(t)
+        onceki = t
+        onceki_iptal = u["ihale_durum"] in DURUM_IPTAL
+    return baslar
+
+
 def _periyot_tipi(medyan_gun):
-    """Aralık medyanından periyot etiketi. Sınırlar takvim kaymalarına toleranslı."""
-    if 330 <= medyan_gun <= 400:
+    """Aralık medyanından periyot etiketi. Sınırlar takvim kaymalarına toleranslı.
+
+    ⚠️ `yillik` bandı 330-400'den **300-430**'a genişletildi: gerçek yıllık işler
+    takvimde kayıyor ("2025 YILI …" Ocak'ta, "2026 YILI …" Mart'ta çıkabiliyor) ve
+    dar band onları `duzensiz` sayıp **tahminsiz** bırakıyordu. Ölçüm: geniş bandla
+    tahminli seri 3.581 → 4.421, 90 günlük pencerede yüksek/orta güvenli tahmin
+    470 → 507; isabet oranı düşmedi.
+    ⚠️ `aylik` bandının alt sınırı 22'dir, 25 değil: dönem penceresi 21 gün olduğu
+    için üretilebilecek en küçük aralık zaten 22'dir.
+    """
+    if 300 <= medyan_gun <= 430:
         return "yillik"
     if 150 <= medyan_gun <= 220:
         return "6_aylik"
     if 75 <= medyan_gun <= 110:
         return "3_aylik"
-    if 25 <= medyan_gun <= 40:
+    if 22 <= medyan_gun <= 45:
         return "aylik"
     return "duzensiz"
 
 
-def _seri_guven(uye_sayisi, medyan, sapma):
+def _seri_guven(aralik_sayisi, medyan, sapma):
     """
     Tahminin ne kadar güvenilir olduğu.
 
-    ⚠️ Yalnızca üye sayısına bakmak yetmez: 5 üyeli ama aralıkları 30/400/60/380 gün olan
-    bir "seri" tahmin üretmemeli. Bu yüzden **düzenlilik** (sapma/medyan) de şart.
+    ⚠️ Ölçüt **aralık sayısıdır, üye sayısı değil.** Eski sürüm üye sayısına bakıyordu;
+    üyelerin çoğu aynı gün yayımlanmış olabildiği için "5 üyeli, sapması 0" bir seri
+    aslında **tek aralıklı** olabiliyor ve haksız yere `yuksek` alıyordu. `_MIN_DONEM`
+    sayesinde burada aralık sayısı daima ≥2'dir.
+
+    ⚠️ Yalnızca sayıya bakmak da yetmez: aralıkları 30/400/60/380 gün olan bir "seri"
+    tahmin üretmemeli → **düzenlilik** (sapma/medyan) de şart.
     """
     if not medyan:
         return "dusuk"
     dagilim = sapma / medyan
-    if uye_sayisi >= 4 and dagilim <= 0.15:
+    if aralik_sayisi >= 3 and dagilim <= 0.15:
         return "yuksek"
-    if uye_sayisi >= 3 and dagilim <= 0.30:
+    if aralik_sayisi >= 2 and dagilim <= 0.30:
         return "orta"
     return "dusuk"
 
 
-def _beklenen(son_ilan, medyan_gun):
-    """Sıradaki ilan tahmini + serinin hâlâ canlı olup olmadığı."""
-    beklenen = (son_ilan + timedelta(days=medyan_gun)).date()
-    # 2 periyot geçtiyse seri muhtemelen sona ermiş (ihtiyaç kalktı / usul değişti).
-    aktif = (timezone.now() - son_ilan).days < 2 * medyan_gun
+def _beklenen(son_donem_basi, medyan_gun, periyot_tip):
+    """Sıradaki ilan tahmini + serinin hâlâ canlı olup olmadığı.
+
+    ⚠️⚠️ **`duzensiz` seriye tahmin VERİLMEZ.** "Düzensiz" tanımı gereği "tespit
+    edilebilir bir periyot yok" demektir; ona yine de bir tarih yazmak uydurmaktır.
+    Üretimde aktif 202 serinin **156'sı** düzensizdi ve hepsi bir tarih taşıyordu —
+    biri 42 gün medyan / 480 gün sapmayla. Kod tabanının kuralı nettir: yanlış sayı
+    göstermektense **"veri yok"** demek doğrudur (bkz. `market._indirim`,
+    `benchmark.MUTLAK_MIN_ORNEK`).
+
+    Seri yine de listelenir: "bu idare bu işi tekrar tekrar alıyor" gerçek bir
+    bilgidir, eksik olan yalnızca tarihtir.
+    """
+    gecen = (timezone.now() - son_donem_basi).days
+    aktif = gecen <= min(medyan_gun * _AKTIF_TOLERANS, _AKTIF_AZAMI_GUN)
+    if periyot_tip == "duzensiz":
+        return {"beklenen_ilan_tarihi": None, "beklenen_ay": "", "aktif": aktif}
+    beklenen = (son_donem_basi + timedelta(days=medyan_gun)).date()
     return {
         "beklenen_ilan_tarihi": beklenen,
         "beklenen_ay": beklenen.strftime("%Y-%m"),

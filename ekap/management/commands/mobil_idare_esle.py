@@ -42,7 +42,7 @@ class Command(BaseCommand):
             t.idare_kaynak = kaynak
             # ⚠️ `seri_anahtar` idare_id'ye bağlı (bkz. `ekap/series.py`) → birlikte
             # güncellenmeli, yoksa tekrar eden ihale tespiti bu kayıtları göremez.
-            t.seri_anahtar = series_key(idare_id, t.okas_ana_kod, t.ihale_adi)
+            t.seri_anahtar = series_key(idare_id, t.ihale_adi)
             yigin.append(t)
             tam += kaynak == idare_mod.KAYNAK_TAM
             benzer += kaynak == idare_mod.KAYNAK_BENZER

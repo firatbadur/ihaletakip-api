@@ -22,10 +22,44 @@ yalnızca indeksli bir `varchar(40)` kolonuna GROUP BY yapar; metin karşılaşt
 karışırsa "bu iş her yıl Mart'ta çıkıyor" tahmini sessizce bozulur ve kullanıcı buna
 göre hazırlık yapar. Bu yüzden:
 
-- Aynı `idare_id` **ve** aynı `okas_ana_kod` şartı aranır (ikisi de boşsa anahtar yok).
+- Aynı `idare_id` şartı aranır (idare bilinmiyorsa anahtar yok).
 - İskelette **en az 2 anlamlı token** olmalı; yoksa anahtar üretilmez.
 - Bedeli: "… ALIMI" ile "… ALIM İŞİ" gibi varyantları kaçırmak. Stopword listesi bunu
   azaltır, kalanı kabul edilir.
+
+## ⚠️⚠️ `okas_ana_kod` ANAHTARDAN ÇIKARILDI (2026-09-24) — serileri BÖLÜYORDU
+
+Anahtar eskiden `(idare_id, okas_ana_kod, iskelet)` üçlüsüydü; OKAS eşitliği yanlış
+birleştirmeye karşı bir güvenlik kemeri olarak konmuştu. Üretim ölçümü bu kemerin
+taşıdığı riski **ters yöne** çevirdiğini gösterdi:
+
+- `okas_ana_kod` **kararlı değil**: `ihtiyacKalemiOkasList[0].kodu`'ndan türetiliyor,
+  yani kalem sıralaması değişince değişiyor; üstelik sözleşmelerin ancak %76-88'inde
+  dolu. Aynı idarenin aynı işi bir yıl "4523", ertesi yıl boş ya da başka kod alıyor.
+- Ölçüm: `(idare_id, iskelet)` ile kurulan **48.795** seriden **18.023'ü (%36,9)**
+  birden çok `okas_ana_kod` taşıyor → mevcut anahtarla ikiye/üçe bölünüyordu.
+- Kanıt ikna edici: aynı idarede **birebir aynı iskelete** sahip ihaleler farklı
+  seriye düşüyordu ("ODTÜ 2025 Yılı 6 Grup Bakım Onarım Hizmeti" ↔ "ODTÜ 2026 Yılı
+  6 Grup Bakım Onarım Hizmetleri Alımı", "TIBBİ GAZ ALIMI (6 KALEM)" ↔ "6 KALEM
+  TIBBİ GAZ ALIMI"). Tek fark OKAS koduydu.
+- Geriye dönük test (kesim 2025-09-24, 1 yıllık ufuk) OKAS'sız gruplamanın hem daha
+  çok hem daha isabetli tahmin ürettiğini gösterdi:
+
+  | | tahmin | "hiç ihale çıkmadı" | ±30 gün isabet | ±90 gün |
+  |---|---|---|---|---|
+  | OKAS'lı (yüksek güven) | 574 | %52,6 | %30,5 | %42,5 |
+  | **OKAS'sız (yüksek güven)** | **778** | **%41,5** | **%39,3** | **%53,7** |
+
+⚠️ **Yanlış birleştirme riski denetlendi** (18 grup tek tek okundu, 12'si en riskli
+sınıf olan 2 token'lı iskeletlerden): hepsi gerçekten aynı işti ("Hazır Beton Satın
+Alınması", "SODYUM HİPOKLORİT ALIMI", "Elektrik Enerjisi", "Çağrı Merkezi Hizmet
+Alımı"). İdare kapsamı zaten dar olduğu için 2 token yeterli ayırt ediciliği
+sağlıyor. İsabet oranlarının **yükselmesi** de yaygın bir yanlış birleştirme
+olmadığının dolaylı kanıtıdır — gürültü karışsaydı aralık medyanları bozulurdu.
+
+⚠️ Anahtar değiştiği için arşiv **yeniden hesaplanmalıdır**:
+`python manage.py fix_seri_anahtar`. Kolon satır-içi alanlardan türetildiği için
+(`idare_id`, `ihale_adi`) `detail_raw` TOAST'ına dokunulmaz.
 """
 import hashlib
 import re
@@ -74,17 +108,21 @@ def series_skeleton(ihale_adi: str) -> str:
     return " ".join(sorted(tokenlar))
 
 
-def series_key(idare_id: str, okas_ana_kod: str, ihale_adi: str) -> str:
+def series_key(idare_id: str, ihale_adi: str) -> str:
     """
-    `(idare, okas, iskelet)` üçlüsünün sha1'i — ya da ayırt edici değilse boş string.
+    `(idare, iskelet)` çiftinin sha1'i — ya da ayırt edici değilse boş string.
 
     Boş dönen durumlar (bilinçli): idare bilinmiyor, ya da iskelet 2 token'dan az.
     Boş anahtar hiçbir seriye katılmaz → yanlış birleştirme riski sıfırlanır.
+
+    ⚠️ `okas_ana_kod` **bilerek girdi değildir** — modül başlığındaki ölçüme bakın.
+    Eski imza `(idare_id, okas_ana_kod, ihale_adi)` idi; OKAS kararsız olduğu için
+    gerçek serileri bölüyordu.
     """
     if not idare_id:
         return ""
     iskelet = series_skeleton(ihale_adi)
     if len(iskelet.split()) < 2:
         return ""
-    ham = f"{idare_id}|{okas_ana_kod or ''}|{iskelet}"
+    ham = f"{idare_id}|{iskelet}"
     return hashlib.sha1(ham.encode("utf-8")).hexdigest()

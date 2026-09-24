@@ -891,7 +891,7 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
     import statistics
     import time
 
-    from django.db.models import Count, Max, Min
+    from django.db.models import Count
 
     from .models import RecurringTenderSeries
 
@@ -908,17 +908,21 @@ def detect_recurring_series(min_uye=3, max_seconds=None):
         imlec = (cp.extra or {}).get("imlec") or ""
         tur_basi = (cp.extra or {}).get("tur_basi") or basla.isoformat()
 
+        temel = Tender.objects.exclude(seri_anahtar="").filter(ilan_tarihi__isnull=False)
+        if imlec:
+            # ⚠️ İmleç filtresi `annotate`'ten ÖNCE: sonra uygulanırsa Django onu
+            # HAVING'e koyabilir ve indeks kullanılamaz (GROUP BY'dan sonra süzmek
+            # tüm grupları hesaplamak demektir).
+            temel = temel.filter(seri_anahtar__gt=imlec)
+
         gruplar = (
-            Tender.objects.exclude(seri_anahtar="")
-            .filter(ilan_tarihi__isnull=False)
+            temel
             .order_by()  # ⚠️ Meta.ordering GROUP BY'a sızmasın
             .values("seri_anahtar", "idare_id")
-            .annotate(n=Count("id"), ilk=Min("ilan_tarihi"), son=Max("ilan_tarihi"))
+            .annotate(n=Count("id"))
             .filter(n__gte=min_uye)
             .order_by("seri_anahtar")
         )
-        if imlec:
-            gruplar = gruplar.filter(seri_anahtar__gt=imlec)
 
         yazilacak, islenen, atlanan, timed_out, para = [], 0, 0, False, 0
         son_anahtar = imlec

@@ -1406,25 +1406,167 @@ Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebil
 - **`detect_recurring_series`** — haftalık (Pazar 02:30), `celery` kuyruğu.
   ⚠️ `.values()` kullanır → `detail_raw` TOAST'ına **hiç dokunmaz**, dolayısıyla
   `sync_contractors`/`backfill_tender_fields` ile pencere çakışması sorunu YOK.
-- **Periyot = aralıkların MEDYANI**, ortalaması değil: tek bir sıra dışı aralık ortalamayı
-  kaydırırdı. `_periyot_tipi` takvim kaymalarına toleranslı sınırlar kullanır
-  (330-400 gün → yıllık).
-- ⚠️ **`guven` yalnızca üye sayısına bakmaz, DÜZENLİLİĞE de bakar** (`sapma/medyan`):
-  5 üyeli ama aralıkları 30/400/60/380 gün olan bir "seri" tahmin üretmemeli.
-  `yuksek` = ≥4 üye ve sapma/medyan ≤ 0.15.
-- **`aktif`**: son ilandan bu yana 2 periyottan fazla geçtiyse seri sona ermiştir
-  (ihtiyaç kalkmış / usul değişmiş) → liste varsayılan olarak yalnızca aktifleri döner.
+- **Periyot = DÖNEM aralıklarının MEDYANI**, ortalaması değil: tek bir sıra dışı aralık
+  ortalamayı kaydırırdı. `_periyot_tipi` takvim kaymalarına toleranslı sınırlar kullanır.
 - Upsert + buda: turda dokunulmayan eski seriler silinir (iskelet değişip artık oluşmayan
-  gruplar). ⚠️ Budama yalnızca **süre dolmadıysa** yapılır; yarım turda budamak hayatta
-  olan serileri silerdi.
+  gruplar). ⚠️ Budama yalnızca **tam tur bitince** yapılır; yarım turda budamak hayatta
+  olan serileri silerdi. Kesilen tur `SyncCheckpoint("recurring_series")` imlecinden
+  devam eder.
 - Para agregaları **ayrı adımda** (`_seri_para_agregalari`) — ana döngüde seri başına
   sorgu atmak N+1 olurdu.
+
+##### ⚠️⚠️ "BEKLENEN İHALELER" UYDURMA VERİ ÜRETİYORDU — 2026-09-24 onarımı
+
+Kullanıcı bildirdi: *"beklenen ihaleler çok uydurma veriler üretiyor"*. Doğrulandı;
+uç **mobilin varsayılan parametreleriyle** (90 gün, güven yüksek+orta) yalnızca **2**
+satır döndürüyordu ve ikisi de uydurmaydı. Filtresiz ilk sayfa şöyle başlıyordu:
+
+    beklenen=2023-10-14  periyot=1145g  sapma=0  güven=orta    "4 Kalem Muhtelif Eldiven"
+    beklenen=2023-12-24  periyot=1020g  sapma=0  güven=YÜKSEK  "TIBBİ CİHAZ ALIMI (5 KALEM)"
+
+Yani kullanıcı "beklenen ihaleler" ekranını açtığında **üç yıl önceki tarihler**
+görüyordu. Beş ayrı mekanizma aynı anda çalışıyordu:
+
+1. ⚠️⚠️ **Tek aralıktan "yüksek güven".** Periyot ardışık **ihale** tarihlerinden
+   hesaplanıyordu; kısımlı bir alımın lotları aynı gün yayımlandığı için aradaki 0
+   günlük farklar `[a for a in araliklar if a > 0]` ile **sessizce atılıyor**, geriye
+   tek aralık kalıyordu. `pstdev([x]) == 0` → `sapma_gun=0` → `_seri_guven` üye
+   sayısına baktığı için **`yuksek`**. Yani "kusursuz düzenli" etiketi **tek
+   gözlemden** geliyordu.
+   → Artık ilanlar **dönemlere** bölünüyor (`tasks._donemler`) ve seri için en az
+   **3 dönem** (= 2 aralık) aranıyor; tek aralıklı "yüksek güven" **yapısal olarak
+   imkânsız**. `guven` ölçütü **aralık sayısıdır, üye sayısı değil**.
+2. ⚠️ **İptal edilip yeniden ihale edilen iş periyot sanılıyordu.** *"Abdi İpekçi Okulu
+   Zemin Altı Otopark Yapım İşi"* 2024-03-06 / 04-05 / 05-09'da üç kez yayımlanmıştı
+   (ilk ikisi iptal) → medyan ~32 gün → **"aylık otopark yapımı"** tahmini.
+   → İptal (`DURUM_IPTAL`) sonrası `_IPTAL_PENCERE_GUN` (60) içinde gelen ilan aynı
+   dönemdir. ⚠️ Pencere **ölçümle** seçildi (45/60/90/120 denendi, isabet hepsinde
+   aynı): **3 aylık band 75 günde başladığı için** 90+ bir pencere, iptal yaşamış
+   gerçek bir üç aylık seriyi yutardı.
+   ⚠️ İptal zinciri **önceki ilandan** ölçülür, dönem başından değil — iki kez iptal
+   edilip üçüncüde yayımlanan iş (toplam 65 gün) aksi hâlde ikiye bölünüyordu.
+   Zincirin kaçmama garantisi her halkanın **bir iptal şartına** bağlı olmasıdır.
+   ⚠️ Normal (iptalsiz) aralıkta çapa **DÖNEM BAŞIDIR**, önceki ilan değil: önceki
+   ilana bakan bir kural 20 gün arayla gelen 10 ilanı tek döneme akıtırdı — keyword
+   katmanında 12.309 üyelik mega-küme üreten geçişli kümelemenin aynı tuzağı.
+3. ⚠️⚠️ **`periyot_tip="duzensiz"` seriye de tarih yazılıyordu.** Aktif 202 serinin
+   **156'sı** düzensizdi ve **hepsinde** bir `beklenen_ilan_tarihi` vardı; biri 42 gün
+   medyan / 480 gün sapmayla. "Düzensiz" tanımı gereği *"tespit edilebilir periyot
+   yok"* demektir.
+   → Düzensiz seriye **tarih verilmez** (`null`). Seri yine listelenir — "bu idare bu
+   işi tekrar tekrar alıyor" gerçek bir bilgidir, eksik olan yalnızca tarihtir.
+   Kod tabanının kuralı: yanlış sayı göstermektense **"veri yok"** demek doğrudur.
+4. ⚠️ **Aktiflik penceresi periyodun 2 katıydı** → medyanı 1145 gün olan, 2020'de
+   ölmüş bir seri 2026'da hâlâ "aktif". Varsayılan `order=beklenen` **artan** sıralama
+   olduğu için bu bayat tahminler **listenin başına** geçiyordu.
+   → `min(1,5 × periyot, 800 gün)`. Mutlak tavan şart: göreli tolerans tek başına
+   düzensiz serilerde yıllara uzanıyor.
+   → Sıralama da düzeltildi: **önce yaklaşanlar** (tarihe göre), sonra **gecikenler**,
+   en son tahmin edilemeyenler. Ayrıca `pk` tie-break eklendi — eşit anahtarların
+   sayfalar arası sırası plana kalıyordu ve mobil aynı seriyi iki sayfada birden alıp
+   *"two children with the same key"* ile patlıyordu (istemcide elle tekilleştiriliyordu).
+5. ⚠️ **Tablo bayattı ve sebebi ayrı bir arızaydı.** Son hesap 2026-09-20'de, yani
+   `fix_ilan_tarihi --tumu` onarımından (506.831 satır, 09-22) **önce** koşmuştu.
+   Belirti çarpıcıydı: kaynakta son ilanı 2026'da olan **5.002** seri varken tabloda
+   **144** vardı; tablonun %97'si 2016-2021'de ölmüş serilerdi.
+   ⚠️ **Ders (bu dosyada üçüncü kez)**: haftalık bir görev, kaynak veriyi düzelten bir
+   onarımdan sonra **elle tetiklenmelidir**; aksi hâlde ürün bir hafta boyunca
+   onarılmamış dünyayı gösterir.
+
+⚠️⚠️ **`okas_ana_kod` SERİ ANAHTARINDAN ÇIKARILDI — gerçek serileri bölüyordu.**
+Anahtar `(idare_id, okas_ana_kod, iskelet)` idi; OKAS eşitliği yanlış birleştirmeye
+karşı bir güvenlik kemeri sanılıyordu. Ölçüm tersini gösterdi: `okas_ana_kod`
+`ihtiyacKalemiOkasList[0].kodu`'ndan türetildiği için **kalem sıralaması değişince
+değişiyor** ve yalnızca %76-88 dolu. `(idare_id, iskelet)` ile kurulan 48.795 serinin
+**18.023'ü (%36,9)** birden çok OKAS kodu taşıyor, yani bölünüyordu. Kanıt net: aynı
+idarede **birebir aynı iskelete** sahip ihaleler ayrı seriye düşüyordu ("ODTÜ 2025
+Yılı 6 Grup Bakım Onarım Hizmeti" ↔ "ODTÜ 2026 …", "TIBBİ GAZ ALIMI (6 KALEM)" ↔
+"6 KALEM TIBBİ GAZ ALIMI").
+⚠️ **Yanlış birleştirme riski denetlendi** — 18 grup tek tek okundu, 12'si en riskli
+sınıf olan **2 token'lı** iskeletlerden: hepsi gerçekten aynı işti ("Hazır Beton Satın
+Alınması", "SODYUM HİPOKLORİT ALIMI", "Elektrik Enerjisi"). İdare kapsamı zaten dar
+olduğu için 2 token yeterli ayırt ediciliği sağlıyor. İsabet oranlarının **yükselmesi**
+de dolaylı kanıttır: gürültü karışsaydı aralık medyanları bozulurdu.
+⚠️ Anahtar tanımı değiştiği için arşiv **yeniden hesaplandı**:
+`python manage.py fix_seri_anahtar` (975.043 satır, boşalan 0) → `VACUUM (ANALYZE)
+ekap_tender` → `detect_recurring_series`.
+
+**GERİYE DÖNÜK TEST — sayılar buradan geliyor.** Kesim 2025-09-24, 1 yıllık ufuk:
+seriler o güne kadarki veriyle kuruldu, tahmin üretildi, sonra **gerçekte ne olduğuna**
+bakıldı.
+
+| | ESKİ | YENİ |
+|---|---|---|
+| yüksek güven ±30 gün isabet | %29,2 | **%39,8** |
+| yüksek güven ±90 gün | %40,0 | **%53,8** |
+| "hiç ihale çıkmadı" | %54,7 | **%41,9** |
+| medyan mutlak hata | 42 gün | **30 gün** |
+| aktif seri | 202 | **12.541** |
+| mobil varsayılanı (90 gün, yüksek+orta) | **2** | **951** |
+| düzensiz seriye uydurma tarih | 156 | **0** (6.040 seri dürüstçe tahminsiz) |
+
+⚠️ **Kalan en büyük başarısızlık modu "hiç ihale çıkmadı" (%42)** — bu bir tahmin
+hatası değil, **seri gerçekten bitmiş ya da gruplama hâlâ kaçırıyor** demektir. OKAS'ı
+düşürmek bunu %54,7'den %41,9'a indirdi; kalanı için iskelet eşleştirmesini
+gevşetmek gerekir ve o **ölçülmeden yapılmamalıdır** (yanlış birleştirme geri
+dönülmezdir).
+
+⚠️ Yeni API alanları (additive, mobil bugün yok sayar): `donem_sayisi` (kaç kez
+TEKRARLADI — `ihale_sayisi` lotları da sayar), `gecikme_gun`, `sektor`/`sektor_adi`.
+Yeni filtre: `sektor`.
+
+Testler: `ekap/tests/test_tekrar_eden.py` — **dişleri doğrulandı** (düzensize tahmin
+kuralı kaldırılınca 2, güven ölçütü gevşetilince 1, dönem birleştirme kaldırılınca 3,
+mutlak aktiflik tavanı kaldırılınca 1 test kırılıyor).
 
 #### Pazar panosu — `GET /ekap/market/`, `GET /ekap/market/<okas_bucket>/`
 
 "Kamu bu yıl neye ne kadar harcadı, kim kazandı?" Mantık `ekap/market.py`'de
 (HTTP'den bağımsız), modeller `MarketStat` + `MarketYearStat`, yenileme
 `refresh_market_stats` (beat **01:30**, `celery` kuyruğu).
+
+##### ⚠️⚠️ PANO ARTIK SEKTÖR EKSENİNDE (2026-09-24) — OKAS ekseni yedekte duruyor
+
+Grain `(yil, okas_bucket)` → **`(yil, boyut, okas_bucket)`**; `boyut` ∈
+`{"sektor", "okas"}`. Yenileme **iki ekseni de** yazar, uçlar **varsayılan olarak
+sektörü** döndürür (`?boyut=okas` eskisini verir).
+
+**Neden** (üretim ölçümü, 2026-09-24):
+
+| | `okas_bucket` | `sektor` |
+|---|---|---|
+| 2026 sözleşmelerinde doluluk | **%78,7** | **%98,3** |
+| panodaki "Sınıflandırılmamış" | **4. en büyük kalem** (18.635 sözleşme) | 6.119 |
+
+OKAS etiketleri bürokratik ve kullanıcıya yabancıydı; listenin başı *"BI. ve BII.
+Grubu işlerin dışındaki bina işleri"*, *"Taşkın koruma tesisleri işleri"* gibi
+kalemlerdi. Sektör ekseninde aynı yer *"İnşaat ve Yapım İşi"*, *"Yol, Asfalt ve
+Altyapı"*, *"Gıda ve Yemek Hizmeti"*. ⚠️ Asıl gerekçe **tutarlılık**: onboarding
+ekranı zaten bu taksonomiyi kullanıyor, yani kullanıcı kendi seçtiği sektörü panoda
+aynı adla görüyor. İki ayrı kategori dili taşımak ürünün kendi içinde çelişmesiydi.
+
+⚠️⚠️ **MOBİL DEĞİŞMEDEN ÇALIŞIR — üç ayrı noktada kasıt var:**
+1. **`okas_bucket` alan adı KORUNDU.** İstemci (`src/api/v1/market.js`) bu alanı
+   **opak anahtar** olarak okuyup `/ekap/market/{anahtar}/` yoluna koyuyor; sektör
+   ekseninde aynı alan sektör kodunu taşır. Yeniden adlandırmak istemciyi kırardı.
+   Yeni istemciler için yanıta `kod` + `boyut` **eklendi** (additive).
+2. **Eksen KODDAN ÇÖZÜLÜR**, istemciden istenmez: mobil önbelleğinde ve paylaşılmış
+   linklerde 4 haneli OKAS kodları var → `/ekap/market/4523/` **çalışmaya devam
+   ediyor**. Belirsizlik yok (sektör kodları harf, OKAS kodları rakam).
+3. ⚠️ **`okas_kod` filtresi sektör koduna yönlendirilir.** `MarketBucket` ekranındaki
+   "bu gruptaki ihaleleri gör" düğmesi anahtarı `okas_kod` olarak gönderiyor; sektör
+   kodu geldiğinde `Tender.sektor`'e yönlendirilmeseydi arama **sessizce boş**
+   dönerdi. Rakam olmayan değer sektör sayılır.
+   ⚠️ Karışık liste (`okas_kod=gida_catering,4521`) **UNION** ile çözülür, tek
+   `Exists | Q` ile DEĞİL: dallar ayrı tablolarda ve bu kod tabanında ölçülmüş bir
+   tuzak (`yuklenici` filtresinde 1,2 sn → 222 ms farkı buradan gelmişti).
+4. ⚠️ **`sektor=""` GERÇEK VERİDİR** — `okas_bucket=""` kuralının aynısı; sessizce
+   düşürmek pazar toplamlarını bozar. Mobil zaten boş anahtarı "yol parametresi
+   olamaz" diye ele alıyor, yani davranış birebir aynı kalıyor.
+
+Testler: `ekap/tests/test_pazar_sektor.py` — **dişleri doğrulandı** (varsayılan eksen
+OKAS'a çevrilince 3, eksen çözümü kaldırılınca 1, `okas_kod` yönlendirmesi
+kaldırılınca 2 test kırılıyor).
 
 - **Materialize/canlı ayrımı ÖLÇÜMLE belirlendi** (2026-08-13), planın öngörüsüyle
   DEĞİL. Plan grain'i `(yil, okas_bucket, il_id, ihale_tip)` = 143.105 satır

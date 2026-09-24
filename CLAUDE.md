@@ -1502,8 +1502,19 @@ bakıldı.
 | "hiç ihale çıkmadı" | %54,7 | **%41,9** |
 | medyan mutlak hata | 42 gün | **30 gün** |
 | aktif seri | 202 | **12.541** |
-| mobil varsayılanı (90 gün, yüksek+orta) | **2** | **951** |
-| düzensiz seriye uydurma tarih | 156 | **0** (6.040 seri dürüstçe tahminsiz) |
+| mobil varsayılanı (90 gün, yüksek+orta) | **2** | **952** |
+| `guven=yuksek` + 30 gün | **0** | **111** |
+| düzensiz seriye uydurma tarih | 156 | **0** (6.041 seri dürüstçe tahminsiz) |
+
+✅ **ÜRETİMDE UYGULANDI (2026-09-24).** Sıra ve ölçülen süreler:
+`fix_seri_anahtar` (975.043 satır değişti, boşalan **0**, 681 sn) →
+`VACUUM (ANALYZE) ekap_tender` (16 sn) → `detect_recurring_series`
+(**41.080 seri yazıldı, 17.823 bayat satır budandı, 182 sn, timed_out=False**) →
+`refresh_market_stats` (16 sn).
+⚠️ Tam tur **182 sn** ölçüldü, varsayılan bütçe 270 sn → günlük takvim tek turda
+bitiyor; imleç yalnızca emniyet kemeridir.
+⚠️ Görev **haftalıktan günlüğe** çevrildi (`config/celery.py`): beklenen ilan
+çıktığında seri güncellenmezse tahmin geçmişte kalıp bir hafta "gecikti" görünüyordu.
 
 ⚠️ **Kalan en büyük başarısızlık modu "hiç ihale çıkmadı" (%42)** — bu bir tahmin
 hatası değil, **seri gerçekten bitmiş ya da gruplama hâlâ kaçırıyor** demektir. OKAS'ı

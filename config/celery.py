@@ -180,9 +180,20 @@ app.conf.beat_schedule = {
     # Tekrar eden ihale serilerini tespit eder (Pazar 02:30, haftalık).
     # EKAP'a gitmez ve detail_raw OKUMAZ (.values() ile indeksli seri_anahtar üzerinde
     # GROUP BY) → gece penceresi/süpürme çakışması sorunu yok. `celery` kuyruğu.
+    # ⚠️ HAFTALIK DEĞİL GÜNLÜK (2026-09-24). Üç ayrı sebep:
+    #   1. Beklenen bir ilan çıktığında seri güncellenmezse tahmin **geçmişte kalır**
+    #      ve kullanıcı bir hafta boyunca "gecikti" görür — oysa iş çoktan ilana
+    #      çıkmıştır. Ürünün en görünür yanlışı buydu.
+    #   2. `aktif` bayrağı yazma anında hesaplanıyor; haftalık tur ölmüş serileri
+    #      bir hafta daha canlı gösterir.
+    #   3. Görev artık **süre bütçesi aşılırsa imleçten devam ediyor**; haftalık
+    #      takvimde yarım kalan bir tur bir HAFTA bekler ve o süre boyunca budama
+    #      hiç koşmaz (tablo eski+yeni karışımı olarak donar — 2026-09'da tam bu
+    #      yaşandı). Günlük takvim yarım turu ertesi gün kapatır.
+    # EKAP'a gitmez, `detail_raw` OKUMAZ → maliyeti yalnızca DB'dir.
     "ekap-detect-recurring-series": {
         "task": "ekap.tasks.detect_recurring_series",
-        "schedule": crontab(hour=2, minute=30, day_of_week=0),
+        "schedule": crontab(hour=2, minute=30),
     },
     # Ücretsiz üyeye HAFTADA BİR "bu hafta neyi kaçırdın" özeti (Pazartesi 10:00).
     # Günlük alarm görevleri Free kullanıcıyı sayılmadan eliyor → kullanıcı Pro'nun ne işe

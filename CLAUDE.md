@@ -1403,7 +1403,7 @@ Kamu alımlarının büyük kısmı **yıllık tekrarlar**. Arşiv bunu görebil
 - **Anahtar ingest'te üretilir** (`series.series_key` → `apply_pro_fields`); tespit görevi
   yalnızca indeksli `varchar(40)` üzerinde GROUP BY yapar. Metin karşılaştırması yok.
   ⚠️ Trigram self-join **bilinçli olarak reddedildi** (bkz. `ekap/series.py`).
-- **`detect_recurring_series`** — haftalık (Pazar 02:30), `celery` kuyruğu.
+- **`detect_recurring_series`** — **günlük** (02:30), `celery` kuyruğu.
   ⚠️ `.values()` kullanır → `detail_raw` TOAST'ına **hiç dokunmaz**, dolayısıyla
   `sync_contractors`/`backfill_tender_fields` ile pencere çakışması sorunu YOK.
 - **Periyot = DÖNEM aralıklarının MEDYANI**, ortalaması değil: tek bir sıra dışı aralık
@@ -2978,7 +2978,10 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (**11:00/15:00/19:00**)
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
 - `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
-- `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (Pazar 02:30; EKAP'a
+- `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (**her gün 02:30**
+  — haftalıktan çevrildi 2026-09-24: beklenen ilan çıktığında seri güncellenmezse tahmin
+  geçmişte kalıp bir hafta "gecikti" görünüyordu; ayrıca yarım kalan tur haftalık
+  takvimde bir hafta bekler ve budama hiç koşmazdı; EKAP'a
   gitmez, `detail_raw` OKUMAZ → süpürme penceresiyle çakışmaz)
 - `backfill_tender_fields` — Pro sinyal kolonlarını `detail_raw` arşivinden doldurur
   (5 dk'da bir; EKAP'a gitmez, gece penceresi, **yüklenici süpürmesi bitene kadar

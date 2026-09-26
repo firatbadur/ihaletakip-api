@@ -7,6 +7,13 @@ Mobil API `idare_id` vermediği için yeni ihaleler bu alan boş kaydediliyor; k
 kolonuna yazılır ve **yalnızca boş alanlar** doldurulur: v2'den gelmiş gerçek bir
 id asla ezilmez.
 
+⚠️⚠️ **Redis önbelleği BİLEREK ATLANIR.** `idare.coz()` sonucu ad başına 24 sa
+önbelleklenir; eşleştirme kuralı değiştikten sonra (ör. `yol` kademesinin
+eklenmesi) o önbellekte duran **eski boş sonuçlar** backfill'i sessizce
+etkisiz kılardı — komut çalışır, "eşleşmedi" yazar, hiçbir şey düzelmez.
+Bunun yerine `idare._coz` doğrudan çağrılır ve **süreç-içi** bir sözlükle
+tekrar sorgular önlenir (aynı idare yüzlerce ihalede geçiyor).
+
 Saf DB işidir; EKAP'a hiç gidilmez.
 """
 from django.core.management.base import BaseCommand
@@ -14,6 +21,7 @@ from django.core.management.base import BaseCommand
 from ekap.mobil import idare as idare_mod
 from ekap.models import Tender
 from ekap.series import series_key
+from ekap.utils import normalize_tr
 
 
 class Command(BaseCommand):
@@ -30,11 +38,15 @@ class Command(BaseCommand):
               .only("id", "idare_adi", "idare_id", "okas_ana_kod", "ihale_adi")
               .order_by("-ihale_tarihi")[:o["limit"]])
 
-        bakilan = tam = benzer = bos = 0
+        bakilan = tam = yol = benzer = bos = 0
         yigin = []
+        bellek = {}      # ⚠️ Redis yerine süreç-içi — bkz. modül docstring'i
         for t in qs.iterator(chunk_size=o["batch"]):
             bakilan += 1
-            idare_id, kaynak = idare_mod.coz(t.idare_adi)
+            n = normalize_tr(t.idare_adi)
+            if n not in bellek:
+                bellek[n] = idare_mod._coz(n) if n else ("", "")
+            idare_id, kaynak = bellek[n]
             if not idare_id:
                 bos += 1
                 continue
@@ -45,6 +57,7 @@ class Command(BaseCommand):
             t.seri_anahtar = series_key(idare_id, t.ihale_adi)
             yigin.append(t)
             tam += kaynak == idare_mod.KAYNAK_TAM
+            yol += kaynak == idare_mod.KAYNAK_YOL
             benzer += kaynak == idare_mod.KAYNAK_BENZER
             if len(yigin) >= o["batch"] and not o["dry_run"]:
                 Tender.objects.bulk_update(
@@ -55,6 +68,6 @@ class Command(BaseCommand):
                 yigin, ["idare_id", "idare_kaynak", "seri_anahtar"])
 
         self.stdout.write(
-            f"bakılan={bakilan} tam={tam} benzer={benzer} eşleşmedi={bos}"
+            f"bakılan={bakilan} tam={tam} yol={yol} benzer={benzer} eşleşmedi={bos}"
             + (" (dry-run, yazılmadı)" if o["dry_run"] else "")
         )

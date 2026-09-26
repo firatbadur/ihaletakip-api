@@ -258,11 +258,63 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   ⚠️ Eşik `EKAP_MOBIL_IDARE_ESIK` (vars. **0,90**) — düşürmeyin; 0,50'de kesinlik
   %54'e çöküyor. `0` → bulanık kademe tümüyle kapanır.
   ⚠️ **Yalnızca BOŞ alan doldurulur**: v2'den gelmiş gerçek id tahminle ezilmez.
-  ⚠️ Hangi satırın tahminle dolduğu **`Tender.idare_kaynak`**ta (`tam`|`benzer`) →
-  denetlenebilir ve gerekirse yalnızca `benzer` olanlar geri alınabilir.
+  ⚠️ Hangi satırın tahminle dolduğu **`Tender.idare_kaynak`**ta (`tam`|`yol`|`benzer`)
+  → denetlenebilir ve gerekirse yalnızca bir kademe geri alınabilir.
   ⚠️ Eşleştirme `upsert_tender_detail`'DEN ÖNCE yapılır: `seri_anahtar` `idare_id`ye
   bağlı, sonradan yazılsa seri anahtarı boş idareyle hesaplanırdı.
   Geriye dönük: `python manage.py mobil_idare_esle [--dry-run]`.
+
+  ⚠️⚠️ **MOBİL ADI ATA-YOLUNU BİRLEŞTİREREK VERİYOR — birebir eşleşme çoğu ihalede
+  YAPISAL OLARAK İMKÂNSIZDI** (bulundu 2026-09-26, kullanıcı bildirdi: *"idaresi
+  olmasına rağmen tıklanmıyor ve o idareyi seçince bu ihale çıkmıyor"*).
+  Ölçüm: son 10 günün mobil kaynaklı 1.694 ihalesinin **yalnızca %30,5'inde**
+  `idare_id` doluydu → **1.177 ihale** favori idare bildirimi, idare profili ve
+  DETSIS filtresinin **tamamen dışındaydı**. Üretim örneği (İKN 2026/1789437):
+
+      mobil       : "TEKİRDAĞ SU VE KANALİZASYON İDARESİ GENEL MÜDÜRLÜĞÜ
+                     TİCARET İŞLERİ DAİRESİ BAŞKANLIĞI İHALE İŞLERİ ŞUBE MÜDÜRLÜĞÜ"
+      `Authority` : "İHALE İŞLERİ ŞUBE MÜDÜRLÜĞÜ" (detsis 18148693, idare_id 91646)
+
+  DETSIS her düğümü **kendi kısa adıyla** tutar; mobil ise yolu düzleştirir → ne
+  `ad_norm` eşitliği ne de trigram (uzun ad ↔ kısa ad) tutar.
+  → **Kademe 2 `yol`** (`idare._yol_kademesi`): adın bir **soneki** bir düğümün tam
+  adıysa ve kalan **önek** o düğümün ata adlarıyla doğrulanıyorsa yazılır.
+  ⚠️ **Yol birebir DEĞİLDİR**: mobil ara düğüm **atlar** (yukarıdaki zincirde
+  "GENEL MÜDÜR YARDIMCILIĞI 1" mobil adında yok) ve **kökten başlamaz** → katı yol
+  eşitliği neredeyse hiç tutmazdı. Doğrulama bu yüzden ata adlarının **sıralı
+  alt-dizisi** üzerinden yapılır: **atlamaya izin var, sıra bozmaya yok**.
+  ⚠️ **En UZUN sonek önce denenir** — kısa sonek önce denenseydi yukarıdaki ihale
+  ara düğüme (91644, Ticaret İşleri D.B.) bağlanırdı.
+  ⚠️ Kademe **trigram'dan ÖNCE** gelmeli: kesinliği yüksek (%97,4 > %92,2) ve kararı
+  **yapısal** (ata zinciri), bir benzerlik skoru değil.
+  ⚠️ Belirsizlikte (bir sonek birden çok `idare_id`ye gidiyor) **boş bırakılır** —
+  kademe 1 ile aynı ilke; son 10 günün yalnızca %3,4'ü bu dalda kalıyor.
+
+  **Ölçülen sonuç (2026-09-26):**
+
+  | | kapsam (son 10 gün, eşleşmeyen 1.177) | kesinlik |
+  |---|---|---|
+  | `yol` kademesi | **1.128 (%95,8)** | **%97,4** (n=2.898, v2'nin gerçek id'lerine karşı) |
+  | belirsiz → boş | 40 (%3,4) | — |
+  | ada hiç rastlanmadı | 9 (%0,8) | — |
+
+  ⚠️ Doğruluk **iki bağımsız yolla** ölçüldü: (1) v2'nin gerçek `idare_id`leriyle
+  %97,4; (2) gerçek mobil kayıtlarda tahmin edilen id'nin v2 arşivindeki adıyla
+  çapraz karşılaştırma **%96,3** (n=1.128). ⚠️ İkincideki "uyumsuz" 10 vakanın
+  **tamamı elle incelendi ve hepsi DOĞRU eşleşmeydi** — v2'nin kısaltmalı adı token
+  olarak örtüşmüyor (`GÖL.DZ.ÜS K.LIĞI` ↔ `GÖLCÜK DENİZ ANA ÜS KOMUTANLIĞI`), yani
+  gerçek kesinlik ölçülenden yüksek.
+  ⚠️ Aynı ölçüm **kademe 1'de bir zayıflık** da gösterdi: `tam` kademesi tüm arşiv
+  örnekleminde **%86,5** (belgelenen %97,9 değil). Yanlışların kaynağı **v2'nin ters
+  formatlı adlarıdır** (`"Devlet Hastanesi -Almus SAĞLIK BAKANLIĞI BAKAN
+  YARDIMCILIKLARI"` — birim önce, üst idare sonra); ata sayısı 1 olan düğümlerde
+  kesinlik %71,6'ya düşüyor. **Mobil hattında bu format yok**, bu yüzden kademe 1'e
+  dokunulmadı — ama v2 adlarını eşleştirecek biri önce bunu ölçsün.
+  Testler: `ekap/tests/test_mobil_idare_yol.py` — dişleri doğrulandı (yol kademesi
+  kaldırılınca **5**, önek doğrulaması kaldırılınca **4** test kırılıyor).
+  ⚠️ **Deploy'da Redis önbelleği temizlenmeli**: `coz()` sonucu ad başına 24 sa
+  önbelleklenir → eski **boş** sonuçlar yeni kademeyi bir gün boyunca gölgelerdi
+  (`ekap:mobil:idare:*`).
 - **OKAS = idari şartnameden** (`ekap/mobil/okas.py`): 8-9 haneli sayılar `OkasCode`
   kataloğuyla **kesiştirilir** (kesinlik %100, duyarlılık %97,2). ⚠️ Katalog
   `sync_okas` ile v2'den geliyor → o görev yedekte de olsa çalışmalı.

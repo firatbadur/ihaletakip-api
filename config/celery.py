@@ -48,18 +48,28 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_tender_alarms",
         "schedule": crontab(hour=9, minute=0),
     },
-    # Kayıtlı filtre eşleşmesi: filtreye uyan yeni ihaleler (her gün 10:00)
-    # ⚠️ **Günde tek tur YETMEZ** — EKAP'ın yayım saati bilinmiyor ve `ilan_tarihi`
-    # damgası gün başı olduğu için veriden de okunamıyor. Sabit tek saatte koşan bir
-    # bildirim, o saatten sonra yayımlanan her ihaleyi kaçırır ve ertesi gün "bugün"
-    # olmadıkları için hiç bildirmez. Gün içine yayıldı; mükerrerliği zaman değil
-    # ihale bazlı dedup engelliyor (`tenders.tasks._yeni_ihaleler`).
-    # ⚠️ Saatler `sync_recent`'in (tek saatler) **bir saat sonrasına** konumlandı:
-    # 09:00 turu → 10:00 bildirimi. Aynı saatte başlasalardı bildirim, o turun
-    # yazdığı ihaleleri göremeden koşardı.
+    # Kayıtlı filtre eşleşmesi: **günlük özet — her sabah 08:00, DÜN yayımlananlar**
+    # (2026-09-26'da 10/14/18 × "bugün" kurgusundan çevrildi).
+    #
+    # ⚠️⚠️ Bu dosyada eskiden *"günde tek tur YETMEZ"* yazıyordu; o gerekçe **artık
+    # geçerli değil ve tersi doğru**. Gerekçe şuydu: sabit tek saatte koşan bildirim,
+    # o saatten sonra yayımlanan ihaleyi kaçırır ve ertesi gün "bugün" olmadığı için
+    # hiç bildirmez. Bu, pencere **"bugün"** olduğu sürece doğruydu. Pencere artık
+    # **kapalı bir takvim günü** (dün) → gün kapanmadan hiç bildirilmiyor, dolayısıyla
+    # kaçırma da yok; üstelik detayın gelmesi için bir gece payı kazanıldı
+    # (eskiden 18:00'e kadar gelmeliydi; ölçüm: %99,6 aynı gün).
+    #
+    # ⚠️ Asıl sebep ürün tarafı: üç tur, **aynı başlıkla** günde 2-3 bildirim üretiyordu
+    # (ölçüldü 2026-09-23: tek kullanıcı 18 filtre bildirimi, 6 filtre 2 kez) ve her
+    # turun sayısı farklı çıkıyordu çünkü gün henüz bitmemişti.
+    #
+    # ⚠️ 08:00 aynı dakikada `recommend-by-saved-okas` da koşuyor (ikisi de push atar,
+    # `NOTIF_MIN_GAP_MINUTES=0`). Bilinçli: ikisi de "sabah özeti" kategorisinde ve
+    # farklı derin bağlantılara gidiyor. Kullanıcı arka arkaya iki push'tan şikâyet
+    # ederse ayrılacak ilk yer burasıdır.
     "check-saved-filter-matches": {
         "task": "tenders.tasks.check_saved_filter_matches",
-        "schedule": crontab(minute=0, hour="10,14,18"),
+        "schedule": crontab(hour=8, minute=0),
     },
     # Favori idare eşleşmesi: favori idarelerin yeni yayınladığı ihaleler (her gün 11:00)
     # Filtre turundan bir saat sonra — kategori başına staggered saat, aynı anda

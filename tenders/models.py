@@ -285,6 +285,16 @@ class Notification(models.Model):
     # Derin bağlantı önceliği: conversation_id > filter_id > authority_detsis >
     # contractor_id > okas_kodlar > tender_ikn/tender_id.
     contractor_id = models.BigIntegerField(null=True, blank=True)
+    # type=TENDER (kayıtlı filtre eşleşmesi) bildirimlerde: bildirimin KAPSADIĞI yayım
+    # günü (`ilan_tarihi`). Mobil listeyi tam bu güne kısar
+    # (`ilan_tarihi_min = ilan_tarihi_max = ilan_gun`).
+    # ⚠️⚠️ Bu alan olmadan mobil günü **bildirimin oluşma tarihinden** tahmin ediyordu
+    # (`notificationRouting.js` → `dayKey(created_at)`). Bildirim sabah 08:00'de
+    # üretilip **dünü** kapsadığı için o tahmin yanlış güne bakar ve kullanıcı BOŞ
+    # liste görür — 2026-09-24'te ölçülen "sayı tutmuyor" arızasının aynısı, ters
+    # yönde. Üretici hangi günü saydıysa onu **açıkça** söyler.
+    # ⚠️ `null` = eski bildirimler; mobil o zaman eski davranışa (oluşma günü) düşer.
+    ilan_gun = models.DateField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

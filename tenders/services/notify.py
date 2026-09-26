@@ -47,6 +47,7 @@ def record_notification(
     authority_detsis: str | None = None,
     contractor_id: int | None = None,
     okas_kodlar: str | None = None,
+    ilan_gun=None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -65,6 +66,7 @@ def record_notification(
         authority_detsis=authority_detsis,
         contractor_id=contractor_id,
         okas_kodlar=(okas_kodlar[:500] if okas_kodlar else None),
+        ilan_gun=ilan_gun,
     )
 
 

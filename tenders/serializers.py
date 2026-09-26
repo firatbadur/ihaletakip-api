@@ -201,6 +201,10 @@ class NotificationSerializer(serializers.ModelSerializer):
             "authority_detsis",
             "contractor_id",
             "okas_kodlar",
+            # Filtre bildiriminde: bildirimin kapsadığı yayım günü (YYYY-MM-DD).
+            # Mobil listeyi tam bu güne kısar; `null` ise eski davranışa (bildirimin
+            # oluşma günü) düşer.
+            "ilan_gun",
             "read",
             "created_at",
         ]

@@ -4440,6 +4440,11 @@ components:
           type: string
           readOnly: true
           nullable: true
+        ilan_gun:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -4455,6 +4460,7 @@ components:
       - created_at
       - filter_id
       - id
+      - ilan_gun
       - institution
       - okas_kodlar
       - read

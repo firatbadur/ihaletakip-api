@@ -3063,8 +3063,11 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `recommend_by_saved_okas` — kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan
   ihale önerisi + push (günlük 08:00, **Free/Pro herkese**)
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
-- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği)
-- `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (**11:00/15:00/19:00**)
+- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
+- `check_favorite_authority_matches` — favori idare bildirimi + push (**her sabah 08:30,
+  son 24 saatte KAYDEDİLENLER** — 2026-09-28'de 11/15/19 × "ilan_tarihi bugün"den çevrildi;
+  üç tur ölçümle gereksizdi, kayıtlar 00:09-02:33'te bitiyor). `NOTIF_BIRLESIK_BILDIRIM`
+  açıkken **kullanıcı başına TEK** bildirim
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
 - `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
 - `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (**her gün 02:30**
@@ -3102,9 +3105,9 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   - `templates.py` — Türkçe metinler (İhale Günü / Doküman Güncellendi / İhale Sonuçlandı,
     `alarm_tender` (ihale-başına birleşik), filtre eşleşmesi, favori idare eşleşmesi, OKAS önerisi).
 - **Zamanlama (kademeli)**: 07:00 asistan öneri digest'i (`match_recommendations`),
-  **08:00 OKAS önerisi (`recommend_by_saved_okas`) + kayıtlı filtre günlük özeti
-  (`check_saved_filter_matches`)**, 09:00 alarm hatırlatıcıları (`check_tender_alarms`),
-  11:00/15:00/19:00 favori idare eşleşmeleri (`check_favorite_authority_matches`).
+  **08:00 OKAS önerisi (`recommend_by_saved_okas`) + kayıtlı filtre özeti
+  (`check_saved_filter_matches`)**, **08:30 favori idare özeti
+  (`check_favorite_authority_matches`)**, 09:00 alarm hatırlatıcıları (`check_tender_alarms`).
   Alarm/filtre/idare kategorileri **abonelik-başına ayrı push** atar (o kategorinin görev
   turunda arka arkaya).
   ⚠️ 08:00'de **iki** kategori birden koşuyor (OKAS + filtre) — "≥1 sa arayla" kuralının
@@ -3204,6 +3207,96 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
     → Filtre görevi **günde tek tur** (08:00) ve pencere **kapalı bir takvim günü**
     (bkz. aşağıdaki blok). Favori idare görevi hâlâ 3 tur × "bugün" — orada mobil
     listeyi güne kısmadığı (idarenin tüm listesini açıyor) için aynı şikâyet yok.
+
+  ##### ⚠️⚠️ BİRLEŞİK BİLDİRİM: KULLANICI BAŞINA TEK SATIR (2026-09-28)
+
+  Kullanıcı isteği: *"tek bir bildirim ile tüm filtrelerin çıktıları... filtrelerinize
+  uygun şu kadar ihale bulundu deyip tıklayınca onları açmak"*, ve *"mobil bildirime
+  tıklayınca API'ye filtre id'leri liste olarak gitmeli, backend birleştirip ihale
+  listesi cevabını vermeli"*. İdare bildirimleri de aynı şekilde.
+
+  ⚠️ Bu, bu dosyada gerekçesi yazılı **"abonelik-başına AYRI bildirim"** kararını filtre ve
+  favori idare için **bilinçli olarak tersine çevirir**. O karar bildirimler seyrekken
+  alınmıştı; ölçüm (2026-09-23) tek kullanıcının bir günde **18 filtre bildirimi** aldığını,
+  6 filtresinin aynı gün 2 kez bildirildiğini gösterdi. Alarm ve OKAS önerisi değişmedi.
+
+  **Akış**: bildirim eşleşen **id'leri** taşır (`Notification.filtre_idler` /
+  `idare_detsis_liste`, CSV) → mobil bunları `kayitli_filtreler` / `favori_idareler`
+  olarak uca gönderir → **uç OR'layıp** tek ihale listesi döndürür.
+
+  ⚠️⚠️ **GÖREV VE UÇ BİRLEŞİMİ AYNI FONKSİYONDAN KURAR** (`ekap.views`):
+  `kayitli_filtre_birlesimi` / `idare_ozeti_dali`. İki kod yolundan saymak, bu konunun
+  **üç kez** ürettiği "bildirimdeki sayı ekrandaki listeyle tutmuyor" arızasını geri
+  getirirdi. `apply_tender_filters` docstring'indeki söz (*"aynı tanım bildirim
+  görevlerinde de kullanılabilsin"*) ancak böyle tutulur.
+
+  ⚠️⚠️ **`ihale_durum in (2,3)` koşulu FİLTRE-BAŞINA KOŞULLUDUR** (`filt.get("ihale_durum")`)
+  ve birleşime **çekilemez**: filtre A `ihale_durum=[4]` derken B hiç durum belirtmiyorsa,
+  dış bir koşul A'nın sonucunu **siler**. Birleşimin `Q` OR'lamasıyla değil **dal başına
+  queryset + UNION** ile kurulmasının asıl mimari gerekçesi budur; performans ikincil.
+  ⚠️ `pk__in=A | pk__in=B` **denenmedi**: bu kod tabanında **109 sn** ölçülü (`yuklenici`
+  filtresi). UNION deseni aynı yerde 1,2 sn → 222 ms.
+  ⚠️ **Pencere her dalın İÇİNE konur** (seçicilik): dışarıda bırakılırsa her dal on
+  binlerce pk döndürür ve birleşim şişer. Dış sorgudaki tekrar **kasıtlıdır** — dış planın
+  da `ORDER BY created_at DESC LIMIT n` için indeksi kullanabilmesi için. "Gereksiz" diye
+  silmeyin. `Tender` dallarına `.order_by()` şart (`Meta.ordering` union'ı bozar).
+
+  ⚠️ **İdare tarafında UNION GEREKMEZ**: `descendant_idare_ids` tüm favori idareleri tek
+  çağrıda genişletiyor, birleştirme `idare_id__in` içinde. Orada filtre-başına koşullu bir
+  şey yok.
+
+  **Bu yaklaşımın DOĞURDUĞU dört sorun — hepsi kapatıldı:**
+
+  | Sorun | Çözüm |
+  |---|---|
+  | Pro kapısı körleşiyor: `_PRO_PARAMS & set(qp)` saved filter **JSON'unun içine** bakmıyor, Pro anahtarları query string'den kaybolduğu için bedavaya kullanılabilirdi | kapı `set(qp)` ∪ `⋃ set(sf.filters)` |
+  | `AllowAny` uçta kimlik: kullanıcıya **özel** JSON çözülüyor | anonim istek **400** |
+  | `_cached_count` anahtarı kullanıcı içermiyor; filtre id'leri global PK → B, A'nın sayısını görürdü | parametre varken `scope=f"tender:kf{user.pk}"` |
+  | N dallı UNION planı | pencere dalda + `EXPLAIN` doğrulaması |
+
+  ⚠️ **400 seçimi bilinçli**: 401 mobilde `http.js` refresh deneyip başarısızsa
+  `clearSession()` çağırıyor → bir query parametresi hatası kullanıcıyı **çıkış
+  yaptırırdı**. 403 ise interceptor yalnızca `premium_required` kodunu tanıdığı için
+  Pro kapısıyla loglarda ayırt edilemezdi. Sessizce yok saymak **tüm ihaleleri** döndürürdü.
+  ⚠️ **`kayitli_filtreler` `_PRO_PARAMS`'a EKLENMEZ**: Pro'dan düşmüş kullanıcı bildirimine
+  basınca 403 alıp listeyi hiç açamazsa bağlantı ölür.
+  ⚠️ Sahiplik: `filter(user=request.user, id__in=…)`. Hiçbiri çözülmezse **boş liste +
+  `uyari`**, asla tüm ihaleler.
+
+  ⚠️ **Birleşik satırda `filter_id` / `authority_detsis` BOŞ BIRAKILIR.** Doldurulursa eski
+  mobil sürüm "birleşimin sayısı + tek aboneliğin listesi" gösterir — iki kez düzeltilmiş
+  arızanın üçüncü baskısı. Boş bırakmak ayrıca eski istemcinin bildirim ekranına düşmesini
+  (kabul edilebilir bozunma) sağlar.
+  ⚠️ Alan adı `filter_ids` **değil** `filtre_idler`: `filterId` ile `filterIds` tek harf
+  fark ediyor ve ikisi mobilde **aynı if zincirinde** okunuyor; bir harf yazım hatası
+  zinciri sessizce bir alt halkaya düşürüp **yanlış ekran** açar.
+
+  ⚠️ **Dedup grain'i KULLANICIya taşındı** (`nf:u{uid}:{pk}`): 3 filtreye uyan ihale 3 değil
+  **1** kez bildirilir. Eski `nf:{sf.id}:{pk}` anahtarları 7 günde kendiliğinden ölür.
+  ⚠️ Sayı yine **penceredeki tekilleştirilmiş TOPLAM** (`len(hepsi)`), `len(yeni)` değil.
+
+  ⚠️ **`NOTIF_BIRLESIK_BILDIRIM` varsayılan KAPALI.** Derin bağlantıyı yalnızca yeni mobil
+  sürüm tanıyor; mağaza sürümü yayılmadan açılırsa eski sürümdeki kullanıcı bildirime
+  basınca ihale listesi değil bildirim ekranı görür. Eski kod yolu
+  (`_filtre_abonelik_basina` / `_idare_abonelik_basina`) **silinmedi** → bayrak deploy'suz
+  geri çevrilir.
+
+  ⚠️ **`templates.authority_match` artık "Bugün" DEMİYOR**: pencere kayıt tarihine taşındığı
+  için pazartesi bildirilen bir ihalenin yayım tarihi cuma olabilir. Filtre şablonunda
+  düzeltilen dürüstlük sorununun idare tarafındaki ikizi.
+
+  ⚠️⚠️ **MOBİLDE `mapNotification` SABİT BİR ALAN LİSTESİDİR** (`firestoreApi.js`) ve orada
+  olmayan alan uygulamaya **hiç ulaşmaz, hata da vermez**. 2026-09-28'de canlı bir hata
+  olarak yaşandı: `pencere_bas`/`pencere_bit` eklenmediği için uygulama-içi bildirim
+  listesinden tıklayan kullanıcı pencereyi kaybediyor, router oluşma gününe düşüp **bugün
+  ilan edilenleri** açıyordu. Push tıklaması doğru çalıştığı için gözden kaçmıştı.
+  **Backend'e yeni bir yönlendirme alanı eklerken önce oraya ekleyin.**
+
+  Mobil entegrasyon notu: `docs/mobil-birlesik-bildirim.md`.
+  Testler: `tenders/tests/test_birlesik_bildirim.py` (26) + mobil (11).
+  **Dişleri doğrulandı**: backend 13 düzeltmenin 13'ü, mobil 5'in 5'i ısırıyor. ⚠️ İki diş
+  ilk denemede **ısırmadı** (ikinci turda sayı = pencere toplamı; hafta sonu senaryosu) —
+  kodu silmek yerine eksik testler yazıldı.
 
   ##### ⚠️⚠️ FİLTRE PENCERESİ = KAYIT TARİHİ, SON 24 SAAT (2026-09-28)
 

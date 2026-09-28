@@ -1209,35 +1209,57 @@ def _aciklamalari_duzelt(data, tender):
     # Detay EKAP'ın ham şeklidir; sabit bir serializer'a bağlanmaz.
     responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
 )
-def _attach_idare_detsis(data, tender=None):
-    """İhale detayının `idare` bloğuna `detsis_no` ekler (favori idare için gerekli).
-
-    Ham EKAP detayı yalnızca `idare_id` taşır; favori idare uçları ise `detsis_no` ile
-    anahtarlanır. `ekap.Authority` üzerinden idare_id → detsis_no çözer; eşleşme yoksa
-    `None` yazar (mobil buna göre "İdareyi Kaydet"i pasife alır).
+def _attach_idare_kimlik(data, tender=None):
+    """İhale detayına idare kimliğini ekler: **`idareId`** + `idare.detsis_no`.
 
     idare_id kaynağı (ilki dolu olan): `idare.id` → `data.idareId` → `ihaleBilgi.idareId`
-    → `tender.idare_id` (kolon). Ham blokta id bazen boş gelir; kolon güvenilirdir.
+    → `tender.idare_id` (kolon). Ham blokta id bazen boş gelir; kolon güvenilirdir —
+    mobil kaynaklı ihalelerde **yalnızca** kolon dolar (mobil API `idareId` vermiyor,
+    değer ad/ata-yolu eşleştirmesinden gelir; bkz. `ekap/mobil/idare.py`).
+
+    `detsis_no`: favori idare uçları bu anahtarla çalışır; `ekap.Authority` üzerinden
+    çözülür, eşleşme yoksa `None` yazılır (mobil "İdareyi Kaydet"i pasife alır).
+
+    ⚠️⚠️ **`idareId` DE YAZILMALI — `detsis_no` TEK BAŞINA YETMEZ.** Mobil ihale
+    detayında iki ayrı eylem var ve **farklı alanlara** bakıyorlar
+    (`TenderDetail/components/IhaleBilgileriTab.js`):
+
+        İdare adına dokunma (tüm ihaleleri listele) → `data.idareId || idare.id`
+        "İdare Raporu" düğmesi                     → `detsisNo || idareId`
+
+    Yalnızca `detsis_no` yazıldığında rapor düğmesi çalışıyor ama **idare adına
+    dokunmak sessizce hiçbir şey yapmıyordu** (`if (!idareId) return`) — üretimde
+    yaşandı (2026-09-28, kullanıcı bildirdi: *"hâlâ tıklanmıyor"*). Mobil kaynaklı
+    ihalelerin ham payload'ında `idareId` **hiç yok**, yani alan kolondan
+    yazılmazsa dokunma kalıcı olarak ölü kalır.
+
+    ⚠️ Bu yüzden `idareId` yazımı `detsis_no`'dan **bağımsızdır**: eski kod
+    `detsis_no` zaten doluysa fonksiyondan erken çıkıyordu.
     """
     if not isinstance(data, dict):
         return data
     idare = data.get("idare")
-    if not isinstance(idare, dict) or idare.get("detsis_no"):
-        return data
+    if not isinstance(idare, dict):
+        idare = None
     bilgi = data.get("ihaleBilgi") or {}
     idare_id = (
-        idare.get("id")
+        (idare or {}).get("id")
         or data.get("idareId")
         or bilgi.get("idareId")
         or (tender.idare_id if tender else None)
     )
     if idare_id in (None, ""):
         return data
-    idare["detsis_no"] = (
-        Authority.objects.filter(idare_id=str(idare_id))
-        .values_list("detsis_no", flat=True)
-        .first()
-    )
+
+    # ⚠️ Mobil "bu idarenin tüm ihaleleri" eylemi buna bakar — bkz. docstring.
+    data["idareId"] = str(idare_id)
+
+    if idare is not None and not idare.get("detsis_no"):
+        idare["detsis_no"] = (
+            Authority.objects.filter(idare_id=str(idare_id))
+            .values_list("detsis_no", flat=True)
+            .first()
+        )
     return data
 
 
@@ -1259,7 +1281,7 @@ class TenderDetailView(APIView):
             self._maybe_refresh(tender)
             data = _unwrap_item(tender.detail_raw)
             return api_response(
-                data=_aciklamalari_duzelt(_attach_idare_detsis(data, tender), tender)
+                data=_aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender)
             )
 
         # Detay yoksa → canlı çek (lazy sync)
@@ -1272,12 +1294,12 @@ class TenderDetailView(APIView):
             detail = client.get_detail(ekap_id)
             taze = sync_mod.upsert_tender_detail(ekap_id, detail)
             return api_response(data=_aciklamalari_duzelt(
-                _attach_idare_detsis(_unwrap_item(detail), taze), taze))
+                _attach_idare_kimlik(_unwrap_item(detail), taze), taze))
         except Exception as e:
             logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
             if tender:
                 data = _aciklamalari_duzelt(
-                    _attach_idare_detsis(_unwrap_item(tender.detail_raw or {}), tender),
+                    _attach_idare_kimlik(_unwrap_item(tender.detail_raw or {}), tender),
                     tender,
                 )
                 return api_response(data=data, message="Detay güncel değil.")

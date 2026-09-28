@@ -315,6 +315,32 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   ⚠️ **Deploy'da Redis önbelleği temizlenmeli**: `coz()` sonucu ad başına 24 sa
   önbelleklenir → eski **boş** sonuçlar yeni kademeyi bir gün boyunca gölgelerdi
   (`ekap:mobil:idare:*`).
+
+  ⚠️⚠️ **KOLONU DOLDURMAK YETMEDİ — MOBİL BAŞKA BİR ALANA BAKIYOR** (2026-09-28,
+  kullanıcı aynı ihale için *"hâlâ tıklanmıyor"* dedi). Yukarıdaki eşleştirme
+  `Tender.idare_id`yi doldurdu ve `views._attach_idare_kimlik` yanıta
+  `idare.detsis_no` yazıyordu; **ama mobil ihale detayında iki ayrı eylem var ve
+  farklı alanlara bakıyorlar** (`TenderDetail/components/IhaleBilgileriTab.js`):
+
+      İdare adına dokunma (tüm ihaleleri listele) → `data.idareId || idare.id`
+      "İdare Raporu" düğmesi                     → `detsisNo || idareId`
+
+  Yani `detsis_no` yazılınca **rapor düğmesi çalışıyor**, idare adına dokunmak ise
+  `if (!idareId) return` ile **sessizce hiçbir şey yapmıyordu**. Mobil kaynaklı
+  ihalelerin ham payload'ında `idareId` **hiç yok** → alan kolondan yazılmazsa
+  dokunma kalıcı olarak ölü.
+  → `_attach_idare_kimlik` artık `data["idareId"]`yi de kolondan yazıyor.
+  ⚠️ Yazım `detsis_no`'dan **bağımsız** olmalı: eski kod `detsis_no` zaten doluysa
+  fonksiyondan **erken çıkıyordu** (`test_idare_kimlik.py` bunu tutuyor).
+  ⚠️ Ham payload'daki gerçek `idareId` **ezilmez** — v2 kayıtlarında o değer doğrudur.
+  ⚠️ `idare_id` bilinmiyorsa alan **hiç yazılmaz**; boş string yazmak mobilde
+  `String("")` filtresi üretip **boş liste** açardı.
+
+  ⚠️⚠️ **GENEL DERS — "backend alanı doldurdu" ≠ "ürün çalışıyor".** İlk turda
+  `detsis_no` dolu diye doğrulama yeterli sayıldı; oysa doğrulanması gereken şey
+  **istemcinin okuduğu alandı**. Bir uç düzeltildiğinde kontrol listesi: (1) kolon
+  doldu mu, (2) **yanıtta hangi alan** döndü, (3) **istemci hangi alanı okuyor**.
+  Üçü eşleşmeden iş bitmiş sayılmaz.
 - **OKAS = idari şartnameden** (`ekap/mobil/okas.py`): 8-9 haneli sayılar `OkasCode`
   kataloğuyla **kesiştirilir** (kesinlik %100, duyarlılık %97,2). ⚠️ Katalog
   `sync_okas` ile v2'den geliyor → o görev yedekte de olsa çalışmalı.

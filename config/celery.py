@@ -71,12 +71,23 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_saved_filter_matches",
         "schedule": crontab(hour=8, minute=0),
     },
-    # Favori idare eşleşmesi: favori idarelerin yeni yayınladığı ihaleler (her gün 11:00)
-    # Filtre turundan bir saat sonra — kategori başına staggered saat, aynı anda
-    # iki kategoriden push yağmasın (bkz. "Bildirim Servisi" pacing kuralları).
+    # Favori idare bildirimi: **her sabah 08:30, son 24 saatte KAYDEDİLENLER**
+    # (2026-09-28'de 11/15/19 × "ilan_tarihi bugün" kurgusundan çevrildi).
+    #
+    # ⚠️⚠️ Üç tur ÖLÇÜMLE gereksiz çıktı: kayıtlar her gün 00:09-02:33 arasında düşüyor
+    # (28 Eylül: 177 kayıt, hepsi 02:13'ten önce) → 15:00 ve 19:00 turları yeni bir şey
+    # bulmuyor, yalnızca aynı başlıkla mükerrer görünen bildirim üretiyordu.
+    # ⚠️ Pencere de yayım tarihinden **kayıt tarihine** taşındı: EKAP hafta sonu yayın
+    # yapmadığı için "ilan_tarihi bugün" penceresi pazar/pazartesi sabahları yapısal
+    # olarak boştu (26-27 Eylül'de sıfır ihale). Filtre görevinde kabul edilen
+    # düzeltmenin aynısı.
+    # ⚠️ Saat 08:30: filtre özeti 08:00'de koşuyor → aynı anda iki kategoriden push
+    # yağmaması için yarım saat sonra (kategori başına staggered saat kuralı).
+    # ⚠️ `NOTIF_QUIET_END_HOUR` (7) sonrasında olmalı, yoksa uygulama-içi satır yazılır
+    # ama push atılmaz.
     "check-favorite-authority-matches": {
         "task": "tenders.tasks.check_favorite_authority_matches",
-        "schedule": crontab(minute=0, hour="11,15,19"),
+        "schedule": crontab(hour=8, minute=30),
     },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {

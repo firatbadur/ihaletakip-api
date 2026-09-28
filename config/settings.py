@@ -339,7 +339,7 @@ REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 # ⚠️ Bu ayar artık yalnızca **favori idare** görevini etkiler; kayıtlı filtre görevi
 # 2026-09-26'da günlük özete geçti ve `NOTIF_FILTER_DAYS_AGO` kullanıyor.
 NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=0)
-# Kayıtlı filtre günlük özeti: kaç saatlik **kayıt tarihi** penceresi taranacak.
+# Kayıtlı filtre / favori idare günlük özeti: kaç saatlik **kayıt tarihi** penceresi.
 # Beat her sabah 08:00'de koşar → varsayılan 24, yani dün 08:00 → bugün 08:00.
 # ⚠️⚠️ Referans `Tender.created_at` (ihalenin sistemimize girdiği an), EKAP'ın yayım
 # damgası `ilan_tarihi` DEĞİL. Yayım gününe bakan pencere hafta sonu yayın olmadığı
@@ -350,7 +350,15 @@ NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=0)
 # engeller ama gövdedeki sayı iki bildirimde ortak ihaleleri sayar).
 # ⚠️ Bildirim saatini değiştirirken `NOTIF_QUIET_END_HOUR` (7) unutulmamalı:
 # sessiz saat içinde koşan bir tur uygulama-içi satırı yazar ama **push atmaz**.
-NOTIF_FILTER_HOURS = env.int("NOTIF_FILTER_HOURS", default=24)
+NOTIF_OZET_SAAT = env.int("NOTIF_OZET_SAAT", default=24)
+# ⚠️⚠️ Birleşik bildirim kill switch'i. Açıkken kayıtlı filtre ve favori idare
+# bildirimleri **kullanıcı başına TEK** satır+push üretir; kapalıyken bugünkü
+# abonelik-başına davranış aynen sürer (eski kod yolu silinmedi).
+# ⚠️ Varsayılan **kapalı**: birleşik bildirimin derin bağlantısı (`kayitli_filtreler` /
+# `favori_idareler`) yalnızca yeni mobil sürümde tanınıyor. Mağaza sürümü yayılmadan
+# açılırsa eski sürümdeki kullanıcı bildirime basınca ihale listesi değil bildirim
+# ekranı görür. Sürüm yayıldıktan sonra **deploy'suz** açılır.
+NOTIF_BIRLESIK_BILDIRIM = env.bool("NOTIF_BIRLESIK_BILDIRIM", default=False)
 NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
 NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 # Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).

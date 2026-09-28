@@ -50,6 +50,8 @@ def record_notification(
     ilan_gun=None,
     pencere_bas=None,
     pencere_bit=None,
+    filtre_idler="",
+    idare_detsis_liste="",
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -71,6 +73,8 @@ def record_notification(
         ilan_gun=ilan_gun,
         pencere_bas=pencere_bas,
         pencere_bit=pencere_bit,
+        filtre_idler=(filtre_idler or "")[:500],
+        idare_detsis_liste=(idare_detsis_liste or "")[:500],
     )
 
 

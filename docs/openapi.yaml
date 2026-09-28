@@ -1989,6 +1989,17 @@ paths:
             value: '15'
             summary: Sağlık Bakanlığı
       - in: query
+        name: favori_idareler
+        schema:
+          type: string
+        description: Favori idarelerin `detsis_no` değerleri (CSV). `idare_detsis`
+          gibi tüm alt birimlere genişletilir, **ek olarak** özet koşullarını uygular
+          (katılıma açık + teklif verilebilir) → bildirimdeki sayı ile liste birebir
+          aynı olur. Birleşik idare bildiriminin derin bağlantısı.
+        examples:
+          DETSİS:
+            value: 24308110,19254760
+      - in: query
         name: fiyat_disi_unsur_var
         schema:
           type: boolean
@@ -2166,6 +2177,20 @@ paths:
         description: Katılan istekli sayısı alt sınırı. 🔒 **Pro** — bu parametre kullanılırsa
           Free/anonim istek `403 premium_required` döner. İstekli sayısı değerlendirme
           bitince oluşur → açık ihaleler kapsam dışı kalır.
+      - in: query
+        name: kayitli_filtreler
+        schema:
+          type: string
+        description: Kullanıcının **kendi** kayıtlı filtrelerinin id'leri (CSV). Uç
+          bu filtrelerin kriterlerini **OR'layıp birleştirir** ve tek ihale listesi
+          döndürür. Birleşik bildirimin derin bağlantısı için. ⚠️ Giriş gerekir (anonim
+          istek 400). ⚠️ Başkasına ait / silinmiş id sessizce düşer; hiçbiri çözülmezse
+          BOŞ liste + `uyari` döner, tüm ihaleler DEĞİL. ⚠️ `created_at_min/max` verilmezse
+          son 24 saate düşülür. En çok 50 filtre.
+        examples:
+          FiltreId'leri:
+            value: 62,129,132
+            summary: Filtre id'leri
       - in: query
         name: kismi_ihale
         schema:
@@ -4474,6 +4499,12 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        filtre_idler:
+          type: string
+          readOnly: true
+        idare_detsis_liste:
+          type: string
+          readOnly: true
         read:
           type: boolean
           readOnly: true
@@ -4488,7 +4519,9 @@ components:
       - conversation_id
       - created_at
       - filter_id
+      - filtre_idler
       - id
+      - idare_detsis_liste
       - ilan_gun
       - institution
       - okas_kodlar

@@ -209,9 +209,9 @@ class FiltreKayitPenceresiTest(TestCase):
         """⚠️ Asıl düğme `config/settings.py`'deki varsayılandır; koddaki `getattr`
         yedeği ayar tanımlı olduğu için hiç kullanılmaz."""
         from django.conf import settings
-        self.assertEqual(getattr(settings, "NOTIF_FILTER_HOURS", None), 24)
+        self.assertEqual(getattr(settings, "NOTIF_OZET_SAAT", None), 24)
 
-    @override_settings(NOTIF_FILTER_HOURS=48)
+    @override_settings(NOTIF_OZET_SAAT=48)
     def test_ayar_ile_pencere_degisir(self):
         _ihale(1, kayit_saat_once=2)
         _ihale(2, kayit_saat_once=30)

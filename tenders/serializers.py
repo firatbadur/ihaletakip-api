@@ -209,6 +209,10 @@ class NotificationSerializer(serializers.ModelSerializer):
             # listeyi `created_at_min`/`created_at_max` ile tam buna kısar.
             "pencere_bas",
             "pencere_bit",
+            # Birleşik özet: eşleşen filtre / idare id'leri (CSV). Mobil bunları
+            # `kayitli_filtreler` / `favori_idareler` olarak uca gönderir.
+            "filtre_idler",
+            "idare_detsis_liste",
             "read",
             "created_at",
         ]

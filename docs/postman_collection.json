@@ -588,6 +588,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "favori_idareler",
+                  "value": "24308110,19254760",
+                  "description": "Favori idarelerin `detsis_no` değerleri (CSV). `idare_detsis` gibi tüm alt birimlere genişletilir, **ek olarak** özet koşullarını uygular (katılıma açık + teklif verilebilir) → bildirimdeki sayı ile liste birebir aynı olur. Birleşik idare bildiriminin derin bağlantısı.",
+                  "disabled": true
+                },
+                {
                   "key": "fiyat_disi_unsur_var",
                   "value": "True",
                   "description": "Fiyat dışı unsur içeren ihaleler — en düşük fiyat tek başına kazandırmaz. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",
@@ -717,6 +723,12 @@
                   "key": "istekli_sayisi_min",
                   "value": "1",
                   "description": "Katılan istekli sayısı alt sınırı. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner. İstekli sayısı değerlendirme bitince oluşur → açık ihaleler kapsam dışı kalır.",
+                  "disabled": true
+                },
+                {
+                  "key": "kayitli_filtreler",
+                  "value": "62,129,132",
+                  "description": "Kullanıcının **kendi** kayıtlı filtrelerinin id'leri (CSV). Uç bu filtrelerin kriterlerini **OR'layıp birleştirir** ve tek ihale listesi döndürür. Birleşik bildirimin derin bağlantısı için. ⚠️ Giriş gerekir (anonim istek 400). ⚠️ Başkasına ait / silinmiş id sessizce düşer; hiçbiri çözülmezse BOŞ liste + `uyari` döner, tüm ihaleler DEĞİL. ⚠️ `created_at_min/max` verilmezse son 24 saate düşülür. En çok 50 filtre.",
                   "disabled": true
                 },
                 {

@@ -104,6 +104,34 @@ def saved_filter_match(
     return name, body
 
 
+# ── Birleşik özet: kullanıcı başına TEK bildirim ───────
+
+def saved_filters_ozet(*, count: int, saat: int = 24) -> tuple[str, str]:
+    """Kullanıcının TÜM kayıtlı filtrelerinin birleşimi için tek bildirim.
+
+    ⚠️ **Filtre adı GEÇMEZ** — ürün gereksinimi: kullanıcı "şu filtrenin, bu filtrenin"
+    değil "filtrelerinize uygun" görmek istiyor. Testle çivilenmiştir.
+    ⚠️ "son N saatte" **korunur**: sayı doğrulanabilir olmalı, çünkü mobil aynı kayıt
+    penceresini açıyor ve kullanıcı iki sayıyı karşılaştırıyor.
+    ⚠️ `count` penceredeki **tekilleştirilmiş** toplamdır: 2 filtreye uyan ihale 1 sayılır.
+    """
+    return (
+        "Size Uygun İhaleler",
+        f"Kayıtlı filtrelerinize uygun son {saat} saatte {count} ihale yayımlandı.",
+    )
+
+
+def authorities_ozet(*, count: int, saat: int = 24) -> tuple[str, str]:
+    """Kullanıcının TÜM favori idarelerinin birleşimi için tek bildirim.
+
+    ⚠️ İdare adı GEÇMEZ (aynı gerekçe: `saved_filters_ozet`).
+    """
+    return (
+        "Takip Ettiğiniz İdareler",
+        f"Takip ettiğiniz idareler son {saat} saatte {count} ihale yayımladı.",
+    )
+
+
 def okas_recommendation(*, count: int) -> tuple[str, str]:
     """
     Kayıtlı ihalelerin OKAS kodlarına göre günlük öneri bildirimi (Free/Pro herkese).
@@ -153,15 +181,20 @@ def free_teaser(*, ihale: int, filtre: int, idare: int) -> tuple[str, str]:
 
 # ── Favori idare: yeni ihale yayını ────────────────────
 
-def authority_match(*, authority_name: str, count: int, first_title: str | None = None) -> tuple[str, str]:
-    """Favori idarenin **bugün** yayımladığı ihaleler için; başlık = idare adı.
+def authority_match(*, authority_name: str, count: int, saat: int = 24,
+                    first_title: str | None = None) -> tuple[str, str]:
+    """Favori idarenin **son `saat` saatte sisteme giren** ihaleleri; başlık = idare adı.
 
-    ⚠️ "bugün" ifadesi bilinçli: `count` o günün toplamıdır ve kullanıcı bunu
-    listedeki tarihlerden doğrulayabilmelidir (bkz. `saved_filter_match`).
+    ⚠️⚠️ Metin eskiden "Bugün" diyordu. Pencere 2026-09-28'de **kayıt tarihine**
+    taşındığı için bu artık YANLIŞ olurdu: hafta sonu EKAP yayın yapmıyor, kayıtlar
+    pazartesi gece düşüyor → pazartesi bildirilen bir ihalenin yayım tarihi cuma
+    olabilir. "Bugün" demek, `saved_filter_match`'te düzeltilen dürüstlük sorununun
+    aynısını idare tarafında tekrarlamak olurdu.
+    ⚠️ `count` penceredeki TOPLAMdır, "sana yeni olanlar" değil.
     """
     title = clip(authority_name or "Favori İdare")
     if count == 1 and first_title:
-        body = f"Bugün yeni ihale: {clip(first_title, 80)}"
+        body = f"Yeni ihale: {clip(first_title, 80)}"
     else:
-        body = f"Bugün {count} ihale yayımladı"
+        body = f"Son {saat} saatte {count} ihale yayımladı"
     return title, body

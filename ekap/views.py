@@ -512,6 +512,150 @@ def _contract_exists(cond):
     return Exists(Contract.objects.filter(cond, tender_id=OuterRef("pk")))
 
 
+# Bir kullanıcının birleşik özet bildiriminde en çok kaç kayıtlı filtresi taranır.
+# ⚠️ **Görev ve uç bu sabiti AYNI yerden okur.** Görev 50'de keserken uç 20'de keserse
+# bildirimdeki sayı, kullanıcı bildirime bastığında gördüğü listeyle tutmaz — bu konunun
+# üç kez arıza ürettiği uyumsuzluk sınıfı. Sınır ayrıca 500 kayıtlı filtresi olan bir
+# kullanıcının 500 dallı UNION zorlamasını engeller.
+AZAMI_KAYITLI_FILTRE = 50
+
+# Birleşik özetlerde "açık ihale" durum kümesi — görevle ortak.
+_OZET_ACIK_DURUMLAR = (2, 3)
+
+
+def teklif_verilebilir_q(simdi=None):
+    """"Teklif verilebilir" koşulunun tek tanımı: süresi geçmemiş **ve** iptal değil.
+
+    ⚠️⚠️ `ihale_durum` bu soruyu tek başına YANITLAMAZ: EKAP durumu Sonuç İlanı
+    yayımlanana kadar "Katılıma Açık"ta tutuyor; ölçüldü (2026-09-22) durumu 2/3 olan
+    14.228 ihalenin **%86'sının teklif süresi dolmuş**. Ölçüt `ihale_tarihi` (teklif
+    son anı, %100 dolu).
+
+    ⚠️ `ihale_tarihi IS NULL` = "bilinmiyor" → açık tarafta **dahil edilir**: veri
+    eksikliği yüzünden gerçek bir ihaleyi gizlemek, fazladan bir kayıt göstermekten
+    kötüdür (kaçan ihale geri gelmez).
+
+    ⚠️ Durumu **bilinmeyen** ihale iptal sayılmaz → kümede kalır. Django bunu
+    kendiliğinden doğru yapıyor: `~Q(x__in=[…])` `NOT (x IN (…) AND x IS NOT NULL)`
+    üretir ve NULL satırlar korunur (ölçüldü 2026-09-22, `.query` çıktısıyla).
+    ⚠️ Bu, CLAUDE.md'deki üç-değerli bayrak tuzağının **tersi** yöndür: orada sorun
+    `exclude(bayrak=True)`ın NULL'ları *dahil etmesi*; burada dahil etmek istenen şey.
+
+    ⚠️ `simdi` **dışarıdan verilebilir**: birleşik özette N dal aynı `now`u paylaşmalı,
+    yoksa dal 1 ile dal 10 arasında sınırdaki satır oynar ve sayı ile liste ayrışır.
+    """
+    simdi = simdi or timezone.now()
+    zamani_var = Q(ihale_tarihi__gte=simdi) | Q(ihale_tarihi__isnull=True)
+    iptal_degil = ~Q(ihale_durum__in=sorted(DURUM_IPTAL))
+    return zamani_var & iptal_degil
+
+
+def _detsis_daralt(qs, detsis_listesi):
+    """DETSIS düğümlerini tüm alt birimlerin `idare_id`'lerine açıp queryset'i daraltır.
+
+    Kullanıcı ağaçta bir ÜST düğüm (örn. bakanlık) seçince alt birimlerin ihaleleri de
+    gelsin diye seçilen `detsis_no`'lar descendant `idare_id`'lere açılır.
+    ⚠️ Büyük bakanlıklar on binlerce alt birime (örn. okullar) açılır ve çoğunun hiç
+    ihalesi yoktur → IN listesi **ihalede gerçekten geçen** id'lerle kesiştirilir.
+    ⚠️ Hiç `idare_id`'e çözülmezse `qs.none()` — yanlışlıkla TÜM ihaleleri döndürmemek
+    için. Bu dal birleşimlerde boş kalabilir, çağıranlar buna hazır olmalı.
+    """
+    expanded = descendant_idare_ids(detsis_listesi)
+    if expanded:
+        expanded &= tender_idare_id_set()
+    return qs.filter(idare_id__in=expanded) if expanded else qs.none()
+
+
+def idare_ozeti_dali(qs, detsis_listesi, *, simdi=None):
+    """Favori idare özetinin kümesi: idare genişletmesi + açık + teklif verilebilir.
+
+    ⚠️⚠️ **Görev ile uç bu fonksiyonu PAYLAŞIR.** Koşullar iki yerde yazılırsa
+    bildirimdeki sayı ile mobilin açtığı liste zamanla ayrışır; `apply_tender_filters`
+    docstring'indeki söz ("aynı tanım bildirim görevlerinde de kullanılabilsin") ancak
+    böyle tutulur.
+    ⚠️ `ihale_durum in (2,3)` `DURUM_IPTAL={6,10}`'u zaten dışlıyor →
+    `teklif_verilebilir_q`'nun iptal elemesi burada fazlalık, zararsız ve bilinçli:
+    koşulu tek kaynaktan almak, "hangisi hangi elemeyi yapıyor" muhasebesinden iyidir.
+    """
+    qs = _detsis_daralt(qs, detsis_listesi)
+    return qs.filter(ihale_durum__in=_OZET_ACIK_DURUMLAR).filter(
+        teklif_verilebilir_q(simdi))
+
+
+def _kayit_penceresi_params(params):
+    """`created_at_min/max` param'larından `(taban, tavan)` kayıt tarihi penceresi.
+
+    ⚠️⚠️ **Pencere ZORUNLUDUR ve verilmezse varsayılan uygulanır.** `kayitli_filtreler`
+    yalnızca birleşik bildirimin derin bağlantısı için var ve mobil pencereyi her zaman
+    gönderiyor; ama penceresiz bir çağrı her dalın **on binlerce pk** döndürmesi demektir
+    (bkz. `kayitli_filtre_birlesimi` ölçümü). Giriş yapmış bir kullanıcının bunu kazara
+    ya da kasten tetiklemesini engellemek için pencere yoksa özetin kendi aralığına
+    (`NOTIF_OZET_SAAT`, vars. 24 saat) düşülür — bildirimin semantiğiyle de aynı.
+    """
+    saat = getattr(settings, "NOTIF_OZET_SAAT", 24)
+    tavan = parse_ekap_datetime(params.get("created_at_max")) or timezone.now()
+    taban = parse_ekap_datetime(params.get("created_at_min")) or (
+        tavan - timedelta(hours=saat))
+    return taban, tavan
+
+
+def kayitli_filtre_dali(filt, *, simdi=None):
+    """Tek bir kayıtlı filtrenin (`SavedFilter.filters`) ihale kümesi.
+
+    ⚠️⚠️ **`ihale_durum` koşulu FİLTRE-BAŞINA KOŞULLUDUR** (`filt.get(...)`) ve bir
+    birleşimin dışına çekilemez: filtre A `ihale_durum=[6]` (iptaller) derken B hiç
+    durum belirtmiyorsa, dış bir `ihale_durum in (2,3)` koşulu A'nın sonucunu **siler**.
+    Birleşimin `Q` OR'lamasıyla değil **dal başına queryset + UNION** ile kurulmasının
+    asıl mimari gerekçesi budur; performans ikincil.
+    """
+    qs = apply_tender_filters(Tender.objects.all(), filt or {})
+    if not (filt or {}).get("ihale_durum"):
+        qs = qs.filter(ihale_durum__in=_OZET_ACIK_DURUMLAR)
+    return qs.filter(teklif_verilebilir_q(simdi))
+
+
+def kayitli_filtre_birlesimi(filtreler, *, simdi=None, pencere=None):
+    """N kayıtlı filtrenin BİRLEŞİMİ (OR) — tek bir `Tender` queryset'i olarak.
+
+    `filtreler`: `SavedFilter.filters` sözlüklerinin listesi. `pencere`: `(taban, tavan)`
+    kayıt tarihi (`created_at`) aralığı.
+
+    ⚠️⚠️ **UNION-of-pks kullanılır, `pk__in=A | pk__in=B` KULLANILMAZ.** İkincisi bu kod
+    tabanında ölçüldü: **109 sn** (planlayıcı ihale başına korelasyonlu tarama seçiyor,
+    bkz. `yuklenici` filtresi). UNION deseni aynı yerde 1,2 sn → 222 ms ölçülmüştür.
+
+    ⚠️⚠️ **PENCERE HER DALIN İÇİNE KONUR.** Dışarıda bırakılırsa her dal (örn.
+    `sektor IN (...)`) on binlerce pk döndürür ve birleşim şişer. İçeride her dal
+    `ekap_tender_kayit_idx` üzerinden ~200 satır seçer → `Exists()` alt sorguları da
+    200 kez koşar, 1M kez değil. Ölçüm: pencere daldan çıkarılınca dal satırları
+    10⁴-10⁵'e çıkıyor.
+    ⚠️ **Dış sorgudaki pencere tekrarı KASITLIDIR** (aynı AND, sonucu değiştirmez): dış
+    planın da `ORDER BY created_at DESC LIMIT n` için indeksi kullanabilmesi için.
+    "Gereksiz" diye silmeyin.
+
+    ⚠️ `Tender` dallarına `.order_by()` ŞART: `Meta.ordering = ["-ihale_tarihi"]` union
+    içinde ORDER BY üretip sorguyu bozar (aynı sebep `okas_kod` birleşiminde de yazılı).
+    ⚠️ Bir dal `qs.none()` olabilir (çözülmeyen `idare_detsis`); Django boş dalı
+    birleşimden düşürür, diğer dallar etkilenmez — testle çivilendi.
+    """
+    simdi = simdi or timezone.now()
+    dallar = []
+    for filt in filtreler:
+        dal = kayitli_filtre_dali(filt, simdi=simdi)
+        if pencere:
+            dal = dal.filter(created_at__gte=pencere[0], created_at__lte=pencere[1])
+        dallar.append(dal.order_by().values("id"))
+
+    if not dallar:
+        return Tender.objects.none()
+
+    birlesim = dallar[0] if len(dallar) == 1 else dallar[0].union(*dallar[1:])
+    qs = Tender.objects.filter(pk__in=birlesim)
+    if pencere:
+        qs = qs.filter(created_at__gte=pencere[0], created_at__lte=pencere[1])
+    return qs
+
+
 def apply_tender_filters(qs, params):
     """
     Tender queryset'ine filtre uygular ve queryset döner. Parametre adları **Tender model
@@ -598,15 +742,18 @@ def apply_tender_filters(qs, params):
     # ihaleleri de gelsin diye seçilen detsis_no'ları descendant idare_id'lere açarız.
     idare_detsis = _as_str_list(params.get("idare_detsis"))
     if idare_detsis:
-        expanded = descendant_idare_ids(idare_detsis)
-        # Büyük bakanlıklar on binlerce alt birime (örn. okullar) açılır; bunların
-        # çoğunun hiç ihalesi yoktur. IN listesini küçültmek ve sorguyu hızlandırmak
-        # için yalnızca **ihalede gerçekten geçen** idare_id'lerle kesiştir.
-        if expanded:
-            expanded &= tender_idare_id_set()
-        # Hiç idare_id'e çözülmezse (bozuk ağaç / hiç ihalesi yok) yanlışlıkla TÜM
-        # ihaleleri döndürmemek için boş küme uygula.
-        qs = qs.filter(idare_id__in=expanded) if expanded else qs.none()
+        qs = _detsis_daralt(qs, idare_detsis)
+
+    # ── Favori idare ÖZETİ (birleşik bildirim derin bağlantısı) ──────────────
+    # ⚠️⚠️ `idare_detsis`ten AYRI bir parametre: buraya idare genişletmesinin yanına
+    # görevin sabit koşulları (durum 2/3 + teklif verilebilir) da eklenir. Sebep,
+    # yukarıdaki `teklif_verilebilir` bloğunda yazılı olanın aynısı: **semantiği
+    # istemciye bırakmayız.** İlk taslakta mobil `ihale_durum=2,3&teklif_verilebilir=true`
+    # gönderiyordu; istemci bir koşulu unutur/değiştirirse bildirimdeki sayı ekrandaki
+    # listeden sessizce sapar — bu kod tabanında üç kez arıza üretmiş sınıf.
+    favori_idareler = _as_str_list(params.get("favori_idareler"))
+    if favori_idareler:
+        qs = idare_ozeti_dali(qs, favori_idareler)
 
     # ── Yasa kapsamı — null-inclusive: detayı gelmemiş (yasa_kapsami=None) ihaleyi dışlama ──
     yasa_kapsami = _as_int_list(params.get("yasa_kapsami"))
@@ -782,23 +929,11 @@ def apply_tender_filters(qs, params):
     # (`apply_tender_filters` view + bildirim ortak filtresidir).
     teklif_verilebilir = _as_bool(params.get("teklif_verilebilir"))
     if teklif_verilebilir is not None:
-        simdi = timezone.now()
-        # ⚠️ `ihale_tarihi IS NULL` = "bilinmiyor". Açık tarafta **dahil edilir**:
-        # veri eksikliği yüzünden gerçek bir ihaleyi gizlemek, fazladan bir kayıt
-        # göstermekten kötüdür (kaçan ihale geri gelmez, fazlalık göz ardı edilir).
-        zamani_var = Q(ihale_tarihi__gte=simdi) | Q(ihale_tarihi__isnull=True)
-        # ⚠️ Durumu **bilinmeyen** ihale iptal sayılmaz → listede kalır. Django bunu
-        # kendiliğinden doğru yapıyor: `~Q(x__in=[…])` ve `exclude(x__in=[…])` aynı
-        # SQL'i üretir — `NOT (x IN (…) AND x IS NOT NULL)` — ve NULL satırlar
-        # korunur (ölçüldü 2026-09-22, `.query` çıktısıyla).
-        # ⚠️ Bu, CLAUDE.md'deki üç-değerli bayrak tuzağının **tersi** yöndür: orada
-        # sorun `exclude(bayrak=True)`ın NULL'ları *dahil etmesi*; burada NULL'ları
-        # dahil etmek tam olarak istediğimiz şey. Yön karıştırılmamalı.
-        iptal_degil = ~Q(ihale_durum__in=sorted(DURUM_IPTAL))
+        kosul = teklif_verilebilir_q()
         if teklif_verilebilir is True:
-            qs = qs.filter(zamani_var & iptal_degil)
+            qs = qs.filter(kosul)
         else:
-            qs = qs.exclude(zamani_var & iptal_degil)
+            qs = qs.exclude(kosul)
 
     # Sonuçlanma / iptal
     sonuclanmis = _as_bool(params.get("sonuclanmis"))
@@ -1035,6 +1170,29 @@ _TENDER_KEY_PARAM = OpenApiParameter(
             examples=[OpenApiExample("Tarih", value="31.12.2026")],
         ),
         OpenApiParameter(
+            "kayitli_filtreler", str,
+            description=(
+                "Kullanıcının **kendi** kayıtlı filtrelerinin id'leri (CSV). Uç bu "
+                "filtrelerin kriterlerini **OR'layıp birleştirir** ve tek ihale listesi "
+                "döndürür. Birleşik bildirimin derin bağlantısı için. ⚠️ Giriş gerekir "
+                "(anonim istek 400). ⚠️ Başkasına ait / silinmiş id sessizce düşer; "
+                "hiçbiri çözülmezse BOŞ liste + `uyari` döner, tüm ihaleler DEĞİL. "
+                "⚠️ `created_at_min/max` verilmezse son 24 saate düşülür. "
+                f"En çok {AZAMI_KAYITLI_FILTRE} filtre."
+            ),
+            examples=[OpenApiExample("Filtre id'leri", value="62,129,132")],
+        ),
+        OpenApiParameter(
+            "favori_idareler", str,
+            description=(
+                "Favori idarelerin `detsis_no` değerleri (CSV). `idare_detsis` gibi tüm "
+                "alt birimlere genişletilir, **ek olarak** özet koşullarını uygular "
+                "(katılıma açık + teklif verilebilir) → bildirimdeki sayı ile liste "
+                "birebir aynı olur. Birleşik idare bildiriminin derin bağlantısı."
+            ),
+            examples=[OpenApiExample("DETSİS", value="24308110,19254760")],
+        ),
+        OpenApiParameter(
             "created_at_min", str,
             description=(
                 "**Kayıt tarihi** alt sınırı — ihalenin sistemimize girdiği an "
@@ -1101,12 +1259,74 @@ class TenderListView(APIView):
         # ⚠️ Parametreyi sessizce yok saymak YANLIŞ olurdu: kullanıcının istediğinden
         # DAHA FAZLA sonuç dönerdi — limit kılığına girmiş bir doğruluk hatası. 403 +
         # `errors.code=premium_required` ise mobilin zaten işlediği sözleşme.
+        # ── Birleşik özet bildirimi: kayıtlı filtrelerin BİRLEŞİMİ ───────────
+        # Mobil, birleşik bildirime basınca yalnızca filtre id'lerini + kayıt penceresini
+        # gönderir; OR'lamayı burası yapar. Çözüm `apply_tender_filters` İÇİNDE olamaz:
+        # `request.user` gerekiyor (o fonksiyon kullanıcı görmez ve görmemeli).
+        kf_idler = _as_int_list(qp.get("kayitli_filtreler"))
+        kf_kayitlari = []
+        kf_uyari = None
+        if kf_idler:
+            # ⚠️⚠️ Anonim istekte **400**, 401/403 DEĞİL:
+            # • 401 → mobil `http.js` refresh deneyip başarısızsa oturumu TEMİZLER;
+            #   bir query parametresi hatası kullanıcıyı çıkış yaptırmamalı.
+            # • 403 → interceptor yalnızca `premium_required` kodunu tanıyor; kodsuz
+            #   403 sessizce yutulur ve Pro kapısıyla loglarda ayırt edilemez.
+            # • Sessizce yok saymak → `apply_tender_filters` bu anahtarı tanımaz ve
+            #   uç **TÜM ihaleleri** döndürür: "kullanıcının istediğinden DAHA FAZLA
+            #   sonuç", bu dosyada adı konmuş hata sınıfı.
+            if not request.user.is_authenticated:
+                return api_response(
+                    message="`kayitli_filtreler` için giriş yapmış olmanız gerekir.",
+                    success=False, status=400,
+                )
+            from tenders.models import SavedFilter  # ağır/sirküler importu yerelde tut
+
+            kf_kayitlari = list(
+                SavedFilter.objects.filter(user=request.user, id__in=kf_idler)
+                .only("id", "filters")[:AZAMI_KAYITLI_FILTRE]
+            )
+            if not kf_kayitlari:
+                # ⚠️ Silinmiş/başkasına ait id → BOŞ küme + uyarı. "Tüm ihaleler"
+                # dönmek aynı hata sınıfı olurdu.
+                kf_uyari = "Bu bildirimin kayıtlı filtreleri artık bulunamadı."
+
+        # ── Pro kapısı ────────────────────────────────────────────────────────
+        # Uç `AllowAny` KALIR: temel arama herkese açık. Yalnızca gelişmiş parametreler
+        # Pro'ya kilitlidir. Anonim kullanıcıda `is_premium` False → 403.
+        # ⚠️ Parametreyi sessizce yok saymak YANLIŞ olurdu: kullanıcının istediğinden
+        # DAHA FAZLA sonuç dönerdi — limit kılığına girmiş bir doğruluk hatası. 403 +
+        # `errors.code=premium_required` ise mobilin zaten işlediği sözleşme.
+        # ⚠️⚠️ Kapı **iki kaynağa** bakar: query param'lar VE çözülen kayıtlı filtrelerin
+        # JSON anahtarları. Bugüne kadar mobil `saved.filters`'ı yayıp top-level param
+        # olarak gönderdiği için `set(qp)` yetiyordu; `kayitli_filtreler` ile o anahtarlar
+        # query string'den kaybolur ve kapı **körleşir**. Yani bu parametrenin ürettiği
+        # bir regresyon — kapatılmazsa Pro filtreler bedavaya kullanılabilir.
+        # ⚠️ `kayitli_filtreler`'in KENDİSİ `_PRO_PARAMS`'a eklenmez: Pro'dan düşmüş bir
+        # kullanıcı bildirimine basınca 403 alıp listeyi hiç açamazsa bağlantı ölür.
         kullanilan_pro = _PRO_PARAMS & set(qp)
+        for sf in kf_kayitlari:
+            kullanilan_pro |= _PRO_PARAMS & set(sf.filters or {})
         if kullanilan_pro:
             require_premium(request.user, MSG_PRO_FILTRE)
 
-        qs = apply_tender_filters(Tender.objects.all(), qp)
-        total = _cached_count(qs, qp)
+        if kf_idler:
+            pencere = _kayit_penceresi_params(qp)
+            qs = kayitli_filtre_birlesimi(
+                [sf.filters or {} for sf in kf_kayitlari], pencere=pencere)
+            # Birleşim dışı param'lar (sıralama hariç) yine uygulanır: kullanıcı listede
+            # "Filtreler"e basıp daraltabilsin.
+            qs = apply_tender_filters(qs, qp)
+        else:
+            qs = apply_tender_filters(Tender.objects.all(), qp)
+
+        # ⚠️⚠️ Sayı cache'i anahtarı kullanıcı İÇERMEZ (bkz. `_cached_count`). Filtre
+        # id'leri global PK olduğu için B kullanıcısı A'nın id setini yazabilir: listesi
+        # boş döner AMA `totalCount` A'nın cache'inden gelir → sayı sızar. Parametre
+        # varken kapsamı kullanıcıya daraltıyoruz; yokken paylaşımlı cache korunur
+        # (normal aramanın bütün değeri o paylaşımda).
+        kapsam = f"tender:kf{request.user.pk}" if kf_idler else "tender"
+        total = _cached_count(qs, qp, scope=kapsam)
         items, page, _boyut = sirala_sayfala(qs, qp)
         data = EkapTenderListSerializer(items, many=True).data
         payload = {"list": data, "totalCount": total, "page": page}
@@ -1114,7 +1334,7 @@ class TenderListView(APIView):
         # Dürüstlük uyarısı: kapsamı kısmi olan kolonlarda aralık filtresi, değeri
         # BİLİNMEYEN ihaleleri de sessizce eler (NULL hiçbir aralığa girmez). Kullanıcı
         # "sonuç yok" ile "veri yok"u ayırt edebilmeli.
-        uyari = kismi_kapsam_uyarisi(qp)
+        uyari = kf_uyari or kismi_kapsam_uyarisi(qp)
         if uyari:
             payload["uyari"] = uyari
         return api_response(data=payload)

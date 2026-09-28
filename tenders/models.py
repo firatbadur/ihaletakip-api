@@ -307,6 +307,19 @@ class Notification(models.Model):
     # bildirimleri bu iki alanı yazar.
     pencere_bas = models.DateTimeField(null=True, blank=True)
     pencere_bit = models.DateTimeField(null=True, blank=True)
+    # ── Birleşik özet bildirimleri (kullanıcı başına TEK bildirim) ──────────────
+    # Eşleşen **kayıtlı filtrelerin** / **favori idarelerin** id'leri, CSV.
+    # Mobil bunları `kayitli_filtreler` / `favori_idareler` olarak uca gönderir, uç
+    # birleştirip tek ihale listesi döndürür.
+    # ⚠️⚠️ Birleşik satırda `filter_id` ve `authority_detsis` **BOŞ BIRAKILIR**.
+    # Doldurulursa eski mobil sürüm "birleşimin sayısı + tek filtrenin listesi" gösterir
+    # — iki kez düzeltilmiş "sayı tutmuyor" arızasının üçüncü baskısı. Boş bırakmak
+    # ayrıca eski istemcinin bildirim ekranına düşmesini (kabul edilebilir bozunma) sağlar.
+    # ⚠️ Ad neden `filter_ids` değil: `filterId` ile `filterIds` tek harf fark ediyor ve
+    # ikisi mobilde **aynı if zincirinde** okunuyor; bir harf yazım hatası zinciri sessizce
+    # bir alt halkaya düşürüp YANLIŞ ekran açar (`okas_kodlar`/`pencere_bas` precedent'i).
+    filtre_idler = models.CharField(max_length=500, blank=True, default="")
+    idare_detsis_liste = models.CharField(max_length=500, blank=True, default="")
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

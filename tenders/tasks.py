@@ -30,7 +30,7 @@ _ROW_DEDUP_TTL = 36 * 3600
 #
 # ⚠️ Bu blok bugün **favori idare** görevini anlatır; **kayıtlı filtre** görevi
 # 2026-09-26'da günlük özete geçti ve kapalı bir takvim günü kullanıyor (bkz.
-# `_filtre_penceresi` üstündeki blok). Aşağıdaki tarihçe ikisi için de geçerlidir —
+# `_kayit_penceresi` üstündeki blok). Aşağıdaki tarihçe ikisi için de geçerlidir —
 # pencereye dokunan herkes önce bunu okumalı.
 #
 # Tarihçe önemli, çünkü bu pencere bir kez genişletildi ve genişletmek ÜRÜNÜ BOZDU:
@@ -91,30 +91,6 @@ def _yeni_ihaleler(prefix, sahip_id, tenders):
     return yeni
 
 
-def _bildirim_penceresi():
-    """Bildirim penceresi `(taban, tavan)` — varsayılanı **bugün**.
-
-    `NOTIF_LOOKBACK_DAYS` (vars. **0**) geriye kaç gün daha bakılacağını söyler.
-    ⚠️ Sıfırdan büyük yapmak mobilin gün kısıtıyla çelişir ve "bildirimdeki sayı
-    ekrandaki listeyle tutmuyor" arızasını geri getirir — bkz. yukarıdaki blok.
-
-    ⚠️ **ÜST SINIR ŞART.** Eskiden yalnızca `>= taban` vardı; pencere yukarıya
-    açıktı. `ilan_tarihi` ileri tarihli olabilen bir alandır (detaydaki ilan
-    listesinin en erken tarihinden türetiliyor, `_publish_date_from_ilanlar`) →
-    açık uç, henüz yayımlanmamış bir ihaleyi "bugün yayımlandı" diye bildirebilir.
-    Üst sınır ayrıca pencereyi mobilin `ilan_tarihi_min/max` aralığıyla **aynı
-    şekle** sokar.
-
-    ⚠️⚠️ `ilan_tarihi` **UTC gece yarısı** olarak saklanır (ingest `parse_ekap_datetime`
-    kullanıyor) → yerelde 03:00 görünür. Yerel gün sınırlarıyla karşılaştırmak bu
-    yüzden doğrudur ve `__date=` kullanmaya gerek yoktur (o kolonun üstüne fonksiyon
-    koyup indeksi öldürürdü — bkz. CLAUDE.md "local_day_range").
-    """
-    bugun = timezone.localdate()
-    gun = bugun - timedelta(days=getattr(settings, "NOTIF_LOOKBACK_DAYS", 0))
-    return local_day_range(gun)[0], local_day_range(bugun)[1]
-
-
 # ⚠️⚠️ **FİLTRE BİLDİRİMİ: her sabah 08:00, SON 24 SAATTE KAYDEDİLEN ihaleler.**
 #
 # Pencere **`Tender.created_at` (kayıt tarihi)** üzerindedir — EKAP'ın yayım damgası
@@ -154,18 +130,18 @@ def _bildirim_penceresi():
 # ⚠️ 08:00 seçimi `NOTIF_QUIET_END_HOUR` (7) sonrasıdır; sessiz saatte koşan bir tur
 # uygulama-içi satırı yazar ama **push atmaz** — belirti "bildirim listede var,
 # telefona gelmedi"dir.
-_FILTRE_SAAT_VARSAYILAN = 24
+_OZET_SAAT_VARSAYILAN = 24
 
 
-def _filtre_saat():
+def _ozet_saat():
     """Pencere uzunluğu (saat) — gövde metni de bunu söylemek zorunda."""
-    return getattr(settings, "NOTIF_FILTER_HOURS", _FILTRE_SAAT_VARSAYILAN)
+    return getattr(settings, "NOTIF_OZET_SAAT", _OZET_SAAT_VARSAYILAN)
 
 
-def _filtre_penceresi():
+def _kayit_penceresi():
     """Filtre bildiriminin saydığı **kayıt tarihi** penceresi `(taban, tavan)`.
 
-    Kayan pencere: `[now - NOTIF_FILTER_HOURS, now]`, `Tender.created_at` üzerinde.
+    Kayan pencere: `[now - NOTIF_OZET_SAAT, now]`, `Tender.created_at` üzerinde.
 
     ⚠️ Üst sınır `now`dur ve **inclusive** kullanılır (`__lte`), çünkü mobilin aynı
     aralığı açan `created_at_max` filtresi de `__lte` uyguluyor — iki taraf aynı
@@ -175,7 +151,7 @@ def _filtre_penceresi():
     gün başına yuvarlanmış DEĞİL → kayan pencere burada anlamlıdır. `ilan_tarihi`
     üzerinde kayan pencere kurulamaz, bkz. yukarıdaki blok.
     """
-    saat = getattr(settings, "NOTIF_FILTER_HOURS", _FILTRE_SAAT_VARSAYILAN)
+    saat = getattr(settings, "NOTIF_OZET_SAAT", _OZET_SAAT_VARSAYILAN)
     tavan = timezone.now()
     return tavan - timedelta(hours=saat), tavan
 
@@ -337,8 +313,174 @@ def _alarm_enabled(alarm) -> bool:
     return bool(alarm)
 
 
+# ⚠️⚠️ **BİRLEŞİK ÖZET: kullanıcı başına TEK bildirim** (`NOTIF_BIRLESIK_BILDIRIM`).
+#
+# Neden: abonelik-başına ayrı bildirim, filtresi çok olan kullanıcıda kalabalık üretiyordu
+# — ölçüldü (2026-09-23) tek kullanıcı bir günde **18 filtre bildirimi** aldı, 6 filtre
+# aynı gün 2 kez. `CLAUDE.md`'de gerekçesi yazılı "abonelik-başına AYRI bildirim" kararı
+# filtre ve favori idare için bilinçli olarak tersine çevrildi; o karar bildirimler
+# seyrekken alınmıştı.
+#
+# Akış: bildirim eşleşen **filtre/idare id'lerini** taşır → mobil bunları
+# `kayitli_filtreler` / `favori_idareler` olarak uca gönderir → **uç birleştirip** tek
+# ihale listesi döndürür. Görev ve uç birleşimi **aynı fonksiyondan** kurar
+# (`ekap.views.kayitli_filtre_birlesimi` / `idare_ozeti_dali`); iki kod yolundan saymak,
+# bu konunun üç kez ürettiği "sayı tutmuyor" arızasını geri getirirdi.
+#
+# ⚠️ Eski yol (`_filtre_abonelik_basina` / `_idare_abonelik_basina`) **silinmedi**: bayrak
+# kapatılınca aynı gün geri dönülebilir. Bayrak varsayılan kapalı çünkü derin bağlantıyı
+# yalnızca yeni mobil sürüm tanıyor.
+
+
+def _birlesik_ozet(*, kaynak):
+    """Kullanıcı başına tek özet bildirimi üretir. `kaynak` ∈ {"filtre", "idare"}.
+
+    İki kaynak **birebir aynı iskeleti** paylaşır; ayrıştıkları tek yer kümenin nasıl
+    kurulduğu ve metin. Ortak tutmanın sebebi: dedup grain'i, tur kilidi, tavan ve
+    "sayı = penceredeki toplam" kuralı iki yerde ayrışmasın.
+    """
+    from ekap.views import (
+        AZAMI_KAYITLI_FILTRE, idare_ozeti_dali, kayitli_filtre_birlesimi,
+    )
+    from ekap.models import Tender
+
+    from .models import FavoriteAuthority, Notification, SavedFilter
+    from .services import notify, templates
+
+    filtre_mi = kaynak == "filtre"
+    now = timezone.now()
+    taban, tavan = _kayit_penceresi()
+    saat = _ozet_saat()
+
+    # Kullanıcı başına abonelikleri topla. ⚠️ Pro kontrolü Python'da (`is_premium`
+    # property'dir); `select_related("user")` N+1'i engeller.
+    abonelikler = {}
+    if filtre_mi:
+        qs = SavedFilter.objects.filter(alarm__isnull=False).select_related("user")
+    else:
+        qs = FavoriteAuthority.objects.filter(alarm=True).select_related("user")
+    for kayit in qs.iterator():
+        if filtre_mi and not _alarm_enabled(kayit.alarm):
+            continue
+        if not kayit.user.is_premium:
+            continue
+        abonelikler.setdefault(kayit.user, []).append(kayit)
+
+    kullanici_sayisi = notified = pushed = 0
+    for user, kayitlar in abonelikler.items():
+        # ⚠️ Tur kilidi KULLANICI grain'inde: eşzamanlı/yinelenmiş tetiklemeye karşı.
+        # TTL beat aralığından kısa olmalı (bkz. _TUR_KILIDI_TTL).
+        if not cache.add(f"ozet:tur:{kaynak}:{user.id}", 1, _TUR_KILIDI_TTL):
+            continue
+        kullanici_sayisi += 1
+        try:
+            if filtre_mi:
+                kesilen = kayitlar[:AZAMI_KAYITLI_FILTRE]
+                if len(kayitlar) > AZAMI_KAYITLI_FILTRE:
+                    logger.warning(
+                        "birlesik_ozet: kullanıcı %s filtre tavanına takıldı (%s/%s)",
+                        user.id, AZAMI_KAYITLI_FILTRE, len(kayitlar),
+                    )
+                küme = kayitli_filtre_birlesimi(
+                    [k.filters or {} for k in kesilen], simdi=now,
+                    pencere=(taban, tavan),
+                )
+            else:
+                kesilen = kayitlar
+                küme = idare_ozeti_dali(
+                    Tender.objects.all(), [k.detsis_no for k in kesilen], simdi=now,
+                ).filter(created_at__gte=taban, created_at__lte=tavan)
+
+            # ⚠️ Taranan = işaretlenen = sayılan. Eski kod 50 işaretleyip 20 bildiriyordu
+            # ve 30 ihale 7 gün boyunca sessizce kayboluyordu.
+            hepsi = list(küme.order_by("-created_at")[:_TARAMA_TAVANI])
+            if len(hepsi) >= _TARAMA_TAVANI:
+                logger.warning(
+                    "birlesik_ozet: kullanıcı %s tarama tavanına takıldı (%s)",
+                    user.id, _TARAMA_TAVANI,
+                )
+            # ⚠️ Dedup KULLANICI grain'inde: 3 filtreye uyan ihale 3 değil **1** kez
+            # bildirilir. Eski `nf:{sf.id}:{pk}` anahtarları 7 günde kendiliğinden ölür.
+            yeni = _yeni_ihaleler("nf" if filtre_mi else "na", f"u{user.id}", hepsi)
+            if not yeni:
+                continue
+
+            # N `save()` yerine tek UPDATE (`auto_now` alanına dokunmaz, `save` de dokunmuyordu).
+            model = SavedFilter if filtre_mi else FavoriteAuthority
+            model.objects.filter(pk__in=[k.pk for k in kesilen]).update(
+                last_notified_at=now)
+
+            # ⚠️⚠️ Sayı penceredeki **tekilleştirilmiş TOPLAM** (`len(hepsi)`),
+            # "sana yeni olanlar" (`len(yeni)`) DEĞİL: mobil aynı kümeyi açıyor ve
+            # kullanıcı iki sayıyı karşılaştırıyor. Dedup *neyi* bildireceğimizi
+            # belirler, *kaç* diyeceğimizi değil.
+            if filtre_mi:
+                title, body = templates.saved_filters_ozet(count=len(hepsi), saat=saat)
+                idler = ",".join(str(k.pk) for k in kesilen)
+                alanlar = {"filtre_idler": idler}
+                veri = {"filtreIdler": idler}
+            else:
+                title, body = templates.authorities_ozet(count=len(hepsi), saat=saat)
+                idler = ",".join(k.detsis_no for k in kesilen)
+                alanlar = {"idare_detsis_liste": idler}
+                veri = {"idareDetsisListe": idler}
+
+            # ⚠️ `filter_id` / `authority_detsis` **DOLDURULMAZ**: eski mobil sürüm onları
+            # görürse "birleşimin sayısı + tek aboneliğin listesi" açar — iki kez
+            # düzeltilmiş "sayı tutmuyor" arızasının üçüncü baskısı. Boş bırakınca eski
+            # istemci bildirim ekranına düşer (kabul edilebilir bozunma).
+            notify.record_notification(
+                user, type=Notification.Type.TENDER, title=title, body=body,
+                pencere_bas=taban, pencere_bit=tavan, **alanlar,
+            )
+            notified += 1
+            if notify.push_to_user(
+                user, title=title, body=body,
+                data={
+                    "type": Notification.Type.TENDER,
+                    "pencereBas": taban.isoformat(),
+                    "pencereBit": tavan.isoformat(),
+                    **veri,
+                },
+                idem_key=None,  # tur kilidi + ihale dedup tekilliği garanti eder
+            ):
+                pushed += 1
+        except Exception:
+            logger.exception("birlesik_ozet(%s): kullanıcı %s işlenemedi", kaynak, user.id)
+            continue
+
+    logger.info(
+        "birlesik_ozet(%s): %s kullanıcı, %s bildirim, %s push",
+        kaynak, kullanici_sayisi, notified, pushed,
+    )
+    return {"users": kullanici_sayisi, "notified": notified, "pushed": pushed}
+
+
 @shared_task(name="tenders.tasks.check_saved_filter_matches")
 def check_saved_filter_matches():
+    """Kayıtlı filtre bildirimi — beat her sabah 08:00.
+
+    `NOTIF_BIRLESIK_BILDIRIM` açıksa **kullanıcı başına tek** özet, kapalıysa bugünkü
+    **abonelik-başına** davranış. Bayrak deploy'suz çevrilebilir; eski yol silinmedi.
+    """
+    if getattr(settings, "NOTIF_BIRLESIK_BILDIRIM", False):
+        return _birlesik_ozet(kaynak="filtre")
+    return _filtre_abonelik_basina()
+
+
+@shared_task(name="tenders.tasks.check_favorite_authority_matches")
+def check_favorite_authority_matches():
+    """Favori idare bildirimi — beat her sabah 08:30.
+
+    `NOTIF_BIRLESIK_BILDIRIM` açıksa **kullanıcı başına tek** özet, kapalıysa
+    **idare-başına** davranış. Pencere her iki hâlde de kayıt tarihidir.
+    """
+    if getattr(settings, "NOTIF_BIRLESIK_BILDIRIM", False):
+        return _birlesik_ozet(kaynak="idare")
+    return _idare_abonelik_basina()
+
+
+def _filtre_abonelik_basina():
     """
     Alarmı açık kayıtlı filtreler için **günlük özet** bildirimi (beat: her sabah 08:00).
 
@@ -347,7 +489,7 @@ def check_saved_filter_matches():
     bölümleme kurduğu için hiçbir ihale iki kez, hiçbir aralık da eksik bildirilmez.
     ⚠️ Referans **kayıt tarihi**dir, EKAP'ın yayım damgası değil — hafta sonu yayın
     olmadığı için yayım gününe bakan pencere pazartesi sabahları boş kalıyordu
-    (gerekçe ve ölçümler için `_filtre_penceresi` üstündeki bloğa bakın).
+    (gerekçe ve ölçümler için `_kayit_penceresi` üstündeki bloğa bakın).
 
     **Her filtre için AYRI** uygulama-içi satır + push atılır (kullanıcı başına birleşik
     özet DEĞİL): 10 filtreden 8'i eşleşirse 8 ayrı bildirim gider. Başlık = filtre adı,
@@ -372,7 +514,7 @@ def check_saved_filter_matches():
     notified = 0
     pushed = 0
 
-    taban, tavan = _filtre_penceresi()
+    taban, tavan = _kayit_penceresi()
 
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
@@ -437,7 +579,7 @@ def check_saved_filter_matches():
             # liste 3). Dedup **neyi bildireceğimizi** belirler, **kaç diyeceğimizi**
             # değil.
             title, body = templates.saved_filter_match(
-                filter_name=sf.name, count=len(gunun_hepsi), saat=_filtre_saat())
+                filter_name=sf.name, count=len(gunun_hepsi), saat=_ozet_saat())
             # ⚠️⚠️ Pencere bildirimde TAŞINIR. Mobil bu alanlar yoksa günü
             # **bildirimin oluşma tarihinden** tahmin ediyor (`notificationRouting.js`)
             # ve o tahminle `ilan_tarihi`ye bakıyor → saydığımız küme ile açılan liste
@@ -480,12 +622,12 @@ def check_saved_filter_matches():
     return {"filters": processed, "notified": notified, "pushed": pushed}
 
 
-@shared_task(name="tenders.tasks.check_favorite_authority_matches")
-def check_favorite_authority_matches():
+def _idare_abonelik_basina():
     """
-    Favori idareler (alarm açık) için, o idarenin **yalnızca ilan_tarihi BUGÜN olan** açık
-    ihalelerini bulur (eski/dün yayınlananlar DEĞİL). **Her favori idare için AYRI** uygulama-içi
-    satır + push atılır (kullanıcı başına birleşik özet DEĞİL). Başlık = idare adı; tıklanınca
+    Favori idareler (alarm açık) için, o idarenin **son 24 saatte KAYDEDİLMİŞ** açık
+    ihalelerini bulur. **Her favori idare için AYRI** uygulama-içi
+    satır + push atılır (bu, `NOTIF_BIRLESIK_BILDIRIM` KAPALI iken geçerli eski yoldur).
+    Başlık = idare adı; tıklanınca
     tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`)
     açılır. Seçilen `detsis_no` `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir.
     İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori idare
@@ -504,7 +646,7 @@ def check_favorite_authority_matches():
     notified = 0
     pushed = 0
 
-    taban, tavan = _bildirim_penceresi()
+    taban, tavan = _kayit_penceresi()
 
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
         # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
@@ -524,8 +666,15 @@ def check_favorite_authority_matches():
             base = (
                 Tender.objects.filter(idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES)
                 .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__gte=taban, ilan_tarihi__lt=tavan)
-                .order_by("-ilan_tarihi")
+                # ⚠️⚠️ Pencere **KAYIT TARİHİ** üzerinde (2026-09-28), yayım damgası
+                # `ilan_tarihi` üzerinde DEĞİL: EKAP hafta sonu yayın yapmadığı için
+                # yayım gününe bakan pencere pazar/pazartesi sabahları **yapısal olarak
+                # boş** kalıyordu (26-27 Eylül'de sıfır ihale), kayıtlar ise pazartesi
+                # 00:09-02:13'te düşüyor. Filtre görevinde kabul edilen düzeltmenin aynısı.
+                .filter(created_at__gte=taban, created_at__lte=tavan)
+                # ⚠️ Sıralama pencere kolonuyla aynı (`-created_at`): seçici aralık +
+                # `ORDER BY ... LIMIT` bu kod tabanında üç kez ölçülmüş plan tuzağıdır.
+                .order_by("-created_at")
             )
 
             fav.last_notified_at = now
@@ -545,7 +694,7 @@ def check_favorite_authority_matches():
 
             title, body = templates.authority_match(
                 authority_name=fav.ad or "Favori İdare",
-                count=len(gunun_hepsi),
+                count=len(gunun_hepsi), saat=_ozet_saat(),
                 first_title=gunun_hepsi[0].ihale_adi if len(gunun_hepsi) == 1 else None,
             )
             notify.record_notification(

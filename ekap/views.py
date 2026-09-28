@@ -624,13 +624,18 @@ def kayitli_filtre_birlesimi(filtreler, *, simdi=None, pencere=None):
     tabanında ölçüldü: **109 sn** (planlayıcı ihale başına korelasyonlu tarama seçiyor,
     bkz. `yuklenici` filtresi). UNION deseni aynı yerde 1,2 sn → 222 ms ölçülmüştür.
 
-    ⚠️⚠️ **PENCERE HER DALIN İÇİNE KONUR.** Dışarıda bırakılırsa her dal (örn.
-    `sektor IN (...)`) on binlerce pk döndürür ve birleşim şişer. İçeride her dal
-    `ekap_tender_kayit_idx` üzerinden ~200 satır seçer → `Exists()` alt sorguları da
-    200 kez koşar, 1M kez değil. Ölçüm: pencere daldan çıkarılınca dal satırları
-    10⁴-10⁵'e çıkıyor.
+    ⚠️⚠️ **PENCERE HER DALIN İÇİNE KONUR.** ÖLÇÜLDÜ (üretim, 2026-09-28, en çok filtresi
+    olan kullanıcı — 10 filtre): dallardan gelen pk sayısı penceresiz **226**, pencereli
+    **8** → birleşime giren satır **28 kat** azalıyor. Üst sınır dal başına açık ihale
+    sayısıdır (~3.700), yani 50 filtreli bir kullanıcı penceresiz ~180 bin pk'yi
+    birleşime sokabilir.
+    ⚠️ **Ölçüm bir önceki tahmini çürüttü**: buraya ilk yazılan "10⁴-10⁵ satır" YANLIŞTI —
+    dallar `teklif_verilebilir` şartıyla zaten açık ihalelerle sınırlı. Rakamı
+    değiştirirken yeniden ölçün, tahminle yazmayın.
     ⚠️ **Dış sorgudaki pencere tekrarı KASITLIDIR** (aynı AND, sonucu değiştirmez): dış
     planın da `ORDER BY created_at DESC LIMIT n` için indeksi kullanabilmesi için.
+    Üretimde doğrulandı: 10 dallı birleşimde `Seq Scan on ekap_tender` **yok**,
+    `ekap_tender_kayit_idx` 7 dalda, union dedup'ı `HashAggregate`, süre **20 ms**.
     "Gereksiz" diye silmeyin.
 
     ⚠️ `Tender` dallarına `.order_by()` ŞART: `Meta.ordering = ["-ihale_tarihi"]` union

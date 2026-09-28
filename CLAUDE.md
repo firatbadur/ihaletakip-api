@@ -3236,10 +3236,15 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   queryset + UNION** ile kurulmasının asıl mimari gerekçesi budur; performans ikincil.
   ⚠️ `pk__in=A | pk__in=B` **denenmedi**: bu kod tabanında **109 sn** ölçülü (`yuklenici`
   filtresi). UNION deseni aynı yerde 1,2 sn → 222 ms.
-  ⚠️ **Pencere her dalın İÇİNE konur** (seçicilik): dışarıda bırakılırsa her dal on
-  binlerce pk döndürür ve birleşim şişer. Dış sorgudaki tekrar **kasıtlıdır** — dış planın
-  da `ORDER BY created_at DESC LIMIT n` için indeksi kullanabilmesi için. "Gereksiz" diye
-  silmeyin. `Tender` dallarına `.order_by()` şart (`Meta.ordering` union'ı bozar).
+  ⚠️ **Pencere her dalın İÇİNE konur** (seçicilik). Ölçüldü (üretim, 10 filtreli kullanıcı):
+  dallardan gelen pk sayısı penceresiz **226**, pencereli **8** → **28 kat**. Üst sınır dal
+  başına açık ihale sayısı (~3.700), yani 50 filtreli kullanıcı penceresiz ~180 bin pk
+  sokabilir. ⚠️ Koda ilk yazılan "10⁴-10⁵" tahmini **ölçümle çürütüldü** — dallar
+  `teklif_verilebilir` ile zaten sınırlı; rakam değiştirilecekse yeniden ölçülmeli.
+  Dış sorgudaki tekrar **kasıtlıdır** — dış planın da `ORDER BY created_at DESC LIMIT n`
+  için indeksi kullanabilmesi için. `Tender` dallarına `.order_by()` şart.
+  ✅ Üretim planı doğrulandı (10 dal): `Seq Scan on ekap_tender` **yok**,
+  `ekap_tender_kayit_idx` 7 dalda, dedup `HashAggregate`, `external merge` yok, **20 ms**.
 
   ⚠️ **İdare tarafında UNION GEREKMEZ**: `descendant_idare_ids` tüm favori idareleri tek
   çağrıda genişletiyor, birleştirme `idare_id__in` içinde. Orada filtre-başına koşullu bir
@@ -3291,6 +3296,11 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   listesinden tıklayan kullanıcı pencereyi kaybediyor, router oluşma gününe düşüp **bugün
   ilan edilenleri** açıyordu. Push tıklaması doğru çalıştığı için gözden kaçmıştı.
   **Backend'e yeni bir yönlendirme alanı eklerken önce oraya ekleyin.**
+
+  ✅ **Üretimde doğrulandı (2026-09-28, bayrak kapalıyken salt okunur):** görevin sayacağı
+  küme ile ucun döndürdüğü küme **uyuşmayan kullanıcı = 0** (filtre ve idare tarafında).
+  Bayrak açılsa 4 kullanıcıya bildirim gidecek (2/18/49/8 ihale); uid=5'in **10 filtresi**
+  var → 10 bildirim yerine **1**. Birleşim süresi 6-123 ms.
 
   Mobil entegrasyon notu: `docs/mobil-birlesik-bildirim.md`.
   Testler: `tenders/tests/test_birlesik_bildirim.py` (26) + mobil (11).

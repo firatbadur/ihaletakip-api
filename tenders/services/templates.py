@@ -7,8 +7,6 @@ Her şablon `(title, body)` ikilisi döner. `ekap.Tender` alan adları kullanıl
 """
 from __future__ import annotations
 
-from datetime import timedelta
-
 
 def clip(text: str | None, limit: int = 60) -> str:
     """Metni `limit` karaktere kırpar (ellipsis ile)."""
@@ -82,54 +80,27 @@ def alarm_summary(
 
 # ── Kayıtlı filtre: yeni ihale eşleşmesi ───────────────
 
-_AYLAR = (
-    "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-)
-
-
-def gun_etiketi(gun) -> str:
-    """Bir tarihi kullanıcıya okunur zaman ifadesine çevirir ("dün", "bugün", "23 Eylül").
-
-    ⚠️ Gövdedeki zaman ifadesi **süs değil sözleşmedir**: bildirime basınca mobil
-    listeyi tam o güne kısıyor (`Notification.ilan_gun`) ve kullanıcı ekrandaki
-    tarihlerle bildirimdeki ifadeyi karşılaştırıyor. "Bugün" yazıp dünü saymak,
-    2026-09-24'te ölçülen "sayı tutmuyor" arızasının kılık değiştirmiş hâlidir.
-    """
-    from django.utils import timezone
-
-    if gun is None:
-        return ""
-    bugun = timezone.localdate()
-    if gun == bugun:
-        return "bugün"
-    if gun == bugun - timedelta(days=1):
-        return "dün"
-    return f"{gun.day} {_AYLAR[gun.month]} günü"
-
-
 def saved_filter_match(
-    *, filter_name: str, count: int, gun=None, first_title: str | None = None
+    *, filter_name: str, count: int, saat: int = 24, first_title: str | None = None
 ) -> tuple[str, str]:
     """
-    Bir filtreye uyan, **`gun` tarihinde yayımlanan** ihaleler için bildirim.
+    Bir filtreye uyan, **son `saat` saatte sisteme kaydedilen** ihaleler için bildirim.
     Başlık = filtre adı.
 
-    ⚠️ Metin zamanı açıkça söyler ("dün", "bugün") çünkü sayı **doğrulanabilir**
-    olmalı: bildirime basınca mobil listeyi `Notification.ilan_gun` gününe kısıyor
-    ve kullanıcı iki sayıyı karşılaştırıyor. Belirsiz bir "bulundu" ifadesi,
-    kullanıcının hangi kümeye bakacağını bilememesine yol açıyordu (üretimde
-    bildirildi 2026-09-24).
-    ⚠️ `count` o günün TOPLAMIdır, "sana yeni olanlar" değil — bkz.
+    ⚠️ Metin pencereyi açıkça söyler ("son 24 saatte") çünkü sayı **doğrulanabilir**
+    olmalı: bildirime basınca mobil listeyi tam o kayıt penceresine kısıyor
+    (`Notification.pencere_bas/bit` → `created_at_min/max`) ve kullanıcı iki sayıyı
+    karşılaştırıyor. Belirsiz bir "bulundu" ifadesi, kullanıcının hangi kümeye
+    bakacağını bilememesine yol açıyordu (üretimde bildirildi 2026-09-24).
+    ⚠️ Metin "dün"/"bugün" DEMEZ: referans **kayıt tarihi**dir ve pencere takvim
+    gününe oturmaz (pazartesi 08:00'deki pencere pazar 08:00'de başlar). Takvim günü
+    ifadesi kullanmak, ölçülmüş hafta sonu deliğini metne taşımak olurdu.
+    ⚠️ `count` penceredeki TOPLAMdır, "sana yeni olanlar" değil — bkz.
     `tenders.tasks.check_saved_filter_matches`.
-    ⚠️ `gun` verilmezse zaman ifadesi yazılmaz; **"bugün" varsayılmaz**, çünkü
-    varsayılan yanlış gün göstermenin en sessiz yoludur.
-    `first_title` kullanılmaz (bildirime basınca tek ihale DEĞİL, o günün listesi açılır).
+    `first_title` kullanılmaz (bildirime basınca tek ihale DEĞİL, pencerenin listesi açılır).
     """
     name = clip(filter_name or "Kayıtlı Filtre")
-    ne_zaman = gun_etiketi(gun)
-    zaman = f"{ne_zaman} " if ne_zaman else ""
-    body = f"{name} filtrenize uygun {zaman}{count} ihale yayımlandı."
+    body = f"{name} filtrenize uygun son {saat} saatte {count} ihale yayımlandı."
     return name, body
 
 

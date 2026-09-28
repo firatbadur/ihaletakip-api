@@ -517,7 +517,8 @@ def apply_tender_filters(qs, params):
     Tender queryset'ine filtre uygular ve queryset döner. Parametre adları **Tender model
     alan adlarıdır** (tek adlandırma): `ihale_adi`, `ikn`, `ikn_yil`, `ikn_sayi`, `il_id`,
     `ihale_tip`, `ihale_usul`, `ihale_durum`, `yasa_kapsami`, `idare_id`, `idare_detsis`,
-    `ihale_tarihi_min/max`, `ilan_tarihi_min/max`, `okas_kod`, `okas_adi`, `ozellik`.
+    `ihale_tarihi_min/max`, `ilan_tarihi_min/max`, `created_at_min/max` (**kayıt
+    tarihi** — ihalenin sistemimize girdiği an), `okas_kod`, `okas_adi`, `ozellik`.
 
     `teklif_verilebilir` (temel filtre): teklif son anı geçmemiş + iptal edilmemiş.
     ⚠️ `ihale_durum` bunu tek başına vermez — bkz. gövdedeki not.
@@ -707,7 +708,16 @@ def apply_tender_filters(qs, params):
             qs = qs.filter(ozellikler__contains=[tag])
 
     # ── Tarih aralıkları (alan_min / alan_max) ──
-    for field in ("ihale_tarihi", "ilan_tarihi"):
+    # ⚠️ `created_at` = **kayıt tarihi** (ihalenin BİZİM sistemimize girdiği an), EKAP'ın
+    # yayım damgası `ilan_tarihi` DEĞİL. Kayıtlı filtre bildiriminin derin bağlantısı
+    # bunu kullanıyor: bildirim "son 24 saatte kaydedilenler"i sayıyor, mobil de aynı
+    # aralığı açmalı — yoksa bildirimdeki sayı ekrandaki listeyle tutmaz (2026-09-24
+    # arızası, bkz. tenders/tasks.py). İkisi ayrı büyüklüktür: hafta sonu EKAP yayın
+    # yapmıyor ama kayıtlar pazartesi 00:09-02:13'te düşüyor (ölçüldü 2026-09-28).
+    # ⚠️ Pro DEĞİL (`_PRO_PARAMS`'a eklenmez): rekabet bilgisi taşıyan bir filtre değil,
+    # bildirim derin bağlantısının tesisatı. Pro'ya kilitlenirse bildirime basan Free
+    # kullanıcı 403 alır ve liste hiç açılmaz.
+    for field in ("ihale_tarihi", "ilan_tarihi", "created_at"):
         mn = params.get(f"{field}_min")
         if mn:
             d = parse_ekap_datetime(str(mn))
@@ -1023,6 +1033,19 @@ _TENDER_KEY_PARAM = OpenApiParameter(
         OpenApiParameter(
             "ilan_tarihi_max", str, description=f"İlan (yayın) tarihi üst sınırı. {_DATE_HINT}",
             examples=[OpenApiExample("Tarih", value="31.12.2026")],
+        ),
+        OpenApiParameter(
+            "created_at_min", str,
+            description=(
+                "**Kayıt tarihi** alt sınırı — ihalenin sistemimize girdiği an "
+                f"(`ilan_tarihi` DEĞİL). {_DATE_HINT}"
+            ),
+            examples=[OpenApiExample("ISO", value="2026-09-27T08:00:00+03:00")],
+        ),
+        OpenApiParameter(
+            "created_at_max", str,
+            description=f"**Kayıt tarihi** üst sınırı. {_DATE_HINT}",
+            examples=[OpenApiExample("ISO", value="2026-09-28T08:00:00+03:00")],
         ),
         OpenApiParameter(
             "teklif_verilebilir", bool,

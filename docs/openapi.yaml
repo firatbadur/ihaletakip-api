@@ -1948,6 +1948,25 @@ paths:
       summary: İhale ara / listele
       parameters:
       - in: query
+        name: created_at_max
+        schema:
+          type: string
+        description: '**Kayıt tarihi** üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd`
+          veya ISO-8601. Geçersiz tarih yok sayılır.'
+        examples:
+          ISO:
+            value: '2026-09-28T08:00:00+03:00'
+      - in: query
+        name: created_at_min
+        schema:
+          type: string
+        description: '**Kayıt tarihi** alt sınırı — ihalenin sistemimize girdiği an
+          (`ilan_tarihi` DEĞİL). `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz
+          tarih yok sayılır.'
+        examples:
+          ISO:
+            value: '2026-09-27T08:00:00+03:00'
+      - in: query
         name: e_eksiltme_yapilacak
         schema:
           type: boolean
@@ -4445,6 +4464,16 @@ components:
           format: date
           readOnly: true
           nullable: true
+        pencere_bas:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        pencere_bit:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -4463,6 +4492,8 @@ components:
       - ilan_gun
       - institution
       - okas_kodlar
+      - pencere_bas
+      - pencere_bit
       - read
       - tender_id
       - tender_ikn

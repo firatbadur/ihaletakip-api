@@ -295,6 +295,18 @@ class Notification(models.Model):
     # yönde. Üretici hangi günü saydıysa onu **açıkça** söyler.
     # ⚠️ `null` = eski bildirimler; mobil o zaman eski davranışa (oluşma günü) düşer.
     ilan_gun = models.DateField(null=True, blank=True)
+    # type=TENDER (kayıtlı filtre eşleşmesi) bildirimlerde: bildirimin saydığı
+    # **KAYIT TARİHİ** penceresi (`Tender.created_at`). Mobil listeyi tam bu aralığa
+    # kısar (`created_at_min` / `created_at_max`).
+    # ⚠️⚠️ `ilan_gun` (EKAP yayım günü) bunun yerine KULLANILAMAZ: hafta sonu EKAP
+    # yayın yapmıyor ama kayıtlar pazartesi 00:09-02:13'te düşüyor → yayım gününe
+    # bakan bir pencere pazar ve pazartesi sabahları **yapısal olarak sessiz** kalıyor
+    # (üretimde yaşandı 2026-09-28: "19 filtre, 0 bildirim"). Kayıt tarihi "bizim için
+    # ne yeni" sorusunu yanıtlar ve takvimin boşluklarına bağışıktır.
+    # ⚠️ `ilan_gun` eski bildirimler için **duruyor** (mobil ona düşer); yeni filtre
+    # bildirimleri bu iki alanı yazar.
+    pencere_bas = models.DateTimeField(null=True, blank=True)
+    pencere_bit = models.DateTimeField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

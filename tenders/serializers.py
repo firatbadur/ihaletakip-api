@@ -205,6 +205,10 @@ class NotificationSerializer(serializers.ModelSerializer):
             # Mobil listeyi tam bu güne kısar; `null` ise eski davranışa (bildirimin
             # oluşma günü) düşer.
             "ilan_gun",
+            # Filtre bildiriminde: sayılan **kayıt tarihi** penceresi (ISO). Mobil
+            # listeyi `created_at_min`/`created_at_max` ile tam buna kısar.
+            "pencere_bas",
+            "pencere_bit",
             "read",
             "created_at",
         ]

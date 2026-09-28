@@ -339,13 +339,18 @@ REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 # ⚠️ Bu ayar artık yalnızca **favori idare** görevini etkiler; kayıtlı filtre görevi
 # 2026-09-26'da günlük özete geçti ve `NOTIF_FILTER_DAYS_AGO` kullanıyor.
 NOTIF_LOOKBACK_DAYS = env.int("NOTIF_LOOKBACK_DAYS", default=0)
-# Kayıtlı filtre günlük özeti: hangi **kapalı takvim gününü** bildirsin (1 = dün).
-# Beat her sabah 08:00'de koşar → 08:00'de "son 24 saat"in karşılığı dündür.
-# ⚠️ Bu bir *lookback* penceresi DEĞİL, tek gün seçicisidir: 2 yapılırsa dün
-# atlanır ve evvelsi gün bildirilir. Bkz. `tenders.tasks._filtre_gunu`.
+# Kayıtlı filtre günlük özeti: kaç saatlik **kayıt tarihi** penceresi taranacak.
+# Beat her sabah 08:00'de koşar → varsayılan 24, yani dün 08:00 → bugün 08:00.
+# ⚠️⚠️ Referans `Tender.created_at` (ihalenin sistemimize girdiği an), EKAP'ın yayım
+# damgası `ilan_tarihi` DEĞİL. Yayım gününe bakan pencere hafta sonu yayın olmadığı
+# için pazar/pazartesi sabahları **yapısal olarak boş** kalıyordu (üretimde yaşandı
+# 2026-09-28). Bkz. `tenders.tasks._filtre_penceresi`.
+# ⚠️ Değer beat aralığıyla (24 sa) **uyumlu tutulmalı**: küçültmek arada kalan
+# ihaleleri hiç bildirmez, büyütmek pencereleri örtüştürür (dedup tekrar göndermeyi
+# engeller ama gövdedeki sayı iki bildirimde ortak ihaleleri sayar).
 # ⚠️ Bildirim saatini değiştirirken `NOTIF_QUIET_END_HOUR` (7) unutulmamalı:
 # sessiz saat içinde koşan bir tur uygulama-içi satırı yazar ama **push atmaz**.
-NOTIF_FILTER_DAYS_AGO = env.int("NOTIF_FILTER_DAYS_AGO", default=1)
+NOTIF_FILTER_HOURS = env.int("NOTIF_FILTER_HOURS", default=24)
 NOTIF_QUIET_START_HOUR = env.int("NOTIF_QUIET_START_HOUR", default=22)
 NOTIF_QUIET_END_HOUR = env.int("NOTIF_QUIET_END_HOUR", default=7)
 # Kullanıcı başına gün içinde en fazla bu kadar push (uygulama-içi satır limitten muaf).

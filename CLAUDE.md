@@ -3037,7 +3037,7 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `recommend_by_saved_okas` — kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan
   ihale önerisi + push (günlük 08:00, **Free/Pro herkese**)
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
-- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, DÜN yayımlananlar** — 2026-09-26'da 10/14/18 × "bugün" kurgusundan çevrildi)
+- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği)
 - `check_favorite_authority_matches` — favori idare yeni-ihale bildirimi + push (**11:00/15:00/19:00**)
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
 - `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
@@ -3169,6 +3169,8 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
     bu sorun yok; kaçan yalnızca **ertesi sabah 08:00'e kadar hâlâ detayı gelmemiş**
     ihaledir (ölçüm: %99,6 aynı gün) — bilinçli ve ölçülmüş bir bedel.
   - ✅ **MÜKERRER GÖRÜNEN FİLTRE BİLDİRİMLERİ ÇÖZÜLDÜ (2026-09-26) — günlük özet.**
+    ⚠️ Pencere daha sonra (2026-09-28) yayım tarihinden **kayıt tarihine** taşındı;
+    aşağıdaki bölüm güncel hâli anlatır.
     Ölçüm (2026-09-23): tek kullanıcı **18 filtre bildirimi** aldı, 6 filtre aynı gün
     **2 kez**; `NOTIF_MIN_GAP_MINUTES=0` olduğu için 12 push peş peşe gidiyordu. Sebep
     tasarımdı: üç tur, her turda o ana kadar yeni görünen ihaleler için **aynı başlıkla**
@@ -3177,45 +3179,105 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
     (bkz. aşağıdaki blok). Favori idare görevi hâlâ 3 tur × "bugün" — orada mobil
     listeyi güne kısmadığı (idarenin tüm listesini açıyor) için aynı şikâyet yok.
 
-  ##### ⚠️⚠️ FİLTRE PENCERESİ = KAPALI TAKVİM GÜNÜ (2026-09-26)
+  ##### ⚠️⚠️ FİLTRE PENCERESİ = KAYIT TARİHİ, SON 24 SAAT (2026-09-28)
 
-  Kullanıcı isteği: *"her sabah 8'de 1 kere son 24 saatin ihalelerine göre bildirim"*.
+  Kullanıcı isteği: *"her sabah 8'de 1 kere son 24 saatin ihalelerine göre bildirim"* →
+  *"ihalenin kayıt tarihini referans alman lazım"*.
 
-  ⚠️⚠️ **"Son 24 saat" bu veride KAYAN PENCERE olarak kurulamaz.** `ilan_tarihi` **saat
-  taşımaz** (UTC gece yarısı damgası) → `now - 24h` gibi bir eşik iki takvim gününe yayılır
-  ve mobilin tek güne kıstığı liste yine tutmaz. 08:00'de "son 24 saat"in gerçek karşılığı
-  **dün yayımlananlar**dır → pencere `_filtre_gunu()` + `_filtre_penceresi()` ile **tek ve
-  kapalı bir gün**dür (`NOTIF_FILTER_DAYS_AGO`, vars. 1).
+  **İki yanlış deneme oldu, ikisi de üretimde ölçüldü:**
 
-  Kazançlar:
-  - **Günler örtüşmez, atlanmaz**: her gün tam bir kez, ertesi sabah bildirilir.
-  - **Sayı sabit**: bitmemiş gün bildirilmediği için aynı filtrede farklı sayılar görülmez.
-  - ⚠️ **Kapsama ÜÇ TURA GÖRE DAHA İYİ** (sezginin tersi): eski kurguda bir ihalenin
-    bildirilmesi için detayının **18:00 turundan önce** gelmesi gerekiyordu; şimdi ertesi
-    sabah 08:00'e kadar bir **gece payı** var. Ölçüm: son 14 günün 2.229 ihalesinin
-    **%99,6'sının** detayı aynı gün geldi. Yani daraltma bir bedel değil, pay kazancıdır.
+  1. **10/14/18 × `ilan_tarihi = bugün`** → her tur aynı başlıkla yeni bildirim
+     (ölçüldü 2026-09-23: tek kullanıcı 18 filtre bildirimi, 6 filtre aynı gün 2 kez)
+     ve gün bitmediği için her turun sayısı farklı.
+  2. **08:00 × `ilan_tarihi = DÜN`** (kapalı takvim günü) → mükerrerliği çözdü ama
+     ⚠️⚠️ **HAFTA SONU DELİĞİ** açtı. EKAP cumartesi/pazar yayın yapmıyor:
 
-  ⚠️⚠️ **`Notification.ilan_gun` ZORUNLU — yeni kolon (0010).** Mobil, bildirimin
-  kapsadığı günü **oluşma tarihinden** tahmin ediyordu (`notificationRouting.js` →
-  `dayKey(created_at)`). Bildirim sabah üretilip **dünü** kapsadığı için o tahmin bugüne
-  düşer ve kullanıcı **BOŞ liste** görür — 2026-09-24 arızasının **ters yönü**. Üretici
-  hangi günü saydıysa onu **açıkça** bildirir; push verisinde `ilanGun` (FCM data string),
-  uygulama-içi satırda `ilan_gun` (DateField, nullable → eski bildirimler eski davranışa
-  düşer). Serializer'da açık.
-  ⚠️ Kolon **nullable** olduğu için 2026-08-28 arızası (NOT NULL kolon + eski worker →
-  3 gün veri kaybı) burada tekrarlanamaz; DB seviyesinde default gerekmez.
-  ⚠️ Mobil `ilan_gun`'u `new Date()`'ten **geçirmez**: `"2026-09-25"` UTC gece yarısı
-  ayrıştırılır ve negatif ofsetli bir cihazda bir gün geriye kayar → biçim regex'le
-  doğrulanıp **olduğu gibi** kullanılır; bozuk değer eski davranışa düşer.
-  ⚠️ Gövdedeki zaman ifadesi ("dün"/"bugün", `templates.gun_etiketi`) **süs değil
-  sözleşmedir**: "bugün" yazıp dünü saymak aynı arızanın kılık değiştirmiş hâlidir.
-  `gun` verilmezse ifade **yazılmaz** — "bugün" varsayılmaz.
+     | ilan günü | adet |
+     |---|---|
+     | 25 Eyl Cum | 288 |
+     | **26 Eyl Cmt** | **0** |
+     | **27 Eyl Paz** | **0** |
+     | 28 Eyl Pzt | 174 |
 
-  Testler: `tenders/tests/test_filtre_bildirimi.py` (11 test) + mobil
-  `src/components/helpers/__tests__/notificationRouting.test.js` (7 test).
-  **Dişleri doğrulandı**: pencere bugüne çevrilince 10, üst sınır kaldırılınca 4, alt sınır
-  kaldırılınca 2, `ilan_gun` yazılmayınca 3, şablona gün verilmeyince 1, ayar varsayılanı
-  0 yapılınca 10 test kırılıyor; mobilde `ilanGun` tercihi kaldırılınca 4 test kırılıyor.
+     Yani pazar sabahı (cumartesiyi kapsar) ve pazartesi sabahı (pazarı kapsar)
+     pencere **yapısal olarak boş**. Üretimde birebir yaşandı: pazartesi 08:00 turu
+     *"19 filtre, 0 bildirim"* yazdı ve kullanıcı bildirdi — 25 Eylül'den beri
+     hiçbir filtre bildirimi gitmemişti.
+
+  ⚠️⚠️ **KAYIT TARİHİ (`Tender.created_at`) BU DELİĞE BAĞIŞIKTIR** ve ölçüm neden
+  çalıştığını gösteriyor — kayıtlar gece yarısını hemen geçince düşüyor:
+
+  | kayıt günü | kayıt | `ilan_tarihi` dolu | ilk | son |
+  |---|---|---|---|---|
+  | 25 Eyl Cum | 288 | 288 | 00:15 | 07:11 |
+  | 26 Eyl Cmt | 1 | 1 | 01:49 | 01:49 |
+  | 28 Eyl Pzt | 177 | 177 | 00:09 | 02:13 |
+
+  Yani **saat 08:00'de o günün tamamı zaten sistemde ve `ilan_tarihi`si dolu.**
+  Pazartesi 08:00'de "son 24 saat" (pazar 08:00 → pazartesi 08:00) pazartesinin 177
+  kaydını kapsar. Takvimde boşluk olsa bile pencere gerçekten yeni olanı görür.
+  ⚠️ **Bu, 2. denemedeki "kapalı gün" gerekçesini de çürütür**: orada "08:00'de bugünün
+  ihaleleri henüz keşfedilmemiştir" varsayılmıştı — ölçüm tersini söylüyor.
+
+  ⚠️ Kayan pencere **tam bölümleme** kurar: beat aralığı 24 sa, pencere 24 sa → ne
+  örtüşme ne boşluk. `NOTIF_FILTER_HOURS` (vars. 24) ikisiyle uyumlu tutulmalı.
+
+  ⚠️⚠️ **`ilan_tarihi` ÜZERİNDE KAYAN PENCERE KURULAMAZ**: o kolon **saat taşımaz**
+  (UTC gece yarısı damgası) → `now - 24h` eşiği iki takvim gününe yayılır. `created_at`
+  ise gerçek bir damgadır (`auto_now_add`), kayan pencere orada anlamlıdır.
+
+  ⚠️ **Arşiv gürültüsü riski ve tek koruması**: kayıt penceresi, `backfill` yeniden
+  açılırsa 2019 ihalelerini "yeni" sayar. Koruma görevin **teklif verilebilir** şartıdır
+  (`ihale_tarihi >= now`) — geçmiş ihaleler zaten elenir. **Bu şart kaldırılmamalı**;
+  testi var (`test_ARSIV_GURULTUSU_...`).
+
+  ⚠️⚠️ **PENCERE BİLDİRİMDE TAŞINIR — `Notification.pencere_bas` / `pencere_bit`
+  (0011).** Mobil aralığı bildirimin **oluşma tarihinden** tahmin ediyordu; bildirim
+  sabah üretilip geriye baktığı için o tahmin yanlış kümeye bakar ve kullanıcı BOŞ
+  liste görür (2026-09-24 arızasının ters yönü). Üretici hangi aralığı saydıysa onu
+  **açıkça** bildirir: push'ta `pencereBas`/`pencereBit`, uygulama-içi satırda
+  `pencere_bas`/`pencere_bit` (nullable, serializer'da açık).
+  ⚠️ `Notification.ilan_gun` (0010) **duruyor** — 26-27 Eylül'de üretilmiş bildirimler
+  için mobilin 2. kademesi. Mobil sırası: `pencere_bas/bit` → `ilan_gun` → oluşma günü.
+  ⚠️ Kolonlar **nullable** olduğu için 2026-08-28 arızası (NOT NULL kolon + eski worker
+  → 3 gün veri kaybı) burada tekrarlanamaz; DB seviyesinde default gerekmez.
+
+  ⚠️⚠️ **MOBİL LİSTE AYNI ARALIĞI AÇMALI → `created_at_min/max` API FİLTRESİ (yeni).**
+  `apply_tender_filters` tarih aralığı döngüsüne `created_at` eklendi. **Pro DEĞİL**:
+  rekabet bilgisi taşımayan bir tesisat parametresi; Pro'ya kilitlenirse bildirime
+  basan kullanıcı 403 alır ve liste hiç açılmaz.
+  ⚠️⚠️ **Mobil `toEkapQuery` BİR İZİN LİSTESİDİR** — tanımadığı anahtarı **sessizce
+  düşürür**. `created_at_min/max` oraya eklenmese yönlendirme doğru çalışır, istek
+  yanlış gider ve liste filtrenin **tüm geçmişini** açar. Testi var
+  (`src/api/v1/__tests__/toEkapQuery.test.js`).
+  ⚠️ Sınırlar **tam ISO damgadır**, gün anahtarı değil → mobil onları `dayStart`/`dayEnd`
+  ile güne yuvarlamaz (yuvarlamak 24 saatlik pencereyi ~48 saate açardı).
+  ⚠️ İki taraf **aynı sınır semantiğini** kullanır (`__gte` / `__lte`): görev `__lte`
+  yazar çünkü API filtresi de `__lte` uyguluyor.
+
+  ⚠️ **Pencerenin ÜST SINIRI no-op DEĞİL.** `created_at` geçmişte kalmaya mahkûm
+  görünür ama görev `tavan = now()` hesapladıktan **sonra** ingest yeni satır ekleyebilir
+  → üst sınır olmadan görev o satırı sayar, mobilin açtığı aralık dışlar, sayı tutmaz.
+  Diş kontrolünde bu ilk denemede **ısırmadı**; kodu silmek yerine eksik test yazıldı
+  (`test_PENCERE_hesaplandiktan_SONRA_eklenen_ihale_sayilmaz`).
+
+  ⚠️ **`ekap_tender_kayit_idx` (0030) gerekli.** Sorgu
+  `created_at BETWEEN … ORDER BY created_at DESC LIMIT 300`; indekssiz hâli bu dosyada
+  üç kez belgelenen plan tuzağıdır (0009/0026/0027 — seçici aralık + `ORDER BY ... LIMIT`
+  → planlayıcı başka bir tarih indeksini geriye tarar). Sıralama da **pencere kolonuyla
+  aynı** tutuldu (`-created_at`, eskiden `-ilan_tarihi`) ki tek indeks ikisini karşılasın.
+
+  ⚠️ Gövde metni **takvim günü demez** ("dün"/"bugün" DEĞİL, "son 24 saatte"): pencere
+  takvim gününe oturmuyor, gün ifadesi kullanmak ölçülmüş hafta sonu deliğini metne
+  taşımak olurdu.
+
+  Testler: `tenders/tests/test_filtre_bildirimi.py` (15 test) + mobil
+  `notificationRouting.test.js` (9) ve `toEkapQuery.test.js` (3).
+  **Dişleri doğrulandı**: pencere ilan tarihine çevrilince 3, üst sınır kaldırılınca 1,
+  alt sınır 2, teklif-verilebilir şartı kaldırılınca 1, pencere bildirime yazılmayınca 2,
+  şablona saat verilmeyince 1, ayar varsayılanı değişince 5, API filtresi kaldırılınca 1
+  test kırılıyor; mobilde kayıt kademesi + izin listesi girdisi kaldırılınca 7 test.
+
 - **Çoğalma önleme = abonelik-başına ATOMİK gün-kilidi** (`cache.add`, race-safe): her filtre/
   idare/alarm için `{"filter"|"authority"|"alarm"|"okasrec"}:{uid}:{item_id}:{date}` anahtarı
   öğe işlenmeden **atomik** rezerve edilir. Görev yinelenmiş/interval beat ile aynı gün çok kez
@@ -3247,20 +3309,21 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
      ihale adı). `type=ALARM` + `tenderId`/`tenderIkn` → tıklanınca ihale detayı. Gün-kilidi
      `alarm:{uid}:{ekap_id}:{date}`. Snapshot alanları `TenderAlarm`'da.
   3. **Kayıtlı filtre** (`SavedFilter.alarm` truthy) — **günlük özet, her sabah 08:00**:
-     filtreye uyan ve `ilan_tarihi` **DÜN** olan açık ihaleler (kapalı takvim günü; bugün/
-     eski/backfill DEĞİL). Kapsanan gün `Notification.ilan_gun` ile bildirimde taşınır →
-     mobil listeyi tam o güne kısar ve gövdedeki sayı ekranda doğrulanabilir.
-     `ilan_tarihi` detay senkronundan dolduğundan bir ihale ancak detayı gelince eşleşir;
-     gün kapandıktan sonra koşulduğu için o gün yayımlananların %99,6'sı hazırdır.
+     filtreye uyan ve **son 24 saatte KAYDEDİLMİŞ** (`Tender.created_at`) açık ihaleler.
+     ⚠️ Referans **kayıt tarihi**dir, EKAP'ın yayım damgası DEĞİL — hafta sonu yayın
+     olmadığı için yayım gününe bakan pencere pazar/pazartesi sabahları boş kalıyordu
+     (bkz. yukarıdaki bölüm). Pencere `Notification.pencere_bas`/`pencere_bit` ile
+     bildirimde taşınır → mobil listeyi `created_at_min/max` ile tam o aralığa kısar ve
+     gövdedeki sayı ekranda doğrulanabilir.
      Filtre semantiği `ekap.views.apply_tender_filters` ile view'la **ortak**.
      **Her filtre için AYRI** bildirim/push (10 filtreden 8'i eşleşirse 8 ayrı). **Mesaj**:
-     başlık = filtre adı, gövde = "{filtre} filtrenize uygun dün N ihale yayımlandı."
-     (`templates.saved_filter_match`). **Derin bağlantı = filtre + gün**: `type=TENDER` +
-     `filter_id=SavedFilter.id` + `ilan_gun`; `tender_id`/`tender_ikn` **doldurulmaz**.
-     Mobil `filter_id` ile filtreyi (`GET /saved-filters/{id}/`) yükleyip `ilan_gun`'a
-     kısılmış arama sonuçlarını açar (push data → `filterId`, `ilanGun`). Tur kilidi
-     `filter:tur:{uid}:{sf.id}` + ihale bazlı dedup `nf:{sf.id}:{tender.pk}`.
-     **Pro'ya özel** (premium olmayan atlanır).
+     başlık = filtre adı, gövde = "{filtre} filtrenize uygun son 24 saatte N ihale
+     yayımlandı." (`templates.saved_filter_match`). **Derin bağlantı = filtre + pencere**:
+     `type=TENDER` + `filter_id=SavedFilter.id` + `pencere_bas`/`pencere_bit`;
+     `tender_id`/`tender_ikn` **doldurulmaz**. Mobil `filter_id` ile filtreyi
+     (`GET /saved-filters/{id}/`) yükleyip pencereye kısılmış sonuçları açar (push data →
+     `filterId`, `pencereBas`, `pencereBit`). Tur kilidi `filter:tur:{uid}:{sf.id}` +
+     ihale bazlı dedup `nf:{sf.id}:{tender.pk}`. **Pro'ya özel** (premium olmayan atlanır).
   4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yalnızca `ilan_tarihi`
      BUGÜN olan** açık ihaleleri (dün/eski DEĞİL; "bugün" filtresi cross-day dedup'ı sağlar).
      `detsis_no` `descendant_idare_ids` ile alt birim
@@ -3291,7 +3354,9 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   Desteklenen alanlar: `ihale_adi`, `ikn`, `ikn_yil`, `ikn_sayi`, `il_id`, `ihale_tip`,
   `ihale_usul`, `ihale_durum`, `idare_id`, `yasa_kapsami` (null-inclusive → detayı gelmemiş
   ihaleyi dışlamaz), `okas_kod`, `okas_adi`, `ozellik` (OZELLIK_MAP anahtarları),
-  `ihale_tarihi_min/max`, `ilan_tarihi_min/max`. Liste alanları hem virgüllü string (query
+  `ihale_tarihi_min/max`, `ilan_tarihi_min/max`, **`created_at_min/max`** (kayıt tarihi —
+  ihalenin sistemimize girdiği an; kayıtlı filtre bildiriminin derin bağlantısı bunu
+  kullanır, Pro DEĞİL). Liste alanları hem virgüllü string (query
   param) hem gerçek liste (`SavedFilter.filters` JSON) kabul eder. **Mobil, arama VE kayıtlı
   filtre gövdesini bu model adlarıyla göndermeli** (Postman güncel). Gelişmiş alanlar
   (`il_id`, `ihale_usul`, `yasa_kapsami`, `ozellikler`, `okas_kalemleri`, **`ilan_tarihi`**)

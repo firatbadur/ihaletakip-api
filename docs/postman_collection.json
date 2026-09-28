@@ -558,6 +558,18 @@
               ],
               "query": [
                 {
+                  "key": "created_at_max",
+                  "value": "2026-09-28T08:00:00+03:00",
+                  "description": "**Kayıt tarihi** üst sınırı. `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
+                  "key": "created_at_min",
+                  "value": "2026-09-27T08:00:00+03:00",
+                  "description": "**Kayıt tarihi** alt sınırı — ihalenin sistemimize girdiği an (`ilan_tarihi` DEĞİL). `GG.AA.YYYY`, `GG.AA.YYYY SS:dd` veya ISO-8601. Geçersiz tarih yok sayılır.",
+                  "disabled": true
+                },
+                {
                   "key": "e_eksiltme_yapilacak",
                   "value": "True",
                   "description": "Elektronik eksiltme yapılacak ihaleler. 🔒 **Pro** — bu parametre kullanılırsa Free/anonim istek `403 premium_required` döner.",

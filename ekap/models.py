@@ -279,6 +279,16 @@ class Tender(models.Model):
             # ⚠️ Sıralama kolonu bileşiğin İKİNCİ elemanı: baş kolon yapılsaydı
             # "ORDER BY tarih DESC LIMIT N + seçici filtre" tuzağı olurdu.
             models.Index(fields=["sektor", "-ihale_tarihi"], name="ekap_tender_sektor_tarih_idx"),
+            # ── Kayıt tarihi (0030) ─────────────────────────────────────────────
+            # ⚠️ Kayıtlı filtre bildirimi "son 24 saatte KAYDEDİLEN ihaleler"i tarıyor
+            # (`tenders.tasks.check_saved_filter_matches`) ve sonucu
+            # `ORDER BY created_at DESC LIMIT 300` ile kesiyor. İndekssiz hâli bu
+            # dosyada üç kez belgelenen plan tuzağının ta kendisi olurdu: seçici bir
+            # aralık + `ORDER BY ... LIMIT`, planlayıcıyı başka bir tarih indeksini
+            # geriye tarayıp satır satır elemeye iter (bkz. 0009, 0026, 0027).
+            # 24 saatlik aralık ~200/1.000.000 satır seçiyor → indeks scan 200 satır
+            # döndürüp bitiyor. Sıralama da aynı indeksten karşılanır.
+            models.Index(fields=["-created_at"], name="ekap_tender_kayit_idx"),
             # ── İlan tarihine göre sıralama (0027) ──────────────────────────────
             # ⚠️⚠️ Liste ucu `order=ilan_tarihi` için `ORDER BY ilan_tarihi DESC
             # NULLS LAST, id DESC` sorar. **`NULLS LAST` katıdır**: düz

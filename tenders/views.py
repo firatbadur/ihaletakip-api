@@ -12,8 +12,6 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.premium import MSG_ALARM, MSG_FILTER_ALARM, require_premium
-
 from .models import (
     DEFAULT_TENDER_GROUP_NAME,
     MAX_TENDER_GROUPS,
@@ -352,9 +350,11 @@ _FILTER_ID_PARAM = OpenApiParameter(
         description=(
             "Yeni bir arama filtresi kaydeder. Filtre kaydetmenin **sınırı yoktur** "
             "(Free + Pro).\n\n"
-            "**Filtre alarmı Pro'ya özeldir:** `alarm` açık gönderilirse ve üyelik Free "
-            "ise **403** döner (`errors.code = premium_required`). Alarmsız kaydetmek "
-            "serbesttir; alarm (uygun yeni ihale bildirimi) için Pro gerekir."
+            "`alarm` açıkken filtreye uyan yeni ihaleler için her sabah bildirim gider. "
+            "**Alarm Free dahil herkese açıktır** (2026-09-29; daha önce Pro'ya özeldi). "
+            "Filtrenin İÇİNDE gelişmiş bir arama parametresi (tutar, rekabet, indirim "
+            "aralıkları) varsa o **hâlâ Pro'dur**: kaydetmek serbesttir ama Free üyede "
+            "arama ucu **403** döner ve o filtre için bildirim de üretilmez."
         ),
         examples=[_SAVED_FILTER_EXAMPLE],
     ),
@@ -364,11 +364,8 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = SavedFilter
 
     def perform_create(self, serializer):
-        # Kural `tenders/services/actions.py`'de; nesne yaratımı burada kalır çünkü
-        # DRF yanıtı `serializer.instance`'a ihtiyaç duyar.
-        from .services import actions
-
-        actions.filtre_alarm_izni(self.request.user, serializer.validated_data.get("alarm"))
+        # ⚠️ Premium kapısı YOK (2026-09-29): filtre alarmı Free dahil herkese açık.
+        # Eskiden burada `actions.filtre_alarm_izni` çağrılıyordu; o kural kalktı.
         serializer.save(user=self.request.user)
 
 
@@ -382,16 +379,16 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
         tags=["saved-filters"], summary="Filtreyi değiştir",
         parameters=[_FILTER_ID_PARAM], examples=[_SAVED_FILTER_EXAMPLE],
         description=(
-            "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. Sonuçta `alarm` "
-            "açık kalır/olursa **Pro** gerekir (Free → 403)."
+            "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. `alarm` açmak "
+            "**Pro gerektirmez** (2026-09-29'dan beri Free dahil herkese açık)."
         ),
     ),
     patch=extend_schema(
         tags=["saved-filters"], summary="Filtreyi kısmi güncelle",
         parameters=[_FILTER_ID_PARAM], examples=[_SAVED_FILTER_EXAMPLE],
         description=(
-            "Yalnızca gönderilen alanları günceller. Sonuçta `alarm` açık kalır/olursa "
-            "**Pro** gerekir (Free → 403). Alarmı **kapatmak** her üyeye serbesttir."
+            "Yalnızca gönderilen alanları günceller. `alarm` açmak/kapatmak **Pro "
+            "gerektirmez** (2026-09-29'dan beri Free dahil herkese açık)."
         ),
     ),
     delete=extend_schema(
@@ -401,18 +398,12 @@ class SavedFilterListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     ),
 )
 class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
+    # ⚠️ `perform_update` override'ı YOK ve bu bilinçli: burada eskiden
+    # `require_premium(MSG_FILTER_ALARM)` vardı (alarmı açık bırakan güncelleme Pro
+    # isterdi). Filtre alarmı 2026-09-29'da Free'ye açıldı → kapı kalktı; yerine
+    # yalnızca `serializer.save()` yapan bir override bırakmak ölü koddur.
     serializer_class = SavedFilterSerializer
     queryset_model = SavedFilter
-
-    def perform_update(self, serializer):
-        # Güncelleme sonrası ALARM açık kalıyorsa Pro gerekir. PATCH'te alarm gönderilmediyse
-        # mevcut (instance) değeri temel alınır → alarmı kapatmak serbest, açık tutmak Pro.
-        from .tasks import _alarm_enabled
-
-        alarm = serializer.validated_data.get("alarm", getattr(serializer.instance, "alarm", None))
-        if _alarm_enabled(alarm):
-            require_premium(self.request.user, MSG_FILTER_ALARM)
-        serializer.save()
 
 
 # ── Kayıtlı İhale Klasörleri ───────────────────────────

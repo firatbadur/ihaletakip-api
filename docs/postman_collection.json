@@ -2410,7 +2410,7 @@
                 ""
               ]
             },
-            "description": "Yeni bir arama filtresi kaydeder. Filtre kaydetmenin **sınırı yoktur** (Free + Pro).\n\n**Filtre alarmı Pro'ya özeldir:** `alarm` açık gönderilirse ve üyelik Free ise **403** döner (`errors.code = premium_required`). Alarmsız kaydetmek serbesttir; alarm (uygun yeni ihale bildirimi) için Pro gerekir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Yeni bir arama filtresi kaydeder. Filtre kaydetmenin **sınırı yoktur** (Free + Pro).\n\n`alarm` açıkken filtreye uyan yeni ihaleler için her sabah bildirim gider. **Alarm Free dahil herkese açıktır** (2026-09-29; daha önce Pro'ya özeldi). Filtrenin İÇİNDE gelişmiş bir arama parametresi (tutar, rekabet, indirim aralıkları) varsa o **hâlâ Pro'dur**: kaydetmek serbesttir ama Free üyede arama ucu **403** döner ve o filtre için bildirim de üretilmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
@@ -2489,7 +2489,7 @@
                 }
               ]
             },
-            "description": "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. Sonuçta `alarm` açık kalır/olursa **Pro** gerekir (Free → 403).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. `alarm` açmak **Pro gerektirmez** (2026-09-29'dan beri Free dahil herkese açık).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",
@@ -2535,7 +2535,7 @@
                 }
               ]
             },
-            "description": "Yalnızca gönderilen alanları günceller. Sonuçta `alarm` açık kalır/olursa **Pro** gerekir (Free → 403). Alarmı **kapatmak** her üyeye serbesttir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Yalnızca gönderilen alanları günceller. `alarm` açmak/kapatmak **Pro gerektirmez** (2026-09-29'dan beri Free dahil herkese açık).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Ankara bilgisayar alımları\",\n  \"filters\": {\n    \"q\": \"bilgisayar\",\n    \"il\": \"251\",\n    \"tur\": \"1\"\n  },\n  \"tags\": [\n    \"donanım\",\n    \"ankara\"\n  ],\n  \"alarm\": true\n}",

@@ -3117,9 +3117,11 @@ paths:
         yoktur** (Free + Pro).
 
 
-        **Filtre alarmı Pro''ya özeldir:** `alarm` açık gönderilirse ve üyelik Free
-        ise **403** döner (`errors.code = premium_required`). Alarmsız kaydetmek serbesttir;
-        alarm (uygun yeni ihale bildirimi) için Pro gerekir.'
+        `alarm` açıkken filtreye uyan yeni ihaleler için her sabah bildirim gider.
+        **Alarm Free dahil herkese açıktır** (2026-09-29; daha önce Pro''ya özeldi).
+        Filtrenin İÇİNDE gelişmiş bir arama parametresi (tutar, rekabet, indirim aralıkları)
+        varsa o **hâlâ Pro''dur**: kaydetmek serbesttir ama Free üyede arama ucu **403**
+        döner ve o filtre için bildirim de üretilmez.'
       summary: Filtre kaydet
       tags:
       - saved-filters
@@ -3189,8 +3191,8 @@ paths:
           description: ''
     put:
       operationId: api_v1_saved_filters_update
-      description: Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. Sonuçta
-        `alarm` açık kalır/olursa **Pro** gerekir (Free → 403).
+      description: Filtreyi tamamen değiştirir — tüm alanlar gönderilmelidir. `alarm`
+        açmak **Pro gerektirmez** (2026-09-29'dan beri Free dahil herkese açık).
       summary: Filtreyi değiştir
       parameters:
       - in: path
@@ -3244,8 +3246,8 @@ paths:
           description: ''
     patch:
       operationId: api_v1_saved_filters_partial_update
-      description: Yalnızca gönderilen alanları günceller. Sonuçta `alarm` açık kalır/olursa
-        **Pro** gerekir (Free → 403). Alarmı **kapatmak** her üyeye serbesttir.
+      description: Yalnızca gönderilen alanları günceller. `alarm` açmak/kapatmak
+        **Pro gerektirmez** (2026-09-29'dan beri Free dahil herkese açık).
       summary: Filtreyi kısmi güncelle
       parameters:
       - in: path

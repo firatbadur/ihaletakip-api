@@ -11,7 +11,7 @@ kalır ve asistan üzerinden Pro özelliği bedavaya açılır.
 orada exception 403'e dönüşmez, görevi çökertir. Asistanın araçları bu fonksiyonları
 ÇAĞIRMAZ; yalnızca kullanıcının onaylayacağı bir öneri üretir.
 """
-from accounts.premium import MSG_ALARM, MSG_FILTER_ALARM, require_premium
+from accounts.premium import MSG_ALARM, require_premium
 
 from ..models import (
     FavoriteAuthority,
@@ -49,22 +49,20 @@ def alarm_kur(user, *, tender_id, **alanlar):
     return alarm, olusturuldu
 
 
-def filtre_alarm_izni(user, alarm):
-    """
-    Filtre kaydetme serbesttir; ancak ALARM açıksa Pro gerekir (yeni ihale bildirimi).
-
-    Ayrı fonksiyon: `SavedFilterListCreateView` nesneyi `serializer.save()` ile yaratır
-    (DRF yanıtı için `serializer.instance` gerekir), yalnızca KURALI paylaşır.
-    """
-    from ..tasks import _alarm_enabled
-
-    if _alarm_enabled(alarm):
-        require_premium(user, MSG_FILTER_ALARM)
+# ⚠️ `filtre_alarm_izni` KALDIRILDI (2026-09-29): filtre alarmı artık **Free dahil
+# herkese açık** (ürün kararı) → kapı tamamen kalktı, no-op bir fonksiyon bırakmak
+# yalnızca "burada bir kural var" yanılsaması üretirdi. Çağıranlar:
+# `SavedFilterListCreateView.perform_create` ve `filtre_kaydet`.
+#
+# ⚠️ Kalkan yalnızca **alarm hakkı**dır. Filtrenin İÇİNDEKİ gelişmiş arama
+# parametreleri (tutar/rekabet/indirim — `ekap.views._PRO_PARAMS`) Pro'da kaldı ve
+# kapıları arama ucundadır (`TenderListView`). Bu asimetri bilinçli; sonucu
+# `tenders.tasks._filtre_acilabilir` soğuruyor (Free üyeye açılamayacak filtre için
+# bildirim üretilmez).
 
 
 def filtre_kaydet(user, *, name, filters, alarm=None, tags=None):
-    """Kayıtlı filtre oluşturur. Alarm açıksa Pro gerekir."""
-    filtre_alarm_izni(user, alarm)
+    """Kayıtlı filtre oluşturur. Alarm dahil **Pro gerekmez**."""
     return SavedFilter.objects.create(
         user=user, name=name, filters=filters or {}, alarm=alarm, tags=tags or []
     )

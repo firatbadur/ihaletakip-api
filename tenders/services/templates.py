@@ -155,28 +155,11 @@ def contractor_match(*, firma_adi: str, count: int, ihale_adi: str | None = None
     return title, body
 
 
-# ── Free teaser: kaçırılan eşleşmelerin haftalık özeti ─
-
-def free_teaser(*, ihale: int, filtre: int, idare: int) -> tuple[str, str]:
-    """
-    Ücretsiz üyeye haftada bir: "bu hafta neyi kaçırdın".
-
-    ⚠️ Sayılar **gerçek** olmalı — abartılmış ya da uydurulmuş bir teaser, kullanıcı Pro
-    olup karşılığını göremeyince güveni kalıcı olarak bozar. Sıfır eşleşmede bu şablon
-    hiç çağrılmaz (bkz. `weekly_free_teaser`).
-
-    Gövde yalnızca **dolu olan** kaynakları sayar; "0 idare" gibi boş bir parça yazılmaz.
-    """
-    parcalar = []
-    if filtre:
-        parcalar.append(f"{filtre} kayıtlı filtrenize")
-    if idare:
-        parcalar.append(f"{idare} favori idarenize")
-    kaynak = " ve ".join(parcalar) if parcalar else "ilgi alanlarınıza"
-    return (
-        "Bu hafta kaçırdıklarınız",
-        f"{kaynak} uygun {ihale} yeni ihale yayımlandı. Pro ile hepsini görün.",
-    )
+# ⚠️ `free_teaser` KALDIRILDI (2026-09-29): tek çağıranı `weekly_free_teaser` idi ve
+# o görev, filtre + favori idare alarmları Free'ye açılınca geçersiz kaldı (bkz.
+# `tenders/tasks.py` içindeki kaldırma notu). Yeniden bir Free→Pro teaser'ı
+# yazılırsa metni de yeniden yazılmalı: eski gövde "kayıtlı filtrenize / favori
+# idarenize uygun N ihale" diyordu, oysa bugün Free üye tam olarak onları alıyor.
 
 
 # ── Favori idare: yeni ihale yayını ────────────────────

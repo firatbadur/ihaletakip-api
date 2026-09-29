@@ -93,8 +93,11 @@ class FavoriteContractor(models.Model):
     yoktur — bkz. `ekap/contractors.py`).
 
     Favorileme **her üyeye açıktır**; alarm bildirimi **Pro'ya özeldir**
-    (`check_favorite_contractor_matches` premium olmayanı atlar). Aynı asimetri favori
-    idarede de var — kaydetmek serbest, bildirim Pro.
+    (`check_favorite_contractor_matches` premium olmayanı atlar).
+
+    ⚠️ Burada eskiden *"aynı asimetri favori idarede de var"* yazıyordu; **artık yok** —
+    favori idare (ve kayıtlı filtre) alarmı 2026-09-29'da Free'ye açıldı. "Kayıt serbest /
+    bildirim Pro" deseni bugün yalnızca **bu model** için geçerlidir.
     """
 
     user = models.ForeignKey(

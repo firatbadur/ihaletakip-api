@@ -212,6 +212,23 @@ _PRO_PARAMS = frozenset({
     "okas_ana_kod", "en_ust_idare_kod", "seri_anahtar",
 })
 
+
+def pro_parametreleri(*kaynaklar) -> set[str]:
+    """Verilen anahtar kaynaklarında (query dict, `SavedFilter.filters`…) geçen Pro
+    parametrelerini döndürür. Boş küme = "bu istek/filtre Free üyeye açık".
+
+    ⚠️ **Tek kaynak olması şart.** İki tüketici var ve ayrışırlarsa sessiz bir arıza
+    doğar: (1) `TenderListView`'ın Pro kapısı, (2) bildirim görevlerinin "bu filtrenin
+    sonucu Free üyeye açılabilir mi" kontrolü (`tenders.tasks._filtre_acilabilir`).
+    İkincisi olmasaydı Free üye, açıldığında **403** verecek bir filtre için bildirim
+    alırdı — filtre alarmı 2026-09-29'da Free'ye açıldığı için bu artık günlük bir yol.
+    """
+    bulunan: set[str] = set()
+    for kaynak in kaynaklar:
+        bulunan |= _PRO_PARAMS & set(kaynak or {})
+    return bulunan
+
+
 # Kapsamı kısmi olan kolonlarda aralık filtresi kullanılınca istemciye dönen uyarı.
 # NULL hiçbir aralık koşuluna girmez → değeri bilinmeyen ihaleler sessizce elenir.
 _UYARI_YM = (
@@ -1309,9 +1326,7 @@ class TenderListView(APIView):
         # bir regresyon — kapatılmazsa Pro filtreler bedavaya kullanılabilir.
         # ⚠️ `kayitli_filtreler`'in KENDİSİ `_PRO_PARAMS`'a eklenmez: Pro'dan düşmüş bir
         # kullanıcı bildirimine basınca 403 alıp listeyi hiç açamazsa bağlantı ölür.
-        kullanilan_pro = _PRO_PARAMS & set(qp)
-        for sf in kf_kayitlari:
-            kullanilan_pro |= _PRO_PARAMS & set(sf.filters or {})
+        kullanilan_pro = pro_parametreleri(qp, *(sf.filters for sf in kf_kayitlari))
         if kullanilan_pro:
             require_premium(request.user, MSG_PRO_FILTRE)
 

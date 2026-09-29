@@ -8,6 +8,13 @@ Mobil bu kodu görünce kullanıcıya abonelik paketlerini sunar.
 
 Premium durumu `User.is_premium` (bkz. accounts.models) üzerinden okunur. Bu modül
 yalnızca kapılama yardımcılarını ve mesaj sabitlerini tutar — model importu yapmaz.
+
+⚠️ **Bildirim tarafında Pro/Free sınırı 2026-09-29'da kaydı**: kayıtlı **filtre alarmı**
+ve **favori idare alarmı** Free dahil herkese açıldı (ürün kararı). Pro'da kalan
+bildirimler: **ihale alarmı** (`MSG_ALARM`), **takip edilen firma** (uçta 403 yok, görev
+eliyor) ve **İhale Asistanı önerisi**. Alarm hakkından bağımsız olarak gelişmiş arama
+filtrelerinin kendisi de Pro'dur (`MSG_PRO_FILTRE`) — bu asimetrinin bildirim tarafındaki
+sonucu `tenders.tasks._filtre_acilabilir`'de soğurulur.
 """
 from __future__ import annotations
 
@@ -24,10 +31,9 @@ MSG_ALARM = (
     "İhale alarmı kurma Pro aboneliğe özeldir. Alarmlar (ihale günü, doküman değişikliği, "
     "sonuçlanma) için Pro'ya geçin."
 )
-MSG_FILTER_ALARM = (
-    "Filtre alarmı (uygun yeni ihale bildirimi) Pro aboneliğe özeldir. Filtreyi alarmsız "
-    "kaydedebilirsiniz; alarm kurmak için Pro'ya geçin."
-)
+# ⚠️ `MSG_FILTER_ALARM` KALDIRILDI (2026-09-29): filtre alarmı Free dahil herkese
+# açıldı (favori idare alarmıyla birlikte), dolayısıyla o 403 hiç dönmüyor. Kullanılmayan
+# bir mesaj sabiti bırakmak "burada hâlâ bir kapı var" yanılsaması üretir.
 MSG_CHAT = (
     "İhale Asistanı ile sohbet Pro aboneliğe özeldir. Profilinizi oluşturabilirsiniz; "
     "asistanla sohbet etmek için Pro'ya geçin."

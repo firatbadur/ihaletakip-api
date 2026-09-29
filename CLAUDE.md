@@ -815,9 +815,11 @@ bizim ürettiğimiz normalize kimlik, dış anahtarı yok). Uçlar:
 `GET/POST /favorite-contractors/`, `GET/DELETE /favorite-contractors/<contractor_id>/`.
 Mobil yalnızca `contractor` (id) gönderir; ad/istatistik sunucuda zenginleştirilir.
 
-- **Takip etmek her üyeye açık ve sınırsız; bildirim Pro'ya özel** (favori idaredeki
-  asimetrinin aynısı). `check_favorite_contractor_matches` (beat **12:00**) premium
-  olmayanı atlar.
+- **Takip etmek her üyeye açık ve sınırsız; bildirim Pro'ya özel.**
+  `check_favorite_contractor_matches` (beat **12:00**) premium olmayanı atlar.
+  ⚠️ Burada eskiden *"favori idaredeki asimetrinin aynısı"* yazıyordu; **artık değil** —
+  favori idare alarmı 2026-09-29'da Free'ye açıldı, firma alarmı Pro'da kaldı. Kayıt
+  serbest / bildirim Pro deseni yalnızca **firma** için geçerli.
 - **Derin bağlantı**: `Notification.contractor_id` → mobil firma detayını açar
   (`GET /ekap/contractors/<id>/`). Öncelik sırası güncellendi: `conversation_id` >
   `filter_id` > `authority_detsis` > **`contractor_id`** > `okas_kodlar` > `tender_ikn`.
@@ -832,22 +834,26 @@ Mobil yalnızca `contractor` (id) gönderir; ad/istatistik sunucuda zenginleşti
   ESKİ sözleşmeleri de bugün "ilk kez" görür. 2021 tarihli bir sözleşme rakip takibi
   haberi değildir → ikinci koşul `sozlesme_tarihi >= now - _RAKIP_TAZELIK_GUN` (90 gün).
 
-#### Free teaser (`weekly_free_teaser`, Pazartesi 10:00)
+#### ⚠️⚠️ Free teaser KALDIRILDI (`weekly_free_teaser`, 2026-09-29)
 
-Günlük alarm görevleri Free kullanıcıyı **sayılmadan** eliyordu → kullanıcı alarm
-anahtarını açıyor, hiçbir şey olmuyor, Pro'nun ne işe yaradığını hiç hissetmiyordu.
+Görev Free üyeye Pazartesi 10:00'da *"bu hafta N ihale kaçırdınız"* diyordu ve o N'i
+tam olarak **kayıtlı filtre + favori idare** eşleşmelerinden sayıyordu. Aynı gün alınan
+ürün kararıyla **o iki alarm Free'ye açıldı** (aşağıya bakın) → Free üye artık onları
+her gün alıyor. Teaser bırakılsaydı haftada bir **yalan** söyleyecekti; "yanlış sayı
+göstermektense veri yok de" ilkesinin tam tersi.
 
-- **Ayrı haftalık görev**, günlük görevlere Free eklemek yerine: Free tabanını günlük dört
-  ağır sorguya sokmak maliyeti tabana orantılı büyütürdü. Bu görev yalnızca **sayı**
-  üretir (`.count()`); ihale gövdesi/serializer/liste yok.
-- **Sıfır eşleşme → bildirim YOK.** Boş teaser ("0 ihale kaçırdınız") güven kaybettirir.
-- Kullanıcı başına **tek** özet (abonelik-başına ayrı push deseninin bilinçli istisnası —
-  amaç bilgilendirme değil dönüşüm), atomik **hafta kilidi** `teaser:{uid}:{yıl}-{hafta}`.
-- Yalnızca alarmlı filtre/idare kaydı OLAN Free kullanıcılara gider; hiç abonelik
-  kurmamış birine "kaçırdıklarınız" demek anlamsız olurdu.
-- `type=INFO`, derin bağlantı alanı YOK → mobil Paywall'a yönlendirir.
-- ⚠️ Sayılar **gerçek** olmalı; abartılmış teaser kullanıcı Pro olup karşılığını
-  göremeyince güveni kalıcı bozar.
+Silinenler: görev (`tenders/tasks.py`), şablon (`templates.free_teaser`), beat girdisi
+(`config/celery.py`).
+⚠️⚠️ **Beat girdisini KODDAN silmek DB satırını silmez** — `DatabaseScheduler`
+`beat_schedule`'dan kaybolan `PeriodicTask`'ı temizlemiyor. Görev fonksiyonu da
+kaldırıldığı için o satır ateşlenirse worker `Received unregistered task` basar
+(gürültü, ama yalan bildirim gitmez). Üretimde tek seferlik:
+`PeriodicTask.objects.filter(name="tenders-weekly-free-teaser").delete()`
+(`.delete()` şart — `.update()`/ham SQL `PeriodicTasks.last_update` damgasını bumplamaz,
+bkz. "Beat görevini açıp kapatırken").
+⚠️ Free→Pro dönüşümü için teaser yine istenirse **yeniden hedeflenmelidir**: Pro'da
+kalanlar ihale alarmı, takip edilen firma ve asistan önerisidir; filtre/idare sayıları
+artık teaser malzemesi DEĞİLDİR.
 
 #### Favori İdareler (`tenders.FavoriteAuthority`)
 
@@ -868,8 +874,10 @@ ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorile
   bulunur. Uygulama-içi satır `type=TENDER` + **`authority_detsis`
   dolu** yazılır → mobil bildirime basınca **tek ihale DEĞİL**, o idarenin ihale listesini
   (`idare_detsis=<detsis_no>`) açar (`tender_ikn` yalnızca dedup için yazılır, mobil
-  `authority_detsis`'i önceler). Kullanıcı başına tek özet push. **Alarm Pro'ya özeldir**:
-  görev premium olmayan kullanıcıyı atlar (favorileme yine serbest — bkz. Premium bölümü).
+  `authority_detsis`'i önceler). Kullanıcı başına tek özet push.
+  ✅ **Alarm 2026-09-29'dan beri Free dahil HERKESE açık** (ürün kararı; daha önce görev
+  `if not fav.user.is_premium: continue` ile Free üyeyi sayılmadan eliyordu). Uçta zaten
+  403 yoktu → bu bölümde uç davranışı değişmedi.
   Elle tetik: `python manage.py run_notifications --job authorities`.
 - **Uçlar** (`/api/v1/...`, hepsi JWT):
   - `GET favorite-authorities/` — favori idareleri listele.
@@ -2750,18 +2758,32 @@ kodu görünce abonelik paketlerini sunar.
     ile tamamen Pro'ya özel (kurma/güncelleme kilitli). Alarm **listeleme/silme** (GET/DELETE)
     serbest. Bildirim tarafında da tutarlı: `check_tender_alarms` **premium olmayan**
     kullanıcının alarmını atlar (`is_premium` property → Python'da elenir).
-  - **Kayıtlı filtre ALARMI** → filtre kaydetmek serbest ama `alarm` **açık** kaydedilir/
-    güncellenirse Pro gerekir (`SavedFilter{ListCreate,Detail}View`; `_alarm_enabled(alarm)` +
-    `require_premium`, `MSG_FILTER_ALARM`). Alarmı **kapatmak/alarmsız kaydetmek** her üyeye
-    serbest. `check_saved_filter_matches` premium olmayanı atlar (downgrade koruması).
-  - **Favori idare ALARMI** → idareyi favorilemek serbest (sınırsız) ama alarm bildirimi
-    (o idare yeni ihale yayınlayınca) **Pro'ya özeldir**: `check_favorite_authority_matches`
-    premium olmayan kullanıcıyı atlar. Favorileme uçta 403 vermez (Free de favorileyebilir);
-    yalnızca push/bildirim Pro iken üretilir. (Böylece "favori idare = bedava filtre alarmı"
-    açığı kapanır; filtre alarmıyla tutarlı.)
+  - ✅✅ **KAYITLI FİLTRE ALARMI ve FAVORİ İDARE ALARMI ARTIK FREE'YE AÇIK**
+    (2026-09-29, ürün kararı). Önceki hâl: uç alarmlı filtre kaydını `require_premium`
+    + `MSG_FILTER_ALARM` ile **403**'lüyor, `check_saved_filter_matches` ve
+    `check_favorite_authority_matches` da Free üyeyi `if not user.is_premium: continue`
+    ile **sayılmadan** eliyordu. Kaldırılanlar: iki uç kapısı
+    (`SavedFilter{ListCreate,Detail}View`), `actions.filtre_alarm_izni`,
+    `MSG_FILTER_ALARM` ve üç görevdeki premium kontrolü (birleşik özet + iki eski yol).
+    ⚠️ Bu karar `weekly_free_teaser`'ı geçersiz kıldı → o görev kaldırıldı (bkz. üstteki
+    bölüm); teaser tam olarak bu iki kaynağı sayıp "kaçırdınız" diyordu.
+    ⚠️ Serbestleşen şey **alarm hakkı**dır; `alarm=false` hâlâ "bildirim istemiyorum".
+    ⚠️⚠️ **GELİŞMİŞ ARAMA FİLTRELERİ PRO'DA KALDI ve bu bir çatışma üretir.** Pro iken
+    tutar/rekabet aralıklı filtre kurup Free'ye düşen kullanıcı alarmı alır, bildirime
+    basar ve `TenderListView` **403 `premium_required`** döner — **açılamayan bildirim**.
+    → `tenders.tasks._filtre_acilabilir`: Free üyede `_PRO_PARAMS` içeren filtre için
+    bildirim **üretilmez**. Bildirilen küme = açılabilen küme. Eksik olan alarm hakkı
+    değil **filtrenin kendisinin Pro olması**; kullanıcı Pro'ya dönünce bildirim de döner.
+    ⚠️ Pro parametre tespiti **tek kaynaktan** yapılır: `ekap.views.pro_parametreleri`
+    (hem uçtaki kapı hem görev onu çağırır). İkisi ayrışırsa görev yine açılamayan
+    bildirim üretir. Testler: `tenders/tests/test_free_alarm.py` (17 test, dişleri
+    doğrulandı — yedi düzeltmenin yedisi de ısırıyor).
   - **Takip edilen firma ALARMI** → firmayı takip etmek serbest (sınırsız) ama "yeni iş
     aldı" bildirimi **Pro'ya özeldir**: `check_favorite_contractor_matches` premium
-    olmayanı atlar. Uçta 403 verilmez (favori idareyle tutarlı).
+    olmayanı atlar. Uçta 403 verilmez.
+    ⚠️ Burada eskiden *"favori idareyle tutarlı"* yazıyordu; **artık değil** — favori
+    idare alarmı Free'ye açıldı, firma alarmı Pro'da kaldı. "Kayıt serbest / bildirim
+    Pro" deseni bugün yalnızca **firma** için geçerlidir.
   - **Tekrar eden ihale takibi** (`/ekap/recurring/`, `/ekap/tenders/<key>/recurring/`) → 403.
   - **Asistan sohbeti** (`ChatSendView`) → 403 (profil oluşturma **serbest**; yalnızca
     mesaj gönderme kilitli).
@@ -3079,13 +3101,12 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `recommend_by_saved_okas` — kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan
   ihale önerisi + push (günlük 08:00, **Free/Pro herkese**)
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
-- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
+- `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği; **Free dahil herkese**, 2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
 - `check_favorite_authority_matches` — favori idare bildirimi + push (**her sabah 08:30,
   son 24 saatte KAYDEDİLENLER** — 2026-09-28'de 11/15/19 × "ilan_tarihi bugün"den çevrildi;
-  üç tur ölçümle gereksizdi, kayıtlar 00:09-02:33'te bitiyor). `NOTIF_BIRLESIK_BILDIRIM`
-  açıkken **kullanıcı başına TEK** bildirim
+  üç tur ölçümle gereksizdi, kayıtlar 00:09-02:33'te bitiyor; **Free dahil herkese**,
+  2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
-- `weekly_free_teaser` — ücretsiz üyeye haftalık "kaçırdıklarınız" özeti (Pazartesi 10:00, **yalnızca Free**)
 - `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (**her gün 02:30**
   — haftalıktan çevrildi 2026-09-24: beklenen ilan çıktığında seri güncellenmezse tahmin
   geçmişte kalıp bir hafta "gecikti" görünüyordu; ayrıca yarım kalan tur haftalık
@@ -3468,7 +3489,9 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
      `tender_id`/`tender_ikn` **doldurulmaz**. Mobil `filter_id` ile filtreyi
      (`GET /saved-filters/{id}/`) yükleyip pencereye kısılmış sonuçları açar (push data →
      `filterId`, `pencereBas`, `pencereBit`). Tur kilidi `filter:tur:{uid}:{sf.id}` +
-     ihale bazlı dedup `nf:{sf.id}:{tender.pk}`. **Pro'ya özel** (premium olmayan atlanır).
+     ihale bazlı dedup `nf:{sf.id}:{tender.pk}`. ✅ **Free dahil herkese açık**
+     (2026-09-29); atlanan tek durum, Free üyede `_PRO_PARAMS` içeren filtredir
+     (`_filtre_acilabilir` — bkz. Premium bölümü).
   4. **Favori idare** (`FavoriteAuthority.alarm=True`) — favori idarenin **yalnızca `ilan_tarihi`
      BUGÜN olan** açık ihaleleri (dün/eski DEĞİL; "bugün" filtresi cross-day dedup'ı sağlar).
      `detsis_no` `descendant_idare_ids` ile alt birim
@@ -3476,7 +3499,7 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
      AYRI** bildirim/push (başlık = idare adı). **Derin bağlantı = idare listesi**: `type=TENDER`
      + `authority_detsis=detsis_no`; mobil o idarenin listesini (`GET /ekap/tenders/?idare_detsis=`)
      açar (push data → `authorityDetsis`). Gün-kilidi `authority:{uid}:{detsis_no}:{date}`.
-     **Pro'ya özel**: görev premium olmayanı atlar.
+     ✅ **Free dahil herkese açık** (2026-09-29; görev artık premium kontrolü yapmıyor).
   5. **OKAS önerisi** (`recommend_by_saved_okas`, 08:00) — **Free/Pro fark etmez, HERKESE**.
      Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar (benzersiz,
      azami 20 kod; `OkasItem.kodu`), o kodlarla **son `NOTIF_OKAS_PUBLISH_DAYS`=1 günde

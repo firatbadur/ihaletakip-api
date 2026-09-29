@@ -297,6 +297,39 @@ def check_tender_alarms():
     return {"alarms": len(alarms), "notified": notified, "pushed": pushed}
 
 
+# ⚠️⚠️ **FİLTRE + FAVORİ İDARE ALARMI FREE'YE AÇILDI (2026-09-29, ürün kararı).**
+#
+# Önceden ikisi de Pro'ya özeldi: uç alarmlı filtre kaydını 403 ile reddediyor, görevler
+# de `if not user.is_premium: continue` ile Free üyeyi **sayılmadan** eliyordu. Artık her
+# iki alarm da Free dahil herkese çalışır. Pro'da kalanlar: **ihale alarmı**
+# (`check_tender_alarms`), **takip edilen firma** (`check_favorite_contractor_matches`),
+# asistan önerisi ve gelişmiş arama filtrelerinin kendisi (`ekap.views._PRO_PARAMS`).
+#
+# ⚠️ Karar `weekly_free_teaser`'ı **geçersiz kıldı** ve o görev kaldırıldı: teaser tam
+# olarak bu iki kaynağı sayıp "bu hafta N ihale kaçırdınız" diyordu — Free üye artık
+# onları günlük olarak aldığı için aynı cümle **yalan** olurdu.
+
+
+def _filtre_acilabilir(user, filtreler) -> bool:
+    """Bu filtrenin sonuç listesi `user` tarafından AÇILABİLİR mi?
+
+    ⚠️⚠️ Filtre **alarmı** Free'ye açıldı ama **gelişmiş arama filtrelerinin kendisi**
+    (tutar/rekabet/indirim aralıkları — `ekap.views._PRO_PARAMS`) Pro'da kaldı. İkisi
+    çakışıyor: Pro iken tutar aralıklı bir filtre kurup Free'ye düşen kullanıcı, alarm
+    bildirimini alır, bildirime basar ve uç **403 `premium_required`** döner — yani
+    açılamayan bir bildirim. Bu yüzden bildirim üretilirken o filtreler **atlanır**:
+    bildirilen küme = açılabilen küme.
+
+    ⚠️ Atlamak "sessiz kayıp" değil, doğru davranıştır: eksik olan alarm hakkı değil,
+    **filtrenin kendisinin** Pro olmasıdır. Kullanıcı Pro'ya dönünce bildirim de döner.
+    """
+    if getattr(user, "is_premium", False):
+        return True
+    from ekap.views import pro_parametreleri
+
+    return not pro_parametreleri(filtreler or {})
+
+
 def _alarm_enabled(alarm) -> bool:
     """SavedFilter.alarm (JSONField) alanı bildirim için açık mı?"""
     if alarm is None:
@@ -352,8 +385,9 @@ def _birlesik_ozet(*, kaynak):
     taban, tavan = _kayit_penceresi()
     saat = _ozet_saat()
 
-    # Kullanıcı başına abonelikleri topla. ⚠️ Pro kontrolü Python'da (`is_premium`
-    # property'dir); `select_related("user")` N+1'i engeller.
+    # Kullanıcı başına abonelikleri topla. ⚠️ Pro kapısı YOK — filtre ve favori idare
+    # alarmı Free dahil herkese açıktır (2026-09-29). `select_related("user")` N+1'i
+    # engeller ve `_filtre_acilabilir`'in okuduğu `is_premium` için de gereklidir.
     abonelikler = {}
     if filtre_mi:
         qs = SavedFilter.objects.filter(alarm__isnull=False).select_related("user")
@@ -362,7 +396,9 @@ def _birlesik_ozet(*, kaynak):
     for kayit in qs.iterator():
         if filtre_mi and not _alarm_enabled(kayit.alarm):
             continue
-        if not kayit.user.is_premium:
+        # ⚠️ Pro parametreli filtre Free üyede ATLANIR: bildirime basınca uç 403
+        # döndüğü için bildirilen küme açılamayan bir küme olurdu (bkz. yardımcı).
+        if filtre_mi and not _filtre_acilabilir(kayit.user, kayit.filters):
             continue
         abonelikler.setdefault(kayit.user, []).append(kayit)
 
@@ -499,7 +535,8 @@ def _filtre_abonelik_basina():
 
     Mükerrerliğe karşı iki katman: filtre başına kısa **tur kilidi** (eşzamanlı/yinelenmiş
     tetikleme) + **ihale bazlı dedup** (`_yeni_ihaleler`; elle tekrar çalıştırma).
-    **Filtre alarmı Pro'ya özeldir.**
+    **Filtre alarmı Free dahil herkese açıktır** (2026-09-29); atlanan tek durum Pro
+    parametreli filtredir (bkz. `_filtre_acilabilir`).
     """
     from ekap.models import Tender
     from ekap.views import apply_tender_filters
@@ -519,9 +556,9 @@ def _filtre_abonelik_basina():
     for sf in SavedFilter.objects.filter(alarm__isnull=False).select_related("user").iterator():
         if not _alarm_enabled(sf.alarm):
             continue
-        # Filtre alarmı Pro'ya özeldir → Pro iken alarmlı filtre kurup Free'ye düşen
-        # kullanıcıya bildirim gitmesin (is_premium property → Python'da eleriz).
-        if not sf.user.is_premium:
+        # ⚠️ Pro kapısı YOK (2026-09-29): filtre alarmı Free dahil herkese açık.
+        # Atlanan tek durum, sonucu Free üyeye 403 dönecek **Pro parametreli** filtre.
+        if not _filtre_acilabilir(sf.user, sf.filters):
             continue
         # Kısa **tur kilidi** — yalnızca eşzamanlı/yinelenmiş tetiklemeye karşı
         # (çoğaltılmış `PeriodicTask`, elle `run_notifications`). ⚠️ Gün-kilidi
@@ -630,8 +667,8 @@ def _idare_abonelik_basina():
     Başlık = idare adı; tıklanınca
     tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`)
     açılır. Seçilen `detsis_no` `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir.
-    İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori idare
-    alarmı Pro'ya özeldir.**
+    İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori
+    idare alarmı Free dahil herkese açıktır** (2026-09-29).
     """
     from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
     from ekap.models import Tender
@@ -648,10 +685,12 @@ def _idare_abonelik_basina():
 
     taban, tavan = _kayit_penceresi()
 
+    # ⚠️ `select_related("user")` KALIR: Pro kontrolü kalktı ama döngü `fav.user`'ı
+    # bildirim/push için okuyor → onsuz abonelik başına bir sorgu daha (sessiz N+1).
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
-        # Favori idare alarmı Pro'ya özeldir → Free üyeye bildirim yok.
-        if not fav.user.is_premium:
-            continue
+        # ⚠️ Pro kapısı YOK (2026-09-29): favori idare alarmı Free dahil herkese açık.
+        # Filtre tarafındaki `_filtre_acilabilir` karşılığı burada GEREKMEZ — idare
+        # listesi `idare_detsis` ile açılır ve o parametre Pro değildir.
         # Gün-kilidi yerine kısa tur kilidi — bkz. check_saved_filter_matches.
         if not cache.add(f"authority:tur:{fav.user_id}:{fav.detsis_no}", 1, _TUR_KILIDI_TTL):
             continue
@@ -929,128 +968,26 @@ def check_favorite_contractor_matches():
     return {"contractors": processed, "notified": notified, "pushed": pushed}
 
 
-@shared_task(name="tenders.tasks.weekly_free_teaser")
-def weekly_free_teaser(days: int = 7):
-    """
-    Ücretsiz üyeye **haftada bir** "bu hafta neyi kaçırdın" özeti.
-
-    ## Neden gerekli
-
-    Günlük alarm görevleri Free kullanıcıyı **sayılmadan** eliyor (`if not user.is_premium:
-    continue`). Sonuç: kullanıcı alarm anahtarını açıyor, hiçbir şey olmuyor, Pro'nun ne
-    işe yaradığını **hiç hissetmiyor**. Kaçırılan bildirim = kaçırılan satış.
-
-    ## Neden ayrı görev, günlük görevlere Free eklemek yerine
-
-    Free tabanı günlük dört ağır sorguya sokmak maliyeti tabana orantılı büyütürdü. Bu
-    görev **haftada bir** çalışır ve yalnızca **sayı** üretir (`.count()`); ihale gövdesi,
-    serializer, liste hiç yok.
-
-    ## Sınırlar
-
-    - **Sıfır eşleşme → bildirim YOK.** Boş teaser ("0 ihale kaçırdınız") güven kaybettirir.
-    - Kullanıcı başına **tek** özet (abonelik-başına ayrı push deseninin istisnası —
-      burada amaç bilgilendirme değil, dönüşüm).
-    - Atomik **hafta kilidi** (`teaser:{uid}:{yil}-{hafta}`) → yinelenmiş beat çoğaltmaz.
-    - Mevcut pacing kapılarından geçer (sessiz saat, günlük cap, push tercihi).
-    - `Notification.type=INFO` + derin bağlantı alanı YOK → mobil bunu Paywall'a yönlendirir.
-    """
-    from django.contrib.auth import get_user_model
-
-    from ekap.models import Tender
-    from ekap.views import apply_tender_filters
-
-    from .models import FavoriteAuthority, Notification, SavedFilter
-    from .services import notify, templates
-
-    OPEN_STATUSES = [2, 3]
-    now = timezone.now()
-    bugun = timezone.localdate()
-    yil, hafta, _ = bugun.isocalendar()
-    baslangic = now - timedelta(days=days)
-
-    User = get_user_model()
-    # Yalnızca alarmlı aboneliği OLAN Free kullanıcılar: hiç filtre/idare kaydetmemiş
-    # birine "kaçırdıklarınız" demek anlamsız olurdu.
-    aday_ids = set(
-        SavedFilter.objects.filter(alarm__isnull=False).values_list("user_id", flat=True)
-    ) | set(
-        FavoriteAuthority.objects.filter(alarm=True).values_list("user_id", flat=True)
-    )
-    if not aday_ids:
-        return {"users": 0, "pushed": 0}
-
-    bildirilen = pushed = 0
-    for user in User.objects.filter(pk__in=aday_ids, is_active=True).iterator():
-        if user.is_premium:
-            continue  # Pro zaten günlük bildirim alıyor
-        if not cache.add(f"teaser:{user.pk}:{yil}-{hafta}", 1, 8 * 24 * 3600):
-            continue
-
-        try:
-            toplam_ihale = 0
-            filtre_sayisi = idare_sayisi = 0
-
-            # ── Kayıtlı filtreler ──
-            for sf in SavedFilter.objects.filter(user=user, alarm__isnull=False):
-                if not _alarm_enabled(sf.alarm):
-                    continue
-                base = apply_tender_filters(Tender.objects.all(), sf.filters or {})
-                if not (sf.filters or {}).get("ihale_durum"):
-                    base = base.filter(ihale_durum__in=OPEN_STATUSES)
-                adet = (
-                    base.filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                    .filter(ilan_tarihi__gte=baslangic)
-                    .count()
-                )
-                if adet:
-                    toplam_ihale += adet
-                    filtre_sayisi += 1
-
-            # ── Favori idareler ──
-            favoriler = list(FavoriteAuthority.objects.filter(user=user, alarm=True))
-            if favoriler:
-                from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
-
-                gecerli = tender_idare_id_set()
-                for fav in favoriler:
-                    expanded = descendant_idare_ids([fav.detsis_no]) & gecerli
-                    if not expanded:
-                        continue
-                    adet = (
-                        Tender.objects.filter(
-                            idare_id__in=expanded, ihale_durum__in=OPEN_STATUSES
-                        )
-                        .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                        .filter(ilan_tarihi__gte=baslangic)
-                        .count()
-                    )
-                    if adet:
-                        toplam_ihale += adet
-                        idare_sayisi += 1
-
-            if not toplam_ihale:
-                continue  # boş teaser gönderilmez
-
-            title, body = templates.free_teaser(
-                ihale=toplam_ihale, filtre=filtre_sayisi, idare=idare_sayisi
-            )
-            notify.record_notification(
-                user, type=Notification.Type.INFO, title=title, body=body
-            )
-            bildirilen += 1
-            if notify.push_to_user(
-                user, title=title, body=body,
-                data={"type": Notification.Type.INFO, "teaser": "1"},
-                idem_key=None,  # hafta kilidi tekilliği zaten garanti ediyor
-            ):
-                pushed += 1
-        except Exception:
-            logger.exception("weekly_free_teaser: kullanıcı %s işlenemedi", user.pk)
-            continue
-
-    logger.info("weekly_free_teaser: %s bildirim, %s push", bildirilen, pushed)
-    return {"users": bildirilen, "pushed": pushed}
+# ⚠️⚠️ **`weekly_free_teaser` KALDIRILDI (2026-09-29) — dayanağı ortadan kalktı.**
+#
+# Görev Free üyeye Pazartesi 10:00'da "bu hafta N ihale kaçırdınız" diyordu ve o N'i
+# tam olarak **kayıtlı filtre + favori idare** eşleşmelerinden sayıyordu. Aynı gün
+# alınan ürün kararıyla o iki alarm Free'ye açıldı → kullanıcı onları artık **her gün**
+# alıyor. Teaser bırakılsaydı haftada bir "kaçırdınız" diye **yalan** söyleyecekti;
+# bu kod tabanının "yanlış sayı göstermektense veri yok de" ilkesinin tam tersi.
+#
+# ⚠️ Beat girdisi de silindi (`config/celery.py`). **Kod girdisini silmek DB satırını
+# silmez** — `DatabaseScheduler` `beat_schedule`'dan kaybolan `PeriodicTask`'ı
+# temizlemez. Görev fonksiyonu da kaldırıldığı için o satır ateşlenirse worker
+# `Received unregistered task` basar (gürültü, ama **yalan bildirim gitmez**).
+# Üretimde tek seferlik temizlik:
+#     PeriodicTask.objects.filter(name="tenders-weekly-free-teaser").delete()
+# (`.delete()` şart; `queryset.update()`/ham SQL `PeriodicTasks.last_update` damgasını
+# bumplamaz — bkz. CLAUDE.md "Beat görevini açıp kapatırken".)
+#
+# ⚠️ Free→Pro dönüşümü için bir teaser yine istenirse **yeniden hedeflenmelidir**:
+# Pro'da kalanlar ihale alarmı, takip edilen firma ve asistan önerisidir; filtre/idare
+# sayıları artık teaser malzemesi DEĞİLDİR.
 
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")

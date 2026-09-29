@@ -216,14 +216,14 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.detect_recurring_series",
         "schedule": crontab(hour=2, minute=30),
     },
-    # Ücretsiz üyeye HAFTADA BİR "bu hafta neyi kaçırdın" özeti (Pazartesi 10:00).
-    # Günlük alarm görevleri Free kullanıcıyı sayılmadan eliyor → kullanıcı Pro'nun ne işe
-    # yaradığını hiç hissetmiyordu. Yalnızca SAYI üretir (liste değil), sıfır eşleşmede
-    # bildirim göndermez. Pro kullanıcılar zaten günlük bildirim aldığı için atlanır.
-    "tenders-weekly-free-teaser": {
-        "task": "tenders.tasks.weekly_free_teaser",
-        "schedule": crontab(hour=10, minute=0, day_of_week=1),
-    },
+    # ⚠️ `tenders-weekly-free-teaser` KALDIRILDI (2026-09-29). Teaser "bu hafta N ihale
+    # kaçırdınız" derken o N'i kayıtlı filtre + favori idare eşleşmelerinden sayıyordu;
+    # aynı gün iki alarm da Free'ye açıldı → kullanıcı onları artık her gün alıyor ve
+    # teaser yalan söylerdi. Görev fonksiyonu da silindi (bkz. tenders/tasks.py).
+    # ⚠️⚠️ **Buradan silmek DB satırını silmez**: `DatabaseScheduler` `beat_schedule`'dan
+    # kaybolan `PeriodicTask`'ı temizlemiyor. Üretimde tek seferlik:
+    #   PeriodicTask.objects.filter(name="tenders-weekly-free-teaser").delete()
+    # (`.delete()`; `.update()`/ham SQL `PeriodicTasks.last_update` damgasını bumplamaz.)
     # "İhalede geçen idare_id" kümesini sıcak tutar (idare_detsis filtresinin kesişimi).
     # ⚠️ İstek yolunda hesaplanınca ~40 sn sürüyordu; 10 dk'da bir tazelenince cache
     # (TTL 30 dk) hiç boşalmaz ve kullanıcı bu maliyeti hiç ödemez. EKAP'a gitmez →

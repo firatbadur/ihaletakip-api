@@ -2676,6 +2676,22 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   kalite öncelikli olduğundan `CLAUDE_MODEL` (varsayılan `claude-sonnet-5`) +
   `CLAUDE_MAX_TOKENS`'te kalır. Sohbet geçmişi bağlamı son **12** mesajla sınırlı
   (`build_chat_messages`), sistem promptu prompt-cache breakpoint'li.
+- ⚠️ **Cevap uzunluğu PROMPT'ta kısıtlanır, `max_tokens` ile DEĞİL**
+  (`prompts._BICIM` → "## UZUNLUK"). Kullanıcı bildirdi (2026-09-29): asistan mobil
+  ekranda okunamayacak kadar uzun yazıyor. Eski kural tek satırdı ("kısa, net, uzun
+  paragraflardan kaçın") ve tutmuyordu → somut sınırlar kondu: normal cevap 2-4 cümle,
+  en çok 5 madde (her biri tek satır), ihale başına tek satır, girizgâh/kapanış cümlesi
+  ve "yaptığım işi anlatma" yasağı.
+  ⚠️ **`ASSISTANT_MAX_TOKENS` (8000) DÜŞÜRÜLEREK çözülemez**: o bütçe araç döngüsünde
+  thinking bloklarını ve `tool_use` JSON'larını da kapsıyor — kısmak cevabı değil, araç
+  çağrısını ortasından keser.
+  ⚠️ **Kodla kırpmak da YAPILMADI**: `summary.sesli_temizle`'de ölçülen tuzağın aynısı
+  olurdu — model dürüstlük çekincelerini (örnek sayısı, `guven`, "bu bir tahmin")
+  genellikle SON cümlede veriyor, sondan kesmek dürüst bir cevabı fazla iddialı hâle
+  getirir. Bu yüzden kural metninde ayrıca "kısaltma doğruluğun önüne geçmez" uyarısı
+  var: çekinceler atılmaz, ayrı paragrafa çıkarılmadan cümle sonuna eklenir.
+  ⚠️ Blok **iki personada da** geçerli (`PERSONA_PROMPT` + `AGENT_PERSONA_PROMPT` aynı
+  `_BICIM`'i kullanıyor) → araç döngüsü kapatılsa bile kural düşmez.
 
 ## URL'de İKN (dikkat)
 

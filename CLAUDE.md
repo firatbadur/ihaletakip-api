@@ -4256,6 +4256,12 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
    sonradan `changepassword firat` ile değiştirirsen kalıcı olur.
 9. Doğrula: `curl -sk https://localhost/health/` (iç), `ekap_probe`, `curl -I https://<domain>/health/`.
 
+### Paylaşılan nginx: Pinmotion (entegration.pinmotion.app) — 2026-09-30
+- `docker/nginx/default.conf` sonunda **ayrı bir projeye** (Pinmotion, `/opt/pinmotion-api`) ait `server` bloğu var. 443 bu nginx'te olduğu için Pinmotion da buradan Host/SNI ile ayrılır.
+- Upstream `172.17.0.1:8100` (Pinmotion web, docker0 host adresi). Sertifika `certs/pinmotion-origin.{pem,key}` (`*.pinmotion.app` Cloudflare Origin, git dışında).
+- ⚠️ IhaleTakip bloğu dosyada **ilk** kalmalı (varsayılan sunucu). Pinmotion bloğunu silmek/değiştirmek Pinmotion'u kapatır; IhaleTakip'i etkilemez.
+- ⚠️ Pinmotion kapalıyken yalnızca o alan 502 verir. `nginx -t` bu blok yüzünden hata verirse genellikle sertifika dosyası eksiktir.
+
 ## Önemli Uyarılar
 
 - **PostgreSQL üretimde zorunlu**: Yerel `manage.py check` `DATABASE_URL` yoksa

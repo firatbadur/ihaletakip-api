@@ -3317,11 +3317,28 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   **1** kez bildirilir. Eski `nf:{sf.id}:{pk}` anahtarları 7 günde kendiliğinden ölür.
   ⚠️ Sayı yine **penceredeki tekilleştirilmiş TOPLAM** (`len(hepsi)`), `len(yeni)` değil.
 
-  ⚠️ **`NOTIF_BIRLESIK_BILDIRIM` varsayılan KAPALI.** Derin bağlantıyı yalnızca yeni mobil
-  sürüm tanıyor; mağaza sürümü yayılmadan açılırsa eski sürümdeki kullanıcı bildirime
-  basınca ihale listesi değil bildirim ekranı görür. Eski kod yolu
-  (`_filtre_abonelik_basina` / `_idare_abonelik_basina`) **silinmedi** → bayrak deploy'suz
-  geri çevrilir.
+  ✅✅ **`NOTIF_BIRLESIK_BILDIRIM` ÜRETİMDE AÇILDI (2026-09-30)** — mobil sürüm mağazada
+  yayıldıktan sonra, `.env.prod`'a `NOTIF_BIRLESIK_BILDIRIM=True` eklenerek. Ayar
+  `env_file` ile okunduğu için `docker compose restart` **YETMEZ**; konteynerlerin
+  yeniden yaratılması gerekir (`up -d`) + ardından `restart nginx` (web'in IP'si değişir).
+  ⚠️ Varsayılan kodda **kapalı kaldı** ve eski kod yolu (`_filtre_abonelik_basina` /
+  `_idare_abonelik_basina`) **silinmedi** → bayrak deploy'suz geri çevrilir.
+  ⚠️⚠️ **DEDUP ANAHTARI İKİ YOLDA FARKLI**: eski yol `nf:{sf.id}:{pk}` (abonelik grain),
+  birleşik yol `nf:u{uid}:{pk}` (kullanıcı grain). Yani bayrağın açıldığı gün, o sabah
+  eski yolla bildirilmiş ihaleler birleşik yol için **"yeni" görünür** → o gün görev elle
+  tetiklenirse kullanıcılar aynı ihaleleri ikinci kez alır. Beat ertesi sabah koşarken
+  pencere kaydığı için sorun kendiliğinden kapanır; **bayrağın açıldığı gün filtre/idare
+  görevini elle tetiklemeyin** (ya da tur kilidini `ozet:tur:{filtre|idare}:{uid}` elle
+  koyup kapsamı daraltın — üretim testinde böyle yapıldı).
+
+  ✅ **Üretim doğrulaması (2026-09-30, gerçek push):** uid=5 · 10 filtre → **1 bildirim**.
+  `filtre_idler='73,68,62,43,20,19,18,16,15,14'`, `filter_id`/`authority_detsis`/
+  `tender_ikn` **hepsi None**, `pencere_bas/bit` dolu, gövde "son 24 saatte **10** ihale"
+  ve aynı parametrelerle çağrılan uç **`totalCount: 10`** → sayı ekrandaki listeyle
+  birebir tuttu. Salt okunur tarama (8 kullanıcı): 4→70, 10→10, 7→15, 6→15, 7→4, 5→1,
+  1→3, 1→0 ihale. Favori idare tarafı `0 bildirim` verdi ve bu **doğruydu** — tek abone
+  kullanıcının 3 favori idaresinin hiçbiri pencerede ihale yayımlamamıştı (küme canlı
+  sayıldı, doğrulandı).
 
   ⚠️ **`templates.authority_match` artık "Bugün" DEMİYOR**: pencere kayıt tarihine taşındığı
   için pazartesi bildirilen bir ihalenin yayım tarihi cuma olabilir. Filtre şablonunda

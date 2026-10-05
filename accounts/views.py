@@ -1,5 +1,8 @@
 """accounts view'ları — kayıt, giriş, sosyal giriş, profil, çıkış."""
+import logging
+
 from django.contrib.auth import authenticate, get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import permissions, status
@@ -22,10 +25,12 @@ from .serializers import (
     UserSerializer,
     issue_tokens,
 )
+from .models import PushDevice
 from .services.apple import AppleAuthError, verify_apple_identity_token
 from .services.google import GoogleAuthError, verify_google_id_token
 
 User = get_user_model()
+logger = logging.getLogger("ihaletakip")
 
 
 @extend_schema(
@@ -258,15 +263,38 @@ class AppleLoginView(APIView):
             "Refresh token ile",
             request_only=True,
             value={"refresh": "{{refresh_token}}"},
-        )
+        ),
+        OpenApiExample(
+            "Cihazın push kaydını da sil (önerilen)",
+            request_only=True,
+            value={
+                "refresh": "{{refresh_token}}",
+                "fcm_token": "fMEP0vJqR0m2Xy1s_example_device_token_abc123",
+            },
+        ),
     ],
 )
 class LogoutView(APIView):
-    """POST /auth/logout — {refresh} token'ı kara listeye al."""
+    """POST /auth/logout — {refresh} token'ı kara listeye al.
+
+    `fcm_token` gönderilirse o cihazın push kaydı da silinir → kullanıcı tekrar
+    giriş yapana kadar bu cihazdan bildirim almaz. Diğer cihazları etkilenmez.
+    """
 
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # ⚠️ Cihaz kaydı refresh DOĞRULAMASINDAN ÖNCE silinir: istemci bozuk/eski bir
+        # refresh gönderse de "bu cihazdan ayrılıyorum" niyeti kesindir. 400 dönüp
+        # cihazı kayıtlı bırakmak, çıkış yapılmış hesaba push atmaya devam etmek olurdu.
+        # ⚠️ Kullanıcının TÜM cihazlarını silmek YANLIŞ olurdu — başka telefonu olabilir
+        # ve ondan da bildirim almayı keserdi. Yalnızca gövdede bildirilen cihaz silinir.
+        # ⚠️ Eski mobil sürümler `fcm_token` göndermez → o cihaz burada silinmez; bir
+        # sonraki girişte `FCMTokenView` devri zaten yapar (kırılma yok).
+        cikis_token = (request.data.get("fcm_token") or "").strip()
+        if cikis_token:
+            PushDevice.objects.filter(token=cikis_token, user=request.user).delete()
+
         refresh = request.data.get("refresh")
         if not refresh:
             return Response(
@@ -377,7 +405,11 @@ class PreferencesView(APIView):
     description=(
         "Push bildirimleri için cihazın Firebase Cloud Messaging token'ını kaydeder. "
         "Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre dışıdır, "
-        "token yine de saklanır."
+        "token yine de saklanır.\n\n"
+        "⚠️ Bir token **en çok bir hesaba** aittir: token cihaza aittir, kullanıcıya "
+        "değil. Aynı telefonda hesap değiştirilirse cihaz kaydı yeni hesaba **geçer** "
+        "ve eski hesap o cihazdan bildirim almaz — kasıtlıdır.\n\n"
+        "Bir kullanıcının birden çok cihazı olabilir; her birine ayrı push gider."
     ),
     request=FCMTokenSerializer,
     responses={200: DetailSerializer},
@@ -397,8 +429,47 @@ class FCMTokenView(APIView):
     def post(self, request):
         serializer = FCMTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        request.user.fcm_token = serializer.validated_data["fcm_token"]
-        request.user.save(update_fields=["fcm_token"])
+        # `.strip()`: saklanan değer `notify.push_to_user`'ın kıyasladığıyla birebir
+        # aynı olmalı ve bu uç serializer ayarına bağlı kalmasın.
+        token = serializer.validated_data["fcm_token"].strip()
+        platform = (request.data.get("platform") or "").strip()[:10]
+
+        # ⚠️⚠️ "Bir cihaz = en çok bir hesap" kuralının YAZILDIĞI yer. `token` unique
+        # olduğu için `update_or_create` cihazı yeni sahibine DEVREDER, ikinci satır
+        # açmaz. Eski tasarımda (User.fcm_token tek kolon) bu kural yoktu ve üretimde
+        # tek telefonun token'ı dört hesapta birden kaldı → aynı cihaza 3 push
+        # (2026-10-05; bkz. PushDevice docstring).
+        eski_sahip = None
+        for deneme in (1, 2):
+            try:
+                # ⚠️ try bloğu `atomic`in DIŞINDA: IntegrityError işlemi "rollback
+                # bekliyor" durumuna düşürür, aynı atomic blok içinde sorgu sürdürmek
+                # TransactionManagementError verir.
+                with transaction.atomic():
+                    cihaz = PushDevice.objects.filter(token=token).first()
+                    eski_sahip = cihaz.user_id if cihaz else None
+                    PushDevice.objects.update_or_create(
+                        token=token,
+                        defaults={"user": request.user, "platform": platform},
+                    )
+                break
+            except IntegrityError:
+                # ⚠️ İki istek aynı token'ı milisaniyeler içinde yazdı. İkinci turda
+                # karşı satır artık görünür → yakınsar. Kullanıcıya 500 dönmek kabul
+                # edilemez; token kaydedilmemişken 200 dönmek daha da kötü olurdu.
+                if deneme == 2:
+                    logger.error(
+                        "push cihaz yarışı iki denemede çözülemedi uid=%s", request.user.pk
+                    )
+                    raise
+
+        if eski_sahip and eski_sahip != request.user.pk:
+            # Cihazda hesap değişti. Sonraki bir arızada "kim kimden devraldı"
+            # sorusunun tek kaydı bu satır olur.
+            logger.warning(
+                "push cihazı devralındı: token=%s… eski_uid=%s → yeni_uid=%s",
+                token[:10], eski_sahip, request.user.pk,
+            )
         return Response({"detail": "FCM token kaydedildi."})
 
 
@@ -448,4 +519,11 @@ class DeactivateView(APIView):
         user.is_active = False
         user.deactivated_at = timezone.now()
         user.save(update_fields=["is_active", "deactivated_at"])
+        # Hesap kapatılıyor → bu hesabın TÜM cihaz kayıtları silinir. (Çıkıştan farkı:
+        # orada yalnızca o cihaz silinir, burada hesabın kendisi devre dışı.)
+        # ⚠️ `push_to_user` zaten `is_active`e bakıp atlıyor; yine de silinir çünkü
+        # (a) hesap yeniden aktif edilirse aylar önceki, belki artık başkasının
+        # telefonundaki kayıt canlanırdı, (b) aynı cihazda açılan yeni hesap o satırı
+        # devralmak zorunda kalırdı, (c) pano "push açık" sayacı ölü kurulumlarla şişer.
+        PushDevice.objects.filter(user=user).delete()
         return Response({"detail": "Hesap devre dışı bırakıldı."})

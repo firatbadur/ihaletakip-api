@@ -3122,6 +3122,98 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 
 ## Bildirim Servisi (Push)
 
+### ⚠️⚠️ Push cihaz kaydı — `accounts.PushDevice` (token CİHAZA aittir)
+
+Kullanıcı bildirdi (2026-10-05): *"sabah 8'de 3 tane ardarda bildirim geldi"* — tek
+telefona üç ayrı "Size Uygun İhaleler" push'u (10/93/84 ihale). **Hata görevde değildi,
+veriydi**: aynı FCM token **dört hesapta birden** kayıtlıydı.
+
+**Üretim ölçümü:**
+
+| saat | uid | hesap | gövde |
+|---|---|---|---|
+| 08:00:05 | 309 | dev@forwish.org | 84 ihale |
+| 08:00:20 | 3 | badurfrat6@gmail.com | 93 ihale |
+| 08:00:21 | 5 | badurfrat@gmail.com | 10 ihale |
+
+270 tokenli kullanıcı · 266 tekil token · **2 paylaşılan token** (ikincisi iki **gerçek
+müşteri** hesabı: `info@teziscimimarlik.com` + `teziscionur@gmail.com`, onlara da 3 push gitti).
+
+⚠️ **Görev kodu masumdu**: `_birlesik_ozet` kullanıcı grain'inde çalışıyor, tur kilidi de
+uid bazlı. 3 hesap = 3 **meşru** bildirim. Teşhiste `tasks.py`'ye bakmak zaman kaybıdır.
+
+**Kök neden**: `User.fcm_token` tek kolondu, unique değildi. A ile gir (token A'ya yazılır)
+→ çık (`LogoutView` yalnızca JWT blacklist'liyordu, token **kalıyordu**) → B ile gir
+(token B'ye de yazılır) → iki satır da aynı token.
+
+⚠️⚠️ **KENDİLİĞİNDEN DÜZELMİYORDU**: tek otomatik temizlik FCM'in `INVALID_TOKEN`'ına
+bağlı; paylaşılan token **canlı ve geçerli** olduğu için o kapı hiç tetiklenmiyordu.
+
+⚠️⚠️ **Mükerrer bildirimden ağırı HESAPLAR ARASI SIZINTIdır.** Push gövdesi doğrudan OS
+tepsisine basılıyor (mobilde özel FCM handler yok) → istemcide filtrelenemez. Şiddet
+şablona göre değişir ve **en ağırı alarm bildirimidir**:
+
+| şablon | başlık | sızan |
+|---|---|---|
+| `templates.alarm_tender` | **ihale adı** | ⚠️ en ağır — A'nın takip ettiği ihalenin adı, cihazda artık B ile oturum açmış kişinin kilit ekranında |
+| `saved_filter_match` / favori idare (birleşik bayrak kapalıyken) | filtre/idare adı | ağır |
+| `saved_filters_ozet` (bugün koşan) | sabit metin | yalnızca sayı |
+
+→ **Çözüm: `accounts.PushDevice`** (`0008_pushdevice`) — `token` **UNIQUE**, `user` FK,
+`platform`, `last_registered_at`. `User.fcm_token` **kaldırıldı**.
+⚠️ Kural tek cümle: **token cihaza aittir, kullanıcıya değil.** Cihazda hesap değişince
+`update_or_create(token=…)` satırın `user`'ını **devreder**, ikinci satır açmaz → paylaşım
+**yapısal olarak imkânsız**.
+
+- ⚠️ **"Uygulama kaldırılıp yeniden kurulursa aynı token mı olur?" — HAYIR.** Token app
+  kurulumuna bağlıdır; yeni kurulum yeni token üretir, eskisi ölür ve `INVALID_TOKEN`
+  yoluyla temizlenir. Ek güvenlik ağı: `cleanup_old_notifications` **180 gündür yeniden
+  kaydolmamış** cihazları siler (push hiç denenmeyen kurulumlar birikmesin).
+  ⚠️ Eşik geniş tutuldu — mobil her açılışta yeniden kaydediyor, dar eşik uygulamayı
+  seyrek açan gerçek kullanıcıyı sessizce bildirimsiz bırakırdı.
+- **Çoklu cihaz artık destekleniyor**: `push_to_user` kullanıcının **tüm** cihazlarına
+  gönderir, en az biri başarılıysa `True`. ⚠️ **Pacing kapıları KULLANICI bazlı kaldı**
+  (günlük limit, min aralık, idempotency): bir bildirim tek bir olaydır, iki cihazı var
+  diye limiti ikiye katlamak kapının amacını bozardı. Sayaç cihaz sayısı kadar değil,
+  **bir** artar. Testi var (`test_gunluk_limit_cihaz_sayisiyla_CARPILMAZ`).
+- ⚠️ Ölü token → **yalnızca o cihazın** satırı silinir; kullanıcının diğer cihazları
+  etkilenmez (eski tek-kolon tasarımda hepsi birden giderdi).
+- **Çıkış**: `POST /auth/logout` gövdesinde `fcm_token` varsa **yalnızca o cihaz** silinir.
+  ⚠️ Kullanıcının TÜM cihazlarını silmek yanlış olurdu — başka telefonu olabilir.
+  ⚠️ Silme `refresh` doğrulamasından **ÖNCE**: bozuk refresh gönderilse de "bu cihazdan
+  ayrılıyorum" niyeti kesindir; 400 dönüp cihazı kayıtlı bırakmak çıkış yapılmış hesaba
+  push atmaya devam etmekti. `DeactivateView` ise hesabın **tüm** cihazlarını siler.
+- ⚠️⚠️ **MOBİL DEĞİŞİKLİĞİ GEREKMEDİ ve bilinçli olarak istenmedi.** `POST /auth/fcm-token/`
+  sözleşmesi aynı (`{fcm_token}`, `platform` opsiyonel); mobil zaten her açılışta
+  (`IhaleTakip/src/Route.js:220`) ve `onTokenRefresh`'te (`Route.js:250`) kaydediyor.
+  Düzeltmeyi mağaza yayınına bağlamak onu **zayıflatırdı**: eski sürümler asla tamamen yok
+  olmaz. Backend-only düzeltme bugün kurulu **her** sürümde çalışır.
+  ⚠️ Mobilde `messaging().deleteToken()` ÇAĞRILMAZ — OS token'ını yok eder ve AppsFlyer
+  uninstall token'ını bozar (`notification_helper.js:71`), kazancı sıfır.
+- ⚠️⚠️ **Geçişte PAYLAŞILAN token'lar HİÇ taşınmadı — "kazanan hesap" seçilmedi.**
+  `last_seen_at` ile en yenisini tutmak denenebilirdi ama yanlış olurdu: damga kullanıcı
+  başına **günde bir kez** yazılıyor (`accounts/authentication.py`) ve **herhangi bir
+  cihazdan** gelen her istekle doluyor → "hesap aktif mi" sorusunu cevaplıyor, **"bu
+  cihazda hangi hesap açık"** sorusunu hiç cevaplamıyor. Yanlış tahminin bedeli asimetrik:
+  iki farklı kişinin hesabı paylaşıldığında yanlış seçim, alarmların yanlış telefona
+  düşmeye **devam etmesi** demekti. Cihaz bir sonraki uygulama açılışında doğru hesaba
+  kendini yazar → **tahmin yerine kanıt**, maliyet üst sınırı bir bildirim turu.
+- ⚠️⚠️ **Migration'da veri taşıma `RemoveField`'DAN ÖNCE ve AYNI dosyada.**
+  `makemigrations` `RemoveField`'ı başa koyuyor; öyle bırakılsaydı 270 cihazın tamamı
+  okunmadan silinirdi. Ayrı bir yönetim komutuna bırakmak da olmazdı: `web` entrypoint'i
+  her başlangıçta `migrate` koşuyor → deploy ile komut arasında bildirimler sessizce
+  susardı. Tablo küçük (~313 satır) → `CONCURRENTLY`/`atomic=False`/elle migrate **gerekmez**.
+- **Pano metriği** (`core/dashboard.py` → `push_acik`) artık `push_devices__isnull=False`
+  + `.distinct()`. ⚠️ Geçişte sayının **DÜŞMESİ** beklenir — gerileme değil: eski sayım
+  aynı telefonu, o telefonda giriş yapmış her hesap için ayrı sayıyordu.
+  ⚠️ Admin kolonu `prefetch_related("push_devices")` ister (sessiz N+1).
+- Testler: `accounts/tests/test_push_device.py` (11) + `tenders/tests/test_fcm_tek_cihaz.py` (6).
+  **Dişleri doğrulandı**: cihaz devri (`update_or_create` → `get_or_create`) kaldırılınca
+  **3**, ölü cihaz silme kaldırılınca **2**, çıkışta cihaz silme kaldırılınca **2** test
+  kırılıyor. ⚠️ `tenders` testinde `setUp`'ta `cache.clear()` ŞART: pacing sayaçları
+  `notif:pushcount:{uid}:{tarih}` anahtarlı ve `setUpTestData` kullanıcıları her testte
+  aynı pk'yı alıyor → temizlenmezse sayaç testten teste taşar (yazarken bir kez ısırdı).
+
 Eski `~/Desktop/ihaletakip-scheduler` (Python + `firebase-admin`, Firebase projesi
 `ihale-53fbf`) servisinin işlevi API'ye taşındı; artık kendi Postgres/EKAP verimizden
 push üretiyoruz. Beş kaynak vardır. Bildirimler **abonelik-başına AYRI**dır: her kayıtlı
@@ -3568,6 +3660,8 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
 | `detsis` | `core.Detsis` |
 | `config/ai_service` | `core.AppSetting` |
 
+(Firestore karşılığı olmayan) `accounts.PushDevice` — FCM cihaz kaydı (token UNIQUE),
+bkz. "Push cihaz kaydı".
 (Firestore karşılığı olmayan) `tenders.TenderGroup` — kayıtlı ihale klasörleri, bkz. aşağıda.
 (Firestore karşılığı olmayan) `ekap.Contractor` / `ContractorAlias` / `ContractorMembership`
 — yüklenici firma kaydı, bkz. "Yüklenici (Firma) Kaydı".

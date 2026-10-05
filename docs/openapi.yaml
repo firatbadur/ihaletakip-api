@@ -782,9 +782,17 @@ paths:
   /api/v1/auth/fcm-token/:
     post:
       operationId: api_v1_auth_fcm_token_create
-      description: Push bildirimleri için cihazın Firebase Cloud Messaging token'ını
+      description: 'Push bildirimleri için cihazın Firebase Cloud Messaging token''ını
         kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre
         dışıdır, token yine de saklanır.
+
+
+        ⚠️ Bir token **en çok bir hesaba** aittir: token cihaza aittir, kullanıcıya
+        değil. Aynı telefonda hesap değiştirilirse cihaz kaydı yeni hesaba **geçer**
+        ve eski hesap o cihazdan bildirim almaz — kasıtlıdır.
+
+
+        Bir kullanıcının birden çok cihazı olabilir; her birine ayrı push gider.'
       summary: FCM token kaydet
       tags:
       - auth
@@ -892,6 +900,11 @@ paths:
                 value:
                   refresh: '{{refresh_token}}'
                 summary: Refresh token ile
+              CihazınPushKaydınıDaSil(önerilen):
+                value:
+                  refresh: '{{refresh_token}}'
+                  fcm_token: fMEP0vJqR0m2Xy1s_example_device_token_abc123
+                summary: Cihazın push kaydını da sil (önerilen)
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/Logout'
@@ -4243,7 +4256,12 @@ components:
       properties:
         fcm_token:
           type: string
+          description: Cihazın FCM kayıt token'ı.
           maxLength: 500
+        platform:
+          type: string
+          description: ios | android
+          maxLength: 10
       required:
       - fcm_token
     Favorite:
@@ -4432,6 +4450,10 @@ components:
         refresh:
           type: string
           description: Kara listeye alınacak refresh token.
+        fcm_token:
+          type: string
+          description: Çıkış yapılan cihazın FCM token'ı (opsiyonel).
+          maxLength: 500
       required:
       - refresh
     Notification:

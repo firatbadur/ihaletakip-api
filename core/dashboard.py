@@ -298,7 +298,12 @@ def _hesapla_ozet() -> dict:
             "mau": kullanicilar.filter(last_seen_at__gte=gun30).count(),
             "dau": kullanicilar.filter(last_seen_at__gte=bugun).count(),
             "hic_gorulmedi": kullanicilar.filter(last_seen_at__isnull=True).count(),
-            "push_acik": kullanicilar.exclude(fcm_token="").count(),
+            # Kaydı olan en az bir cihazı bulunan kullanıcı sayısı (accounts.PushDevice, 0008).
+            # ⚠️ `.distinct()` ŞART: çok cihazlı kullanıcı JOIN'de birden çok satır üretir.
+            # ⚠️ Geçişte sayının DÜŞMESİ beklenir (gerileme değil): eski `exclude(fcm_token="")`
+            # aynı telefonda giriş yapmış her hesabı ayrı sayıyordu; üretimde bir cihaz dört
+            # hesap üzerinden dört kez görünüyordu (2026-10-05 arızası).
+            "push_acik": kullanicilar.filter(push_devices__isnull=False).distinct().count(),
             "saglayicilar": [
                 {"ad": saglayici_adlari.get(s["provider"], s["provider"] or "—"), "n": s["n"]}
                 for s in saglayicilar

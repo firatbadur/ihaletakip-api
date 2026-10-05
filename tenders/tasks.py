@@ -991,13 +991,32 @@ def check_favorite_contractor_matches():
 
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")
-def cleanup_old_notifications(days: int = 30):
-    """Belirtilen günden eski OKUNMUŞ bildirimleri siler."""
+def cleanup_old_notifications(days: int = 30, cihaz_gun: int = 180):
+    """Eski OKUNMUŞ bildirimleri ve uzun süredir sessiz push cihazlarını siler."""
+    from accounts.models import PushDevice
+
     from .models import Notification
 
     cutoff = timezone.now() - timedelta(days=days)
     deleted, _ = Notification.objects.filter(
         read=True, created_at__lt=cutoff
     ).delete()
-    logger.info("cleanup_old_notifications: %s bildirim silindi", deleted)
-    return {"deleted": deleted}
+
+    # ⚠️ Ölü cihazın ASIL temizliği `notify.push_to_user`'dadır (FCM `INVALID_TOKEN`
+    # → kayıt anında silinir). Bu adım yalnızca o yolun HİÇ tetiklenmediği kayıtlar
+    # içindir: aboneliği olmayan bir kullanıcıya push denenmez, dolayısıyla kaldırılmış
+    # bir kurulumun satırı sonsuza dek kalırdı.
+    # ⚠️ Eşik GENİŞ (180 gün) tutuldu: mobil her açılışta yeniden kaydediyor
+    # (IhaleTakip/src/Route.js:220), yani canlı bir cihazın damgası aylarca eskimez.
+    # Dar bir eşik, uygulamayı seyrek açan gerçek kullanıcıyı sessizce bildirimsiz
+    # bırakırdı — kaçan bildirim, fazladan duran satırdan kötüdür.
+    cihaz_cutoff = timezone.now() - timedelta(days=cihaz_gun)
+    cihaz_silinen, _ = PushDevice.objects.filter(
+        last_registered_at__lt=cihaz_cutoff
+    ).delete()
+
+    logger.info(
+        "cleanup_old_notifications: %s bildirim, %s push cihazı silindi",
+        deleted, cihaz_silinen,
+    )
+    return {"deleted": deleted, "cihaz_silinen": cihaz_silinen}

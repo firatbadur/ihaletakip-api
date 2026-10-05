@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import User
+from .models import PushDevice, User
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -17,11 +17,12 @@ class HasFcmTokenFilter(admin.SimpleListFilter):
         return [("yes", "Token var"), ("no", "Token yok")]
 
     def queryset(self, request, queryset):
-        empty = Q(fcm_token="") | Q(fcm_token__isnull=True)
+        # ⚠️ `push_devices` çoğul: bir kullanıcının birden çok cihazı olabilir (0008).
+        # "var" dalında `.distinct()` ŞART — JOIN aksi hâlde satırı çoğaltır.
         if self.value() == "yes":
-            return queryset.exclude(empty)
+            return queryset.filter(push_devices__isnull=False).distinct()
         if self.value() == "no":
-            return queryset.filter(empty)
+            return queryset.filter(push_devices__isnull=True)
         return queryset
 
 
@@ -99,7 +100,11 @@ class UserAdmin(BaseUserAdmin):
         "is_staff",
         "is_superuser",
     ]
-    search_fields = ["username", "email", "display_name", "provider_uid", "fcm_token"]
+    # ⚠️ `push_devices__token`: token artık User'da değil (0008). İlişkili alanda
+    # arama JOIN üretir ama admin aramaları zaten seçicidir.
+    search_fields = [
+        "username", "email", "display_name", "provider_uid", "push_devices__token",
+    ]
     ordering = ["-date_joined"]
 
     fieldsets = BaseUserAdmin.fieldsets + (
@@ -112,7 +117,6 @@ class UserAdmin(BaseUserAdmin):
                     "provider",
                     "provider_uid",
                     "preferences",
-                    "fcm_token",
                     "deactivated_at",
                     "age_range",
                     "onboarding_status",
@@ -168,11 +172,48 @@ class UserAdmin(BaseUserAdmin):
             return f"✖ İptal ({tur}) · {tarih} · erişim sürüyor"
         return f"✖ İptal ({tur}) · {tarih} · süresi doldu"
 
-    @admin.display(description="Push (FCM)", ordering="fcm_token")
+    def get_queryset(self, request):
+        # ⚠️ `fcm_token_status` satır başına cihaz okuyor → PREFETCH ŞART.
+        # Olmadan sayfa başına 50+ ek sorgu (bu kod tabanında belgelenmiş sessiz N+1).
+        return super().get_queryset(request).prefetch_related("push_devices")
+
+    @admin.display(description="Push (FCM)")
     def fcm_token_status(self, obj):
-        """Liste görünümünde token durumunu özetler (kısaltılmış)."""
-        token = (obj.fcm_token or "").strip()
-        if not token:
+        """Liste görünümünde kayıtlı cihazları özetler.
+
+        ⚠️ `ordering` YOK: değer artık ilişkili tablodan geliyor, tek kolonla
+        sıralanamaz. Sıralama isteniyorsa `annotate(Count(...))` gerekir — bu liste
+        için gereksiz bir sorgu olurdu.
+        """
+        # ⚠️ `.all()` + len(): prefetch önbelleğinden okur. `.count()` ya da
+        # dilimleme (`[:3]`) prefetch'i ATLAYIP yeni sorgu atardı.
+        cihazlar = list(obj.push_devices.all())
+        if not cihazlar:
             return "—"
-        short = token if len(token) <= 18 else f"{token[:18]}…"
-        return f"✓ {short}"
+        ilk = cihazlar[0].token
+        short = ilk if len(ilk) <= 18 else f"{ilk[:18]}…"
+        return f"✓ {short}" + (f" (+{len(cihazlar) - 1} cihaz)" if len(cihazlar) > 1 else "")
+
+
+@admin.register(PushDevice)
+class PushDeviceAdmin(admin.ModelAdmin):
+    """Kayıtlı push cihazları — "bu kişi neden bildirim almıyor" sorusunun ekranı.
+
+    ⚠️ Satırlar makine üretimi (`POST /auth/fcm-token/`). Elle eklemek/düzenlemek
+    anlamsız: token cihazdan gelir. Salt okunur tutuluyor; silme serbest (ölü bir
+    kaydı elle temizlemek meşru bir operasyon).
+    """
+
+    list_display = ["token_kisa", "user", "platform", "last_registered_at"]
+    list_select_related = ["user"]
+    search_fields = ["token", "user__email", "user__username"]
+    list_filter = ["platform"]
+    ordering = ["-last_registered_at"]
+    readonly_fields = ["token", "user", "platform", "last_registered_at", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.display(description="Token", ordering="token")
+    def token_kisa(self, obj):
+        return obj.token if len(obj.token) <= 24 else f"{obj.token[:24]}…"

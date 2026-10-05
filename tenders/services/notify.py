@@ -9,9 +9,13 @@ Postgres karşılığı. İki sorumluluk **ayrıştırılmıştır**:
 - `push_to_user(...)` → pacing kapılarından geçen **tek** FCM push. Kategori/kullanıcı
   başına bir kez çağrılır → kullanıcı bombardımana tutulmaz.
 
-Pacing kapıları (sırayla): fcm_token var mı → kullanıcı aktif mi → tercih push açık mı →
+Pacing kapıları (sırayla): kayıtlı cihaz var mı → kullanıcı aktif mi → tercih push açık mı →
 sessiz saat → idempotency → günlük limit → minimum aralık. Herhangi biri engellerse push
 atılmaz ama uygulama-içi satır zaten yazılmıştır.
+
+⚠️ Kapıların GRAIN'İ KULLANICIDIR, cihaz değil: bir bildirim tek bir olaydır. Kullanıcının
+iki cihazı var diye günlük limiti ikiye katlamak kapının amacını bozardı. Gönderim ise
+kullanıcının **tüm** cihazlarına yapılır (`accounts.PushDevice`); sayaç yine bir artar.
 """
 from __future__ import annotations
 
@@ -112,13 +116,15 @@ def push_to_user(
     idem_key: str | None = None,
 ) -> bool:
     """
-    Pacing kapılarından geçerse kullanıcıya tek FCM push atar. Gerçekten gönderildiyse
-    True döner. Ölü token → `user.fcm_token` temizlenir.
+    Pacing kapılarından geçerse kullanıcının KAYITLI TÜM CİHAZLARINA push atar.
+    En az biri gönderildiyse True döner. Ölü token → o cihazın kaydı silinir.
     """
     from . import push as push_mod
 
-    token = (getattr(user, "fcm_token", "") or "").strip()
-    if not token:
+    tokenlar = list(
+        user.push_devices.order_by("-last_registered_at").values_list("token", flat=True)
+    )
+    if not tokenlar:
         return False
     if not getattr(user, "is_active", True):
         return False
@@ -162,21 +168,30 @@ def push_to_user(
         logger.debug("push atlandı (idempotent/rezerve) key=%s", idem_key)
         return False
 
-    status = push_mod.send_fcm(token, title, body, data)
+    # ⚠️ Kullanıcının TÜM cihazlarına gönderilir. Kısmi başarı normaldir: biri ölü,
+    # diğeri canlı olabilir (ör. eski telefon kaldırılmış, yenisi aktif).
+    olu = []
+    gonderildi = False
+    for token in tokenlar:
+        status = push_mod.send_fcm(token, title, body, data)
+        if status == push_mod.SENT:
+            gonderildi = True
+        elif status == push_mod.INVALID_TOKEN:
+            # ⚠️ Yalnızca O CİHAZIN kaydı silinir; kullanıcının diğer cihazları
+            # etkilenmez (eski tasarımda tek kolon olduğu için hepsi birden giderdi).
+            olu.append(token)
 
-    if status == push_mod.INVALID_TOKEN:
-        user.fcm_token = ""
+    if olu:
         try:
-            user.save(update_fields=["fcm_token"])
-        except Exception:
-            logger.exception("ölü fcm_token temizlenemedi uid=%s", user.pk)
-        if idem_key:
-            cache.delete(idem_key)  # gönderilemedi → rezervasyonu geri al
-        return False
+            from accounts.models import PushDevice
 
-    if status != push_mod.SENT:
-        # DISABLED (kimlik yok) veya ERROR → rezervasyonu geri al, sayaç güncellenmez,
-        # uygulama-içi satır zaten yazıldı. Sonraki tetik yeniden deneyebilir.
+            PushDevice.objects.filter(token__in=olu).delete()
+        except Exception:
+            logger.exception("ölü push cihazı silinemedi uid=%s", user.pk)
+
+    if not gonderildi:
+        # Hiçbir cihaza gidemedi: DISABLED (kimlik yok), ERROR ya da hepsi ölü.
+        # Rezervasyonu geri al, sayaç güncellenmez, uygulama-içi satır zaten yazıldı.
         if idem_key:
             cache.delete(idem_key)
         return False

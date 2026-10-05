@@ -20,7 +20,7 @@ logger = logging.getLogger("ihaletakip")
 
 # Gönderim sonucu durumları
 SENT = "sent"
-INVALID_TOKEN = "invalid_token"  # token ölü → çağıran fcm_token'ı temizlemeli
+INVALID_TOKEN = "invalid_token"  # token ölü → çağıran o cihazın kaydını silmeli
 ERROR = "error"
 DISABLED = "disabled"  # kimlik yok → push kapalı
 
@@ -89,7 +89,7 @@ def send_fcm(token: str, title: str, body: str, data: dict[str, Any] | None = No
     Tek bir cihaza FCM push gönderir. Sonuç durumunu döner (SENT/INVALID_TOKEN/ERROR/DISABLED).
 
     `data` değerleri iOS uyumu için string'e çevrilir. Ölü token durumunda INVALID_TOKEN
-    döner → çağıran `user.fcm_token`'ı temizlemeli.
+    döner → çağıran o `accounts.PushDevice` satırını silmeli.
     """
     app = _get_app()
     if app is None:

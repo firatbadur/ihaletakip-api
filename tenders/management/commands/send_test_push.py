@@ -6,8 +6,8 @@ Kullanım:
     python manage.py send_test_push <user_id> --title "Başlık" --body "Gövde"
     python manage.py send_test_push <user_id> --raw   # pacing kapılarını atla, doğrudan FCM
 
-Kayıtlı `fcm_token` yoksa ya da `FCM_CREDENTIALS` tanımsızsa uyarı basar. Ölü token
-tespit edilirse (pacing'li modda) kullanıcının `fcm_token`'ı temizlenir.
+Kayıtlı cihaz yoksa ya da `FCM_CREDENTIALS` tanımsızsa uyarı basar. Ölü token
+tespit edilirse (pacing'li modda) o cihazın `PushDevice` kaydı silinir.
 """
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -44,12 +44,18 @@ class Command(BaseCommand):
             ))
             return
 
-        token = (user.fcm_token or "").strip()
-        if not token:
+        # ⚠️ Kullanıcının birden çok cihazı olabilir (accounts.PushDevice, 0008);
+        # bu komut tek atış olduğu için EN SON kaydolan cihaza gönderir.
+        cihaz = user.push_devices.order_by("-last_registered_at").first()
+        if cihaz is None:
             self.stdout.write(self.style.WARNING(
-                f"Kullanıcının kayıtlı fcm_token'ı yok (id={user.pk})."
+                f"Kullanıcının kayıtlı push cihazı yok (id={user.pk})."
             ))
             return
+        token = cihaz.token.strip()
+        toplam = user.push_devices.count()
+        if toplam > 1:
+            self.stdout.write(f"  (kullanıcının {toplam} cihazı var; en sonuncusuna gönderiliyor)")
 
         title = options["title"]
         body = options["body"]

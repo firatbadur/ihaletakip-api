@@ -1,6 +1,9 @@
 """Kullanıcı modeli — Firestore users/{uid} dokümanının karşılığı."""
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+
+from core.models import TimeStampedModel
 
 from .managers import UserManager
 
@@ -33,7 +36,8 @@ class User(AbstractUser):
         "sağlayıcı UID", max_length=255, blank=True, db_index=True
     )
     preferences = models.JSONField("tercihler", default=dict, blank=True)
-    fcm_token = models.CharField("FCM token", max_length=500, blank=True)
+    # ⚠️ `fcm_token` alanı KALDIRILDI (0008) → `PushDevice` tablosu. Gerekçe dosya
+    # sonundaki model docstring'inde; özeti: token cihaza aittir, kullanıcıya değil.
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
     # ── Tanışma sihirbazı (mobil `Onboarding` ekranı) ───────
@@ -172,3 +176,52 @@ class User(AbstractUser):
         if not self.display_name and self.email:
             self.display_name = self.email.split("@")[0]
         super().save(*args, **kwargs)
+
+
+class PushDevice(TimeStampedModel):
+    """
+    Bir FCM cihaz token'ı ve o an hangi hesaba ait olduğu.
+
+    ⚠️⚠️ `token` UNIQUE — bu modelin var oluş sebebi budur: **FCM token'ı CİHAZA
+    aittir, kullanıcıya değil.** Aynı token iki satırda olamaz; cihazda hesap
+    değişince satırın `user`'ı GÜNCELLENİR, ikinci satır açılmaz.
+
+    Eskiden token `User.fcm_token` tek kolonundaydı ve hiçbir yerde tekillik
+    aranmıyordu. Üretimde yaşandı (2026-10-05): tek telefonun token'ı **dört**
+    hesapta birden kayıtlıydı (uid 3/4/5/309) → 08:00 özet görevi kullanıcı
+    grain'inde çalıştığı için aynı telefona **üç push** düştü (10/93/84 ihale).
+    İkinci bir token iki **gerçek müşteri** hesabında paylaşılıyordu (uid 299/313).
+
+    ⚠️ Mükerrer bildirimden ağırı HESAPLAR ARASI SIZINTIdır: alarm push'unun
+    BAŞLIĞI ihale adıdır (`tenders/services/templates.py` → `alarm_tender`), yani
+    A'nın takip ettiği ihalenin adı, cihazda artık B ile oturum açmış kişinin
+    kilit ekranında görünür. Mobilde özel FCM handler yok, gövde doğrudan OS
+    bildirim tepsisine basılıyor → istemcide filtrelenemez.
+
+    ⚠️ Eski tasarım KENDİLİĞİNDEN DÜZELMİYORDU: tek otomatik temizlik FCM'in
+    `INVALID_TOKEN`'ına bağlı (`tenders/services/notify.py`), paylaşılan token ise
+    canlı ve geçerli olduğu için o kapı hiç tetiklenmiyordu.
+
+    ⚠️ `is_active` alanı YOK — ölü token'ı saklamanın değeri yok, satır silinir.
+    `app_version`/`device_name` de yok: bugün hiçbir kararı etkilemiyorlar.
+    """
+
+    token = models.CharField("FCM token", max_length=500, unique=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="push_devices",
+        verbose_name="kullanıcı",
+    )
+    platform = models.CharField(
+        "platform", max_length=10, blank=True, help_text="ios | android (opsiyonel)"
+    )
+    last_registered_at = models.DateTimeField("son kayıt", auto_now=True)
+
+    class Meta:
+        verbose_name = "Push Cihazı"
+        verbose_name_plural = "Push Cihazları"
+        ordering = ["-last_registered_at"]
+
+    def __str__(self):
+        return f"{self.user_id} · {self.token[:12]}…"

@@ -13,7 +13,7 @@ Kullanım:
     # Doğrudan bir token'a (kullanıcı gerekmez):
     python manage.py test_push_all --token <FCM_TOKEN>
 
-    # Bir kullanıcının kayıtlı fcm_token'ına:
+    # Bir kullanıcının en son kaydolan cihazına:
     python manage.py test_push_all --user 3
 
     # Yalnızca belirli tür(ler):
@@ -47,7 +47,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--token", default="", help="Hedef FCM token (kullanıcı gerekmez).")
         parser.add_argument("--user", type=int, default=None,
-                            help="Kullanıcı id'si — token verilmezse bu kullanıcının fcm_token'ı kullanılır.")
+                            help="Kullanıcı id'si — token verilmezse bu kullanıcının son cihazı kullanılır.")
         parser.add_argument("--only", default="",
                             help=f"Yalnızca bu tür(ler); virgüllü. Seçenekler: {', '.join(ALL_KINDS)}.")
         parser.add_argument("--record", action="store_true",
@@ -77,10 +77,12 @@ class Command(BaseCommand):
 
         token = (options["token"] or "").strip()
         if not token and user is not None:
-            token = (user.fcm_token or "").strip()
+            # En son kaydolan cihaz (accounts.PushDevice, 0008)
+            cihaz = user.push_devices.order_by("-last_registered_at").first()
+            token = cihaz.token.strip() if cihaz else ""
         if not token:
             raise CommandError(
-                "Hedef token yok. --token <FCM> ver ya da fcm_token'ı olan bir --user <id> seç."
+                "Hedef token yok. --token <FCM> ver ya da kayıtlı cihazı olan bir --user <id> seç."
             )
 
         if options["record"] and user is None:

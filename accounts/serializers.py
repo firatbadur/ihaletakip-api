@@ -91,7 +91,13 @@ class PreferencesSerializer(serializers.Serializer):
 
 
 class FCMTokenSerializer(serializers.Serializer):
-    fcm_token = serializers.CharField(max_length=500)
+    fcm_token = serializers.CharField(
+        max_length=500, help_text="Cihazın FCM kayıt token'ı."
+    )
+    # Opsiyonel: yalnızca admin'de teşhis kolaylığı; hiçbir mantık buna bağlı değil.
+    platform = serializers.CharField(
+        max_length=10, required=False, allow_blank=True, help_text="ios | android"
+    )
 
 
 # ── Şema/doküman serializer'ları ───────────────────────
@@ -122,6 +128,15 @@ class AppleLoginSerializer(serializers.Serializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField(help_text="Kara listeye alınacak refresh token.")
+    # Opsiyonel: gönderilirse YALNIZCA bu cihazın push kaydı silinir (kullanıcının
+    # başka telefonu varsa o etkilenmez). Eski mobil sürümler göndermez — sorun değil,
+    # cihaz bir sonraki girişte zaten yeni hesaba devredilir.
+    fcm_token = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        help_text="Çıkış yapılan cihazın FCM token'ı (opsiyonel).",
+    )
 
 
 class TokenPairSerializer(serializers.Serializer):

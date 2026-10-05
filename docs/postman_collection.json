@@ -516,7 +516,7 @@
                 ""
               ]
             },
-            "description": "Push bildirimleri için cihazın Firebase Cloud Messaging token'ını kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre dışıdır, token yine de saklanır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Push bildirimleri için cihazın Firebase Cloud Messaging token'ını kaydeder. Sunucuda `FCM_CREDENTIALS` tanımlı değilse push gönderimi devre dışıdır, token yine de saklanır.\n\n⚠️ Bir token **en çok bir hesaba** aittir: token cihaza aittir, kullanıcıya değil. Aynı telefonda hesap değiştirilirse cihaz kaydı yeni hesaba **geçer** ve eski hesap o cihazdan bildirim almaz — kasıtlıdır.\n\nBir kullanıcının birden çok cihazı olabilir; her birine ayrı push gider.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"fcm_token\": \"fMEP0vJqR0m2Xy1s_example_device_token_abc123\"\n}",
@@ -2934,7 +2934,7 @@
                 ""
               ]
             },
-            "description": "Gönderilen `refresh` token'ı kara listeye alır.\n\n**Dikkat:** Bu endpoint kimlik doğrulaması ister — gövdedeki `refresh`'in yanında geçerli bir `Authorization: Bearer <access>` header'ı da gerekir.\n\nKara liste yalnızca refresh token'ları kapsar; mevcut `access` token kendi ömrü (1 gün) dolana kadar geçerli kalmaya devam eder — istemci onu cihazdan silmelidir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Gönderilen `refresh` token'ı kara listeye alır.\n\n**Dikkat:** Bu endpoint kimlik doğrulaması ister — gövdedeki `refresh`'in yanında geçerli bir `Authorization: Bearer <access>` header'ı da gerekir.\n\nKara liste yalnızca refresh token'ları kapsar; mevcut `access` token kendi ömrü (1 gün) dolana kadar geçerli kalmaya devam eder — istemci onu cihazdan silmelidir.\n\n---\n\n### Alternatif gövde örnekleri\n\n**CihazınPushKaydınıDaSil(önerilen)**\n\n```json\n{\n  \"refresh\": \"{{refresh_token}}\",\n  \"fcm_token\": \"fMEP0vJqR0m2Xy1s_example_device_token_abc123\"\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}",

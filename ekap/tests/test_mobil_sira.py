@@ -69,6 +69,7 @@ class TurDonusumTests(TestCase):
 
     def _tur(self, tur):
         with patch.object(T, "_kesif_yigini", return_value=[]), \
+             patch.object(T.durum_mod, "adim", return_value={"atlandi": "durum_yok"}), \
              patch.object(T, "_sirada_detay", return_value=None), \
              patch.object(T, "sonuc", return_value={"is": "sonuc"}) as s, \
              patch.object(T, "detay", return_value={"is": "detay"}) as d:
@@ -79,20 +80,21 @@ class TurDonusumTests(TestCase):
         _ihale("2026/10", durum=15)                     # sonuç adayı
         _ihale("2026/20", durum=2, gun_once=5)          # tazeleme adayı
         cagrilar = []
-        for tur in (1, 2):
+        for tur in (0, 1, 2):
             cache.clear()
             s, d = self._tur(tur)
             cagrilar.append("sonuc" if s.called else "tazeleme" if d.called else "-")
-        self.assertEqual(sorted(cagrilar), ["sonuc", "tazeleme"])
+        self.assertEqual(set(cagrilar), {"sonuc", "tazeleme"})
 
     def test_istek_harcamayan_atlama_tiki_YEMEZ(self):
         _ihale("2026/20", durum=2, gun_once=5)
         with patch.object(T, "_kesif_yigini", return_value=[]), \
+             patch.object(T.durum_mod, "adim", return_value={"atlandi": "durum_yok"}), \
              patch.object(T, "_sirada_detay", return_value=None), \
              patch.object(T, "_sirada_sonuc", return_value="2026/99"), \
              patch.object(T, "sonuc", return_value={"atlandi": "v2_sozlesmesi_var"}), \
              patch.object(T, "detay", return_value={"is": "detay"}) as d:
-            sonuc_ = T._tur_yap(MagicMock(), 2)            # çift tur → önce sonuç
+            sonuc_ = T._tur_yap(MagicMock(), 1)            # tur 1 → önce sonuç
         self.assertEqual(sonuc_, {"is": "detay"})
         d.assert_called_once()
 

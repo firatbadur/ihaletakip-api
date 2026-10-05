@@ -155,6 +155,24 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   (vars.) ise SyncRun yazmadan çıkar. Testler: `ekap/tests/test_mobil_sira.py`
   (dişi doğrulandı: `Exists` dışlaması geri alınınca döngü testi kırılıyor).
   ⚠️ Mobil `STATUS_MAP` da yanlıştı (5 → "Değerlendirmede"); düzeltildi, mağaza sürümü ister.
+- ⚠️⚠️ **TOPLU DURUM TARAMASI — `ekap/mobil/durum.py` (2026-10-05).** Liste ucunun
+  `ihaleDurumu` filtresi ölçüldü (`mobil_probe --is durum --dogrula`): **çalışıyor ve
+  kodlar `IHALE_DURUM` ile birebir aynı** (3/4/5/6/15 detay metniyle doğrulandı; tablo
+  `docs/ekap-mobil-api.md`). Bir (tarih aralığı × tür × durum) dilimi = **1 istek** ile o
+  dilimdeki tüm ihalelerin durumu öğrenilir — ihale başına detay isteğine gerek yok.
+  ⚠️ Satırda durum metni **yok**; durum, dilimin hangi filtreyle istendiğinden okunur.
+  Yığın `SyncCheckpoint("mobil_durum")`, eleman `[bas, bit, tür, durum, il]`, 250'de
+  keşifteki gibi tarih → il bölünür. Bölgeler: **yakın** (son 30 gün) ~günlük,
+  **uzak** (30-120 gün) haftalık. Sıra: 15 → 6 → 5 → 4 → 3.
+  Tik dönüşümüne katılır (durum / sonuç / tazeleme, `tur % 3`) ve keşif gibi
+  `EKAP_MOBIL_DETAY_REZERV`'e dokunmaz. Elle: `run_mobil --is durum_tara [--max-istek N]`.
+  ⚠️ Sonuçlanmış ihale toplu yolla **geri çekilmez** (bayat dilim cevabı).
+  ⚠️⚠️ **Alarm fırtınası koruması**: teklif tarihi `EKAP_MOBIL_DURUM_ALARM_SESSIZ_GUN`
+  (14) günden eski ihalenin toplu "sonuçlandı" geçişinde `TenderAlarm.completed_notified`
+  sessizce `True` yapılır — aylar önce sonuçlanmış ihale için bugün "İhale Sonuçlandı"
+  demek haber değil gürültüdür ve ilk geçiş binlerce ihaleyi birden çevirir.
+  Durumu sonuçlanmışa dönen ihale `_sirada_sonuc` (180 gün) ile sözleşme kuyruğuna girer.
+  Testler: `ekap/tests/test_mobil_durum.py`.
 - ⚠️ **`SyncRun` satırı yalnızca keşif turlarında yazılır.** Tik 2 dk'da bir koşuyor;
   her tur satır yazmak admin'i günde ~720 kayıtla doldururdu. Teşhis
   `Tender.detail_synced_at` / `ilan_tarihi` sayımlarıyla yapılır.

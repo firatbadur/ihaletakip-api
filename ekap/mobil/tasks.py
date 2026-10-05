@@ -39,6 +39,7 @@ from ..constants import DURUM_SONUCLANMIS
 from ..models import Contract, SyncCheckpoint, Tender
 from ..tasks import _run
 from . import adapt, captcha as captcha_mod, constants as C
+from . import durum as durum_mod
 from . import idare as idare_mod, okas as okas_mod, throttle
 from .client import (
     EkapMobilClient,
@@ -80,7 +81,7 @@ def _say(ad: str, adet: int = 1):
 def sayaclar() -> dict:
     """Pano/sağlık raporu için bugünkü iş sayıları."""
     out = {}
-    for ad in ("kesif", "detay", "sonuc", "tazeleme", "hata"):
+    for ad in ("kesif", "detay", "sonuc", "tazeleme", "durum", "hata"):
         try:
             out[ad] = int(cache.get(f"ekap:mobil:sayac:{timezone.localdate()}:{ad}") or 0)
         except Exception:                               # noqa: BLE001
@@ -180,15 +181,28 @@ def _tur_yap(cli, tur: int):
     # BOŞKEN koşuyordu; sonuç sırası ise 252 bin arşiv kaydıyla hiç boşalmıyordu →
     # 2026-10-05'te ölçüldü: tazeleme haftalardır 0, teklif tarihi geçmiş 27.691
     # ihale hâlâ "Katılıma Açık" görünüyordu.
-    sira = (_sonuc_adimi, _tazeleme_adimi)
-    if tur % 2:
-        sira = sira[::-1]
+    # Toplu durum taraması da dönüşüme katılır: tek istekle yüzlerce ihalenin
+    # durumunu öğrenir (bkz. `mobil/durum.py`); tazelemeden çok daha verimlidir.
+    sira = (_durum_adimi, _sonuc_adimi, _tazeleme_adimi)
+    k = tur % len(sira)
+    sira = sira[k:] + sira[:k]
     for adim in sira:
         sonuc_ = adim(cli)
         # ⚠️ İstek harcamayan bir atlama tik'i YEMEMELİ → sıradaki işe düş.
         if sonuc_ is not None and not sonuc_.get("atlandi"):
             return sonuc_
     return {"atlandi": "is_yok"}
+
+
+def _durum_adimi(cli):
+    # ⚠️ Bütçenin detay rezervine dokunmaz (keşifteki kural): yeni ihalenin
+    # detayı kaçarsa kalıcı boşluk olur, durum taraması bir tur gecikebilir.
+    if throttle.butce_kalan() <= getattr(settings, "EKAP_MOBIL_DETAY_REZERV", 150):
+        return None
+    sonuc_ = durum_mod.adim(cli)
+    if not sonuc_.get("atlandi"):
+        _say("durum")
+    return sonuc_
 
 
 def _sonuc_adimi(cli):

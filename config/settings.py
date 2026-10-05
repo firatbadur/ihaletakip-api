@@ -425,6 +425,11 @@ EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 EKAP_V2_TAZELEME = env.bool("EKAP_V2_TAZELEME", default=False)
 # Mobil sonuç ilanı sırasının geriye bakış penceresi (gün) — arşiv v2'den toplandı.
 EKAP_MOBIL_SONUC_GERI_GUN = env.int("EKAP_MOBIL_SONUC_GERI_GUN", default=180)
+# Toplu durum taraması (`ekap/mobil/durum.py`): yakın bölge günlük, uzak bölge haftalık.
+EKAP_MOBIL_DURUM_YAKIN_GUN = env.int("EKAP_MOBIL_DURUM_YAKIN_GUN", default=30)
+EKAP_MOBIL_DURUM_GERI_GUN = env.int("EKAP_MOBIL_DURUM_GERI_GUN", default=120)
+# Teklif tarihi bundan eski ihalenin toplu "sonuçlandı" geçişi alarm üretmez.
+EKAP_MOBIL_DURUM_ALARM_SESSIZ_GUN = env.int("EKAP_MOBIL_DURUM_ALARM_SESSIZ_GUN", default=14)
 # `sync_contractors.enqueue_missing_detail` turu başına kuyruğa atılacak eksik detay.
 # ⚠️ **Detay borcunu eritme hızının asıl düğmesi budur** — `max_pages`'in ikizi.
 # Ölçüm (2026-08-11): 167.965 ihalenin detayı eksikti, `LLEN ekap = 0` (kuyruk BOŞ,

@@ -22,7 +22,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--is", dest="is_", required=True,
-                            choices=["tik", "kesif", "detay", "sonuc", "durum"])
+                            choices=["tik", "kesif", "detay", "sonuc", "durum", "durum_tara"])
         parser.add_argument("--ikn")
         parser.add_argument("--max-istek", type=int, default=200)
 
@@ -32,6 +32,22 @@ class Command(BaseCommand):
         if o["is_"] in ("detay", "sonuc") and not o.get("ikn"):
             raise CommandError("--ikn zorunlu")
 
+        if o["is_"] == "durum_tara":
+            from ekap.mobil import durum as durum_mod
+            from ekap.mobil.client import EkapMobilClient, MobilSlotError
+            import time
+
+            cli = EkapMobilClient()
+            for _ in range(o["max_istek"]):
+                try:
+                    sonuc = durum_mod.adim(cli)
+                except MobilSlotError:
+                    time.sleep(30)
+                    continue
+                self.stdout.write(str(sonuc))
+                if sonuc.get("atlandi") or not sonuc.get("kalan_dilim"):
+                    break
+            return
         if o["is_"] == "tik":
             sonuc = mobil_tasks.tik()
         elif o["is_"] == "kesif":
@@ -55,6 +71,11 @@ class Command(BaseCommand):
 
         cp = SyncCheckpoint.objects.filter(name=mobil_tasks.CHECKPOINT).first()
         yigin = (cp.extra or {}).get("yigin") if cp else None
+        dcp = SyncCheckpoint.objects.filter(name="mobil_durum").first()
+        dex = (dcp.extra or {}) if dcp else {}
+        self.stdout.write(self.style.MIGRATE_HEADING("Durum taraması"))
+        self.stdout.write(f"  bekleyen dilim : {len(dex.get('yigin') or [])}")
+        self.stdout.write(f"  son yakın/uzak : {dex.get('son_yakin')} / {dex.get('son_uzak')}")
         self.stdout.write(self.style.MIGRATE_HEADING("Keşif"))
         self.stdout.write(f"  bekleyen dilim : {len(yigin or [])}")
         bolumleme = (cp.extra or {}).get("son_bolumleme") if cp else None

@@ -418,6 +418,13 @@ EKAP_BACKFILL_MAX_PAGES = env.int("EKAP_BACKFILL_MAX_PAGES", default=10)
 EKAP_BACKFILL_MAX_SECONDS = env.int("EKAP_BACKFILL_MAX_SECONDS", default=240)
 # refresh_stale yalnızca son bu kadar yılın ihalelerinin detayını yeniler
 EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
+# ⚠️ v2 `refresh_stale` mobil hat açıkken varsayılan olarak KAPALI. Turnstile çerezi
+# ~8 dk yaşadığı için kuyruğa attığı detayların tamamı `dogrulama_yok` ile atlanıyor,
+# ama görev `SyncRun` = ok / 50 yazıp "tazeleme çalışıyor" yanılgısı veriyordu
+# (2026-10-05). Tazeleme mobil hatta (`ekap.mobil.tasks._sirada_tazeleme`).
+EKAP_V2_TAZELEME = env.bool("EKAP_V2_TAZELEME", default=False)
+# Mobil sonuç ilanı sırasının geriye bakış penceresi (gün) — arşiv v2'den toplandı.
+EKAP_MOBIL_SONUC_GERI_GUN = env.int("EKAP_MOBIL_SONUC_GERI_GUN", default=180)
 # `sync_contractors.enqueue_missing_detail` turu başına kuyruğa atılacak eksik detay.
 # ⚠️ **Detay borcunu eritme hızının asıl düğmesi budur** — `max_pages`'in ikizi.
 # Ölçüm (2026-08-11): 167.965 ihalenin detayı eksikti, `LLEN ekap = 0` (kuyruk BOŞ,

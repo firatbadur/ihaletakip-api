@@ -31,11 +31,12 @@ from datetime import date, datetime, timedelta
 from celery import shared_task
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from .. import sync as sync_mod
 from ..constants import DURUM_SONUCLANMIS
-from ..models import SyncCheckpoint, Tender
+from ..models import Contract, SyncCheckpoint, Tender
 from ..tasks import _run
 from . import adapt, captcha as captcha_mod, constants as C
 from . import idare as idare_mod, okas as okas_mod, throttle
@@ -175,13 +176,29 @@ def _tur_yap(cli, tur: int):
         return detay(detay_ikn, cli=cli)
     if throttle.butce_kalan() > rezerv and _kesif_yigini(olustur=True):
         return kesif_adimi(cli)
-    sonuc_ikn = _sirada_sonuc()
-    if sonuc_ikn:
-        return sonuc(sonuc_ikn, cli=cli)
-    tazele_ikn = _sirada_tazeleme()
-    if tazele_ikn:
-        return detay(tazele_ikn, cli=cli, tazeleme=True)
+    # ⚠️⚠️ Sonuç ve tazeleme DÖNÜŞÜMLÜ. Eskiden tazeleme yalnızca sonuç sırası
+    # BOŞKEN koşuyordu; sonuç sırası ise 252 bin arşiv kaydıyla hiç boşalmıyordu →
+    # 2026-10-05'te ölçüldü: tazeleme haftalardır 0, teklif tarihi geçmiş 27.691
+    # ihale hâlâ "Katılıma Açık" görünüyordu.
+    sira = (_sonuc_adimi, _tazeleme_adimi)
+    if tur % 2:
+        sira = sira[::-1]
+    for adim in sira:
+        sonuc_ = adim(cli)
+        # ⚠️ İstek harcamayan bir atlama tik'i YEMEMELİ → sıradaki işe düş.
+        if sonuc_ is not None and not sonuc_.get("atlandi"):
+            return sonuc_
     return {"atlandi": "is_yok"}
+
+
+def _sonuc_adimi(cli):
+    ikn = _sirada_sonuc()
+    return sonuc(ikn, cli=cli) if ikn else None
+
+
+def _tazeleme_adimi(cli):
+    ikn = _sirada_tazeleme()
+    return detay(ikn, cli=cli, tazeleme=True) if ikn else None
 
 
 # ── Sıra seçimi ────────────────────────────────────────
@@ -203,28 +220,82 @@ def _sirada_detay():
 
 
 def _sirada_sonuc():
-    """Sonuçlanmış ama sözleşmesi henüz yazılmamış ihale."""
+    """
+    Sonuçlanmış ama sözleşmesi henüz yazılmamış ihale (son N gün).
+
+    ⚠️⚠️ "Sözleşmesi yok" kararı `Contract` satırından verilir, denormalize
+    `sozlesme_sayisi` sayacından DEĞİL. Sayaç bayat olabiliyor (üretim, 2026-10-05:
+    `2026/1309012` sayaç 0, gerçekte 1 v2 sözleşmesi). Sayaca bakan eski sorgu o
+    ihaleyi seçiyor, `sonuc()` "v2 sözleşmesi var" deyip atlıyor ve işareti
+    sildiği için bir sonraki tik AYNI ihaleyi yine seçiyordu → sonsuz döngü,
+    sonuç ilanı ve tazeleme hattı haftalarca tümüyle durdu (istek harcanmadığı
+    için bütçe sayacında da görünmüyordu).
+
+    ⚠️ Pencere şart: sorgu pencere olmadan 252 bin arşiv kaydı döndürüyordu; mobilin
+    işi ileri akış, arşivi v2 topladı (`_sirada_detay`daki ilkenin aynısı).
+    """
+    taban = timezone.now() - timedelta(
+        days=getattr(settings, "EKAP_MOBIL_SONUC_GERI_GUN", 180)
+    )
     qs = Tender.objects.filter(
-        ihale_durum__in=DURUM_SONUCLANMIS, sozlesme_sayisi=0
-    ).exclude(ihale_durum__in=(6, 10)).order_by("-ihale_tarihi").values_list(
-        "ikn", flat=True
-    )[:50]
+        ihale_durum__in=DURUM_SONUCLANMIS, ihale_tarihi__gte=taban
+    ).exclude(ihale_durum__in=(6, 10)).exclude(
+        Exists(Contract.objects.filter(tender=OuterRef("pk")))
+    ).order_by("-ihale_tarihi").values_list("ikn", flat=True)[:50]
     for ikn in qs:
         if _isaretle(f"sonuc:{ikn}"):
             return ikn
     return None
 
 
+_TAZELEME_ALANLARI = ("ikn", "detail_synced_at", "ihale_durum", "sonuc_ilani_eksik",
+                      "ihale_tarihi")
+
+
+def _takip_edilen_iknler():
+    """Kullanıcıların kaydettiği ya da alarm kurduğu ihaleler (küçük küme)."""
+    from tenders.models import SavedTender, TenderAlarm
+
+    iknler = set(SavedTender.objects.exclude(tender_ikn="").values_list("tender_ikn", flat=True))
+    iknler |= set(TenderAlarm.objects.exclude(tender_ikn="").values_list("tender_ikn", flat=True))
+    iknler.discard(None)
+    return iknler
+
+
 def _sirada_tazeleme():
-    """`sync.should_refresh_detail` diyen ilk kayıt (SQL'de kabaca, Python'da kesin)."""
+    """
+    `sync.should_refresh_detail` diyen ilk kayıt — **öncelik sırasıyla**.
+
+    ⚠️⚠️ Kapasite, talebin çok altında: tik günde ~720, keşif+detay ~500'ünü yiyor;
+    teklif tarihi geçmiş ve sonuçlanmamış ihale ise on binlerce. "En eski senkron
+    önce" sırası (eski hâl) kullanıcının BAKTIĞI ihaleye hiç sıra vermezdi. Sıra:
+      1. **Takip edilenler** (kayıtlı ihale + alarm) — "İhale Sonuçlandı" alarmı
+         durum geçişine bakar; tazelenmeyen ihale için hiç tetiklenemez.
+      2. Teklif tarihi **yeni geçmiş** (son 30 gün) — durum geçişleri burada olur.
+      3. Geri kalan pencere, en eski senkron önce.
+    """
     simdi = timezone.now()
-    qs = Tender.objects.filter(
+    aday = Tender.objects.filter(
         detail_synced_at__lt=simdi - timedelta(days=1),
         ihale_tarihi__gte=simdi - timedelta(days=180),
-    ).order_by("detail_synced_at")[:50]
-    for t in qs:
-        if sync_mod.should_refresh_detail(t, simdi) and _isaretle(t.ikn):
-            return t.ikn
+    ).only(*_TAZELEME_ALANLARI)
+
+    kumeler = []
+    takip = _takip_edilen_iknler()
+    if takip:
+        kumeler.append(aday.filter(ikn__in=takip).order_by("detail_synced_at")[:50])
+    kumeler.append(
+        aday.filter(ihale_tarihi__lte=simdi, ihale_tarihi__gte=simdi - timedelta(days=30))
+        .exclude(ihale_durum__in=DURUM_SONUCLANMIS)
+        .order_by("detail_synced_at")[:50]
+    )
+    kumeler.append(aday.order_by("detail_synced_at")[:50])
+
+    for i, qs in enumerate(kumeler):
+        takipte = bool(takip) and i == 0
+        for t in qs:
+            if sync_mod.should_refresh_detail(t, simdi, takipte=takipte) and _isaretle(t.ikn):
+                return t.ikn
     return None
 
 
@@ -504,7 +575,9 @@ def sonuc(ikn, cli=None):
     if tender.sozlesmeler.exclude(
         ekap_sozlesme_id__startswith=adapt.SOZLESME_ONEK
     ).exists():
-        _isaret_sil(f"sonuc:{ikn}")
+        # ⚠️ İşaret SİLİNMEZ, uzatılır: silinseydi sıra sorgusu bir gün yine bu
+        # ihaleyi döndürdüğünde her tik aynı kayda takılırdı (2026-10-05 döngüsü).
+        _isaret_uzat(f"sonuc:{ikn}", _SONUC_YOK_TTL)
         return {"atlandi": "v2_sozlesmesi_var"}
 
     cli = cli or EkapMobilClient()

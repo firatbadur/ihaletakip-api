@@ -377,6 +377,10 @@ def refresh_stale(batch=50, years=None, defer_detail=True):
 
     Yalnızca son ``years`` yıl (ilan tarihine göre) içindeki ihaleler aday olur.
     """
+    if settings.EKAP_MOBIL_ENABLED and not settings.EKAP_V2_TAZELEME:
+        # ⚠️ SyncRun YAZILMAZ: yazılsaydı admin'de "ok" görünüp hiçbir şey
+        # tazelenmediği hâlde hattın çalıştığı sanılırdı (2026-10-05).
+        return {"status": "mobil_birincil"}
     if not _dogrulama_kapisi("refresh_stale"):
         return {"status": "dogrulama_yok"}
     years = years or settings.EKAP_REFRESH_YEARS

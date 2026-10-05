@@ -133,6 +133,28 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   (kuyrukta 218.443 görev / 159.801 gerçek iş). Öncelik: **detay** (→ `ilan_tarihi`,
   bildirimlerin tamamı buna bağlı) > **keşif** (her 3 turda bir, aksi hâlde borç
   keşfi aç bırakır) > **sonuç ilanı** > **tazeleme**.
+- ⚠️⚠️ **TAZELEME HATTI HAFTALARCA ÖLÜYDÜ (bulundu 2026-10-05).** Kullanıcı bildirdi:
+  İKN 2026/1378444 EKAP'ta sözleşmesi imzalanmış, uygulamada "Katılıma Açık" (son detay
+  13 Ağustos). Ölçüm: teklif tarihi geçmiş ama durumu 2/3/4 kalan **27.691** ihale, son
+  24 saatte tazelenen eski ihale **0**, sayaçlar `sonuc=0 tazeleme=0` — bütçe boştu.
+  **Sebep: sonsuz döngü.** `_sirada_sonuc` denormalize `sozlesme_sayisi=0` sayacına
+  bakıyordu; sayacı bayat (0) ama v2 sözleşmesi olan ihale seçiliyor, `sonuc()`
+  `v2_sozlesmesi_var` deyip **işareti siliyor**, sonraki tik aynı ihaleyi yine seçiyordu.
+  İstek harcanmadığı için bütçe sayacında **görünmüyordu**; tik logunda
+  `{'atlandi': 'v2_sozlesmesi_var'}` tekrarı tek parmak izi.
+  → "sözleşme yok" kararı `~Exists(Contract)`'tan (sayaçtan DEĞİL) + 180 gün penceresi
+  (`EKAP_MOBIL_SONUC_GERI_GUN`; pencere yokken aday 252 bin arşiv kaydıydı) + atlamada
+  işaret **uzatılır** + istek harcamayan atlama tik'i yemez + sonuç/tazeleme **dönüşümlü**
+  (eskiden tazeleme yalnızca sonuç sırası boşken koşuyordu).
+  ⚠️ **Tazeleme önceliği**: (1) takip edilen (kayıtlı ihale + alarm — "İhale Sonuçlandı"
+  alarmı buna bağlı), (2) teklif tarihi son 30 günde geçmiş, (3) geri kalan.
+  `should_refresh_detail`: 0-30 gün günlük, 30-120 gün **haftalık** (eskiden 120 günün
+  tamamı günlük = ~14,5 bin/gün, kapasite ~200), `takipte=True` yaşa bakmadan günlük.
+  ⚠️ v2 `refresh_stale` da yanıltıyordu: `SyncRun ok / 50` yazıp kuyruğa attığı her
+  detay `dogrulama_yok` ile atlanıyordu → mobil açıkken `EKAP_V2_TAZELEME=False`
+  (vars.) ise SyncRun yazmadan çıkar. Testler: `ekap/tests/test_mobil_sira.py`
+  (dişi doğrulandı: `Exists` dışlaması geri alınınca döngü testi kırılıyor).
+  ⚠️ Mobil `STATUS_MAP` da yanlıştı (5 → "Değerlendirmede"); düzeltildi, mağaza sürümü ister.
 - ⚠️ **`SyncRun` satırı yalnızca keşif turlarında yazılır.** Tik 2 dk'da bir koşuyor;
   her tur satır yazmak admin'i günde ~720 kayıtla doldururdu. Teşhis
   `Tender.detail_synced_at` / `ilan_tarihi` sayımlarıyla yapılır.

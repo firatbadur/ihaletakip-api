@@ -1057,8 +1057,12 @@ def sync_detail(ekap_id, client):
         raise
 
 
-def should_refresh_detail(tender, now=None) -> bool:
-    """Detayın yeniden çekilmesi gerekip gerekmediğine karar verir (akıllı kural)."""
+def should_refresh_detail(tender, now=None, takipte=False) -> bool:
+    """Detayın yeniden çekilmesi gerekip gerekmediğine karar verir (akıllı kural).
+
+    ``takipte=True``: bir kullanıcı ihaleyi kaydetmiş/alarm kurmuş → sonuçlanana
+    kadar yaşı ne olursa olsun günlük tazelenir.
+    """
     now = now or timezone.now()
 
     # Hiç detay çekilmediyse → evet
@@ -1079,8 +1083,15 @@ def should_refresh_detail(tender, now=None) -> bool:
     if tender.ihale_tarihi and tender.ihale_tarihi > now:
         return (now - tender.detail_synced_at) > timedelta(days=3)
 
-    # İhale tarihi son 120 günde geçmiş ve sonuçlanmamış → sık yenile (sonuç yakala)
+    # İhale tarihi geçmiş ve sonuçlanmamış → sonucu yakala. Sıklık yaşla seyrekleşir:
+    # ⚠️ eski kural 120 günün tamamını GÜNLÜK istiyordu (~14.5 bin ihale/gün); mobil
+    # hattın tazelemeye ayırabildiği ~200 tik/gün bunun yanında hiçti ve sıra en eskiye
+    # verildiği için yeni sonuçlanan ihaleye hiç gelmiyordu (2026-10-05).
     if tender.ihale_tarihi and (now - tender.ihale_tarihi) <= timedelta(days=120):
+        if takipte or (now - tender.ihale_tarihi) <= timedelta(days=30):
+            return (now - tender.detail_synced_at) > timedelta(days=1)
+        return (now - tender.detail_synced_at) > timedelta(days=7)
+    if takipte:
         return (now - tender.detail_synced_at) > timedelta(days=1)
 
     # Diğerleri → seyrek

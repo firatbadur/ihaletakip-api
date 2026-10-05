@@ -42,11 +42,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--is", dest="is_", required=True,
-                            choices=["uclar", "idare", "tempo", "captcha", "kapsam"])
+                            choices=["uclar", "idare", "tempo", "captcha", "kapsam", "durum"])
         parser.add_argument("--ikn", help="Hedef İKN (uclar/idare için)")
         parser.add_argument("--adet", type=int, default=10,
                             help="Örneklem büyüklüğü (idare/captcha)")
         parser.add_argument("--gun", type=int, default=1, help="kapsam: kaç gün")
+        parser.add_argument("--tarih", help="durum: ihale günü (YYYY-MM-DD)")
+        parser.add_argument("--tur", type=int, default=1, help="durum: ihaleTuru (1-4)")
+        parser.add_argument("--degerler", default="0,1,2,3,4,5,6",
+                            help="durum: denenecek ihaleDurumu değerleri")
         parser.add_argument("--aralik", type=int,
                             help="Hız penceresi (sn) — bu çalışma için geçici")
         parser.add_argument("--cikti", default="", help="Ham yanıtların yazılacağı dizin")
@@ -293,6 +297,64 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(
                     f"  ⚠️ {tavan_carpan} türleri 250 tavanına takıldı → il kırılımı gerekli"
                 ))
+
+    # ── 5. Liste ucunda `ihaleDurumu` filtresi çalışıyor mu? ──
+    def _is_durum(self, o):
+        """
+        Aynı gün × tür için `ihaleDurumu` değerlerini tek tek dener; dönen İKN
+        kümelerini birbiriyle ve DB'deki (bilinen) durumlarla karşılaştırır.
+
+        Soru: toplu durum tespiti mümkün mü? Mümkünse teklif tarihi geçmiş on
+        binlerce ihalenin durumu tek tek detay isteği yerine dilim başına TEK
+        istekle öğrenilebilir. Yazma yapmaz.
+        """
+        from collections import Counter
+        from datetime import date
+
+        if not o.get("tarih"):
+            raise CommandError("--tarih YYYY-MM-DD verin")
+        gun = date.fromisoformat(o["tarih"])
+        bas, bit = local_day_range(gun)
+        db = dict(Tender.objects.filter(
+            ihale_tarihi__gte=bas, ihale_tarihi__lt=bit, ihale_tip=o["tur"]
+        ).values_list("ikn", "ihale_durum"))
+        self.stdout.write(f"DB {gun} tür={o['tur']}: {len(db)} ihale, durumlar "
+                          f"{dict(Counter(db.values()))}")
+
+        cli = EkapMobilClient()
+        kumeler = {}
+        for deger in [int(x) for x in o["degerler"].split(",")]:
+            govde = cli.liste_govdesi(
+                ihaleTarihiBaslangic=f"{gun:%Y-%m-%d} 00:00:00",
+                ihaleTarihiBitis=f"{gun:%Y-%m-%d} 23:59:59",
+                ihaleTuru=o["tur"], ihaleDurumu=deger,
+            )
+            try:
+                veri = cli.liste(govde)
+            except MobilError as e:
+                self.stderr.write(self.style.WARNING(f"ihaleDurumu={deger}: {e}"))
+                continue
+            satirlar = veri if isinstance(veri, list) else []
+            iknler = {str(r.get("ikn")) for r in satirlar if r.get("ikn")}
+            kumeler[deger] = iknler
+            metinler = Counter(str(r.get("ihaleDurumu")) for r in satirlar)
+            db_dagilim = Counter(db.get(i, "DB'de yok") for i in iknler)
+            self.stdout.write(
+                f"ihaleDurumu={deger}: {len(iknler)} kayıt · satır metni "
+                f"{dict(metinler)} · DB durumları {dict(db_dagilim)}"
+            )
+        if 0 in kumeler:
+            hepsi = kumeler[0]
+            for d, k in kumeler.items():
+                if d:
+                    self.stdout.write(f"  {d}: 0'ın alt kümesi mi={k <= hepsi} · "
+                                      f"oran={len(k)}/{len(hepsi)}")
+            digerleri = [k for d, k in kumeler.items() if d]
+            if digerleri:
+                birlesim = set().union(*digerleri)
+                ortusme = sum(len(k) for k in digerleri) - len(birlesim)
+                self.stdout.write(f"  0 dışı değerlerin birleşimi {len(birlesim)} "
+                                  f"(0 ile eşit mi={birlesim == hepsi}) · çakışan {ortusme}")
 
     def _ornek_ikn(self):
         t = Tender.objects.order_by("-ihale_tarihi").only("ikn").first()

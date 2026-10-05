@@ -94,6 +94,31 @@ ihaleIlani, duzeltmeIlanlari, iptalIlani, onIlan, sonucIlanlari, ilan2015Sonrasi
 | `orderBy` ("IKN Asc"/"Desc") | ❌ yok sayılıyor |
 | `iknYili` / `iknSayi` | ❌ yok sayılıyor (tekil ihale için detay ucunu kullan) |
 | `ihaleBilgiSecim` / `ihaleBilgiOpsiyon` | ❌ etkisi gözlenmedi |
+| `ihaleDurumu` | ✅ **çalışıyor** — kodlar bizim `IHALE_DURUM` ile **birebir aynı** (ölçüldü 2026-10-05, aşağıda) |
+
+#### `ihaleDurumu` filtresi — toplu durum tespiti (ölçüldü 2026-10-05)
+
+`mobil_probe --is durum --tarih 2026-08-17 --tur 1 --dogrula`: aynı gün × tür, değer
+değer; her dolu değerden bir ihalenin **detay** ucundaki metni okunarak anlam doğrulandı.
+
+| değer | kayıt | detay metni |
+|---|---|---|
+| 0 | 135 | (filtresiz) |
+| 1 | 1 | detay "kayıt yok" |
+| 2 | 0 | — (teklif tarihi geçmiş gün, beklenen) |
+| 3 | 5 | İhale Tekliflere Kapalı, Teklifler Değerlendiriliyor |
+| 4 | 8 | Teklif Değerlendirme Tamamlanmış |
+| 5 | 1 | Sözleşme İmzalanmış |
+| 6 | 13 | İhale İptal Edilmiş |
+| 15 | 108 | Sonuç İlanı Yayımlanmış |
+| 7-14, 16-20 | 0 | — |
+
+Toplam 1+5+8+1+13+108 = 136 ≈ 135 → küme **bölümleme** gibi davranıyor.
+⚠️ Liste satırında durum metni yine **boş** (`None`) — bilgi satırdan değil, filtrenin
+kendisinden (hangi değerle döndüğünden) okunur.
+⚠️ O gün DB'de 118 ihalenin **111'i hâlâ 2** (Katılıma Açık) görünüyordu; EKAP'ta **0**.
+→ Bir (gün × tür × durum) dilimi = 1 istek ile o dilimdeki tüm ihalelerin durumu
+öğrenilir; ihale başına detay isteği gerekmez.
 
 #### ⚠️ 250 kayıt tavanı
 

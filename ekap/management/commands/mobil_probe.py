@@ -51,6 +51,9 @@ class Command(BaseCommand):
         parser.add_argument("--tur", type=int, default=1, help="durum: ihaleTuru (1-4)")
         parser.add_argument("--degerler", default="0,1,2,3,4,5,6",
                             help="durum: denenecek ihaleDurumu değerleri")
+        parser.add_argument("--dogrula", action="store_true",
+                            help="durum: her dolu değerden bir ihalenin detayını çekip "
+                                 "gerçek durum metnini basar (değer başına +1 istek)")
         parser.add_argument("--aralik", type=int,
                             help="Hız penceresi (sn) — bu çalışma için geçici")
         parser.add_argument("--cikti", default="", help="Ham yanıtların yazılacağı dizin")
@@ -351,8 +354,25 @@ class Command(BaseCommand):
             db_dagilim = Counter(db.get(i, "DB'de yok") for i in iknler)
             self.stdout.write(
                 f"ihaleDurumu={deger}: {len(iknler)} kayıt · satır metni "
-                f"{dict(metinler)} · DB durumları {dict(db_dagilim)}"
+                f"{dict(metinler)} · DB durumları {dict(db_dagilim)} · "
+                f"örnek {sorted(iknler)[:3]}"
             )
+            if o.get("dogrula") and iknler:
+                # ⚠️ Liste filtresinin numaraları bizim `IHALE_DURUM` kodlarımızla
+                # aynı OLMAYABİLİR; detay ucu metin döndürdüğü için gerçek anlam
+                # oradan okunur.
+                ornek = sorted(iknler)[0]
+                yil, _, sayi = ornek.partition("/")
+                for _ in range(20):
+                    try:
+                        d = cli.ihale(yil, sayi) or {}
+                        self.stdout.write(f"    ↳ {ornek} detay: {d.get('ihaleDurumu')!r}")
+                        break
+                    except MobilSlotError:
+                        time.sleep(30)
+                    except MobilError as e:
+                        self.stderr.write(self.style.WARNING(f"    ↳ {ornek}: {e}"))
+                        break
         if 0 in kumeler:
             hepsi = kumeler[0]
             for d, k in kumeler.items():

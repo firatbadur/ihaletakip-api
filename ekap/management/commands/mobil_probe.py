@@ -25,7 +25,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from ekap.mobil import captcha as captcha_mod
 from ekap.mobil import constants as C
-from ekap.mobil.client import EkapMobilClient, MobilError
+from ekap.mobil.client import EkapMobilClient, MobilError, MobilSlotError
 from ekap.models import Tender
 from ekap.utils import local_day_range
 
@@ -329,10 +329,20 @@ class Command(BaseCommand):
                 ihaleTarihiBitis=f"{gun:%Y-%m-%d} 23:59:59",
                 ihaleTuru=o["tur"], ihaleDurumu=deger,
             )
-            try:
-                veri = cli.liste(govde)
-            except MobilError as e:
-                self.stderr.write(self.style.WARNING(f"ihaleDurumu={deger}: {e}"))
+            # ⚠️ Arka plandaki `tik` aynı hız penceresini kullanıyor → slot
+            # bulunamazsa beklenip yeniden denenir (ilk çalıştırmada 7 isteğin 6'sı
+            # "slot alınamadı" ile düştü).
+            veri = None
+            for _ in range(20):
+                try:
+                    veri = cli.liste(govde)
+                    break
+                except MobilSlotError:
+                    time.sleep(30)
+                except MobilError as e:
+                    self.stderr.write(self.style.WARNING(f"ihaleDurumu={deger}: {e}"))
+                    break
+            if veri is None:
                 continue
             satirlar = veri if isinstance(veri, list) else []
             iknler = {str(r.get("ikn")) for r in satirlar if r.get("ikn")}

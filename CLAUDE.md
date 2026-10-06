@@ -3140,8 +3140,7 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 - `cleanup_old_notifications` — eski bildirim temizliği (günlük 04:00)
 - `match_recommendations` — İhale Asistanı günlük öneri eşleştirmesi + push (günlük 07:00,
   gece EKAP `sync_recent` bittikten sonra; **Pro'ya özel**, profil tabanlı)
-- `recommend_by_saved_okas` — kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan
-  ihale önerisi + push (günlük 08:00, **Free/Pro herkese**)
+- ~~`recommend_by_saved_okas`~~ — **KALDIRILDI (2026-10-06)**, bkz. Bildirim Servisi → Kaynaklar 5
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği; **Free dahil herkese**, 2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
 - `check_favorite_authority_matches` — favori idare bildirimi + push (**her sabah 08:30,
@@ -3276,14 +3275,12 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
   - `templates.py` — Türkçe metinler (İhale Günü / Doküman Güncellendi / İhale Sonuçlandı,
     `alarm_tender` (ihale-başına birleşik), filtre eşleşmesi, favori idare eşleşmesi, OKAS önerisi).
 - **Zamanlama (kademeli)**: 07:00 asistan öneri digest'i (`match_recommendations`),
-  **08:00 OKAS önerisi (`recommend_by_saved_okas`) + kayıtlı filtre özeti
-  (`check_saved_filter_matches`)**, **08:30 favori idare özeti
+  **08:00 kayıtlı filtre özeti (`check_saved_filter_matches`)**, **08:30 favori idare özeti
   (`check_favorite_authority_matches`)**, 09:00 alarm hatırlatıcıları (`check_tender_alarms`).
   Alarm/filtre/idare kategorileri **abonelik-başına ayrı push** atar (o kategorinin görev
   turunda arka arkaya).
-  ⚠️ 08:00'de **iki** kategori birden koşuyor (OKAS + filtre) — "≥1 sa arayla" kuralının
-  bilinçli istisnası: ikisi de sabah özeti ve farklı derin bağlantılara gidiyor. Kullanıcı
-  arka arkaya iki push'tan şikâyet ederse ayrılacak ilk yer burasıdır.
+  ⚠️ 08:00'de eskiden **iki** kategori birden koşuyordu (OKAS + filtre); kullanıcı arka
+  arkaya iki push'tan şikâyet etti (2026-10-06) ve OKAS önerisi kaldırıldı.
   ⚠️⚠️ **Bildirim saati `NOTIF_QUIET_END_HOUR`'dan (7) SONRA olmalı**: sessiz saat içinde
   koşan bir tur uygulama-içi satırı yazar ama **push atmaz** — belirti "bildirim listede
   var, telefona gelmedi"dir. 08:00 bu yüzden en erken güvenli saattir.
@@ -3651,7 +3648,18 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
      + `authority_detsis=detsis_no`; mobil o idarenin listesini (`GET /ekap/tenders/?idare_detsis=`)
      açar (push data → `authorityDetsis`). Gün-kilidi `authority:{uid}:{detsis_no}:{date}`.
      ✅ **Free dahil herkese açık** (2026-09-29; görev artık premium kontrolü yapmıyor).
-  5. **OKAS önerisi** (`recommend_by_saved_okas`, 08:00) — **Free/Pro fark etmez, HERKESE**.
+  5. ⚠️⚠️ **OKAS önerisi — KALDIRILDI (2026-10-06), GERİ EKLEMEYİN (aynı hâliyle).**
+     Kullanıcı şikâyeti: filtre bildirimiyle aynı dakikada ikinci bir push. Ölçüm hatayı da
+     gösterdi: **sayı ile açılan liste tutmuyordu** — gövde "son 24 saatte N" sayıyor, mobil
+     ise yalnızca `okas_kod` ile (tarih sınırı yok) arıyordu: "11 yeni ihale" → **86.070**
+     ihalelik liste, "14" → 58.471. Sayım birebir `kodu__in`, liste `startswith` kullanıyordu.
+     Filtre bildiriminde 2026-09-28'de kapatılan "sayı ≠ liste" sınıfının aynısı. Görev,
+     şablon, beat girdisi, `NOTIF_OKAS_PUBLISH_DAYS` silindi; üretimde `PeriodicTask`
+     `.delete()` ile silindi. ⚠️ `Notification.okas_kodlar` ve mobil `okasKodlar` dalı
+     **duruyor** — listedeki eski satırlar açılmaya devam etsin. Geri getirilecekse pencere
+     bildirimde taşınmalı ve sayım ile liste aynı fonksiyondan kurulmalı
+     (`kayitli_filtre_birlesimi` deseni). Eski tanım (tarihsel):
+     `recommend_by_saved_okas`, 08:00 — **Free/Pro fark etmez, HERKESE**.
      Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar (benzersiz,
      azami 20 kod; `OkasItem.kodu`), o kodlarla **son `NOTIF_OKAS_PUBLISH_DAYS`=1 günde
      yayınlanan** (`ilan_tarihi`) açık + teklifi geçmemiş ihaleleri bulur (kullanıcının zaten

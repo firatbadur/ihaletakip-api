@@ -764,115 +764,13 @@ def _idare_abonelik_basina():
     return {"favorites": processed, "notified": notified, "pushed": pushed}
 
 
-@shared_task(name="tenders.tasks.recommend_by_saved_okas")
-def recommend_by_saved_okas():
-    """
-    Kayıtlı ihalelere göre günlük OKAS önerisi — **Free/Pro fark etmeksizin HERKESE**.
-
-    Kullanıcının kaydettiği ihalelerin (`SavedTender`) OKAS kodlarını toplar; o kodlarla
-    **son 24 saatte yayınlanan** (ilan_tarihi) açık + teklifi geçmemiş ihaleleri bulur.
-    Kullanıcının zaten kaydettiği ihaleler hariç tutulur. Eşleşme varsa kullanıcı başına
-    tek özet bildirim + push atılır; push/bildirim OKAS kodlarını `okas_kodlar` (CSV) ile
-    taşır → mobil bildirime basınca tek ihale DEĞİL, `GET /ekap/tenders/?okas_kod=<CSV>`
-    ile o kategorilerdeki arama sonuçlarını açar.
-
-    Not: Bu bildirim **premium değildir** (herkese) — İhale Asistanı önerisinden (Pro,
-    profil tabanlı) ayrıdır. Pencere `NOTIF_OKAS_PUBLISH_DAYS` (vars. 1 gün) ile ayarlanır.
-    """
-    from django.contrib.auth import get_user_model
-
-    from ekap.models import OkasItem, Tender
-
-    from .models import Notification, SavedTender
-    from .services import notify, templates
-
-    OPEN_STATUSES = [2, 3]
-    MAX_OKAS = 20  # push/arama derin bağlantısını makul tut
-    now = timezone.now()
-    today = timezone.localdate()
-    publish_days = int(getattr(settings, "NOTIF_OKAS_PUBLISH_DAYS", 1))
-    window_start = now - timedelta(days=publish_days)
-
-    User = get_user_model()
-    user_ids = list(
-        SavedTender.objects.values_list("user_id", flat=True).distinct()
-    )
-    if not user_ids:
-        logger.info("recommend_by_saved_okas: kayıtlı ihalesi olan kullanıcı yok")
-        return {"users": 0, "pushed": 0}
-
-    users = {u.id: u for u in User.objects.filter(id__in=user_ids)}
-    pushed = 0
-    notified_users = 0
-
-    for uid in user_ids:
-        user = users.get(uid)
-        if user is None or not getattr(user, "is_active", True):
-            continue
-        # Kullanıcı başına atomik gün-kilidi: OKAS önerisi tek özettir; görev gün içinde
-        # birden çok tetiklenirse (yinelenmiş/interval beat) satır/push çoğalmasın.
-        if not cache.add(f"okasrec:{uid}:{today.isoformat()}", 1, _ROW_DEDUP_TTL):
-            continue
-        try:
-            saved_ikns = list(
-                SavedTender.objects.filter(user_id=uid)
-                .exclude(tender_ikn="")
-                .values_list("tender_ikn", flat=True)
-            )
-            if not saved_ikns:
-                continue
-            # Kayıtlı ihalelerin OKAS kodları (benzersiz, boş olmayan; azami MAX_OKAS).
-            okas_codes = list(
-                OkasItem.objects.filter(tender__ikn__in=saved_ikns)
-                .exclude(kodu="")
-                .values_list("kodu", flat=True)
-                .distinct()
-            )[:MAX_OKAS]
-            if not okas_codes:
-                continue
-
-            # Aynı OKAS kodlarıyla son 24 saatte yayınlanan açık + teklifi geçmemiş ihaleler
-            # (kullanıcının zaten kaydettikleri hariç).
-            matches = (
-                Tender.objects.filter(
-                    okas_kalemleri__kodu__in=okas_codes,
-                    ihale_durum__in=OPEN_STATUSES,
-                )
-                .filter(Q(ihale_tarihi__gte=now) | Q(ihale_tarihi__isnull=True))
-                .filter(ilan_tarihi__gte=window_start)
-                .exclude(ikn__in=saved_ikns)
-                .distinct()
-            )
-            count = matches.count()
-            if count <= 0:
-                continue
-
-            okas_csv = ",".join(okas_codes)
-            title, body = templates.okas_recommendation(count=count)
-            notify.record_notification(
-                user,
-                type=Notification.Type.TENDER,
-                title=title,
-                body=body,
-                okas_kodlar=okas_csv,
-            )
-            notified_users += 1
-
-            data = {"type": Notification.Type.TENDER, "okasKodlar": okas_csv}
-            ok = notify.push_to_user(
-                user, title=title, body=body, data=data,
-                idem_key=f"okas:{uid}:{today.isoformat()}",
-            )
-            if ok:
-                pushed += 1
-        except Exception:
-            logger.exception("recommend_by_saved_okas: kullanıcı %s işlenemedi", uid)
-            continue
-
-    logger.info(
-        "recommend_by_saved_okas: %s kullanıcıya bildirim, %s push", notified_users, pushed,
-    )
-    return {"users": notified_users, "pushed": pushed}
+# ⚠️⚠️ `recommend_by_saved_okas` ("Size Özel İhaleler", 08:00) KALDIRILDI (2026-10-06).
+# Bildirim "son 24 saatte N ihale" diyordu ama mobil bildirimi yalnızca `okas_kod` ile
+# açıyordu (tarih sınırı yok) → ölçülen: "11 yeni ihale" diyen bildirim 86.070 ihalelik
+# liste açtı. Sayım birebir kod, liste `startswith` kullandığı için iki taraf farklı küme
+# görüyordu; üstelik filtre özetiyle aynı dakikada ikinci push atıyordu. Kullanıcı kararı:
+# kapatıldı. Geri getirilecekse filtre bildirimindeki pencere + ortak sayım deseniyle
+# (`kayitli_filtre_birlesimi`, `pencere_bas/bit`) yeniden yazılmalı.
 
 
 @shared_task(name="tenders.tasks.check_favorite_contractor_matches")

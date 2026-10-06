@@ -37,12 +37,9 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.match_recommendations",
         "schedule": crontab(hour=7, minute=0),
     },
-    # OKAS önerisi: kayıtlı ihalelerin OKAS kodlarıyla son 24s yayınlanan ihaleler
-    # (her gün 08:00 — Free/Pro herkese; asistan önerisinden ayrı, premium değil)
-    "recommend-by-saved-okas": {
-        "task": "tenders.tasks.recommend_by_saved_okas",
-        "schedule": crontab(hour=8, minute=0),
-    },
+    # ⚠️ `recommend-by-saved-okas` ("Size Özel İhaleler") 2026-10-06'da KALDIRILDI —
+    # bkz. tenders/tasks.py. ⚠️ Koddan silmek DB'deki PeriodicTask'ı silmez; üretimde
+    # `.delete()` ile ayrıca silindi.
     # İhale alarmları: ihale günü / doküman değişikliği / sonuçlandı (her gün 09:00)
     "check-tender-alarms": {
         "task": "tenders.tasks.check_tender_alarms",
@@ -63,10 +60,8 @@ app.conf.beat_schedule = {
     # (ölçüldü 2026-09-23: tek kullanıcı 18 filtre bildirimi, 6 filtre 2 kez) ve her
     # turun sayısı farklı çıkıyordu çünkü gün henüz bitmemişti.
     #
-    # ⚠️ 08:00 aynı dakikada `recommend-by-saved-okas` da koşuyor (ikisi de push atar,
-    # `NOTIF_MIN_GAP_MINUTES=0`). Bilinçli: ikisi de "sabah özeti" kategorisinde ve
-    # farklı derin bağlantılara gidiyor. Kullanıcı arka arkaya iki push'tan şikâyet
-    # ederse ayrılacak ilk yer burasıdır.
+    # (08:00'de eskiden `recommend-by-saved-okas` da koşuyordu → arka arkaya iki push;
+    # kullanıcı şikâyet etti, o görev 2026-10-06'da kaldırıldı.)
     "check-saved-filter-matches": {
         "task": "tenders.tasks.check_saved_filter_matches",
         "schedule": crontab(hour=8, minute=0),

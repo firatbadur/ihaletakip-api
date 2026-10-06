@@ -133,8 +133,9 @@ class Command(BaseCommand):
                      tender_ikn=ikn, tender_title="Örnek İhale A"),
         )
 
-        # 3) OKAS önerisi (recommend_by_saved_okas) — type=tender + okasKodlar → OKAS araması.
-        o_title, o_body = templates.okas_recommendation(count=4)
+        # 3) OKAS önerisi — görev 2026-10-06'da KALDIRILDI; bildirim listesinde eski
+        # satırlar duruyor, mobil yönlendirmesi (okasKodlar → OKAS araması) test edilsin.
+        o_title, o_body = "Size Özel İhaleler", "İlgilendiğiniz kategorilerde 4 yeni ihale yayınlandı."
         builders["okas"] = dict(
             title=o_title,
             body=o_body,

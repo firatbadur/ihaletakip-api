@@ -132,17 +132,6 @@ def authorities_ozet(*, count: int, saat: int = 24) -> tuple[str, str]:
     )
 
 
-def okas_recommendation(*, count: int) -> tuple[str, str]:
-    """
-    Kayıtlı ihalelerin OKAS kodlarına göre günlük öneri bildirimi (Free/Pro herkese).
-    Bildirime basınca `okas_kodlar` ile OKAS arama sonuçları açılır.
-    """
-    return (
-        "Size Özel İhaleler",
-        f"İlgilendiğiniz kategorilerde {count} yeni ihale yayınlandı.",
-    )
-
-
 # ── Takip edilen firma: yeni sözleşme ──────────────────
 
 def contractor_match(*, firma_adi: str, count: int, ihale_adi: str | None = None) -> tuple[str, str]:

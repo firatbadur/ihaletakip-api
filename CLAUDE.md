@@ -2698,7 +2698,9 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   her seçim açık `"uygun": true` taşımalı (kuru çalıştırmada model seçip gerekçeye "uygun
   değildir" yazdı — 2026-10-06).
   AI hatasında aynı aday kümesinde kural tabanlı yedek (`matching.puanla`).
-  Filtre bildirimi yoksa ya da seçim boşsa **bildirim yok**. Bildirimdeki sayı = sohbetteki
+  Filtre bildirimi yoksa, seçim boşsa ya da **profil yetersizse** (`profil_yeterli`: anahtar
+  kelime/OKAS/faaliyet alanı/geçmiş iş yok — boş profilde model firmaya kimlik uyduruyordu)
+  **bildirim yok**. Prompt: ihalenin konusu firmanın KENDİ işi olmalı, yan hizmet/taşeronluk değil. Bildirimdeki sayı = sohbetteki
   kart sayısı (eskiden "8 yeni öneri" deyip 5 kart gösteriyordu — 50 kullanıcı-günün 16'sı).
   Kartlara `gerekce` alanı eklendi (additive). Kuru çalıştırma:
   `run_assistant_match --kuru`. Testler `assistant/tests/test_gunluk_oneri.py`.

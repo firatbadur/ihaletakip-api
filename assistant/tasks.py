@@ -625,6 +625,9 @@ def match_recommendations(since_days=1, kuru=False):
         if not user.is_premium:
             sayac["skipped_free"] += 1
             continue
+        if not oneri_secim.profil_yeterli(profile):
+            sayac["profil_eksik"] = sayac.get("profil_eksik", 0) + 1
+            continue
         try:
             bildirim = oneri_secim.bugunku_filtre_bildirimi(user, today)
             if bildirim is None:

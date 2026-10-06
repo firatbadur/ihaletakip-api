@@ -111,6 +111,10 @@ KURALLAR
 - "UYGUN OLMAYAN alanlar"a giren ihaleyi seçme.
 - Kelime benzerliğine aldanma: işin konusu firmanın işi değilse seçme
   (ör. "köprü" geçen bir diş protezi alımı, inşaat firmasına uygun değildir).
+- İhalenin KONUSU firmanın kendi sattığı/yaptığı iş olmalı. Firmanın yalnızca yan
+  hizmet verebileceği, taşeron olabileceği ya da "destek sağlayabileceği" ihaleleri seçme
+  (ör. danışmanlık firmasına inşaat yapım ihalesi seçilmez).
+- Profilde olmayan bir uzmanlığı firmaya yakıştırma.
 - Listeye YALNIZCA önerdiğin ihaleleri koy; uygun bulmadığın ihaleyi listeye hiç yazma.
 - Her seçimde "uygun": true olmalı. Emin değilsen seçme.
 - Gerekçe tek kısa cümle, Türkçe, firmanın hangi işiyle örtüştüğünü söylesin.
@@ -124,6 +128,18 @@ KURALLAR
 ## BUGÜNKÜ ADAY İHALELER
 {adaylar}
 """
+
+
+def profil_yeterli(profile) -> bool:
+    """Firmanın ne iş yaptığına dair en az bir somut sinyal var mı?
+
+    ⚠️ Üretim kuru çalıştırması (2026-10-06): haritası boş bir profilde (yalnızca firma
+    adı + il) model firmaya kendisi "inşaat firması" kimliği uydurup ona göre seçti.
+    Bilgi yoksa öneri yok — uydurma öneriden iyidir.
+    """
+    pm = profile.profile_map or {}
+    return bool(pm.get("keywords") or pm.get("okas_prefixes") or profile.activity_areas
+                or profile.past_works)
 
 
 def ai_ile_sec(profile, aday_listesi):

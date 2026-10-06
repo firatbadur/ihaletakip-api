@@ -116,6 +116,16 @@ class GunlukOneriTest(TestCase):
         self.assertEqual(
             list(TenderRecommendation.objects.values_list("tender_id", flat=True)), [b.pk])
 
+    def test_profili_BOS_kullaniciya_oneri_yok(self):
+        """Üretimde görüldü: boş profilde model firmaya kimlik uydurdu."""
+        CompanyProfile.objects.filter(pk=self.profil.pk).update(
+            profile_map={"keywords": [], "summary": "bilgi yok"})
+        self._filtre_bildirimi()
+        _ihale(1)
+        r = self._calistir([{"id": 1, "gerekce": "x"}])
+        self.assertEqual(r.get("profil_eksik"), 1)
+        self.assertFalse(TenderRecommendation.objects.exists())
+
     def test_AI_bos_secerse_bildirim_yok(self):
         self._filtre_bildirimi()
         _ihale(1)

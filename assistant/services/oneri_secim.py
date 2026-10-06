@@ -111,10 +111,12 @@ KURALLAR
 - "UYGUN OLMAYAN alanlar"a giren ihaleyi seçme.
 - Kelime benzerliğine aldanma: işin konusu firmanın işi değilse seçme
   (ör. "köprü" geçen bir diş protezi alımı, inşaat firmasına uygun değildir).
+- Listeye YALNIZCA önerdiğin ihaleleri koy; uygun bulmadığın ihaleyi listeye hiç yazma.
+- Her seçimde "uygun": true olmalı. Emin değilsen seçme.
 - Gerekçe tek kısa cümle, Türkçe, firmanın hangi işiyle örtüştüğünü söylesin.
 
 ÇIKTI: yalnızca JSON, başka metin yok:
-{{"secimler": [{{"id": 123, "gerekce": "..."}}]}}
+{{"secimler": [{{"id": 123, "uygun": true, "gerekce": "..."}}]}}
 
 ## FİRMA PROFİLİ
 {profil}
@@ -148,6 +150,11 @@ def ai_ile_sec(profile, aday_listesi):
             continue
         # ⚠️ Kod garantisi: aday kümesinde olmayan (uydurma) id ve tekrar atılır.
         if pk not in eldeki or pk in gorulen:
+            continue
+        # ⚠️ Açık "uygun: true" şart. Üretim kuru çalıştırmasında (2026-10-06) model bir
+        # ihaleyi listeye koyup gerekçesine "...için uygun değildir" yazdı; o ihale
+        # "öneri" olarak kullanıcıya gidecekti. Alan yoksa/false ise atılır.
+        if s.get("uygun") is not True:
             continue
         gorulen.add(pk)
         secim.append((eldeki[pk], str(s.get("gerekce") or "").strip()[:300]))

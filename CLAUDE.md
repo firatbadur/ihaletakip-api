@@ -2694,7 +2694,9 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   `kayitli_filtre_birlesimi` ile **aynı fonksiyondan** yeniden kurulur; kaydedilmiş ve
   daha önce önerilmiş ihaleler çıkar, tavan 60. Seçimi **yapay zekâ** yapar
   (`CLAUDE_CHAT_MODEL`, en çok 5, gerekçeli; uygun yoksa boş). ⚠️ Kod garantisi: dönen
-  id'ler aday kümesiyle kesiştirilir (uydurma id atılır), tekrar atılır, 5'te kesilir.
+  id'ler aday kümesiyle kesiştirilir (uydurma id atılır), tekrar atılır, 5'te kesilir;
+  her seçim açık `"uygun": true` taşımalı (kuru çalıştırmada model seçip gerekçeye "uygun
+  değildir" yazdı — 2026-10-06).
   AI hatasında aynı aday kümesinde kural tabanlı yedek (`matching.puanla`).
   Filtre bildirimi yoksa ya da seçim boşsa **bildirim yok**. Bildirimdeki sayı = sohbetteki
   kart sayısı (eskiden "8 yeni öneri" deyip 5 kart gösteriyordu — 50 kullanıcı-günün 16'sı).

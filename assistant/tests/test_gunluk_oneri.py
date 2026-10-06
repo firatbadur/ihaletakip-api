@@ -34,6 +34,8 @@ def _ihale(i, *, ad=None, sektor="yol_altyapi", kayit_saat_once=4):
 
 
 def _ai(secimler):
+    for x in secimler:
+        x.setdefault("uygun", True)
     return {"analysis": json.dumps({"secimler": secimler}), "usage": {}}
 
 
@@ -104,6 +106,15 @@ class GunlukOneriTest(TestCase):
         self.assertEqual(bildirim.title, f"İhale Asistanı: {len(kartlar)} öneri")
         self.assertEqual(len(kartlar), 4)
         self.assertEqual(kartlar[0]["gerekce"], "uygun")
+
+    def test_UYGUN_DEGIL_dedigi_secim_atilir(self):
+        """Üretimde görüldü: model seçip gerekçeye 'uygun değildir' yazdı."""
+        self._filtre_bildirimi()
+        a, b = _ihale(1), _ihale(2)
+        self._calistir([{"id": a.pk, "uygun": False, "gerekce": "uygun değildir"},
+                        {"id": b.pk, "gerekce": "uygun"}])
+        self.assertEqual(
+            list(TenderRecommendation.objects.values_list("tender_id", flat=True)), [b.pk])
 
     def test_AI_bos_secerse_bildirim_yok(self):
         self._filtre_bildirimi()

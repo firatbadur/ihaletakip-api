@@ -69,6 +69,7 @@ class TurDonusumTests(TestCase):
 
     def _tur(self, tur):
         with patch.object(T, "_kesif_yigini", return_value=[]), \
+             patch.object(T.durum_mod, "yigin", return_value=[]), \
              patch.object(T.durum_mod, "adim", return_value={"atlandi": "durum_yok"}), \
              patch.object(T, "_sirada_detay", return_value=None), \
              patch.object(T, "sonuc", return_value={"is": "sonuc"}) as s, \
@@ -89,6 +90,7 @@ class TurDonusumTests(TestCase):
     def test_istek_harcamayan_atlama_tiki_YEMEZ(self):
         _ihale("2026/20", durum=2, gun_once=5)
         with patch.object(T, "_kesif_yigini", return_value=[]), \
+             patch.object(T.durum_mod, "yigin", return_value=[]), \
              patch.object(T.durum_mod, "adim", return_value={"atlandi": "durum_yok"}), \
              patch.object(T, "_sirada_detay", return_value=None), \
              patch.object(T, "_sirada_sonuc", return_value="2026/99"), \
@@ -97,6 +99,24 @@ class TurDonusumTests(TestCase):
             sonuc_ = T._tur_yap(MagicMock(), 1)            # tur 1 → önce sonuç
         self.assertEqual(sonuc_, {"is": "detay"})
         d.assert_called_once()
+
+
+    def test_tarama_yigini_doluyken_durum_YARI_siraya_sahip(self):
+        ilk = []
+        with patch.object(T, "_kesif_yigini", return_value=[]), \
+             patch.object(T, "_sirada_detay", return_value=None), \
+             patch.object(T.durum_mod, "yigin", return_value=[["d"]]), \
+             patch.object(T.durum_mod, "adim", return_value={"is": "durum"}), \
+             patch.object(T, "_sirada_sonuc", return_value="2026/1"), \
+             patch.object(T, "sonuc", return_value={"is": "sonuc"}), \
+             patch.object(T, "_sirada_tazeleme", return_value="2026/2"), \
+             patch.object(T, "detay", return_value={"is": "detay"}), \
+             patch.object(T.throttle, "butce_kalan", return_value=900):
+            for tur in range(8):
+                ilk.append(T._tur_yap(MagicMock(), tur)["is"])
+        self.assertEqual(ilk.count("durum"), 4)
+        self.assertEqual(ilk.count("sonuc"), 2)
+        self.assertEqual(ilk.count("detay"), 2)
 
 
 @override_settings(CACHES=_LOCMEM)

@@ -183,9 +183,18 @@ def _tur_yap(cli, tur: int):
     # ihale hâlâ "Katılıma Açık" görünüyordu.
     # Toplu durum taraması da dönüşüme katılır: tek istekle yüzlerce ihalenin
     # durumunu öğrenir (bkz. `mobil/durum.py`); tazelemeden çok daha verimlidir.
-    sira = (_durum_adimi, _sonuc_adimi, _tazeleme_adimi)
-    k = tur % len(sira)
-    sira = sira[k:] + sira[:k]
+    # ⚠️ Taramanın bekleyen dilimi varken artan sıranın YARISI ona verilir: üretimde
+    # (2026-10-06) durum adımı istek başına ~33 ihale düzeltirken sonuç/tazeleme 1;
+    # eşit paylaşımda ilk tam geçiş ~1 hafta sürüyordu. Yığın boşken eşit dönüşüm.
+    if durum_mod.yigin(olustur=False):
+        dongu = (_durum_adimi, _sonuc_adimi, _durum_adimi, _tazeleme_adimi)
+    else:
+        dongu = (_durum_adimi, _sonuc_adimi, _tazeleme_adimi)
+    k = tur % len(dongu)
+    sira = []
+    for adim in dongu[k:] + dongu[:k]:
+        if adim not in sira:
+            sira.append(adim)
     for adim in sira:
         sonuc_ = adim(cli)
         # ⚠️ İstek harcamayan bir atlama tik'i YEMEMELİ → sıradaki işe düş.

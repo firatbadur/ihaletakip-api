@@ -164,7 +164,9 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   Yığın `SyncCheckpoint("mobil_durum")`, eleman `[bas, bit, tür, durum, il]`, 250'de
   keşifteki gibi tarih → il bölünür. Bölgeler: **yakın** (son 30 gün) ~günlük,
   **uzak** (30-120 gün) haftalık. Sıra: 15 → 6 → 5 → 4 → 3.
-  Tik dönüşümüne katılır (durum / sonuç / tazeleme, `tur % 3`) ve keşif gibi
+  Tik dönüşümüne katılır — yığın doluyken artan sıranın **yarısı** durumda (durum/sonuç/
+  durum/tazeleme; ölçüm 2026-10-06: durum adımı ~33 ihale/istek, diğerleri 1), boşken eşit
+  (`tur % 3`) — ve keşif gibi
   `EKAP_MOBIL_DETAY_REZERV`'e dokunmaz. Elle: `run_mobil --is durum_tara [--max-istek N]`.
   ⚠️ Sonuçlanmış ihale toplu yolla **geri çekilmez** (bayat dilim cevabı).
   ⚠️⚠️ **Alarm fırtınası koruması**: teklif tarihi `EKAP_MOBIL_DURUM_ALARM_SESSIZ_GUN`

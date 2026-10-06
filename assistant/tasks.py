@@ -577,127 +577,130 @@ def _repair_missing_profile_maps(limit: int = 20) -> int:
 
 
 @shared_task(name="assistant.tasks.match_recommendations")
-def match_recommendations(since_days=1):
+def match_recommendations(since_days=1, kuru=False):
     """
-    Günlük eşleştirme: her aktif profil için **yalnızca ilan_tarihi BUGÜN olan** açık ihaleleri
-    skorlar; öneri + bildirim + digest sohbet mesajı üretir (dün/eski yayınlananlar DEĞİL).
+    Günlük İhale Asistanı önerisi — **09:00, yalnızca Pro**.
 
-    since_days: elle tetiklerken geniş pencere için artırılabilir (bkz.
-    `manage.py run_assistant_match --days N`). `since_days>1` verilirse "bugün" katı filtresi
-    yerine son N günün gevşek penceresi (`since`) kullanılır (backfill/test için).
+    ⚠️⚠️ 2026-10-06'dan beri aday kümesi **o sabahki filtre bildiriminin bulduğu
+    ihalelerdir** (kullanıcı kararı); yapay zekâ bu kümeden firma profiline en uygun
+    olanları seçer (`assistant/services/oneri_secim.py`). Eskiden 07:00'de bugün
+    yayımlanan TÜM ihaleler kural tabanlı puanlanıyordu; kontrolde iki hata çıkmıştı:
+    kelime parçası eşleşmesi ("köprü" → "Uzunköprü", "Kron Köprü ve Protez") ve
+    "8 yeni öneri" deyip 5 kart göstermek.
+
+    Filtre bildirimi yoksa (filtresi yok / o gün eşleşme yok) → **bildirim yok**.
+    Bildirimdeki sayı = sohbetteki kart sayısı.
+
+    `kuru=True`: hiçbir şey yazmaz, kullanıcı başına seçimi döndürür (doğrulama).
+    `since_days` geriye uyumluluk için duruyor, kullanılmaz.
     """
-    from datetime import timedelta
-
     from assistant.models import (
         ChatConversation,
         ChatMessage,
         CompanyProfile,
         TenderRecommendation,
     )
-    from assistant.services.matching import match_tenders_for_profile, tender_card
+    from assistant.services import oneri_secim
+    from assistant.services.matching import tender_card
     from tenders.models import Notification
     from tenders.services import notify
 
     today = timezone.localdate()
-    # Varsayılan (beat, since_days=1): yalnızca BUGÜN yayınlananlar (katı).
-    # Elle geniş pencere (since_days>1): eski gevşek `since` (backfill/test).
-    published_on = today if since_days <= 1 else None
-    since = None if since_days <= 1 else (timezone.now() - timedelta(days=since_days))
-
-    # Haritası eksik kalan profilleri önce onar — yoksa aşağıdaki exclude onları
-    # kalıcı olarak eşleştirme dışında bırakır (bkz. _repair_missing_profile_maps).
-    _repair_missing_profile_maps()
+    if not kuru:
+        _repair_missing_profile_maps()
 
     profiles = (
         CompanyProfile.objects.filter(is_active=True)
         .exclude(profile_map__isnull=True)
         .select_related("user")
     )
-    total_recs = 0
-    skipped_free = 0
+    sayac = {"profiles": 0, "recommendations": 0, "skipped_free": 0,
+             "filtre_yok": 0, "secim_yok": 0, "yedek_kural": 0}
+    rapor = []
 
     for profile in profiles.iterator():
-        # İhale Asistanı bildirimleri Pro'ya özeldir → Free üyeye öneri/digest/push YOK.
-        if not profile.user.is_premium:
-            skipped_free += 1
+        sayac["profiles"] += 1
+        user = profile.user
+        # İhale Asistanı bildirimleri Pro'ya özeldir.
+        if not user.is_premium:
+            sayac["skipped_free"] += 1
             continue
         try:
-            matches = match_tenders_for_profile(profile, since=since, published_on=published_on)
+            bildirim = oneri_secim.bugunku_filtre_bildirimi(user, today)
+            if bildirim is None:
+                sayac["filtre_yok"] += 1
+                continue
+            filtre_idler, pencere = bildirim
+            onceki = TenderRecommendation.objects.filter(user=user).values_list(
+                "tender_id", flat=True)
+            aday = oneri_secim.adaylar(user, filtre_idler, pencere,
+                                       haric_ihale_idleri=onceki)
+            secim, yontem = oneri_secim.sec(profile, aday)
+            if yontem == "kural":
+                sayac["yedek_kural"] += 1
+            rapor.append({"uid": user.id, "aday": len(aday), "yontem": yontem,
+                          "secim": [(t.ikn, t.ihale_adi[:70], g) for t, g in secim]})
+            if not secim:
+                sayac["secim_yok"] += 1
+                continue
+            if kuru:
+                continue
+
+            TenderRecommendation.objects.bulk_create(
+                [
+                    TenderRecommendation(
+                        user=user, tender=t, score=float(len(secim) - i),
+                        reasons=[g] if g else [], date=today,
+                    )
+                    for i, (t, g) in enumerate(secim)
+                ],
+                ignore_conflicts=True,
+            )
+            sayac["recommendations"] += len(secim)
+            n = len(secim)
+
+            # ⚠️ Kartlar = seçilenlerin TAMAMI; başlıktaki sayı da bu (eskiden 8 deyip 5
+            # kart gösteriyordu, kalan 3 hiçbir yerde görünmüyordu).
+            kartlar = []
+            for t, g in secim:
+                kart = tender_card(t)
+                if g:
+                    kart["gerekce"] = g
+                kartlar.append(kart)
+            digest_conv = ChatConversation.objects.create(
+                user=user,
+                title=f"Günlük Öneriler · {today.strftime('%d.%m.%Y')}",
+                kind=ChatConversation.Kind.DIGEST,
+            )
+            ChatMessage.objects.create(
+                user=user,
+                conversation=digest_conv,
+                role=ChatMessage.Role.ASSISTANT,
+                content=(
+                    f"Günaydın! Bugün filtrelerinize uyan ihalelerden firmanıza en uygun "
+                    f"{n} tanesini seçtim. Detaylarını sorabilirsiniz."
+                ),
+                payload={"kind": "digest", "tender_cards": kartlar},
+            )
+            # type=CHAT → mobilde digest sohbeti açılır (değişmedi).
+            notify.notify_and_push(
+                user,
+                type=Notification.Type.CHAT,
+                title=f"İhale Asistanı: {n} öneri",
+                body="\n".join(f"• {t.ihale_adi[:80]}" for t, _ in secim[:3]),
+                tender_ikn=secim[0][0].ikn,
+                tender_title=secim[0][0].ihale_adi[:500],
+                conversation_id=digest_conv.id,
+                idem_key=f"digest:{user.id}:{today.isoformat()}",
+            )
         except Exception:
-            logger.exception("match_recommendations: profil %s eşleştirme hatası", profile.id)
+            logger.exception("match_recommendations: kullanıcı %s işlenemedi", user.id)
             continue
 
-        if not matches:
-            continue
-
-        # Daha önce önerilenleri tekrar önerme (unique constraint + ön kontrol)
-        existing = set(
-            TenderRecommendation.objects.filter(
-                user=profile.user, tender__in=[t.id for t, _, _ in matches]
-            ).values_list("tender_id", flat=True)
-        )
-        fresh = [(t, s, r) for t, s, r in matches if t.id not in existing]
-        if not fresh:
-            continue
-
-        TenderRecommendation.objects.bulk_create(
-            [
-                TenderRecommendation(
-                    user=profile.user, tender=t, score=s, reasons=r, date=today
-                )
-                for t, s, r in fresh
-            ],
-            ignore_conflicts=True,
-        )
-        total_recs += len(fresh)
-
-        top = fresh[:5]
-        top_titles = "\n".join(f"• {t.ihale_adi[:80]}" for t, _, _ in top[:3])
-
-        # Digest kendi konuşmasında yaşar → geçmiş sohbetler listesinde görünür,
-        # kullanıcı içinden devam edip soru sorabilir. Bildirim bu sohbete bağlanır.
-        digest_conv = ChatConversation.objects.create(
-            user=profile.user,
-            title=f"Günlük Öneriler · {today.strftime('%d.%m.%Y')}",
-            kind=ChatConversation.Kind.DIGEST,
-        )
-        ChatMessage.objects.create(
-            user=profile.user,
-            conversation=digest_conv,
-            role=ChatMessage.Role.ASSISTANT,
-            content=(
-                f"Günaydın! Bugün profilinize uygun {len(fresh)} yeni ihale buldum. "
-                "Öne çıkanları aşağıda listeledim — detayları sorabilirsiniz."
-            ),
-            payload={
-                "kind": "digest",
-                "tender_cards": [tender_card(t) for t, _, _ in top],
-            },
-        )
-
-        # type=CHAT → mobilde tıklanınca ihale detayı değil, digest sohbeti açılır.
-        # Uygulama-içi bildirim satırı + (pacing'li) tek push. Kullanıcı başına günde
-        # tek öneri push'u (idem `digest:{uid}:{date}`) → bombardıman yok.
-        notify.notify_and_push(
-            profile.user,
-            type=Notification.Type.CHAT,
-            title=f"İhale Asistanı: {len(fresh)} yeni öneri",
-            body=top_titles,
-            tender_ikn=top[0][0].ikn if top else None,
-            tender_title=top[0][0].ihale_adi[:500] if top else None,
-            conversation_id=digest_conv.id,
-            idem_key=f"digest:{profile.user_id}:{today.isoformat()}",
-        )
-
-    logger.info(
-        "match_recommendations: %s profil işlendi, %s öneri üretildi, %s free atlandı",
-        profiles.count(), total_recs, skipped_free,
-    )
-    return {
-        "profiles": profiles.count(),
-        "recommendations": total_recs,
-        "skipped_free": skipped_free,
-    }
+    logger.info("match_recommendations: %s", sayac)
+    if kuru:
+        sayac["rapor"] = rapor
+    return sayac
 
 
 @shared_task(name="assistant.tasks.expire_actions")

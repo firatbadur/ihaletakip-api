@@ -18,6 +18,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--kuru", action="store_true",
+            help="Hiçbir şey yazmadan kullanıcı başına adayları ve seçimi basar.",
+        )
+        parser.add_argument(
             "--days",
             type=int,
             default=1,
@@ -26,7 +30,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         days = options["days"]
-        self.stdout.write(f"Eşleştirme çalışıyor (son {days} gün)…")
+        if options["kuru"]:
+            result = match_recommendations(kuru=True)
+            for r in result.pop("rapor", []):
+                self.stdout.write(f"uid={r['uid']} aday={r['aday']} yöntem={r['yontem']}")
+                for ikn, ad, gerekce in r["secim"]:
+                    self.stdout.write(f"   {ikn} {ad}\n      → {gerekce}")
+            self.stdout.write(str(result))
+            return
+        self.stdout.write("Eşleştirme çalışıyor (bugünkü filtre bildirimi üzerinden)…")
         result = match_recommendations(since_days=days)
         self.stdout.write(
             self.style.SUCCESS(

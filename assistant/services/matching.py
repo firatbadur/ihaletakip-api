@@ -8,6 +8,7 @@ Skorlama:
   +1  ihale türü eşleşmesi
 """
 import logging
+import re
 
 from django.db.models import Q
 from django.utils import timezone
@@ -38,15 +39,9 @@ def match_tenders_for_profile(profile, since=None, published_on=None, limit: int
     """
     from ekap.models import Tender
 
-    from ekap.utils import normalize_tr
-
-    pm = profile.profile_map or {}
-    # Türkçe-i güvenli anahtar kelime eşleştirmesi: profil keyword'leri ve ihale adı
-    # aynı normalize biçime indirgenir (yalın .lower() İ↔i, ş↔s katlamaz → kaçırırdı).
-    keywords = [normalize_tr(k) for k in pm.get("keywords", []) if k]
-    okas_prefixes = [p for p in pm.get("okas_prefixes", []) if p]
-    city_ids = profile.cities or pm.get("city_ids") or []
-    tender_types = profile.tender_types or pm.get("tender_types") or []
+    baglam = profil_baglami(profile)
+    city_ids = baglam["city_ids"]
+    tender_types = baglam["tender_types"]
 
     now = timezone.now()
     # Açık + teklif süresi geçmemiş (ihale_tarihi gelecekte ya da bilinmiyor)
@@ -81,34 +76,74 @@ def match_tenders_for_profile(profile, since=None, published_on=None, limit: int
 
     scored = []
     for tender in qs:
-        score = 0.0
-        reasons = []
-
-        name = tender.ihale_adi_norm or normalize_tr(tender.ihale_adi)
-        hits = [kw for kw in keywords if kw in name][:3]
-        for kw in hits:
-            score += 3.0
-            reasons.append(f"Anahtar kelime: {kw}")
-
-        if okas_prefixes:
-            okas_codes = [item.kodu for item in tender.okas_kalemleri.all() if item.kodu]
-            if any(code.startswith(p) for code in okas_codes for p in okas_prefixes):
-                score += 2.0
-                reasons.append("OKAS kategorisi uyumlu")
-
-        if city_ids and tender.il_id in city_ids:
-            score += 1.0
-            reasons.append(f"Şehir: {tender.ihale_il_adi or tender.il_id}")
-
-        if tender_types and tender.ihale_tip in tender_types:
-            score += 1.0
-            reasons.append(f"Tür: {TENDER_TYPE_LABELS.get(tender.ihale_tip, tender.ihale_tip)}")
-
-        if score >= min_score:
-            scored.append((tender, score, reasons))
+        sonuc = puanla(tender, baglam)
+        if sonuc and sonuc[0] >= min_score:
+            scored.append((tender, sonuc[0], sonuc[1]))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored[:limit]
+
+
+def _kelime_deseni(ifade: str):
+    """Normalize ifade için KELİME BAŞI desen.
+
+    ⚠️ Eski eşleşme düz `kw in ad` idi → kelime parçası da eşleşiyordu. Üretimde
+    (2026-10-06) beton/yol firmasına `köprü` ile "Uzun**köprü** İlçesi … Taşınmaz"
+    öneriliyordu. Yalnızca BAŞ sınırı aranır, son serbest: Türkçe ekler çalışsın
+    ("köprü**sü**", "asfalt**lama**").
+    """
+    return re.compile(r"(?<![a-z0-9])" + re.escape(ifade))
+
+
+def profil_baglami(profile) -> dict:
+    """Profil haritasından puanlama bağlamı (desenler profil başına bir kez derlenir)."""
+    from ekap.utils import normalize_tr
+
+    pm = profile.profile_map or {}
+    keywords = [normalize_tr(k).strip() for k in pm.get("keywords", []) if k]
+    # ⚠️ `avoid` ("firmaya uygun OLMAYAN alanlar") profil haritası üretiliyordu ama
+    # eşleştirme hiç okumuyordu. Kısa/boş ifadeler alınmaz: tek harf her şeyi dışlar.
+    avoid = [normalize_tr(a).strip() for a in pm.get("avoid", []) if a]
+    return {
+        "keywords": [(k, _kelime_deseni(k)) for k in keywords if k],
+        "avoid": [_kelime_deseni(a) for a in avoid if len(a) >= 3],
+        "okas_prefixes": [p for p in pm.get("okas_prefixes", []) if p],
+        "city_ids": profile.cities or pm.get("city_ids") or [],
+        "tender_types": profile.tender_types or pm.get("tender_types") or [],
+    }
+
+
+def puanla(tender, baglam):
+    """(skor, gerekçeler) — `avoid` eşleşirse None (ihale hiç önerilmez)."""
+    from ekap.utils import normalize_tr
+
+    name = tender.ihale_adi_norm or normalize_tr(tender.ihale_adi)
+    if any(d.search(name) for d in baglam["avoid"]):
+        return None
+    score = 0.0
+    reasons = []
+    hits = [kw for kw, desen in baglam["keywords"] if desen.search(name)][:3]
+    for kw in hits:
+        score += 3.0
+        reasons.append(f"Anahtar kelime: {kw}")
+
+    okas_prefixes = baglam["okas_prefixes"]
+    if okas_prefixes:
+        okas_codes = [item.kodu for item in tender.okas_kalemleri.all() if item.kodu]
+        if any(code.startswith(p) for code in okas_codes for p in okas_prefixes):
+            score += 2.0
+            reasons.append("OKAS kategorisi uyumlu")
+
+    city_ids = baglam["city_ids"]
+    if city_ids and tender.il_id in city_ids:
+        score += 1.0
+        reasons.append(f"Şehir: {tender.ihale_il_adi or tender.il_id}")
+
+    tender_types = baglam["tender_types"]
+    if tender_types and tender.ihale_tip in tender_types:
+        score += 1.0
+        reasons.append(f"Tür: {TENDER_TYPE_LABELS.get(tender.ihale_tip, tender.ihale_tip)}")
+    return score, reasons
 
 
 def tender_card(tender) -> dict:

@@ -32,10 +32,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=15),
     },
     # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
-    # İhale Asistanı: günlük öneri digest'i + push (her gün 07:00 — ekap sync sonrası)
+    # İhale Asistanı: günlük öneri digest'i + push — **09:00, yalnızca Pro**.
+    # ⚠️ 08:00 filtre özetinden SONRA koşmalı: adaylar o bildirimin bulduğu ihalelerdir
+    # (2026-10-06). 07:00'e geri alınırsa bugünün filtre bildirimi henüz yoktur ve
+    # kimseye öneri gitmez. 09:00'da `check_tender_alarms` da koşuyor (bilinçli).
     "assistant-match-recommendations": {
         "task": "assistant.tasks.match_recommendations",
-        "schedule": crontab(hour=7, minute=0),
+        "schedule": crontab(hour=9, minute=0),
     },
     # ⚠️ `recommend-by-saved-okas` ("Size Özel İhaleler") 2026-10-06'da KALDIRILDI —
     # bkz. tenders/tasks.py. ⚠️ Koddan silmek DB'deki PeriodicTask'ı silmez; üretimde

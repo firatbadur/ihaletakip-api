@@ -77,7 +77,7 @@ assistant/         # İhale Asistanı (firma profili + AI sohbet + günlük öne
 ├── services/      # profile_map.py (Claude→profil haritası), chat.py (çok turlu
 │                  #   sohbet, prompt cache breakpoint'li), matching.py (kural
 │                  #   tabanlı skorlama: şehir/tür/OKAS/anahtar kelime/bütçe)
-├── tasks.py       # Celery: generate_profile_map, match_recommendations (beat 07:00)
+├── tasks.py       # Celery: generate_profile_map, match_recommendations (beat 09:00)
 ├── views.py       # profile (GET/PUT), chat, messages, recommendations(+seen)
 └── urls.py        # /api/v1/assistant/...
 
@@ -2686,7 +2686,27 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   (`payload.kind="digest"` + `tender_cards`). `GET messages/` eski (oturumsuz) uç
   olarak durur.
 - **Öneriler**: `GET recommendations/`, `POST recommendations/{id}/seen/`.
-  Günlük eşleştirme `match_recommendations(since_days=1)` beat görevi (07:00): **kural
+  ⚠️⚠️ **GÜNLÜK ÖNERİ 2026-10-06'DA YENİDEN KURULDU — aşağıdaki "07:00 / kural tabanlı /
+  bugün yayımlanan tüm ihaleler" anlatımı TARİHSELDİR.** Güncel akış
+  (`assistant/services/oneri_secim.py`): **09:00, yalnızca Pro**; aday kümesi = **o
+  sabahki 08:00 filtre bildiriminin bulduğu ihaleler** — bildirimdeki `filtre_idler`
+  (ya da filtre başına `filter_id`) + `pencere_bas/bit` okunur ve küme
+  `kayitli_filtre_birlesimi` ile **aynı fonksiyondan** yeniden kurulur; kaydedilmiş ve
+  daha önce önerilmiş ihaleler çıkar, tavan 60. Seçimi **yapay zekâ** yapar
+  (`CLAUDE_CHAT_MODEL`, en çok 5, gerekçeli; uygun yoksa boş). ⚠️ Kod garantisi: dönen
+  id'ler aday kümesiyle kesiştirilir (uydurma id atılır), tekrar atılır, 5'te kesilir.
+  AI hatasında aynı aday kümesinde kural tabanlı yedek (`matching.puanla`).
+  Filtre bildirimi yoksa ya da seçim boşsa **bildirim yok**. Bildirimdeki sayı = sohbetteki
+  kart sayısı (eskiden "8 yeni öneri" deyip 5 kart gösteriyordu — 50 kullanıcı-günün 16'sı).
+  Kartlara `gerekce` alanı eklendi (additive). Kuru çalıştırma:
+  `run_assistant_match --kuru`. Testler `assistant/tests/test_gunluk_oneri.py`.
+  ⚠️ Beat **08:00 filtre özetinden SONRA** olmalı; 07:00'e alınırsa bugünün filtre
+  bildirimi henüz yoktur ve kimseye öneri gitmez.
+  ⚠️ **Kural eşleşmesi kelime BAŞI sınırı kullanır** (`matching._kelime_deseni`): düz
+  `kw in ad` "köprü" ile "Uzunköprü İlçesi … Taşınmaz" öneriyordu (üretim, 2026-10-06).
+  Sonu serbest (Türkçe ekler). Profil haritasındaki `avoid` listesi artık dışlama olarak
+  kullanılıyor (önceden hiç okunmuyordu). Sohbetteki canlı eşleştirme de aynı kuralı kullanır.
+  (Tarihsel) Günlük eşleştirme `match_recommendations(since_days=1)` beat görevi (07:00): **kural
   tabanlı** skorlama (şehir/tür/OKAS/anahtar kelime/bütçe — Claude çağrısı YOK, bedava) →
   `TenderRecommendation` + **digest sohbeti** (`kind="digest"`) + o sohbete **bağlı**
   push bildirimi. `CompanyProfile.is_active=False` ise kullanıcı atlanır.
@@ -3138,8 +3158,8 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 **Celery Beat** periyodik işleri yürütür (config/celery.py):
 - `cleanup_expired_analyses` — eski AI cache temizliği (günlük 03:00)
 - `cleanup_old_notifications` — eski bildirim temizliği (günlük 04:00)
-- `match_recommendations` — İhale Asistanı günlük öneri eşleştirmesi + push (günlük 07:00,
-  gece EKAP `sync_recent` bittikten sonra; **Pro'ya özel**, profil tabanlı)
+- `match_recommendations` — İhale Asistanı günlük öneri + push (**günlük 09:00, Pro'ya özel**;
+  adaylar 08:00 filtre bildiriminin kümesi, seçim yapay zekâ — bkz. İhale Asistanı → Öneriler)
 - ~~`recommend_by_saved_okas`~~ — **KALDIRILDI (2026-10-06)**, bkz. Bildirim Servisi → Kaynaklar 5
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
 - `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği; **Free dahil herkese**, 2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
@@ -3274,9 +3294,10 @@ interval beat ile çok kez tetiklense bile öğe günde bir kez işlenir.
     `notify_and_push()` tek-olay kısayolu (öneriler).
   - `templates.py` — Türkçe metinler (İhale Günü / Doküman Güncellendi / İhale Sonuçlandı,
     `alarm_tender` (ihale-başına birleşik), filtre eşleşmesi, favori idare eşleşmesi, OKAS önerisi).
-- **Zamanlama (kademeli)**: 07:00 asistan öneri digest'i (`match_recommendations`),
-  **08:00 kayıtlı filtre özeti (`check_saved_filter_matches`)**, **08:30 favori idare özeti
-  (`check_favorite_authority_matches`)**, 09:00 alarm hatırlatıcıları (`check_tender_alarms`).
+- **Zamanlama (kademeli)**: **08:00 kayıtlı filtre özeti (`check_saved_filter_matches`)**,
+  **08:30 favori idare özeti (`check_favorite_authority_matches`)**, 09:00 asistan öneri
+  digest'i (`match_recommendations`, Pro, filtre özetinin kümesinden) + alarm hatırlatıcıları
+  (`check_tender_alarms`).
   Alarm/filtre/idare kategorileri **abonelik-başına ayrı push** atar (o kategorinin görev
   turunda arka arkaya).
   ⚠️ 08:00'de eskiden **iki** kategori birden koşuyordu (OKAS + filtre); kullanıcı arka

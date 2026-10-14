@@ -95,6 +95,52 @@ def _wants_saved(text: str) -> bool:
     return any(k in t for k in _SAVED_TRIGGERS)
 
 
+def _digest_context(conversation):
+    """
+    Günlük öneri (digest) sohbetinde modele verilecek öneri listesi bağlamı.
+    Dönen: `(metin, ikn_listesi)` ya da digest değilse / kart yoksa `None`.
+
+    ⚠️ Bu olmadan model önerileri HİÇ görmez: öneriler asistan mesajının
+    `payload.tender_cards`'ındadır, geçmiş ise yalnızca metindir ve
+    `build_chat_messages` baştaki asistan mesajını (digest mesajı tam orada) atar.
+    Kullanıcı "2. ihale uygun mu?" deyince model hangi ihaleden söz edildiğini
+    bilmiyordu (2026-10-14).
+    """
+    from assistant.models import ChatConversation, ChatMessage
+
+    if not conversation or conversation.kind != ChatConversation.Kind.DIGEST:
+        return None
+    msg = (
+        ChatMessage.objects.filter(
+            conversation=conversation,
+            role=ChatMessage.Role.ASSISTANT,
+            payload__kind="digest",
+        )
+        .order_by("created_at")
+        .first()
+    )
+    kartlar = [k for k in ((msg.payload or {}).get("tender_cards") or []) if k.get("ikn")] if msg else []
+    if not kartlar:
+        return None
+
+    satirlar = ["## BU SOHBETTEKİ GÜNLÜK ÖNERİLER (sohbetin başında kullanıcıya gösterildi)"]
+    for i, k in enumerate(kartlar, 1):
+        parcalar = [k.get("ikn"), k.get("ihale_adi"), k.get("idare_adi"), k.get("il")]
+        satir = f"{i}. " + " · ".join(p for p in parcalar if p)
+        if k.get("ihale_tarihi"):
+            satir += f" · ihale tarihi {k['ihale_tarihi']}"
+        if k.get("gerekce"):
+            satir += f"\n   Seçilme gerekçesi: {k['gerekce']}"
+        satirlar.append(satir)
+    satirlar.append(
+        "Kullanıcı bunlara sıra numarasıyla (\"2. ihale\"), adıyla, idaresiyle, iliyle "
+        "ya da İKN'siyle atıf yapabilir. Hangisini kastettiğini bu listeden çöz; "
+        "ayrıntı gerekiyorsa o İKN'yi `ihale_detay` ile getir. Cevapta söz ettiğin "
+        "ihalenin İKN'sini yaz."
+    )
+    return "\n".join(satirlar), [k["ikn"] for k in kartlar]
+
+
 def _selected_tender_context(tender, today) -> str:
     """İhale odaklı sohbette LLM'e verilecek ihale detayı bağlamı."""
     okas = "; ".join(
@@ -229,6 +275,20 @@ def _agent_yaniti(profile, user_msg, conversation, today):
         if t:
             baglam.append(_selected_tender_context(t, today))
             ctx.kart_ekle(t)
+
+    # Günlük öneri sohbeti: önerileri bağlama koy ve kart havuzuna ekle — cevapta
+    # anılan öneri araç çağrısı olmadan da karta dönüşür (havuz garantisi korunur).
+    digest = _digest_context(conversation)
+    if digest:
+        metin, ikn_listesi = digest
+        baglam.append(metin)
+        tenders = {t.ikn: t for t in Tender.objects.filter(ikn__in=ikn_listesi)}
+        for ikn in ikn_listesi:
+            if ikn in tenders:
+                ctx.kart_ekle(tenders[ikn])
+        # Havuz kartları "son grup" olarak da işaretlenir; model araç çağırmadan
+        # genel bir cevap verirse 5 kartı tekrar basmayalım.
+        ctx.son_grup = [i for i in ctx.son_grup if i not in ikn_listesi]
 
     # Mesajda geçen İKN'ler: modele ipucu olarak verilir, araç çağrısını o yapar.
     gecen = [i for i in dict.fromkeys(IKN_RE.findall(user_msg.content or ""))][:5]

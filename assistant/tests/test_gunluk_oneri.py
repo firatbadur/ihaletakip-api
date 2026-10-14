@@ -172,3 +172,73 @@ class KelimeSiniriTest(TestCase):
     def test_avoid_gecen_ihale_DISLANIR(self):
         b = matching.profil_baglami(self._profil(keywords=["köprü"], avoid=["protez"]))
         self.assertIsNone(matching.puanla(self._t("Kron Köprü ve Protez Hizmeti"), b))
+
+
+class DigestBaglamTest(TestCase):
+    """
+    Digest sohbetinde model önerileri görmeli. Görmüyordu: kartlar yalnızca
+    `payload.tender_cards`'ta, geçmiş metin-only ve baştaki asistan mesajı atılıyor.
+    """
+
+    def setUp(self):
+        from assistant.models import ChatConversation
+
+        self.user = User.objects.create_user(
+            username="d", email="d@x.com", password="x", subscription_tier=User.Tier.PRO)
+        self.t1 = _ihale(123456, ad="Asfalt yapım işi")
+        self.t2 = _ihale(654321, ad="Köprü onarımı")
+        self.conv = ChatConversation.objects.create(
+            user=self.user, kind=ChatConversation.Kind.DIGEST, title="Günlük Öneriler")
+        kartlar = [matching.tender_card(self.t1), matching.tender_card(self.t2)]
+        kartlar[0]["gerekce"] = "Firmanın asfalt deneyimine uyuyor"
+        ChatMessage.objects.create(
+            user=self.user, conversation=self.conv, role=ChatMessage.Role.ASSISTANT,
+            content="Günaydın!", payload={"kind": "digest", "tender_cards": kartlar})
+
+    def test_digest_onerileri_baglama_girer(self):
+        from assistant.tasks import _digest_context
+
+        metin, ikn_listesi = _digest_context(self.conv)
+        self.assertEqual(ikn_listesi, ["2026/123456", "2026/654321"])
+        self.assertIn("1. 2026/123456 · Asfalt yapım işi", metin)
+        self.assertIn("2. 2026/654321 · Köprü onarımı", metin)
+        self.assertIn("Firmanın asfalt deneyimine uyuyor", metin)
+
+    def test_normal_sohbette_yok(self):
+        from assistant.models import ChatConversation
+        from assistant.tasks import _digest_context
+
+        conv = ChatConversation.objects.create(user=self.user, title="Sohbet")
+        self.assertIsNone(_digest_context(conv))
+        self.assertIsNone(_digest_context(None))
+
+    def test_kartsiz_digest_yok(self):
+        from assistant.models import ChatConversation
+        from assistant.tasks import _digest_context
+
+        conv = ChatConversation.objects.create(
+            user=self.user, kind=ChatConversation.Kind.DIGEST, title="Boş")
+        self.assertIsNone(_digest_context(conv))
+
+    def test_agent_yolu_baglami_ve_kartlari_alir(self):
+        """Bağlam `_agent_yaniti`'nda modele gider; öneriler kart havuzuna girer."""
+        from assistant.tasks import _agent_yaniti
+
+        profil = CompanyProfile.objects.create(
+            user=self.user, company_name="Asfaltçı", profile_map={"keywords": ["asfalt"]})
+        soru = ChatMessage.objects.create(
+            user=self.user, conversation=self.conv, role=ChatMessage.Role.USER,
+            content="2. ihale uygun mu?")
+        yakalanan = {}
+
+        def sahte_tur(ctx, profile_map, baglam, messages, sistem_ek=""):
+            yakalanan["baglam"] = baglam
+            return {"metin": "2026/654321 köprü işi size uygun.", "usage": {}}
+
+        with patch("assistant.services.agent.sohbet_turu", side_effect=sahte_tur):
+            reply, kartlar, *_ = _agent_yaniti(profil, soru, self.conv, timezone.localdate())
+
+        self.assertIn("GÜNLÜK ÖNERİLER", yakalanan["baglam"])
+        self.assertIn("2. 2026/654321 · Köprü onarımı", yakalanan["baglam"])
+        # Cevapta anılan öneri karta döner; anılmayan basılmaz.
+        self.assertEqual([k["ikn"] for k in kartlar], ["2026/654321"])

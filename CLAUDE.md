@@ -2725,6 +2725,18 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   - **Digest bildirimi = `Notification.type=CHAT`** + `conversation_id`: mobilde
     bildirime basınca ihale detayı DEĞİL, ilgili digest **sohbeti** açılır. (`Notification`
     modeline `CHAT` türü ve `conversation_id` alanı eklendi.)
+    ⚠️ Bildirimdeki `tender_ikn`/`tender_title` YALNIZCA ilk önerinin değeridir.
+  - ⚠️⚠️ **Digest sohbetinde model önerileri `_digest_context` ile görür (2026-10-14).**
+    Öneriler yalnızca asistan mesajının `payload.tender_cards`'ındadır; geçmiş metin-only
+    ve `build_chat_messages` baştaki asistan mesajını (digest mesajı tam orada) atar →
+    önceden "2. ihale uygun mu?" sorusunda model hangi ihaleden söz edildiğini bilmiyordu.
+    `_agent_yaniti` digest sohbetinde numaralı öneri listesini (İKN · ad · idare · il ·
+    gerekçe) bağlama koyar ve önerileri kart havuzuna ekler (cevapta anılan → kart;
+    `son_grup`'tan çıkarılır ki genel cevapta 5 kart tekrar basılmasın). Mobil ayrıca her
+    kartta "Bu ihaleyi sor" düğmesi gösterir → `tender` ile YENİ ihale odaklı sohbet
+    (açık sohbete `tender` gönderilemez, `ChatSendView` yok sayar). Tek öneride mobil
+    sohbeti doğrudan o ihale seçili açar. Test: `test_gunluk_oneri.DigestBaglamTest`
+    (diş doğrulandı: bağlam kapatılınca entegrasyon testi kırılıyor).
 - **Elle tetikleme**: `python manage.py run_assistant_match [--days N]` — beat beklemeden
   (veya beat çalışmıyorsa) eşleştirmeyi çalıştırır. `DatabaseScheduler` kullanıldığından
   kodda tanımlı beat girdisi ancak **beat yeniden başlatılınca** DB'ye senkronlanır.

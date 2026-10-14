@@ -31,6 +31,13 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.expire_actions",
         "schedule": crontab(hour=3, minute=15),
     },
+    # Deneme bitiş hatırlatması — SAATLİK (her saatin 10. dakikası). Mobil paywall
+    # "deneme bitmeden hatırlatırız" vaadinin karşılığı; sessiz saatte atlanan push
+    # sonraki turda yeniden denenir (bkz. subscription/tasks.py pencere notu).
+    "subscription-trial-reminders": {
+        "task": "subscription.tasks.send_trial_reminders",
+        "schedule": crontab(minute=10),
+    },
     # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
     # İhale Asistanı: günlük öneri digest'i + push — **09:00, yalnızca Pro**.
     # ⚠️ 08:00 filtre özetinden SONRA koşmalı: adaylar o bildirimin bulduğu ihalelerdir

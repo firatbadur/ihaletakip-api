@@ -132,6 +132,14 @@ class User(AbstractUser):
         blank=True,
         help_text="RevenueCat'ten gelen son webhook event tipi (teşhis için).",
     )
+    # Deneme bitiş hatırlatması gönderildi mi? (subscription.tasks.send_trial_reminders)
+    # Mobil paywall "deneme bitmeden bildirimle hatırlatırız" VAADİ veriyor; bu alan
+    # o vaadin bir kez ve yalnızca bir kez tutulduğunun kaydıdır.
+    trial_reminder_sent_at = models.DateTimeField(
+        "deneme hatırlatması gönderildi",
+        null=True,
+        blank=True,
+    )
 
     objects = UserManager()
 

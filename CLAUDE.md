@@ -2896,6 +2896,26 @@ katmanını senkronlar. Sözleşme: **`app_user_id = str(user.id)`**.
     senkron **Celery'ye atılır** (`sync_subscription_task`, event yedeğiyle) ve **hızlıca
     200** döner. Kullanıcı eşleşmezse (anonim id) yine 200 `handled:false`. Test Store
     da webhook fırlatır → sandbox'ta test edilebilir.
+#### Deneme bitiş hatırlatması (2026-10-14)
+
+⚠️⚠️ **Bu bir VAADİN karşılığıdır.** Mobil paywall deneme çizelgesinde "5. gün — deneme
+bitmeden bildirimle hatırlatırız" yazıyor. `subscription.tasks.send_trial_reminders`
+(beat `subscription-trial-reminders`, **saatlik**, :10) bitişe **24–52 saat** kalan,
+`subscription_period_type='TRIAL'`, Pro, **iptal etmemiş** kullanıcıya tek push atar
+(`push_to_user`, uygulama-içi satır YOK — derin bağlantı alanı olmayan satır listede
+yanlış ekrana düşerdi). Data: `{type: INFO, subscription: 'trial_reminder'}` → mobil
+Ayarlar'ı açar.
+- `User.trial_reminder_sent_at` yalnızca push en az bir cihaza GİTTİYSE yazılır; sessiz
+  saat / min. aralık yüzünden atlanan kullanıcı sonraki turda yeniden denenir (üst
+  sınırın 48 değil 52 olmasının sebebi).
+- Pencere değişirse mobil `src/screens/Paywall/helpers.js` `REMINDER_DAYS_BEFORE` de
+  değişmeli.
+- ⚠️ DatabaseScheduler: yeni beat girdisi deploy'da DB'ye yazılır; görev kaldırılırsa
+  `PeriodicTask` ayrıca `.delete()` edilmeli.
+
+Testler: `subscription/tests/test_trial_reminder.py` (4). Dişi doğrulandı: iptal
+filtresi kaldırılınca 1 test kırılıyor.
+
 #### İptal takibi (admin panelde "kim iptal etti?")
 
 ⚠️ **Katmana bakarak iptal GÖRÜLEMEZ**: iptal eden kullanıcı dönem sonuna kadar

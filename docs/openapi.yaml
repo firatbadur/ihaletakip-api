@@ -2734,7 +2734,10 @@ paths:
       description: 'İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`,
         `idare_id` ve `has_items` sunucuda `ekap.Authority`''den doldurulur. Aynı
         `detsis_no` tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.
-        Sınır yoktur (Free + Pro).
+
+
+        **Pro''ya özeldir** (2026-10-14): Free üye **403** `premium_required` alır
+        (ekleme ve alarm güncelleme aynı uçtan). Listeleme/silme herkese açık.
 
 
         `alarm` (varsayılan `true`): açıkken bu idare **yeni bir ihale yayınladığında**
@@ -2844,8 +2847,8 @@ paths:
 
 
         Takip etmek **her üyeye açıktır ve sınırsızdır**; `alarm` açıkken firma yeni
-        bir iş aldığında gelen **bildirim Pro''ya özeldir** (favori idaredeki asimetrinin
-        aynısı — kaydetmek serbest, bildirim Pro).'
+        bir iş aldığında gelen **bildirim Pro''ya özeldir** (kaydetmek serbest, bildirim
+        Pro). ⚠️ Favori idarede asimetri YOK: orada takip etmek de Pro.'
       summary: Firmayı takibe al
       tags:
       - favorites

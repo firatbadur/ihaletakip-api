@@ -10,9 +10,12 @@ Premium durumu `User.is_premium` (bkz. accounts.models) üzerinden okunur. Bu mo
 yalnızca kapılama yardımcılarını ve mesaj sabitlerini tutar — model importu yapmaz.
 
 ⚠️ **Bildirim tarafında Pro/Free sınırı 2026-09-29'da kaydı**: kayıtlı **filtre alarmı**
-ve **favori idare alarmı** Free dahil herkese açıldı (ürün kararı). Pro'da kalan
-bildirimler: **ihale alarmı** (`MSG_ALARM`), **takip edilen firma** (uçta 403 yok, görev
-eliyor) ve **İhale Asistanı önerisi**. Alarm hakkından bağımsız olarak gelişmiş arama
+ve favori idare alarmı Free dahil herkese açıldı (ürün kararı). ⚠️⚠️ **2026-10-14'te
+FAVORİ İDARE geri Pro'ya alındı** (takip ETMEK dahil, yalnız alarm değil — "fazla
+oldu", ürün kararı): `MSG_IDARE_TAKIP`, `tenders.services.actions.idare_favori_ekle`
+ve bildirim görevleri Free'yi eler; mevcut Free kayıtları `tenders/0014` ile silindi.
+Pro'da kalan bildirimler: **ihale alarmı** (`MSG_ALARM`), **favori idare**,
+**takip edilen firma** (uçta 403 yok, görev eliyor) ve **İhale Asistanı önerisi**. Alarm hakkından bağımsız olarak gelişmiş arama
 filtrelerinin kendisi de Pro'dur (`MSG_PRO_FILTRE`) — bu asimetrinin bildirim tarafındaki
 sonucu `tenders.tasks._filtre_acilabilir`'de soğurulur.
 """
@@ -49,6 +52,10 @@ MSG_SUPPORT = (
 MSG_IDARE_PROFIL = (
     "İdare profili (harcama, kimler kazanıyor, indirim ve iptal oranları) Pro aboneliğe "
     "özeldir. İdareyi favorileyip ihalelerini görebilirsiniz; profil için Pro'ya geçin."
+)
+MSG_IDARE_TAKIP = (
+    "İdare takibi ve yeni ihale bildirimi Pro aboneliğe özeldir. Takip ettiğiniz "
+    "idare yeni bir ihale yayınladığında haber almak için Pro'ya geçin."
 )
 MSG_TEKRAR = (
     "Tekrar eden ihale takibi (bir işin her yıl ne zaman açıldığı ve sıradakinin "

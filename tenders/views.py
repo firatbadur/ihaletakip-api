@@ -173,8 +173,9 @@ from .services.actions import enrich_authority as _enrich_authority
         description=(
             "İdareyi favorilere ekler. Yalnızca `detsis_no` gönderin; `ad`, `idare_id` "
             "ve `has_items` sunucuda `ekap.Authority`'den doldurulur. Aynı `detsis_no` "
-            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez. Sınır yoktur "
-            "(Free + Pro).\n\n"
+            "tekrar gönderilirse kayıt **güncellenir** (upsert), hata dönmez.\n\n"
+            "**Pro'ya özeldir** (2026-10-14): Free üye **403** `premium_required` alır "
+            "(ekleme ve alarm güncelleme aynı uçtan). Listeleme/silme herkese açık.\n\n"
             "`alarm` (varsayılan `true`): açıkken bu idare **yeni bir ihale yayınladığında** "
             "kullanıcıya bildirim gider; bildirime basınca o idarenin ihale listesi açılır. "
             "Yalnızca hızlı erişim için favorilemek isteyen kullanıcı `alarm:false` gönderebilir."
@@ -193,8 +194,8 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
     queryset_model = FavoriteAuthority
 
     def perform_create(self, serializer):
-        # Sınır yok (Free dahil). Aynı idare tekrar eklenirse günceller (upsert);
-        # ad/idare_id/has_items DB'den zenginleşir, alarm tercihi korunur.
+        # Pro'ya özel (403 `premium_required` actions içinde). Aynı idare tekrar
+        # eklenirse günceller (upsert); ad/idare_id/has_items DB'den zenginleşir.
         from .services.actions import idare_favori_ekle
 
         idare_favori_ekle(
@@ -217,8 +218,8 @@ class FavoriteAuthorityListCreateView(OwnerQuerysetMixin, generics.ListCreateAPI
             "Gövde: `{\"contractor\": <id>, \"alarm\": true}`. Aynı firma tekrar "
             "gönderilirse **upsert** edilir (hata yok).\n\n"
             "Takip etmek **her üyeye açıktır ve sınırsızdır**; `alarm` açıkken firma yeni "
-            "bir iş aldığında gelen **bildirim Pro'ya özeldir** (favori idaredeki asimetrinin "
-            "aynısı — kaydetmek serbest, bildirim Pro)."
+            "bir iş aldığında gelen **bildirim Pro'ya özeldir** (kaydetmek serbest, "
+            "bildirim Pro). ⚠️ Favori idarede asimetri YOK: orada takip etmek de Pro."
         ),
         examples=[OpenApiExample("Takibe al", value={"contractor": 1234, "alarm": True})],
     ),

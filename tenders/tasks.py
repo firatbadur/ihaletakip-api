@@ -385,9 +385,10 @@ def _birlesik_ozet(*, kaynak):
     taban, tavan = _kayit_penceresi()
     saat = _ozet_saat()
 
-    # Kullanıcı başına abonelikleri topla. ⚠️ Pro kapısı YOK — filtre ve favori idare
-    # alarmı Free dahil herkese açıktır (2026-09-29). `select_related("user")` N+1'i
-    # engeller ve `_filtre_acilabilir`'in okuduğu `is_premium` için de gereklidir.
+    # Kullanıcı başına abonelikleri topla. Filtre alarmı Free dahil herkese açık
+    # (2026-09-29); ⚠️ FAVORİ İDARE 2026-10-14'te geri Pro'ya alındı → Free/süresi
+    # biten üye burada elenir. `select_related("user")` N+1'i engeller ve `is_premium`
+    # (`_filtre_acilabilir` de okuyor) için gereklidir.
     abonelikler = {}
     if filtre_mi:
         qs = SavedFilter.objects.filter(alarm__isnull=False).select_related("user")
@@ -395,6 +396,8 @@ def _birlesik_ozet(*, kaynak):
         qs = FavoriteAuthority.objects.filter(alarm=True).select_related("user")
     for kayit in qs.iterator():
         if filtre_mi and not _alarm_enabled(kayit.alarm):
+            continue
+        if not filtre_mi and not kayit.user.is_premium:
             continue
         # ⚠️ Pro parametreli filtre Free üyede ATLANIR: bildirime basınca uç 403
         # döndüğü için bildirilen küme açılamayan bir küme olurdu (bkz. yardımcı).
@@ -668,7 +671,7 @@ def _idare_abonelik_basina():
     tek ihale DEĞİL, `authority_detsis` ile o idarenin ihale listesi (`GET /ekap/tenders/?idare_detsis=`)
     açılır. Seçilen `detsis_no` `descendant_idare_ids` ile alt birim `idare_id`'lerine genişletilir.
     İdare başına atomik gün-kilidi ("bugün" filtresi cross-day dedup'ı sağlar). **Favori
-    idare alarmı Free dahil herkese açıktır** (2026-09-29).
+    idare Pro'ya özeldir** (2026-10-14; 2026-09-29–10-14 arası Free'ye açıktı).
     """
     from ekap.detsis_tree import descendant_idare_ids, tender_idare_id_set
     from ekap.models import Tender
@@ -685,12 +688,13 @@ def _idare_abonelik_basina():
 
     taban, tavan = _kayit_penceresi()
 
-    # ⚠️ `select_related("user")` KALIR: Pro kontrolü kalktı ama döngü `fav.user`'ı
-    # bildirim/push için okuyor → onsuz abonelik başına bir sorgu daha (sessiz N+1).
+    # ⚠️ `select_related("user")` KALIR: Pro kontrolü ve bildirim/push `fav.user`'ı
+    # okuyor → onsuz abonelik başına bir sorgu daha (sessiz N+1).
     for fav in FavoriteAuthority.objects.filter(alarm=True).select_related("user").iterator():
-        # ⚠️ Pro kapısı YOK (2026-09-29): favori idare alarmı Free dahil herkese açık.
-        # Filtre tarafındaki `_filtre_acilabilir` karşılığı burada GEREKMEZ — idare
-        # listesi `idare_detsis` ile açılır ve o parametre Pro değildir.
+        # ⚠️ Pro kapısı (2026-10-14): favori idare yeniden Pro'ya özel. Süresi biten
+        # Pro'nun kayıtları silinmez ama bildirim almaz.
+        if not fav.user.is_premium:
+            continue
         # Gün-kilidi yerine kısa tur kilidi — bkz. check_saved_filter_matches.
         if not cache.add(f"authority:tur:{fav.user_id}:{fav.detsis_no}", 1, _TUR_KILIDI_TTL):
             continue

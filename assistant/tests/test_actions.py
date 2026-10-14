@@ -168,6 +168,13 @@ class Faz3EylemTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(FavoriteContractor.objects.filter(user=self.user, contractor=self.firma).exists())
 
+        # İdare takibi Pro'ya özel (2026-10-14): Free → 403, kayıt oluşmaz.
+        r, _ = self._calistir("idare_favori", {"detsis_no": "12345678", "alarm": True})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(FavoriteAuthority.objects.filter(user=self.user).exists())
+
+        self.user.subscription_tier = "pro"
+        self.user.save(update_fields=["subscription_tier"])
         r, _ = self._calistir("idare_favori", {"detsis_no": "12345678", "alarm": True})
         self.assertEqual(r.status_code, 200)
         fav = FavoriteAuthority.objects.get(user=self.user, detsis_no="12345678")

@@ -900,8 +900,22 @@ artık teaser malzemesi DEĞİLDİR.
 #### Favori İdareler (`tenders.FavoriteAuthority`)
 
 Kullanıcı bir idareyi (DETSIS düğümü) favorileyebilir; favoriye basınca mobil o idarenin
-ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorileme
-**sınırsızdır** (Free + Pro). Mevcut favorinin upsert'i sorun değil.
+ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Mevcut
+favorinin upsert'i sorun değil.
+
+⚠️⚠️ **2026-10-14'ten beri PRO'YA ÖZEL — takip etmek DAHİL** (yalnız alarm değil;
+ürün kararı: "fazla oldu"). 2026-09-29 – 10-14 arası Free'ye açıktı.
+- `actions.idare_favori_ekle` → `require_premium(MSG_IDARE_TAKIP)` → Free'ye **403
+  `premium_required`** (uç + asistan `IDARE_FAVORI` eylemi aynı servisten geçer; alarm
+  güncellemesi de aynı upsert ucu olduğu için kilitli). **Silme ve listeleme serbest**
+  (süresi biten Pro eski kayıtlarını görüp temizleyebilsin).
+- İki bildirim yolu da (`_birlesik_ozet` idare dalı + `check_favorite_authority_matches`)
+  **premium olmayanı eler** — süresi biten Pro'nun kayıtları durur ama bildirim gitmez.
+- **Mevcut Free kayıtları SİLİNDİ**: `tenders/0014_favori_idare_free_temizle` (data
+  migration, GERİ ALINAMAZ, reverse no-op). "Pro" tanımı `is_premium`'un kopyası;
+  `tenders/tests/test_favori_idare_temizle.py` ikisinin aynı sonucu verdiğini kilitler.
+- Testler: `tenders/tests/test_free_alarm.py` `IdareProTest` + `IdareTakipUcuTest`,
+  `assistant/tests/test_actions.py`. Dişleri doğrulandı: kapılar kaldırılınca 4 test kırılıyor.
 
 - **Model**: doğal anahtar `(user, detsis_no)` unique. `detsis_no` ASCII → `/` içermez,
   yol parametresi `<str:detsis_no>` yeterli (İKN'deki `path:` gerekmez). `ad`/`idare_id`/
@@ -917,14 +931,13 @@ ihalelerini `GET /ekap/tenders/?idare_detsis=<detsis_no>` ile listeler. Favorile
   dolu** yazılır → mobil bildirime basınca **tek ihale DEĞİL**, o idarenin ihale listesini
   (`idare_detsis=<detsis_no>`) açar (`tender_ikn` yalnızca dedup için yazılır, mobil
   `authority_detsis`'i önceler). Kullanıcı başına tek özet push.
-  ✅ **Alarm 2026-09-29'dan beri Free dahil HERKESE açık** (ürün kararı; daha önce görev
-  `if not fav.user.is_premium: continue` ile Free üyeyi sayılmadan eliyordu). Uçta zaten
-  403 yoktu → bu bölümde uç davranışı değişmedi.
+  ⚠️ **Pro'ya özel** (yukarıdaki not; 2026-09-29 – 10-14 arası Free'ye açıktı).
   Elle tetik: `python manage.py run_notifications --job authorities`.
 - **Uçlar** (`/api/v1/...`, hepsi JWT):
   - `GET favorite-authorities/` — favori idareleri listele.
   - `POST favorite-authorities/` — gövde `{"detsis_no": "24308110", "alarm": true}`; aynı
     `detsis_no` tekrar → upsert (hata yok). `alarm:false` = yalnızca hızlı erişim, bildirim yok.
+    **Pro** — Free'ye 403 `premium_required`.
   - `DELETE favorite-authorities/<detsis_no>/` — favoriden çıkar (idempotent, 204).
   - `GET favorite-authorities/<detsis_no>/` — `{is_favorite: bool}`.
 
@@ -2828,16 +2841,19 @@ kodu görünce abonelik paketlerini sunar.
   ileride kullanılabilsin diye durur) ve uca özel Türkçe mesajlar. Model importu yapmaz →
   sirküler import yok. Yeni bir premium kısıt eklerken **bu modülü kullan**, elle
   `{success:false}` kurma.
-- **Sayısal Free limiti YOK**: kayıtlı filtre, kayıtlı ihale ve favori idare **kaydetme**
-  Free dahil **sınırsızdır** (eski 3/5/10 limitleri kaldırıldı). Kısıt artık **alarm/bildirim
+- **Sayısal Free limiti YOK**: kayıtlı filtre ve kayıtlı ihale **kaydetme** Free dahil
+  **sınırsızdır** (⚠️ favori idare 2026-10-14'te tamamen Pro'ya alındı — sayısal limit
+  değil, özellik kilidi) (eski 3/5/10 limitleri kaldırıldı). Kısıt artık **alarm/bildirim
   özelliklerinde**dir (aşağıda) — kaydetmenin kendisi değil.
 - **Free kısıtları** (Pro'da hepsi açık):
   - **İhale alarmı kurma** (`TenderAlarmListCreateView.perform_create`) → 403; `require_premium`
     ile tamamen Pro'ya özel (kurma/güncelleme kilitli). Alarm **listeleme/silme** (GET/DELETE)
     serbest. Bildirim tarafında da tutarlı: `check_tender_alarms` **premium olmayan**
     kullanıcının alarmını atlar (`is_premium` property → Python'da elenir).
-  - ✅✅ **KAYITLI FİLTRE ALARMI ve FAVORİ İDARE ALARMI ARTIK FREE'YE AÇIK**
-    (2026-09-29, ürün kararı). Önceki hâl: uç alarmlı filtre kaydını `require_premium`
+  - ⚠️⚠️ **FAVORİ İDARE (takip + alarm) 2026-10-14'te GERİ PRO'YA ALINDI** — bkz.
+    "Favori İdareler" bölümü (`MSG_IDARE_TAKIP`, `tenders/0014` Free kayıtlarını sildi).
+  - ✅✅ **KAYITLI FİLTRE ALARMI ARTIK FREE'YE AÇIK** (favori idare alarmıyla birlikte
+    2026-09-29'da açılmıştı; idare 10-14'te geri kapandı, filtre açık kaldı). Önceki hâl: uç alarmlı filtre kaydını `require_premium`
     + `MSG_FILTER_ALARM` ile **403**'lüyor, `check_saved_filter_matches` ve
     `check_favorite_authority_matches` da Free üyeyi `if not user.is_premium: continue`
     ile **sayılmadan** eliyordu. Kaldırılanlar: iki uç kapısı
@@ -2859,9 +2875,8 @@ kodu görünce abonelik paketlerini sunar.
   - **Takip edilen firma ALARMI** → firmayı takip etmek serbest (sınırsız) ama "yeni iş
     aldı" bildirimi **Pro'ya özeldir**: `check_favorite_contractor_matches` premium
     olmayanı atlar. Uçta 403 verilmez.
-    ⚠️ Burada eskiden *"favori idareyle tutarlı"* yazıyordu; **artık değil** — favori
-    idare alarmı Free'ye açıldı, firma alarmı Pro'da kaldı. "Kayıt serbest / bildirim
-    Pro" deseni bugün yalnızca **firma** için geçerlidir.
+    "Kayıt serbest / bildirim Pro" deseni yalnızca **firma** için geçerlidir; favori
+    idarede (2026-10-14'ten beri) kaydetmek de Pro'dur.
   - **Tekrar eden ihale takibi** (`/ekap/recurring/`, `/ekap/tenders/<key>/recurring/`) → 403.
   - **Asistan sohbeti** (`ChatSendView`) → 403 (profil oluşturma **serbest**; yalnızca
     mesaj gönderme kilitli).

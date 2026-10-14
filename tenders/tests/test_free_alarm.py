@@ -1,6 +1,10 @@
 """
 **Filtre alarmı + favori idare alarmı Free'ye açıldı** (2026-09-29, ürün kararı).
 
+⚠️⚠️ **2026-10-14: FAVORİ İDARE geri Pro'ya alındı** (takip etmek dahil). Aşağıdaki
+"Free idare" sınıfı artık tersini kilitler: Free bildirim ALMAZ, uç 403 verir. Filtre
+alarmı Free'de kaldı.
+
 Önceki hâl: uç alarmlı filtre kaydını Free üyeye **403** ile reddediyordu ve iki beat
 görevi de `if not user.is_premium: continue` ile Free üyeyi **sayılmadan** eliyordu.
 
@@ -110,27 +114,69 @@ class FreeFiltreBildirimiTest(_Taban):
         self.assertEqual(Notification.objects.count(), 0)
 
 
-class FreeIdareBildirimiTest(_Taban):
+class IdareProTest(_Taban):
+    """Favori idare 2026-10-14'ten beri Pro'ya özel: iki bildirim yolu da Free'yi
+    eler, Pro'ya gönderir (eski kayıt kalmış süresi biten Pro = Free muamelesi)."""
+
     def setUp(self):
         super().setUp()
+        self.pro = User.objects.create_user(
+            username="pro", email="pro@x.com", password="x", subscription_tier="pro")
+        self.assertTrue(self.pro.is_premium)
         Authority.objects.create(detsis_no="100", parent_detsis="0",
                                  idare_id="i100", ad="İdare 100")
-        FavoriteAuthority.objects.create(user=self.free, detsis_no="100",
-                                         idare_id="i100", ad="İdare 100")
+        for u in (self.free, self.pro):
+            FavoriteAuthority.objects.create(user=u, detsis_no="100",
+                                             idare_id="i100", ad="İdare 100")
 
     @override_settings(NOTIF_BIRLESIK_BILDIRIM=False)
-    def test_ABONELIK_BASINA_yolunda_free_bildirim_alir(self):
+    def test_ABONELIK_BASINA_yolunda_yalniz_pro_bildirim_alir(self):
         _ihale(1, idare_id="i100")
         check_favorite_authority_matches()
         n = Notification.objects.get()
+        self.assertEqual(n.user, self.pro)
         self.assertEqual(n.authority_detsis, "100")
 
     @override_settings(NOTIF_BIRLESIK_BILDIRIM=True)
-    def test_BIRLESIK_yolunda_free_bildirim_alir(self):
+    def test_BIRLESIK_yolunda_yalniz_pro_bildirim_alir(self):
         _ihale(1, idare_id="i100")
         check_favorite_authority_matches()
         n = Notification.objects.get()
+        self.assertEqual(n.user, self.pro)
         self.assertEqual(n.idare_detsis_liste, "100")
+
+
+class IdareTakipUcuTest(_Taban):
+    UC = "/api/v1/favorite-authorities/"
+
+    def setUp(self):
+        super().setUp()
+        Authority.objects.create(detsis_no="200", parent_detsis="0",
+                                 idare_id="i200", ad="İdare 200")
+
+    def test_FREE_ekleyemez_403(self):
+        self.client.force_login(self.free)
+        r = self.client.post(self.UC, {"detsis_no": "200", "alarm": True},
+                             content_type="application/json")
+        self.assertEqual(r.status_code, 403, r.content[:300])
+        self.assertEqual(r.json()["errors"]["code"], "premium_required")
+        self.assertFalse(FavoriteAuthority.objects.exists())
+
+    def test_FREE_eski_kaydini_silebilir(self):
+        FavoriteAuthority.objects.create(user=self.free, detsis_no="200")
+        self.client.force_login(self.free)
+        r = self.client.delete(f"{self.UC}200/")
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(FavoriteAuthority.objects.exists())
+
+    def test_PRO_ekler_201(self):
+        pro = User.objects.create_user(
+            username="pro2", email="pro2@x.com", password="x", subscription_tier="pro")
+        self.client.force_login(pro)
+        r = self.client.post(self.UC, {"detsis_no": "200", "alarm": True},
+                             content_type="application/json")
+        self.assertEqual(r.status_code, 201, r.content[:300])
+        self.assertEqual(FavoriteAuthority.objects.get().ad, "İdare 200")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

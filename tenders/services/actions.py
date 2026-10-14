@@ -11,7 +11,7 @@ kalır ve asistan üzerinden Pro özelliği bedavaya açılır.
 orada exception 403'e dönüşmez, görevi çökertir. Asistanın araçları bu fonksiyonları
 ÇAĞIRMAZ; yalnızca kullanıcının onaylayacağı bir öneri üretir.
 """
-from accounts.premium import MSG_ALARM, require_premium
+from accounts.premium import MSG_ALARM, MSG_IDARE_TAKIP, require_premium
 
 from ..models import (
     FavoriteAuthority,
@@ -88,7 +88,12 @@ def enrich_authority(detsis_no):
 
 
 def idare_favori_ekle(user, *, detsis_no, alarm=True):
-    """İdareyi favorilere ekler (upsert). Ad/idare_id sunucuda zenginleştirilir."""
+    """
+    İdareyi favorilere ekler (upsert). Ad/idare_id sunucuda zenginleştirilir.
+    **Pro'ya özeldir** (2026-10-14; ekleme VE alarm güncelleme — aynı upsert ucu).
+    Silme serbesttir (süresi biten Pro eski kayıtlarını temizleyebilsin).
+    """
+    require_premium(user, MSG_IDARE_TAKIP)
     defaults = enrich_authority(detsis_no)
     defaults["alarm"] = bool(alarm)
     return FavoriteAuthority.objects.update_or_create(

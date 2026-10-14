@@ -2849,6 +2849,26 @@ class AuthorityProfileView(APIView):
         return api_response(data=veri)
 
 
+# Benzer iş satırında Free'ye kapalı sayısal alanlar. Mobil "Benzer İşler" sekmesi
+# (2026-10-14, eski "Analiz") bu listeyi free'ye de gösterir: isim/idare/tarih/yüklenici
+# AÇIK, tutar/oran/adet MASKELİ (firma geçmişindeki free/pro sözleşmesinin aynısı).
+# ⚠️ Eskiden liste free'de TÜMDEN `None`'dı → sekme free'de boş kalırdı.
+_BENZER_KILITLI = ("sozlesme_bedeli", "yaklasik_maliyet", "indirim_orani", "teklif_sayisi")
+
+
+def benzer_satirlari_maskele(satirlar):
+    """Free için benzer iş satırlarının sayısal alanlarını `None` yapar.
+
+    ⚠️ YENİ dict'ler döner, girdiyi DEĞİŞTİRMEZ: `veri` rapor önbelleğinden/tek-uçuş
+    sonucundan gelir ve aynı nesne eşzamanlı bir Pro isteğiyle paylaşılabilir —
+    yerinde maskelemek Pro'ya maskeli liste göstermek demek olurdu.
+    """
+    if not satirlar:
+        return satirlar
+    return [{**s, **{k: None for k in _BENZER_KILITLI}} for s in satirlar]
+
+
+
 @extend_schema(
     tags=["ekap"],
     parameters=[
@@ -2889,10 +2909,8 @@ class TenderBenchmarkView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     # Free'ye kapalı sayısal alanlar (maskeleme istemcide biçim korunarak yapılır).
-    # ⚠️ `benzer_ihaleler` de listede: satırlar bedel/indirim taşıyor, kilitli değerin
-    # listeden sızmaması gerek.
     _KILITLI = ("indirim_orani", "ortalama_indirim_orani", "sozlesme_bedeli",
-                "yillara_gore", "rekabet", "benzer_ihaleler")
+                "yillara_gore", "rekabet")
 
     def get(self, request, key):
         tender = _tender_by_key(key)
@@ -2935,6 +2953,7 @@ class TenderBenchmarkView(APIView):
         if not getattr(request.user, "is_premium", False):
             for alan in self._KILITLI:
                 veri[alan] = None
+            veri["benzer_ihaleler"] = benzer_satirlari_maskele(veri.get("benzer_ihaleler"))
             veri["kilitli"] = True
         else:
             veri["kilitli"] = False

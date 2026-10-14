@@ -1427,6 +1427,12 @@ planı değil **rastgele disk okuması** yiyor: çalışma kümesi (`ekap_tender
 → Hesabın kendisi önbelleğe alınır (`views._cached_rapor`, `REPORT_CACHE_TTL`, vars.
 1 sa). Bayatlık kabul edilebilir: rapor doğası gereği tarihseldir, yeni sözleşmeler
 Sonuç İlanı ile **aylar** içinde damlar.
+- ⚠️ **Benchmark `benzer_ihaleler` free'de LİSTE OLARAK AÇIK** (2026-10-14): mobil
+  ihale detayındaki "Analiz" sekmesi "Benzer İşler" listesine indi (tahmini bedel
+  kaldırıldı). Satırlar free'de `None` DEĞİL; yalnızca sayısal alanları
+  (`sozlesme_bedeli`, `yaklasik_maliyet`, `indirim_orani`, `teklif_sayisi`) `None`
+  (`ekap.views.benzer_satirlari_maskele`, **yeni dict** döner — aşağıdaki kural).
+  Test: `ekap/tests/test_benzer_maskele.py`.
 - ⚠️⚠️ **MASKELEME ÖNBELLEĞİN DIŞINDADIR.** Saklanan veri Free/Pro'dan bağımsız
   **maskesiz** hesaptır; `_KILITLI` alanlarını sıfırlamak view'ın işidir. Maskelenmiş
   hâli saklamak **ödenmiş veriyi sızdırır** (Pro yanıtı Free'ye gider); premium durumunu

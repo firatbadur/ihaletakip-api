@@ -1435,6 +1435,139 @@
           }
         },
         {
+          "name": "Açık doğrudan temin alımları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/dogrudan-temin/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "dogrudan-temin",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "dokuman_var",
+                  "value": "True",
+                  "description": "Yalnızca dokümanı olanlar.",
+                  "disabled": true
+                },
+                {
+                  "key": "dtn",
+                  "value": "ornek",
+                  "description": "DTN listesi (virgülle) — bildirim derin bağlantısı (`dtn_liste`).",
+                  "disabled": true
+                },
+                {
+                  "key": "idare_detsis",
+                  "value": "Ankara Büyükşehir Belediyesi",
+                  "description": "DETSIS düğümleri (virgülle); alt birimler dahil.",
+                  "disabled": true
+                },
+                {
+                  "key": "il_id",
+                  "value": "ornek",
+                  "description": "İl id listesi (virgülle) — `/ekap/cities/`'teki `ekap_il_id`, ihale filtresiyle aynı.",
+                  "disabled": true
+                },
+                {
+                  "key": "madde_kod",
+                  "value": "ornek",
+                  "description": "4734/22 maddesi kodları (`/ekap/dogrudan-temin/filtreler/`).",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "son_teklif",
+                  "description": "`son_teklif`: en acil önce · `yeni`: en son yayımlanan önce. Geçerli değerler: `son_teklif`, `yeni`.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "En fazla 100.",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "mazot",
+                  "description": "Alım adı / idare adı (Türkçe-i güvenli).",
+                  "disabled": true
+                },
+                {
+                  "key": "son_teklif_max",
+                  "value": "ornek",
+                  "description": "ISO damga ya da YYYY-MM-DD (gün verilirse gün sonu dahil).",
+                  "disabled": true
+                },
+                {
+                  "key": "son_teklif_min",
+                  "value": "ornek",
+                  "description": "ISO damga ya da YYYY-MM-DD.",
+                  "disabled": true
+                },
+                {
+                  "key": "tur",
+                  "value": "ornek",
+                  "description": "Tür listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Şu an **teklif verilebilir** doğrudan temin alımları (son teklif anı geçmemiş, önceki günlerde yayımlananlar dahil). Kapananlar ve iptal edilenler listeden kendiliğinden düşer.\n\nVeri kendi toplayıcımızdan gelir: yeni ilanlar mesai içinde **5 dakikada bir** yoklanır.\n\nYanıt: `data.list`, `data.totalCount`, `data.page`. `kalan_dakika` sunucu saatine göredir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Doğrudan temin filtre seçenekleri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/dogrudan-temin/filtreler/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "dogrudan-temin",
+                "filtreler",
+                ""
+              ]
+            },
+            "description": "Tür, 4734/22 maddesi ve sıralama seçenekleri (EKAP `FiltreEnumlari`).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Pazar panosu — yıl özeti ve en büyük iş grupları",
           "request": {
             "method": "GET",
@@ -1655,6 +1788,81 @@
                 }
               }
             },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Doğrudan temin detayı",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/dogrudan-temin/:dtn/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "dogrudan-temin",
+                ":dtn",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "dtn",
+                  "value": "26DT2112816",
+                  "description": "**Zorunlu.** Doğrudan temin numarası."
+                }
+              ]
+            },
+            "description": "Liste alanları + EKAP'tan **talep üzerine** alınan ayrıntı (`detay`): idare hiyerarşisi, duyuru metni (HTML; teklif verilecek yer, iletişim, son tarih), kısmi teklif, iptal bilgisi, sözleşmeler.\n\nAyrıntı 30 dk önbelleklenir. EKAP o an yanıt vermezse `detay: null` + `mesaj` döner — liste alanları yine gelir.\n\n`birim_fiyat_cetveli_url`: EKAP'ın kendi adresi; mobil tarayıcıda açar (dosya sunucumuzdan geçmez). `dokuman_url`: `dokuman_var=true` ise doküman indirme ucu.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Doğrudan temin dokümanını indir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/dogrudan-temin/:dtn/dokuman/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "dogrudan-temin",
+                ":dtn",
+                "dokuman",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "dtn",
+                  "value": "26DT2112816",
+                  "description": "**Zorunlu.** Doğrudan temin numarası."
+                }
+              ]
+            },
+            "description": "DT dokümanını EKAP'tan **akış (streaming)** olarak aktarır. Tek dosyadır, biçimi idarenin yüklediği dosyadır (RAR/ZIP/PDF/DOCX…); ad ve tür `Content-Disposition` / `Content-Type` başlıklarındadır.\n\n`dokuman_var=false` kayıtta EKAP'a gidilmeden **404** döner. Kota/doğrulama/EKAP yanıtsızlığında **503** + Türkçe mesaj.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "auth": {
               "type": "noauth"
             }

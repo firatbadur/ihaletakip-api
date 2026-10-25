@@ -202,3 +202,49 @@ class TenderContractSerializer(ContractSerializer):
             ],
         }
         return data
+
+
+# ── Doğrudan temin ─────────────────────────────────────
+# Alan adları snake_case Türkçe (yüklenici uçlarıyla aynı gerekçe: yansıtılacak bir
+# EKAP mobil mapper'ı yok).
+class DogrudanTeminSerializer(serializers.Serializer):
+    dtn = serializers.CharField()
+    ad = serializers.CharField()
+    idare_adi = serializers.CharField()
+    idare_id = serializers.CharField()
+    il_adi = serializers.CharField()
+    il_id = serializers.IntegerField(allow_null=True)
+    tur = serializers.IntegerField(allow_null=True)
+    tur_adi = serializers.SerializerMethodField()
+    madde_kod = serializers.IntegerField(allow_null=True)
+    madde = serializers.CharField()
+    durum = serializers.IntegerField(allow_null=True)
+    durum_metin = serializers.CharField()
+    son_teklif = serializers.DateTimeField(allow_null=True)
+    kalan_dakika = serializers.SerializerMethodField()
+    ilan_tarihi = serializers.DateField(allow_null=True)
+    ilanli = serializers.BooleanField()
+    dokuman_var = serializers.BooleanField()
+    dokuman_url = serializers.SerializerMethodField()
+
+    def get_tur_adi(self, obj):
+        from .mobil.constants import DT_TUR
+
+        return DT_TUR.get(obj.tur, "")
+
+    def get_kalan_dakika(self, obj):
+        """⚠️ Sunucu saatinden — istemcinin saatine güvenilmez (ayarı yanlış cihazlar)."""
+        if obj.son_teklif is None:
+            return None
+        from django.utils import timezone
+
+        return max(0, int((obj.son_teklif - timezone.now()).total_seconds() // 60))
+
+    def get_dokuman_url(self, obj):
+        if not obj.dokuman_var:
+            return None
+        from django.urls import reverse
+
+        yol = reverse("v1:ekap-dt-dokuman", kwargs={"dtn": obj.dtn})
+        istek = self.context.get("request")
+        return istek.build_absolute_uri(yol) if istek else yol

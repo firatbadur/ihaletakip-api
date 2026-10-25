@@ -2,6 +2,12 @@
 from django.urls import path
 
 from .verification_views import DogrulamaCereziView
+from .views_dt import (
+    DogrudanTeminDetailView,
+    DogrudanTeminDokumanView,
+    DogrudanTeminFiltrelerView,
+    DogrudanTeminListView,
+)
 from .views import (
     AuthorityProfileView,
     AuthoritySearchView,
@@ -53,6 +59,14 @@ urlpatterns = [
     path("market/", MarketOverviewView.as_view(), name="ekap-market"),
     path("market/<str:okas_bucket>/", MarketBucketView.as_view(), name="ekap-market-bucket"),
     path("sektorler/", SectorListView.as_view(), name="ekap-sektorler"),
+    # Doğrudan temin. ⚠️ `filtreler/` `<str:dtn>/`'den ÖNCE: aksi hâlde "filtreler"
+    # bir dtn sanılırdı. dtn ASCII ve `/` içermez → `<str:>` yeterli.
+    path("dogrudan-temin/", DogrudanTeminListView.as_view(), name="ekap-dt-list"),
+    path("dogrudan-temin/filtreler/", DogrudanTeminFiltrelerView.as_view(),
+         name="ekap-dt-filtreler"),
+    path("dogrudan-temin/<str:dtn>/", DogrudanTeminDetailView.as_view(), name="ekap-dt-detail"),
+    path("dogrudan-temin/<str:dtn>/dokuman/", DogrudanTeminDokumanView.as_view(),
+         name="ekap-dt-dokuman"),
     path("cities/", CityListView.as_view(), name="ekap-cities"),
     # İnsan doğrulaması çerezini tarayıcı eklentisinden alır (bkz. verification_views).
     path("verification-cookie/", DogrulamaCereziView.as_view(), name="ekap-verification-cookie"),

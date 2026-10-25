@@ -1582,6 +1582,190 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContractPage'
           description: ''
+  /api/v1/ekap/dogrudan-temin/:
+    get:
+      operationId: ekap_dogrudan_temin_list
+      description: 'Şu an **teklif verilebilir** doğrudan temin alımları (son teklif
+        anı geçmemiş, önceki günlerde yayımlananlar dahil). Kapananlar ve iptal edilenler
+        listeden kendiliğinden düşer.
+
+
+        Veri kendi toplayıcımızdan gelir: yeni ilanlar mesai içinde **5 dakikada bir**
+        yoklanır.
+
+
+        Yanıt: `data.list`, `data.totalCount`, `data.page`. `kalan_dakika` sunucu
+        saatine göredir.'
+      summary: Açık doğrudan temin alımları
+      parameters:
+      - in: query
+        name: dokuman_var
+        schema:
+          type: boolean
+        description: Yalnızca dokümanı olanlar.
+      - in: query
+        name: dtn
+        schema:
+          type: string
+        description: DTN listesi (virgülle) — bildirim derin bağlantısı (`dtn_liste`).
+      - in: query
+        name: idare_detsis
+        schema:
+          type: string
+        description: DETSIS düğümleri (virgülle); alt birimler dahil.
+      - in: query
+        name: il_id
+        schema:
+          type: string
+        description: İl id listesi (virgülle) — `/ekap/cities/`'teki `ekap_il_id`,
+          ihale filtresiyle aynı.
+      - in: query
+        name: madde_kod
+        schema:
+          type: string
+        description: 4734/22 maddesi kodları (`/ekap/dogrudan-temin/filtreler/`).
+      - in: query
+        name: order
+        schema:
+          type: string
+          enum:
+          - son_teklif
+          - yeni
+          default: son_teklif
+        description: '`son_teklif`: en acil önce · `yeni`: en son yayımlanan önce.'
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 20
+        description: En fazla 100.
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Alım adı / idare adı (Türkçe-i güvenli).
+        examples:
+          Ad:
+            value: mazot
+      - in: query
+        name: son_teklif_max
+        schema:
+          type: string
+        description: ISO damga ya da YYYY-MM-DD (gün verilirse gün sonu dahil).
+      - in: query
+        name: son_teklif_min
+        schema:
+          type: string
+        description: ISO damga ya da YYYY-MM-DD.
+      - in: query
+        name: tur
+        schema:
+          type: string
+        description: 'Tür listesi: 1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık.'
+      tags:
+      - dogrudan-temin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DogrudanTeminSayfa'
+          description: ''
+  /api/v1/ekap/dogrudan-temin/{dtn}/:
+    get:
+      operationId: ekap_dogrudan_temin_detail
+      description: 'Liste alanları + EKAP''tan **talep üzerine** alınan ayrıntı (`detay`):
+        idare hiyerarşisi, duyuru metni (HTML; teklif verilecek yer, iletişim, son
+        tarih), kısmi teklif, iptal bilgisi, sözleşmeler.
+
+
+        Ayrıntı 30 dk önbelleklenir. EKAP o an yanıt vermezse `detay: null` + `mesaj`
+        döner — liste alanları yine gelir.
+
+
+        `birim_fiyat_cetveli_url`: EKAP''ın kendi adresi; mobil tarayıcıda açar (dosya
+        sunucumuzdan geçmez). `dokuman_url`: `dokuman_var=true` ise doküman indirme
+        ucu.'
+      summary: Doğrudan temin detayı
+      parameters:
+      - in: path
+        name: dtn
+        schema:
+          type: string
+        description: Doğrudan temin numarası.
+        required: true
+        examples:
+          DTN:
+            value: 26DT2112816
+      tags:
+      - dogrudan-temin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          description: No response body
+  /api/v1/ekap/dogrudan-temin/{dtn}/dokuman/:
+    get:
+      operationId: ekap_dogrudan_temin_dokuman
+      description: 'DT dokümanını EKAP''tan **akış (streaming)** olarak aktarır. Tek
+        dosyadır, biçimi idarenin yüklediği dosyadır (RAR/ZIP/PDF/DOCX…); ad ve tür
+        `Content-Disposition` / `Content-Type` başlıklarındadır.
+
+
+        `dokuman_var=false` kayıtta EKAP''a gidilmeden **404** döner. Kota/doğrulama/EKAP
+        yanıtsızlığında **503** + Türkçe mesaj.'
+      summary: Doğrudan temin dokümanını indir
+      parameters:
+      - in: path
+        name: dtn
+        schema:
+          type: string
+        description: Doğrudan temin numarası.
+        required: true
+        examples:
+          DTN:
+            value: 26DT2112816
+      tags:
+      - dogrudan-temin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: ''
+        '404':
+          description: No response body
+        '502':
+          description: No response body
+        '503':
+          description: No response body
+  /api/v1/ekap/dogrudan-temin/filtreler/:
+    get:
+      operationId: ekap_dogrudan_temin_filtreler
+      description: Tür, 4734/22 maddesi ve sıralama seçenekleri (EKAP `FiltreEnumlari`).
+      summary: Doğrudan temin filtre seçenekleri
+      tags:
+      - dogrudan-temin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/market/:
     get:
       operationId: ekap_market_overview
@@ -4246,6 +4430,90 @@ components:
           nullable: true
       required:
       - url
+    DogrudanTemin:
+      type: object
+      properties:
+        dtn:
+          type: string
+        ad:
+          type: string
+        idare_adi:
+          type: string
+        idare_id:
+          type: string
+        il_adi:
+          type: string
+        il_id:
+          type: integer
+          nullable: true
+        tur:
+          type: integer
+          nullable: true
+        tur_adi:
+          type: string
+          readOnly: true
+        madde_kod:
+          type: integer
+          nullable: true
+        madde:
+          type: string
+        durum:
+          type: integer
+          nullable: true
+        durum_metin:
+          type: string
+        son_teklif:
+          type: string
+          format: date-time
+          nullable: true
+        kalan_dakika:
+          type: string
+          readOnly: true
+        ilan_tarihi:
+          type: string
+          format: date
+          nullable: true
+        ilanli:
+          type: boolean
+        dokuman_var:
+          type: boolean
+        dokuman_url:
+          type: string
+          readOnly: true
+      required:
+      - ad
+      - dokuman_url
+      - dokuman_var
+      - dtn
+      - durum
+      - durum_metin
+      - idare_adi
+      - idare_id
+      - il_adi
+      - il_id
+      - ilan_tarihi
+      - ilanli
+      - kalan_dakika
+      - madde
+      - madde_kod
+      - son_teklif
+      - tur
+      - tur_adi
+    DogrudanTeminSayfa:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/DogrudanTemin'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
     DogrulamaCerezi:
       type: object
       properties:

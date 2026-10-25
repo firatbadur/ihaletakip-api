@@ -11,6 +11,11 @@ başlamadan önce dört soruyu cevaplamak:
 
 `--is uclar` tek bir ihale için bilinen TÜM uçları çağırıp ham yanıtları diske yazar.
 
+`--is dt` doğrudan temin şeridinin varsayımlarını ölçer (yazmaz): açık DT hacmi
+(sayfa sayısı), bugünkü yeni ilan sayısı, `dtnYil/dtnSayi` filtresi, eski bir
+`encID`'nin hâlâ çalışıp çalışmadığı (`--enc`), doküman ve birim fiyat cetvelinin bu
+IP'den inip inmediği (yalnızca başlıklar okunur, gövde indirilmez).
+
 ⚠️ Bu komut gerçek istek atar ve hız sınırı IP tabanlıdır. Varsayılan aralık
 `EKAP_MOBIL_MIN_INTERVAL_MS`'dir; `--aralik` ile geçici olarak değiştirilebilir.
 ⚠️ Eşiği zorlamak için tekrar tekrar engellenmeyin: aynı sunucu IP'si v2 için de
@@ -42,7 +47,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--is", dest="is_", required=True,
-                            choices=["uclar", "idare", "tempo", "captcha", "kapsam", "durum"])
+                            choices=["uclar", "idare", "tempo", "captcha", "kapsam", "durum",
+                                     "dt"])
         parser.add_argument("--ikn", help="Hedef İKN (uclar/idare için)")
         parser.add_argument("--adet", type=int, default=10,
                             help="Örneklem büyüklüğü (idare/captcha)")
@@ -54,6 +60,10 @@ class Command(BaseCommand):
         parser.add_argument("--dogrula", action="store_true",
                             help="durum: her dolu değerden bir ihalenin detayını çekip "
                                  "gerçek durum metnini basar (değer başına +1 istek)")
+        parser.add_argument("--dtn", help="dt: dtn filtresi denenecek kayıt (26DT…)")
+        parser.add_argument("--enc", help="dt: ömrü denenecek eski encID")
+        parser.add_argument("--sayfa", type=int, default=8,
+                            help="dt: açık hacim ölçümünde en çok kaç sayfa")
         parser.add_argument("--aralik", type=int,
                             help="Hız penceresi (sn) — bu çalışma için geçici")
         parser.add_argument("--cikti", default="", help="Ham yanıtların yazılacağı dizin")
@@ -385,6 +395,87 @@ class Command(BaseCommand):
                 ortusme = sum(len(k) for k in digerleri) - len(birlesim)
                 self.stdout.write(f"  0 dışı değerlerin birleşimi {len(birlesim)} "
                                   f"(0 ile eşit mi={birlesim == hepsi}) · çakışan {ortusme}")
+
+    # ── 7. Doğrudan temin ───────────────────────────────
+    def _is_dt(self, o):
+        """
+        ⚠️ Yalnızca BİLİNEN uçlar çağrılır — `DogrudanTemin/*` altında bilinmeyen yol
+        F5 WAF 406 döndürüyor (yol tahmini yasak, bkz. constants.py).
+        """
+        from datetime import timedelta
+
+        import requests
+        from django.utils import timezone
+
+        cli = EkapMobilClient(butce="dt", slot_bekleme=180)
+        bugun = timezone.localdate()
+        f = lambda g: g.strftime("%d.%m.%Y")  # noqa: E731
+
+        def liste(**kw):
+            for _ in range(5):
+                try:
+                    return cli.dt_liste(cli.dt_liste_govdesi(**kw))
+                except MobilSlotError:
+                    time.sleep(10)
+            raise CommandError("pencere alınamadı")
+
+        bugunku = liste(dogrudanTeminDurumu=C.DT_DURUM_ACIK, ilanTarihiBaslangic=f(bugun),
+                        ilanTarihiBitis=f(bugun), orderBy=10, topRowCnt=250, pageIndex=1)
+        self.stdout.write(f"bugün yayımlanan açık DT : {len(bugunku)}"
+                          + (" (sayfa DOLU — daha fazlası var)" if len(bugunku) == 250 else ""))
+
+        taban = bugun - timedelta(days=30)
+        toplam, son = 0, None
+        for sayfa in range(1, o["sayfa"] + 1):
+            satirlar = liste(dogrudanTeminDurumu=C.DT_DURUM_ACIK,
+                             ilanTarihiBaslangic=f(taban), ilanTarihiBitis=f(bugun),
+                             orderBy=10, topRowCnt=250, pageIndex=sayfa)
+            toplam += len(satirlar)
+            son = satirlar[-1] if satirlar else son
+            self.stdout.write(f"  açık (30 gün) sayfa {sayfa}: {len(satirlar)}")
+            if len(satirlar) < 250:
+                break
+        self.stdout.write(f"açık DT (son 30 gün ilan) : {toplam}")
+
+        if o.get("dtn"):
+            from ekap.mobil.dt import dtn_parcala
+            yil, sayi = dtn_parcala(o["dtn"])
+            bulunan = liste(dtnYil=yil[2:], dtnSayi=sayi, topRowCnt=10, pageIndex=1)
+            self.stdout.write(f"dtn filtresi ({o['dtn']}, dtnYil={yil[2:]}): "
+                              f"{[r.get('dtn') for r in bulunan]}")
+
+        if o.get("enc"):
+            try:
+                d = cli.dt_detay(o["enc"])
+                self.stdout.write(f"eski encID detayı: AÇILDI → "
+                                  f"{(d.get('dogrudanTeminBilgileri') or {}).get('dtn')}")
+            except MobilError as e:
+                self.stdout.write(f"eski encID detayı: AÇILMADI → {e}")
+
+        dokumanli = next((r for r in bugunku if r.get("dogrudanTeminDokumaniVarMi")), None)
+        if dokumanli:
+            try:
+                resp = cli.dt_dokuman_indir(dokumanli["encID"])
+                self.stdout.write(
+                    f"doküman ({dokumanli['dtn']}): HTTP {resp.status_code} "
+                    f"{resp.headers.get('content-type')} "
+                    f"{resp.headers.get('content-length') or '?'} bayt · "
+                    f"{resp.headers.get('content-disposition')}"
+                )
+                resp.close()
+            except MobilError as e:
+                self.stdout.write(f"doküman ({dokumanli['dtn']}): {e}")
+            url = C.DT_BIRIM_FIYAT_URL.format(enc_id=dokumanli["encID"])
+            try:
+                r = requests.get(url, stream=True, timeout=30,
+                                 headers={"user-agent": "Mozilla/5.0"})
+                self.stdout.write(f"birim fiyat cetveli: HTTP {r.status_code} "
+                                  f"{r.headers.get('content-type')}")
+                r.close()
+            except requests.RequestException as e:
+                self.stdout.write(f"birim fiyat cetveli: {e}")
+        else:
+            self.stdout.write("bugün dokümanlı açık DT yok — doküman denemesi atlandı")
 
     def _ornek_ikn(self):
         t = Tender.objects.order_by("-ihale_tarihi").only("ikn").first()

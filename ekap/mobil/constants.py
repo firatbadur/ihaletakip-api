@@ -170,3 +170,89 @@ USUL_METIN = _n({
     "Pazarlık": 3, "Pazarlık Usulü": 3,
     "Doğrudan Temin": 4,
 })
+
+
+# ══ Doğrudan Temin (DT) ════════════════════════════════
+# Uçlar EKAP iOS 2.2.0 trafiğinden alındı (mitm, 2026-10-25). ⚠️⚠️ Bu ağaçta
+# **yol tahmin edilmez**: bilinmeyen `DogrudanTemin/*` yolu 404 değil F5 WAF
+# **406 + HTML engel sayfası** döndürüyor (3 tahminde ölçüldü) — WAF ihlali sayılıyor.
+DT_KOK = f"{KOK}/DogrudanTemin"
+PATH_DT_ENUM = f"{DT_KOK}/FiltreEnumlari"
+PATH_DT_LISTE = f"{DT_KOK}/Liste"
+# ⚠️ Detay ve doküman uçları `?api-version` TAŞIMAZ (uygulama göndermiyor).
+PATH_DT_DETAY = f"{DT_KOK}/DogrudanTemin"
+# DT dokümanı: tek dosya, tek istek (ihale dokümanının Liste+Indir zinciri yok).
+PATH_DT_DOKUMAN = f"{DT_KOK}/TeknikSartnameIndir"
+# Birim fiyat teklif cetveli eski EKAP portalından iner (mobil API değil).
+DT_BIRIM_FIYAT_URL = (
+    "https://ekap.kik.gov.tr/EKAP/YeniIhaleArama.aspx"
+    "?qs=1&birimFiyatCetvelIndir=1&dogrudanTeminId={enc_id}"
+)
+
+# Liste gövdesi — uygulamanın gönderdiğinin birebir aynısı (23 alan).
+# ⚠️ Alan çıkarmayın (ihale listesindeki "eksik alan → boş liste" dersi).
+# Ölçülmüş davranış (2026-10-25):
+#   çalışan : dogrudanTeminDurumu (202 = açık), ilanTarihiBaslangic/Bitis
+#             (dd.mm.yyyy — ihale listesinin AKSİNE çalışıyor), topRowCnt (250),
+#             pageIndex (sayfalama VAR), orderBy (10 = dtn azalan)
+#   yanıt   : {dtBilgiListesi, kod, mesaj, sonuc} — totalCount YOK
+DT_LISTE_GOVDESI = {
+    "arananIfade": "",
+    "dogrudanTeminIstisnaAliminDayanagi": "",
+    "dogrudanTeminKapsami": "101",
+    "dogrudanTeminKayitTarihiBaslangic": "",
+    "dogrudanTeminKayitTarihiBitis": "",
+    "dogrudanTeminTarihiBaslangic": "",
+    "dogrudanTeminTarihiBitis": "",
+    "dogrudanTeminTuru": "",
+    "dogrudanTeminYasaKapsamiTeminMadde": "",
+    "dtnSayi": "",
+    "dtnYil": "",
+    "idareID": "",
+    "enUstIdareKod": "",
+    "ilanTarihiBaslangic": "",
+    "ilanTarihiBitis": "",
+    "ilanTipi": 0,
+    "ilId": "",
+    "okasListesi": "",
+    "orderBy": 10,
+    "pageIndex": 1,
+    "topRowCnt": 10,
+    "ustIdareKod": "",
+    "dogrudanTeminDurumu": 0,
+}
+DT_SAYFA = 250
+DT_ORDER_DTN_AZALAN = 10
+
+# `FiltreEnumlari.dtDurumlari` — liste satırı durumu METİN olarak verir.
+DT_DURUM_ACIK = 202
+DT_DURUM = {
+    202: "Doğrudan Temin Duyurusu Yayımlanmış",
+    3: "Teklifler Değerlendiriliyor",
+    4: "Doğrudan Temin Sonuçlandırıldı",
+    5: "Sonuç Bilgileri Gönderildi",
+    15: "Sonuç Duyurusu Yayımlanmış",
+}
+DT_DURUM_METIN = _n({v: k for k, v in DT_DURUM.items()})
+DT_TUR = {1: "Mal", 2: "Yapım", 3: "Hizmet", 4: "Danışmanlık"}
+DT_TUR_METIN = _n({v: k for k, v in DT_TUR.items()})
+DT_KAPSAM = {101: "4734 Kapsamında", 102: "İstisna", 103: "Kapsam Dışı"}
+# Detay "Doğrudan Temin 4734 Kapsamında" de diyebiliyor → önek atılıp eşlenir.
+DT_KAPSAM_METIN = _n({v: k for k, v in DT_KAPSAM.items()})
+DT_MADDE = {
+    101: "22-a", 102: "22-b", 103: "22-c",
+    104: "22-d* (Parasal Limit Kapsamında)",
+    105: "22-d** (Temsil Ağırlama Kapsamında)",
+    106: "22-e", 107: "22-f", 108: "22-g", 109: "22-h", 110: "22-ı", 111: "22-i",
+}
+# ⚠️ `normalize_tr` "22-ı" ile "22-i"yi AYNI dizgeye katlar → madde haritası
+# katlanmadan, birebir metinle kurulur (yanlış madde kodu sessizce filtre bozardı).
+DT_MADDE_METIN = {v: k for k, v in DT_MADDE.items()}
+
+# ══ KİK Kurul Karar Tutanakları ════════════════════════
+# ⚠️ Yazım EKAP'ınki: liste/tarih ucu "Tutunaklari", detay ucu "Tutanaklari".
+PATH_KURUL_TARIHLER = f"{KOK}/KurulKararTutunaklari/Tarihler"
+PATH_KURUL_LISTE = f"{KOK}/KurulKararTutunaklari/Liste"
+# `kararNitelikKod`: 2 = Uyuşmazlık (UM/UH/UY), 3 = Düzenleyici (DK), 5 = Mahkeme (MK).
+# Yalnızca uyuşmazlık kararları İKN taşıyor (3/5'te ikn null).
+KURUL_NITELIK_UYUSMAZLIK = 2

@@ -649,3 +649,107 @@ def kesif_turu(max_istek=200):
         run.items = yazilan
         run.note = f"taranan={toplam}"
         return {"taranan": toplam, "yazilan": yazilan}
+
+
+# ── Doğrudan temin şeridi ──────────────────────────────
+_DT_KILIT = "ekap:mobil:dt:kilit"
+
+
+def _dt_cli():
+    """
+    DT istemcisi: kendi günlük bütçesi (`dt`), **arka plan penceresi**.
+
+    ⚠️ Slot beklenir (`EKAP_MOBIL_DT_SLOT_BEKLEME`): tik ile aynı pencereyi paylaşır
+    ve tik'in aldığı pencerede `bekle=False` turu kaybettirirdi — DT'de bir turu
+    kaybetmek, saatler içinde kapanan bir alımı geç bildirmek demek.
+    """
+    return EkapMobilClient(
+        butce="dt", slot_bekleme=getattr(settings, "EKAP_MOBIL_DT_SLOT_BEKLEME", 90)
+    )
+
+
+@shared_task(name="ekap.mobil.tasks.dt_tik")
+def dt_tik():
+    """
+    DT turu: yoklama zamanıysa yeni ilan yoklaması, ardından (tam tarama sürüyorsa ya
+    da zamanı geldiyse) tam taramanın bir sayfası. **En çok 2 istek** (+ yoklama
+    sayfası taşarsa 1).
+
+    ⚠️ Tur başına istek sınırı `CELERY_TASK_TIME_LIMIT` (300 sn) içindir: her istek
+    pencere için ~60 sn + sapma bekleyebilir.
+    """
+    from . import dt as dt_mod
+
+    if not getattr(settings, "EKAP_MOBIL_ENABLED", False) or not getattr(
+        settings, "EKAP_MOBIL_DT_ENABLED", False
+    ):
+        return {"atlandi": "kapali"}
+    if captcha_mod.bekliyor_mu():
+        return {"atlandi": "captcha_bekliyor"}
+    if throttle.butce_kalan("dt") <= 0:
+        return {"atlandi": "butce_doldu"}
+    try:
+        if not cache.add(_DT_KILIT, "1", timeout=280):
+            return {"atlandi": "kilit"}
+    except Exception:                                   # noqa: BLE001
+        pass
+
+    cli = _dt_cli()
+    out, istek, yeni = {}, 0, []
+    try:
+        if dt_mod.yoklama_zamani_mi():
+            out["yoklama"] = dt_mod.yoklama(cli)
+            istek += out["yoklama"]["istek"]
+            yeni += out["yoklama"]["yeni"]
+        tam = dt_mod.tam_tarama_adimi(cli)
+        if tam is not None:
+            out["tam"] = tam
+            istek += 1
+            yeni += tam["yeni"]
+        if not out:
+            return {"atlandi": "is_yok"}
+        return out
+    except MobilSlotError:
+        out["atlandi"] = "hiz_penceresi"
+        return out
+    except MobilButceError:
+        out["atlandi"] = "butce_doldu"
+        return out
+    except MobilCaptchaError as e:
+        logger.warning("DT tik captcha: %s", e)
+        _say("hata")
+        out["atlandi"] = "captcha"
+        return out
+    except MobilError as e:
+        logger.warning("DT tik hata: %s", e)
+        _say("hata")
+        out["hata"] = str(e)[:200]
+        return out
+    finally:
+        if istek:
+            _say("dt", istek)
+        if yeni:
+            _dt_yeni_bildir(yeni)
+        try:
+            cache.delete(_DT_KILIT)
+        except Exception:                               # noqa: BLE001
+            pass
+
+
+def _dt_yeni_bildir(dtnler):
+    """Yeni DT'ler için alarm görevini tetikler (DB-only, `celery` kuyruğu)."""
+    try:
+        from celery import current_app
+
+        if "tenders.tasks.check_dt_alarms" in current_app.tasks:
+            current_app.send_task("tenders.tasks.check_dt_alarms")
+    except Exception:                                   # noqa: BLE001
+        logger.exception("DT alarm görevi tetiklenemedi")
+
+
+@shared_task(name="ekap.mobil.tasks.dt_temizle")
+def dt_temizle():
+    """Son teklif anı çoktan geçmiş DT satırlarını siler (EKAP'a gitmez)."""
+    from . import dt as dt_mod
+
+    return {"silinen": dt_mod.temizle()}

@@ -200,9 +200,11 @@ class EkapMobilClient:
                 )
 
         url = f"{self.base_url}{path}"
-        sorgu = {"api-version": C.API_VERSION} if api_version else {}
-        if params:
-            sorgu.update({k: v for k, v in params.items() if v is not None})
+        # Sıra uygulamanınkiyle aynı: önce uç parametreleri, en sonda `api-version`
+        # (ölçüldü: `?iknYili=…&iknSayi=…&api-version=1.0`).
+        sorgu = {k: v for k, v in (params or {}).items() if v is not None}
+        if api_version:
+            sorgu["api-version"] = C.API_VERSION
 
         # ⚠️⚠️ **Ağ hatasında TEKRAR DENE.** EKAP keep-alive bağlantılarını arada
         # kapatıyor ve yeniden kullanılan sokete `ConnectionResetError(104)` düşüyor
@@ -417,3 +419,70 @@ class EkapMobilClient:
             params={"iknYili": ikn_yili, "iknSayi": ikn_sayi},
             ek_baslik={"x-skip-error-dialog": "true"},
         )
+
+    # ── Doğrudan temin ──────────────────────────────────
+    @staticmethod
+    def dt_liste_govdesi(**overrides) -> dict:
+        govde = dict(C.DT_LISTE_GOVDESI)
+        govde.update({k: v for k, v in overrides.items() if v is not None})
+        return govde
+
+    def dt_liste(self, govde: dict) -> list:
+        """
+        DT araması → `dtBilgiListesi` (düz liste).
+
+        ⚠️ İhale listesinden farklı: sarmalayıcı VAR (`{dtBilgiListesi, kod, mesaj,
+        sonuc}`), sayfalama VAR (`pageIndex`), `totalCount` YOK. `sonuc=false` sessiz
+        boş liste sayılmaz — hata olarak yükselir ("yok" ile "bilmiyorum" ayrı).
+        """
+        yanit = self._post(C.PATH_DT_LISTE, json_body=govde)
+        if not isinstance(yanit, dict):
+            raise MobilError(f"DT listesi beklenmeyen yanıt: {str(yanit)[:120]}")
+        if yanit.get("sonuc") is False:
+            raise MobilError(f"DT listesi sonuc=false: {yanit.get('mesaj')!r}")
+        return yanit.get("dtBilgiListesi") or []
+
+    def dt_detay(self, enc_id: str) -> dict:
+        """
+        Tek DT'nin detayı. ⚠️ `enc_id` liste satırının `encID`'sidir; her listede
+        farklı üretilir ama eskisi de çalışmaya devam eder (ölçüldü: 3,5 sa sonra açtı).
+        """
+        yanit = self._post(C.PATH_DT_DETAY, params={"dtEncId": enc_id}, api_version=False)
+        if not isinstance(yanit, dict) or yanit.get("sonuc") is False:
+            raise MobilError(f"DT detayı alınamadı: {str(yanit)[:120]}")
+        return yanit
+
+    def dt_dokuman_indir(self, enc_id: str):
+        """
+        DT dokümanı — **ham baytlar** (`requests.Response`, stream), tek istek.
+
+        Ölçüldü (25DT2095274): `application/octet-stream`, `content-disposition`'da
+        idarenin yüklediği dosyanın adı; biçim serbest (RAR/PDF/DOCX…).
+        """
+        p = {"dtEncId": enc_id}
+        resp = self._ham_istek(C.PATH_DT_DOKUMAN, params=p, stream=True, api_version=False)
+        resp = self._captcha_asilirsa_tekrarla(
+            resp, C.PATH_DT_DOKUMAN, params=p, stream=True, api_version=False,
+        )
+        if resp.status_code == 404:
+            raise MobilYokError("DT dokümanı EKAP'ta bulunamadı")
+        if resp.status_code != 200:
+            raise MobilError(f"DT dokümanı indirilemedi → HTTP {resp.status_code}")
+        return resp
+
+    # ── KİK kurul karar tutanakları ─────────────────────
+    def kurul_tarihler(self, nitelik: int = C.KURUL_NITELIK_UYUSMAZLIK) -> list:
+        """Kurul toplantı tarihleri (ISO, yeniden eskiye)."""
+        yanit = self._post(C.PATH_KURUL_TARIHLER, params={"kararNitelikKod": nitelik})
+        return yanit if isinstance(yanit, list) else []
+
+    def kurul_liste(self, gundem_tarihi: str,
+                    nitelik: int = C.KURUL_NITELIK_UYUSMAZLIK) -> list:
+        """
+        Bir toplantının TÜM kararları (sayfalama yok). ⚠️ Parametre adı EKAP'ın
+        yazımıyla `gundenTarihi` (sic) ve değer `Tarihler`'in döndürdüğü ISO dizgesidir.
+        """
+        yanit = self._post(C.PATH_KURUL_LISTE, params={
+            "gundenTarihi": gundem_tarihi, "kararNitelikKod": nitelik,
+        })
+        return yanit if isinstance(yanit, list) else []

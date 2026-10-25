@@ -128,6 +128,24 @@ app.conf.beat_schedule = {
         "task": "ekap.mobil.tasks.tik",
         "schedule": crontab(minute="*/2"),
     },
+    # ── Doğrudan temin şeridi ──
+    # ⚠️ Tik dönüşümüne SOKULMADI: tik kapasitesi (720/gün) dolu, DT oraya girseydi
+    # sözleşme verisinin tek kaynağı olan sonuç/tazeleme aç kalırdı. Ayrı görev, ayrı
+    # günlük bütçe (`dt`), ORTAK zaman penceresi (hız sınırı IP tabanlı).
+    # Beat sık tetikler; asıl kadansı görev içindeki zamanlama belirler (mesai içi
+    # `EKAP_MOBIL_DT_ARALIK_DK`, dışı `EKAP_MOBIL_DT_GECE_ARALIK_DK`) — zamanı
+    # gelmeyen tur istek harcamadan döner.
+    # ⚠️ `expires`: tek concurrency'li `ekap_mobil` kuyruğunda bekleyen eski turlar
+    # sonradan art arda EKAP'a gitmesin (her tur pencere bekleyebilir).
+    "ekap-mobil-dt-tik": {
+        "task": "ekap.mobil.tasks.dt_tik",
+        "schedule": crontab(minute="*/5"),
+        "options": {"expires": 240},
+    },
+    "ekap-mobil-dt-temizle": {
+        "task": "ekap.mobil.tasks.dt_temizle",
+        "schedule": crontab(hour=3, minute=20),
+    },
     # ⚠️ **Günde İKİ kez: 04:00 (gece) + 12:00 (öğlen kontrol turu).** Aşağıdaki
     # "gün içinde koşmalı" gerekçesi v2 birincil kaynakken geçerliydi; birincil
     # kaynak artık mobil API ve gün içi tazelik oradan geliyor. v2 turu yalnızca

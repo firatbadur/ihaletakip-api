@@ -1149,3 +1149,71 @@ class TenderNamePattern(models.Model):
 
     def __str__(self):
         return f"{self.kalip_norm[:60]} ({self.ihale_sayisi} ihale, {self.durum})"
+
+
+class DogrudanTemin(models.Model):
+    """
+    EKAP doğrudan temin (DT) alımı — mobil API `DogrudanTemin/Liste`'den.
+
+    ⚠️ `Tender`'a KONMAZ: anahtar İKN değil **dtn** ("26DT2112816"), yaşam döngüsü
+    farklı (bir kısmı saatler içinde kapanıyor), ihale listesi/istatistik/benchmark/
+    alarm akışlarına karışmamalı. (`Tender.ihale_usul=4` "Doğrudan Temin" ayrı bir
+    şeydir.)
+
+    ⚠️ Kararlı anahtar **dtn**: liste satırındaki `encID` her çağrıda farklı üretilir.
+    Ama eski `encID` de çalışmaya devam ediyor (ölçüldü: 3,5 sa sonra detayı açtı) →
+    son görülen değer saklanır, detay/doküman talep üzerine tek istekle çekilir.
+
+    "Açık" tanımının tek kaynağı `ekap.mobil.dt.acik_q` — uç da bildirim de onu
+    kullanır (sayı ≠ liste arızasının dersi).
+    """
+
+    dtn = models.CharField(max_length=32, unique=True)
+    enc_id = models.CharField(max_length=128, blank=True)
+    enc_id_at = models.DateTimeField(null=True, blank=True)
+
+    ad = models.TextField(blank=True)
+    ad_norm = models.TextField(blank=True)
+    idare_adi = models.CharField(max_length=500, blank=True)
+    idare_adi_norm = models.CharField(max_length=500, blank=True)
+    # Ad eşleştirmesiyle (`ekap/mobil/idare.coz`) doldurulur; mobilde idare_id yok.
+    idare_id = models.CharField(max_length=255, blank=True, db_index=True)
+    idare_kaynak = models.CharField(max_length=16, blank=True)
+    il_adi = models.CharField(max_length=100, blank=True)
+    # `Tender.il_id` ile AYNI semantik (City.ekap_il_id) → mobil şehir seçicisi ortak.
+    il_id = models.IntegerField(null=True, blank=True)
+
+    tur = models.SmallIntegerField(null=True, blank=True)          # 1-4
+    madde_kod = models.SmallIntegerField(null=True, blank=True)    # 101-111
+    madde = models.CharField(max_length=100, blank=True)
+    istisna_dayanagi = models.CharField(max_length=200, blank=True)
+    # ⚠️ Metin → kod; eşleşmeyen metin koda ÇEVRİLMEZ (NULL kalır, `durum_metin` durur).
+    durum = models.SmallIntegerField(null=True, blank=True)
+    durum_metin = models.CharField(max_length=120, blank=True)
+
+    # Son teklif anı. "Tarih Belirtilmemiş" → NULL (uydurulmaz).
+    son_teklif = models.DateTimeField(null=True, blank=True, db_index=True)
+    ilan_tarihi = models.DateField(null=True, blank=True, db_index=True)
+    ilanli = models.BooleanField(default=False)
+    dokuman_var = models.BooleanField(default=False)
+
+    list_raw = models.JSONField(default=dict, blank=True)
+    detail_raw = models.JSONField(null=True, blank=True)
+    detay_at = models.DateTimeField(null=True, blank=True)
+
+    # Son görüldüğü an (yoklama ya da tam tarama). İptal edilen/sonuca geçen kayıt
+    # 202 listesinden düşer → tam taramalarda görülmeyince "açık" dışına çıkar.
+    son_gorulme = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Doğrudan Temin"
+        verbose_name_plural = "Doğrudan Teminler"
+        ordering = ["son_teklif"]
+        indexes = [
+            models.Index(fields=["il_id", "son_teklif"]),
+        ]
+
+    def __str__(self):
+        return f"{self.dtn} — {self.ad[:60]}"

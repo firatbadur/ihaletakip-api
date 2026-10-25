@@ -14,6 +14,7 @@ from .models import (
     ContractorAlias,
     ContractorMembership,
     ContractSection,
+    DogrudanTemin,
     Keyword,
     KeywordBatch,
     OkasCode,
@@ -335,6 +336,24 @@ class SyncRunAdmin(admin.ModelAdmin):
 
 
 admin.site.register(ContractSection)
+
+
+@admin.register(DogrudanTemin)
+class DogrudanTeminAdmin(admin.ModelAdmin):
+    """⚠️ Salt okunur: satırlar mobil DT şeridinin ürünüdür (`ekap/mobil/dt.py`)."""
+
+    list_display = ["dtn", "ad", "idare_adi", "il_adi", "tur", "durum_metin",
+                    "son_teklif", "ilan_tarihi", "dokuman_var", "son_gorulme"]
+    list_filter = ["durum", "tur", "dokuman_var", "ilan_tarihi"]
+    search_fields = ["dtn", "ad", "idare_adi"]
+    ordering = ["-son_gorulme"]
+    show_full_result_count = False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
 
 
 # ── Anahtar kelime katmanı ──────────────────────────────

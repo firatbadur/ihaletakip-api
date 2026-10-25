@@ -5217,6 +5217,9 @@ components:
         dtn_liste:
           type: string
           readOnly: true
+        karar_no:
+          type: string
+          readOnly: true
         read:
           type: boolean
           readOnly: true
@@ -5237,6 +5240,7 @@ components:
       - idare_detsis_liste
       - ilan_gun
       - institution
+      - karar_no
       - okas_kodlar
       - pencere_bas
       - pencere_bit
@@ -5730,6 +5734,8 @@ components:
         document_change:
           type: boolean
         completed:
+          type: boolean
+        kurul_karar:
           type: boolean
         created_at:
           type: string

@@ -158,6 +158,10 @@ app.conf.beat_schedule = {
         "task": "ekap.mobil.tasks.kurul_kontrol",
         "schedule": crontab(hour=6, minute=40),
     },
+    "tenders-kurul-karar-alarms": {
+        "task": "tenders.tasks.check_kurul_karar_alarms",
+        "schedule": crontab(hour=7, minute=5),
+    },
     "ekap-mobil-dt-temizle": {
         "task": "ekap.mobil.tasks.dt_temizle",
         "schedule": crontab(hour=3, minute=20),

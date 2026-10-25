@@ -159,6 +159,26 @@ def dt_eslesme(*, count: int, en_erken=None) -> tuple[str, str]:
     return title, body
 
 
+# ── KİK kurul kararı (ihale alarmı seçeneği) ───────────
+
+def kurul_karari(*, ihale_adi: str, kararlar) -> tuple[str, str]:
+    """
+    Alarm kurulan ihale hakkında yeni KİK uyuşmazlık kararı; başlık = ihale adı
+    (`alarm_tender` ile aynı: kullanıcı hangi ihaleyi takip ettiğini başlıktan tanır).
+
+    ⚠️ Kararın kendisi gövdede söylenir ("…reddine", "Düzeltici işlem…") — bu
+    bildirimin değeri sonucu doğrudan iletmesidir, "bir karar var" demek değil.
+    """
+    title = clip(ihale_adi or "Takip Ettiğiniz İhale")
+    ilk = kararlar[0]
+    aciklama = clip(ilk.karar_aciklama or "karar verildi", 110)
+    if len(kararlar) == 1:
+        body = f"KİK uyuşmazlık kararı: {aciklama} ({ilk.karar_no})"
+    else:
+        body = f"KİK {len(kararlar)} uyuşmazlık kararı verdi. İlki: {aciklama} ({ilk.karar_no})"
+    return title, body
+
+
 # ── Takip edilen firma: yeni sözleşme ──────────────────
 
 def contractor_match(*, firma_adi: str, count: int, ihale_adi: str | None = None) -> tuple[str, str]:

@@ -234,6 +234,16 @@ class TenderAlarm(TimeStampedModel):
     last_ihale_durum = models.IntegerField(null=True, blank=True)
     # "İhale sonuçlandı" bildirimi tek sefer gönderilsin diye guard.
     completed_notified = models.BooleanField(default=False)
+    # KİK uyuşmazlık kararı alarmı (2026-10-25). ⚠️ Varsayılan KAPALI ve mevcut
+    # alarmlarda da kapalı başlar (ürün kararı) — kullanıcı açar.
+    # ⚠️ `db_default` şart: eski worker'lar bu kolonları tanımadan alarm satırı yazmaya
+    # devam eder (2026-08-28 / ekap 0023 dersi).
+    kurul_karar = models.BooleanField(default=False, db_default=False)
+    # Bu alarm için bildirilmiş karar numaraları (CSV). Kalıcı dedup: Redis sıfırlansa
+    # da aynı karar ikinci kez bildirilmez. ⚠️ JSON değil metin: JSONField'a güvenli
+    # bir DB default'u (`'[]'::jsonb`) Django'da literal olarak verilemiyor; karar
+    # numaraları ("2026/UH.II-2688") virgül içermez.
+    kurul_bildirilen = models.TextField(blank=True, default="", db_default="")
 
     class Meta:
         verbose_name = "İhale Alarmı"
@@ -358,6 +368,9 @@ class Notification(models.Model):
     # ⚠️ `db_default` şart: eski worker'lar bu kolonu tanımadan satır yazmaya devam eder
     # (2026-08-28 / ekap 0023 dersi — NOT NULL kolon + eski kod = her INSERT düşer).
     dtn_liste = models.CharField(max_length=2000, blank=True, default="", db_default="")
+    # Kurul kararı alarmı (type=ALARM): bildirilen kararın numarası. Derin bağlantı
+    # yine ihale detayıdır (`tender_id`); mobil bu alanla ilgili kararı vurgular.
+    karar_no = models.CharField(max_length=64, blank=True, default="", db_default="")
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

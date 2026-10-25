@@ -207,6 +207,8 @@ class TenderAlarmSerializer(serializers.ModelSerializer):
             "reminder_day",
             "document_change",
             "completed",
+            # KİK uyuşmazlık kararı alarmı (vars. kapalı).
+            "kurul_karar",
             "created_at",
             "updated_at",
         ]
@@ -247,6 +249,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             # Doğrudan temin alarmı: kapsanan DT numaraları (CSV). Mobil
             # `GET /ekap/dogrudan-temin/?dtn=<dtn_liste>` açar.
             "dtn_liste",
+            # Kurul kararı alarmında: bildirilen kararın numarası.
+            "karar_no",
             "read",
             "created_at",
         ]

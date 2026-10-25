@@ -1014,3 +1014,85 @@ def check_dt_alarms():
         finally:
             cache.delete(f"dt:tur:{uid}")
     return {"kullanici": len(kullanicilar), "bildirim": bildirim}
+
+
+# ══ KİK kurul kararı alarmı (ihale alarmı seçeneği) ════
+# Yalnızca bu kadar gün içinde İLK KEZ gördüğümüz ve yayımı bu kadar yeni kararlar.
+# ⚠️ İlk dolum fırtınası koruması: `run_mobil --is kurul --geri 12` aylarca eski kararı
+# bugün "ilk kez" görür — `ilk_gorulme` tek başına yetmez, yayın tarihine de bakılır.
+_KURUL_TAZE_GUN = 3
+_KURUL_YAYIN_GUN = 14
+
+
+def _virgullu(metin):
+    return [p for p in (metin or "").split(",") if p]
+
+
+@shared_task(name="tenders.tasks.check_kurul_karar_alarms")
+def check_kurul_karar_alarms():
+    """
+    `TenderAlarm.kurul_karar=True` olan ihaleler için yeni KİK uyuşmazlık kararı →
+    ihale başına tek bildirim (`type=ALARM`, derin bağlantı ihale detayı + `karar_no`).
+
+    ⚠️ Dedup KALICIDIR (`kurul_bildirilen`): Redis sıfırlansa da aynı karar ikinci kez
+    bildirilmez — karar haftada bir gelir, kaçırılması da tekrarı da görünür.
+    ⚠️ Sessiz saatte işaretlemeden çıkar (beat 07:05 + kurul turu sonrası tetik).
+    ⚠️ Pro elemesi burada da yapılır: alarm kurmak Pro, ama Pro'dan düşenin alarmı kalır.
+    """
+    from ekap.models import KurulKarari, Tender
+    from tenders.models import Notification, TenderAlarm
+    from tenders.services import templates
+    from tenders.services.notify import _in_quiet_hours, push_to_user, record_notification
+
+    simdi = timezone.now()
+    if _in_quiet_hours(simdi):
+        return {"atlandi": "sessiz_saat"}
+
+    taze = (KurulKarari.objects.exclude(ikn="")
+            .filter(ilk_gorulme__gte=simdi - timedelta(days=_KURUL_TAZE_GUN),
+                    yayin_tarihi__gte=simdi - timedelta(days=_KURUL_YAYIN_GUN))
+            .order_by("-toplanti_tarihi", "sira_no"))
+    ikn_kararlar = {}
+    for k in taze:
+        ikn_kararlar.setdefault(k.ikn, []).append(k)
+    if not ikn_kararlar:
+        return {"alarm": 0, "bildirim": 0}
+
+    alarmlar = list(TenderAlarm.objects.filter(kurul_karar=True).select_related("user"))
+    # Alarmların bir kısmı yalnızca ekap_id taşır (tender_ikn boş) → tek sorguyla çöz.
+    eksik = {a.tender_id for a in alarmlar if not a.tender_ikn}
+    ekap_ikn = dict(Tender.objects.filter(ekap_id__in=eksik).order_by()
+                    .values_list("ekap_id", "ikn")) if eksik else {}
+
+    bildirim = 0
+    for alarm in alarmlar:
+        user = alarm.user
+        if not (user.is_active and user.is_premium):
+            continue
+        ikn = alarm.tender_ikn or ekap_ikn.get(alarm.tender_id)
+        bilinen = set(_virgullu(alarm.kurul_bildirilen))
+        yeni = [k for k in ikn_kararlar.get(ikn, []) if k.karar_no not in bilinen]
+        if not yeni or not cache.add(f"kurul:tur:{alarm.pk}", 1, 120):
+            continue
+        try:
+            title, body = templates.kurul_karari(
+                ihale_adi=alarm.tender_title or yeni[0].ihale_adi, kararlar=yeni)
+            record_notification(
+                user, type=Notification.Type.ALARM, title=title, body=body,
+                tender_id=alarm.tender_id, tender_ikn=ikn,
+                tender_title=alarm.tender_title or yeni[0].ihale_adi,
+                institution=alarm.institution or yeni[0].idare_adi,
+                karar_no=yeni[0].karar_no,
+            )
+            push_to_user(user, title=title, body=body, data={
+                "type": Notification.Type.ALARM, "tenderId": alarm.tender_id,
+                "tenderIkn": ikn or "", "kararNo": yeni[0].karar_no,
+            })
+            alarm.kurul_bildirilen = ",".join(sorted(bilinen | {k.karar_no for k in yeni}))
+            alarm.save(update_fields=["kurul_bildirilen", "updated_at"])
+            bildirim += 1
+        except Exception:                               # noqa: BLE001
+            logger.exception("kurul alarmı işlenemedi (alarm=%s)", alarm.pk)
+        finally:
+            cache.delete(f"kurul:tur:{alarm.pk}")
+    return {"alarm": len(alarmlar), "bildirim": bildirim}

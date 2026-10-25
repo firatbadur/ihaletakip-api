@@ -2,6 +2,7 @@
 from django.contrib import admin
 
 from .models import (
+    DtKayitliFiltre,
     Favorite,
     FavoriteAuthority,
     Notification,
@@ -33,6 +34,15 @@ class FavoriteAuthorityAdmin(admin.ModelAdmin):
 class SavedFilterAdmin(admin.ModelAdmin):
     list_display = ["name", "user", "created_at", "last_notified_at"]
     search_fields = ["name", "user__username", "user__email"]
+    readonly_fields = ["last_notified_at"]
+    raw_id_fields = ["user"]
+
+
+@admin.register(DtKayitliFiltre)
+class DtKayitliFiltreAdmin(admin.ModelAdmin):
+    list_display = ["ad", "user", "alarm", "created_at", "last_notified_at"]
+    list_filter = ["alarm"]
+    search_fields = ["ad", "user__username", "user__email"]
     readonly_fields = ["last_notified_at"]
     raw_id_fields = ["user"]
 

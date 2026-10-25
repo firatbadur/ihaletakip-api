@@ -368,6 +368,14 @@ NOTIF_DAILY_CAP = env.int("NOTIF_DAILY_CAP", default=50)
 # Son push'tan bu kadar dakika geçmeden aynı kullanıcıya yeni push atılmaz. 0 → KAPALI.
 # Abonelik push'ları aynı görev turunda arka arkaya gittiğinden 0'dır (30 dk olsa 2.+ push düşerdi).
 NOTIF_MIN_GAP_MINUTES = env.int("NOTIF_MIN_GAP_MINUTES", default=0)
+# Doğrudan temin alarmı: aynı kullanıcıya iki DT bildirimi arasında en az bu kadar dk.
+# ⚠️ Aralık dolmadan bulunan yeni alımlar İŞARETLENMEZ, sonraki tura devreder (kaybolmaz).
+# Kısa tutulur: DT'lerin bir kısmı saatler içinde kapanıyor, bildirimin değeri hızındadır.
+NOTIF_DT_MIN_ARALIK_DK = env.int("NOTIF_DT_MIN_ARALIK_DK", default=15)
+# DT alarmı yalnızca bu kadar saat içinde sistemimize giren ve ilanı bugün/dün olan alımları
+# bildirir. ⚠️ İlk dolumda (tam tarama yüzlerce eski açık DT'yi bir anda yazar) fırtına
+# koruması budur — `created_at` tek başına yetmez, ilan günü de bakılır.
+NOTIF_DT_TAZELIK_SAAT = env.int("NOTIF_DT_TAZELIK_SAAT", default=6)
 # NOT: `NOTIF_FILTER_PUBLISH_DAYS` KALDIRILDI — hiçbir yerde okunmuyordu. Kayıtlı filtre ve
 # favori idare bildirimleri artık yalnızca `ilan_tarihi` BUGÜN olan ihaleleri bildiriyor
 # (bkz. tenders/tasks.py). Ayarın durması, var olmayan bir düğmeyi ayarlanabilir gösteriyordu.

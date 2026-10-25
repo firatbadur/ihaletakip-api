@@ -2,6 +2,8 @@
 from django.urls import path
 
 from .views import (
+    DtKayitliFiltreDetailView,
+    DtKayitliFiltreListCreateView,
     FavoriteAuthorityDetailView,
     FavoriteContractorDetailView,
     FavoriteContractorListCreateView,
@@ -34,6 +36,11 @@ urlpatterns = [
     path("favorite-contractors/<int:contractor_id>/", FavoriteContractorDetailView.as_view(), name="favorite-contractor-detail"),
     path("saved-filters/", SavedFilterListCreateView.as_view(), name="saved-filters"),
     path("saved-filters/<int:pk>/", SavedFilterDetailView.as_view(), name="saved-filter-detail"),
+    # Doğrudan temin kayıtlı filtreleri (kaydetmek serbest, alarm Pro)
+    path("dogrudan-temin/kayitli-filtreler/", DtKayitliFiltreListCreateView.as_view(),
+         name="dt-filtreler"),
+    path("dogrudan-temin/kayitli-filtreler/<int:pk>/", DtKayitliFiltreDetailView.as_view(),
+         name="dt-filtre-detail"),
     # Kayıtlı ihale klasörleri (varsayılan "Genel" klasörü bu uçlarda dönmez;
     # `SavedTender.group` boş olan kayıtlar oraya aittir)
     path("tender-groups/", TenderGroupListCreateView.as_view(), name="tender-groups"),

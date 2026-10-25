@@ -142,6 +142,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/5"),
         "options": {"expires": 240},
     },
+    # DT alarmı: asıl tetikleyici DT şeridinin yeni kayıt yazması (`.send_task`); bu
+    # girdi emniyet turudur (aralık yüzünden devreden ya da sessiz saatten taşan alımlar).
+    "tenders-dt-alarms": {
+        "task": "tenders.tasks.check_dt_alarms",
+        "schedule": crontab(minute="*/10"),
+        "options": {"expires": 540},
+    },
     "ekap-mobil-dt-temizle": {
         "task": "ekap.mobil.tasks.dt_temizle",
         "schedule": crontab(hour=3, minute=20),

@@ -249,6 +249,35 @@ class TenderAlarm(TimeStampedModel):
         return f"Alarm: {self.tender_title or self.tender_id}"
 
 
+class DtKayitliFiltre(TimeStampedModel):
+    """
+    Doğrudan temin (DT) için kayıtlı filtre — **kaydetmek Free+Pro, alarm Pro**.
+
+    ⚠️ `SavedFilter`'a bir `hedef` alanı eklenmedi, ayrı model bilinçli: `SavedFilter`
+    birleşik bildirim, `kayitli_filtreler` arama parametresi, asistan eylemleri ve öneri
+    akışında tüketiliyor. DT parametrelerinin (`madde_kod`, `son_teklif_*`) oralardan
+    `apply_tender_filters`'a sızması, tanımadığı anahtarı yok sayan bir filtre üzerinden
+    sessizce "tüm ihaleler" eşleşmesi üretirdi.
+    ⚠️ `filters` anahtarları `ekap.dt_sorgu.FILTRE_ANAHTARLARI` ile sınırlıdır
+    (serializer reddeder): tanınmayan anahtarı yok saymak, filtreyi kullanıcının
+    sandığından GENİŞ yapardı.
+    """
+
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="dt_filtreleri")
+    ad = models.CharField(max_length=200)
+    filters = models.JSONField(default=dict, blank=True)
+    alarm = models.BooleanField(default=False)
+    last_notified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Doğrudan Temin Filtresi"
+        verbose_name_plural = "Doğrudan Temin Filtreleri"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.ad
+
+
 class Notification(models.Model):
     """Kullanıcı bildirimi (push / uygulama içi)."""
 
@@ -323,6 +352,12 @@ class Notification(models.Model):
     # bir alt halkaya düşürüp YANLIŞ ekran açar (`okas_kodlar`/`pencere_bas` precedent'i).
     filtre_idler = models.CharField(max_length=500, blank=True, default="")
     idare_detsis_liste = models.CharField(max_length=500, blank=True, default="")
+    # Doğrudan temin alarmı: bildirimin KAPSADIĞI DT numaraları (CSV). Mobil listeyi
+    # `GET /ekap/dogrudan-temin/?dtn=<dtn_liste>` ile tam bu kümeye kısar →
+    # gövdedeki sayı = bu listenin uzunluğu (sayı ≠ liste arızasının dersi).
+    # ⚠️ `db_default` şart: eski worker'lar bu kolonu tanımadan satır yazmaya devam eder
+    # (2026-08-28 / ekap 0023 dersi — NOT NULL kolon + eski kod = her INSERT düşer).
+    dtn_liste = models.CharField(max_length=2000, blank=True, default="", db_default="")
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

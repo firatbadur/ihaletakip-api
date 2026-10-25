@@ -144,6 +144,8 @@ def _hata_yaniti(e, *, varsayilan):
         OpenApiParameter("dokuman_var", bool, description="Yalnızca dokümanı olanlar."),
         OpenApiParameter("dtn", str, description="DTN listesi (virgülle) — bildirim "
                          "derin bağlantısı (`dtn_liste`)."),
+        OpenApiParameter("kayitli_filtre", int, description="DT kayıtlı filtresi id'si "
+                         "(yalnızca sahibine; giriş gerekir, anonimse 400)."),
         OpenApiParameter("order", str, enum=list(dt_sorgu.SIRALAMALAR),
                          default="son_teklif",
                          description="`son_teklif`: en acil önce · `yeni`: en son yayımlanan önce."),
@@ -160,6 +162,22 @@ class DogrudanTeminListView(APIView):
     def get(self, request):
         qp = request.query_params
         qs = dt_sorgu.acik_qs()
+
+        kf = qp.get("kayitli_filtre")
+        if kf:
+            # ⚠️ Kayıtlı filtre kullanıcıya özeldir → anonim istek 400 (401 değil:
+            # mobil 401'de oturumu kapatır, bir query hatası çıkış yaptırmamalı —
+            # `TenderListView`'daki `kayitli_filtreler` gerekçesiyle aynı).
+            if not request.user.is_authenticated:
+                return api_response(message="Kayıtlı filtre için giriş yapın.",
+                                    success=False, status=400)
+            from tenders.models import DtKayitliFiltre
+
+            filt = DtKayitliFiltre.objects.filter(user=request.user, pk=kf).first()
+            if filt is None:
+                return api_response(message="Kayıtlı filtre bulunamadı.",
+                                    success=False, status=404)
+            qs = dt_sorgu.filtrele(qs, filt.filters or {})
 
         qs = dt_sorgu.sirala(dt_sorgu.filtrele(qs, qp), qp.get("order"))
 

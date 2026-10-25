@@ -70,6 +70,13 @@ MSG_PRO_FILTRE = (
 )
 
 
+# Doğrudan temin filtre alarmı. Filtre KAYDETMEK serbesttir; yalnızca alarm Pro.
+MSG_DT_ALARM = (
+    "Doğrudan temin alarmları Pro üyelere özeldir. Filtrenizi kaydedebilirsiniz; "
+    "yeni alımlar için anında bildirim almak için Pro'ya geçin."
+)
+
+
 class PremiumRequired(APIException):
     """
     Pro aboneliği gerektiren bir işlem Free kullanıcı tarafından denendi.

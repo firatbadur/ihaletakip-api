@@ -738,11 +738,12 @@ def dt_tik():
 
 def _dt_yeni_bildir(dtnler):
     """Yeni DT'ler için alarm görevini tetikler (DB-only, `celery` kuyruğu)."""
+    # ⚠️ Adla `send_task`: `ekap_mobil` worker'ı tenders görevlerini çalıştırmaz, görev
+    # rotasız olduğu için varsayılan `celery` kuyruğuna gider (DB-only, EKAP'a gitmez).
     try:
         from celery import current_app
 
-        if "tenders.tasks.check_dt_alarms" in current_app.tasks:
-            current_app.send_task("tenders.tasks.check_dt_alarms")
+        current_app.send_task("tenders.tasks.check_dt_alarms")
     except Exception:                                   # noqa: BLE001
         logger.exception("DT alarm görevi tetiklenemedi")
 

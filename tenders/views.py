@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 from .models import (
     DEFAULT_TENDER_GROUP_NAME,
     MAX_TENDER_GROUPS,
+    DtKayitliFiltre,
     Favorite,
     FavoriteAuthority,
     FavoriteContractor,
@@ -25,6 +26,7 @@ from .models import (
     TenderGroup,
 )
 from .serializers import (
+    DtKayitliFiltreSerializer,
     FavoriteAuthoritySerializer,
     FavoriteContractorSerializer,
     FavoriteSerializer,
@@ -405,6 +407,67 @@ class SavedFilterDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAP
     # yalnızca `serializer.save()` yapan bir override bırakmak ölü koddur.
     serializer_class = SavedFilterSerializer
     queryset_model = SavedFilter
+
+
+# ── Doğrudan temin kayıtlı filtreleri ──────────────────
+_DT_FILTRE_ORNEK = OpenApiExample(
+    "Mazot alımları, Diyarbakır",
+    value={"ad": "Diyarbakır mazot", "filters": {"q": "mazot", "il_id": [270], "tur": [1]},
+           "alarm": True},
+    request_only=True,
+)
+_DT_FILTRE_ID = OpenApiParameter(
+    name="id", location=OpenApiParameter.PATH, type=int, required=True,
+    description="DT kayıtlı filtresinin kimliği.",
+)
+_DT_FILTRE_ACIKLAMA = (
+    "Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`, `tur`, `madde_kod`, "
+    "`idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var` — tanınmayan "
+    "anahtar **400** döner.\n\n"
+    "**Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca "
+    "anında bildirim) **Pro'ya özeldir**: Free üyede `alarm: true` ile oluşturma/"
+    "güncelleme **403 `premium_required`** döner."
+)
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["dogrudan-temin"], summary="DT filtrelerini listele",
+                      description="Kullanıcının doğrudan temin filtreleri."),
+    post=extend_schema(tags=["dogrudan-temin"], summary="DT filtresi kaydet",
+                       description=_DT_FILTRE_ACIKLAMA, examples=[_DT_FILTRE_ORNEK]),
+)
+class DtKayitliFiltreListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
+    serializer_class = DtKayitliFiltreSerializer
+    queryset_model = DtKayitliFiltre
+
+    def perform_create(self, serializer):
+        from .services import actions
+
+        actions.dt_filtre_alarm_izni(self.request.user, serializer.validated_data.get("alarm"))
+        serializer.save(user=self.request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["dogrudan-temin"], summary="DT filtresini getir",
+                      parameters=[_DT_FILTRE_ID]),
+    put=extend_schema(tags=["dogrudan-temin"], summary="DT filtresini değiştir",
+                      parameters=[_DT_FILTRE_ID], description=_DT_FILTRE_ACIKLAMA,
+                      examples=[_DT_FILTRE_ORNEK]),
+    patch=extend_schema(tags=["dogrudan-temin"], summary="DT filtresini kısmi güncelle",
+                        parameters=[_DT_FILTRE_ID], description=_DT_FILTRE_ACIKLAMA,
+                        examples=[_DT_FILTRE_ORNEK]),
+    delete=extend_schema(tags=["dogrudan-temin"], summary="DT filtresini sil",
+                         parameters=[_DT_FILTRE_ID], responses={204: None}),
+)
+class DtKayitliFiltreDetailView(OwnerQuerysetMixin, generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = DtKayitliFiltreSerializer
+    queryset_model = DtKayitliFiltre
+
+    def perform_update(self, serializer):
+        from .services import actions
+
+        actions.dt_filtre_alarm_izni(self.request.user, serializer.validated_data.get("alarm"))
+        serializer.save()
 
 
 # ── Kayıtlı İhale Klasörleri ───────────────────────────

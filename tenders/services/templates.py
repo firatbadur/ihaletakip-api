@@ -7,6 +7,8 @@ Her şablon `(title, body)` ikilisi döner. `ekap.Tender` alan adları kullanıl
 """
 from __future__ import annotations
 
+from django.utils import timezone
+
 
 def clip(text: str | None, limit: int = 60) -> str:
     """Metni `limit` karaktere kırpar (ellipsis ile)."""
@@ -130,6 +132,31 @@ def authorities_ozet(*, count: int, saat: int = 24) -> tuple[str, str]:
         "Takip Ettiğiniz İdareler",
         f"Takip ettiğiniz idareler son {saat} saatte {count} ihale yayımladı.",
     )
+
+
+# ── Doğrudan temin alarmı ──────────────────────────────
+
+def dt_eslesme(*, count: int, en_erken=None) -> tuple[str, str]:
+    """
+    Filtrelere uyan yeni doğrudan temin alımları; kullanıcı başına tur başına TEK bildirim.
+
+    ⚠️ `count` = bildirimin `dtn_liste` uzunluğu — mobil o listeyi açar, sayı ekranda
+    doğrulanabilir olmalı. Filtre adı geçmez (birleşik özetlerle aynı gerekçe).
+    ⚠️ "En erken kapanış" söylenir: DT'lerin bir kısmı saatler içinde kapanıyor ve bu
+    bildirimin bütün değeri aciliyeti iletmesidir.
+    """
+    title = "Doğrudan Temin: Yeni Alım" if count == 1 else f"Doğrudan Temin: {count} Yeni Alım"
+    body = ("Filtrenize uyan bir doğrudan temin yayımlandı" if count == 1
+            else f"Filtrelerinize uyan {count} doğrudan temin yayımlandı")
+    if en_erken is not None:
+        yerel = timezone.localtime(en_erken)
+        if yerel.date() == timezone.localdate():
+            body += f"; en erken bugün {yerel:%H:%M}'de kapanıyor."
+        else:
+            body += f"; en erken {yerel:%d.%m %H:%M}'de kapanıyor."
+    else:
+        body += "."
+    return title, body
 
 
 # ── Takip edilen firma: yeni sözleşme ──────────────────

@@ -922,3 +922,95 @@ def cleanup_old_notifications(days: int = 30, cihaz_gun: int = 180):
         deleted, cihaz_silinen,
     )
     return {"deleted": deleted, "cihaz_silinen": cihaz_silinen}
+
+
+# ══ Doğrudan temin alarmı ══════════════════════════════
+# ⚠️ Filtre/idare özetlerinin aksine GÜNLÜK DEĞİL, ANLIK: DT'lerin bir kısmı saatler
+# içinde kapanıyor (kullanıcı: "~3 saatte sonuçlandırılıyor"). Görev, DT şeridi yeni kayıt
+# yazınca tetiklenir (`ekap.mobil.tasks._dt_yeni_bildir`) + beat emniyet turu.
+_DT_DEDUP_TTL = 7 * 24 * 3600
+_DT_TUR_KILIDI_TTL = 120
+# Tek bildirimdeki en çok DT — `Notification.dtn_liste` (2000 karakter) sınırına sığar.
+# Fazlası İŞARETLENMEZ, sonraki tura kalır (kaybolmaz).
+_DT_AZAMI = 120
+
+
+@shared_task(name="tenders.tasks.check_dt_alarms")
+def check_dt_alarms():
+    """
+    Alarmı açık DT filtrelerine uyan **yeni** açık doğrudan teminler → kullanıcı başına
+    tur başına TEK bildirim (birden çok filtreye uyan alım bir kez sayılır).
+
+    ⚠️⚠️ Küme, liste ucunun KULLANDIĞI fonksiyonlardan kurulur (`ekap.dt_sorgu.acik_qs` +
+    `filtrele`) → bildirimdeki `dtn_liste` ile mobilin açtığı `?dtn=` listesi aynı tanımdan
+    gelir. İki ayrı sorgu yazmak bu kod tabanında üç kez "sayı tutmuyor" arızası üretti.
+    ⚠️ Sessiz saatte görev İŞARETLEMEDEN çıkar: `push_to_user` sessiz saatte push atmaz,
+    işaretlenseydi o alımlar hiç bildirilmezdi; 07:00 sonrası ilk tur onları yakalar.
+    ⚠️ Kullanıcı başına en az `NOTIF_DT_MIN_ARALIK_DK` — aralık dolmamışsa da işaretlenmez.
+    ⚠️ Premium kontrolü burada (Python'da, `is_premium` property): alarm kurma uçta Pro'ya
+    kilitli, ama Pro'dan düşen üyenin eski alarmı da bildirim üretmemeli.
+    """
+    from ekap import dt_sorgu
+    from tenders.models import DtKayitliFiltre, Notification
+    from tenders.services import templates
+    from tenders.services.notify import _in_quiet_hours, push_to_user, record_notification
+
+    simdi = timezone.now()
+    if _in_quiet_hours(simdi):
+        return {"atlandi": "sessiz_saat"}
+
+    taze_saat = getattr(settings, "NOTIF_DT_TAZELIK_SAAT", 6)
+    aday = dt_sorgu.acik_qs(simdi).filter(
+        created_at__gte=simdi - timedelta(hours=taze_saat),
+        ilan_tarihi__gte=timezone.localdate(simdi) - timedelta(days=1),
+    )
+    if not aday.exists():
+        return {"kullanici": 0, "bildirim": 0}
+
+    kullanicilar = {}
+    for f in DtKayitliFiltre.objects.filter(alarm=True).select_related("user"):
+        if f.user.is_active and f.user.is_premium:
+            kullanicilar.setdefault(f.user_id, (f.user, []))[1].append(f)
+
+    aralik = timedelta(minutes=getattr(settings, "NOTIF_DT_MIN_ARALIK_DK", 15))
+    bildirim = 0
+    for uid, (user, filtreler) in kullanicilar.items():
+        if not cache.add(f"dt:tur:{uid}", 1, _DT_TUR_KILIDI_TTL):
+            continue
+        try:
+            son = cache.get(f"dt:sonbildirim:{uid}")
+            if son and simdi - son < aralik:
+                continue        # işaretlenmez → sonraki tura devreder
+            eslesen = set()
+            for f in filtreler:
+                eslesen |= set(dt_sorgu.filtrele(aday, f.filters or {})
+                               .values_list("dtn", flat=True))
+            if not eslesen:
+                continue
+            satirlar = list(
+                dt_sorgu.sirala(aday.filter(dtn__in=eslesen), "son_teklif")
+                .values_list("dtn", "son_teklif")
+            )
+            yeni = [(d, t) for d, t in satirlar
+                    if not cache.get(f"ndt:u{uid}:{d}")][:_DT_AZAMI]
+            # ⚠️ İşaret `cache.add` ile (atomik): iki tur yarışsa bile bir alım bir kez.
+            yeni = [(d, t) for d, t in yeni if cache.add(f"ndt:u{uid}:{d}", 1, _DT_DEDUP_TTL)]
+            if not yeni:
+                continue
+            dtnler = [d for d, _ in yeni]
+            en_erken = next((t for _, t in yeni if t is not None), None)
+            title, body = templates.dt_eslesme(count=len(dtnler), en_erken=en_erken)
+            csv = ",".join(dtnler)
+            record_notification(user, type=Notification.Type.TENDER, title=title, body=body,
+                                dtn_liste=csv)
+            push_to_user(user, title=title, body=body,
+                         data={"type": Notification.Type.TENDER, "dtnListe": csv})
+            cache.set(f"dt:sonbildirim:{uid}", simdi, timeout=24 * 3600)
+            DtKayitliFiltre.objects.filter(pk__in=[f.pk for f in filtreler]).update(
+                last_notified_at=simdi)
+            bildirim += 1
+        except Exception:                               # noqa: BLE001
+            logger.exception("DT alarmı işlenemedi (uid=%s)", uid)
+        finally:
+            cache.delete(f"dt:tur:{uid}")
+    return {"kullanici": len(kullanicilar), "bildirim": bildirim}

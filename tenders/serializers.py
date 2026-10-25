@@ -4,6 +4,7 @@ from rest_framework import serializers
 from .models import (
     DEFAULT_TENDER_GROUP_NAME,
     MAX_TENDER_GROUPS,
+    DtKayitliFiltre,
     Favorite,
     FavoriteAuthority,
     FavoriteContractor,
@@ -64,6 +65,36 @@ class FavoriteContractorSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id", "ad", "kind", "sozlesme_sayisi", "son_sozlesme_tarihi", "added_at",
         ]
+
+
+class DtKayitliFiltreSerializer(serializers.ModelSerializer):
+    """
+    Doğrudan temin kayıtlı filtresi.
+
+    ⚠️ Tanınmayan filtre anahtarı REDDEDİLİR (400): yok saymak, filtreyi kullanıcının
+    sandığından geniş yapar ve alarmı "her şeye" uyan bir alarma çevirirdi. Mobilde bir
+    anahtar yazım hatası bu yüzden sessiz değil, görünür bir hatadır.
+    """
+
+    class Meta:
+        model = DtKayitliFiltre
+        fields = ["id", "ad", "filters", "alarm", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_filters(self, deger):
+        from ekap.dt_sorgu import FILTRE_ANAHTARLARI
+
+        if deger in (None, ""):
+            return {}
+        if not isinstance(deger, dict):
+            raise serializers.ValidationError("Filtre bir nesne olmalı.")
+        bilinmeyen = sorted(set(deger) - set(FILTRE_ANAHTARLARI))
+        if bilinmeyen:
+            raise serializers.ValidationError(
+                f"Tanınmayan filtre alanı: {', '.join(bilinmeyen)}. "
+                f"Geçerli alanlar: {', '.join(FILTRE_ANAHTARLARI)}."
+            )
+        return deger
 
 
 class SavedFilterSerializer(serializers.ModelSerializer):
@@ -213,6 +244,9 @@ class NotificationSerializer(serializers.ModelSerializer):
             # `kayitli_filtreler` / `favori_idareler` olarak uca gönderir.
             "filtre_idler",
             "idare_detsis_liste",
+            # Doğrudan temin alarmı: kapsanan DT numaraları (CSV). Mobil
+            # `GET /ekap/dogrudan-temin/?dtn=<dtn_liste>` açar.
+            "dtn_liste",
             "read",
             "created_at",
         ]

@@ -1216,6 +1216,216 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefresh'
           description: ''
+  /api/v1/dogrudan-temin/kayitli-filtreler/:
+    get:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_list
+      description: Kullanıcının doğrudan temin filtreleri.
+      summary: DT filtrelerini listele
+      tags:
+      - dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DtKayitliFiltre'
+          description: ''
+    post:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_create
+      description: 'Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`,
+        `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var`
+        — tanınmayan anahtar **400** döner.
+
+
+        **Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca
+        anında bildirim) **Pro''ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme
+        **403 `premium_required`** döner.'
+      summary: DT filtresi kaydet
+      tags:
+      - dogrudan-temin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+            examples:
+              MazotAlımları,Diyarbakır:
+                value:
+                  ad: Diyarbakır mazot
+                  filters:
+                    q: mazot
+                    il_id:
+                    - 270
+                    tur:
+                    - 1
+                  alarm: true
+                summary: Mazot alımları, Diyarbakır
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtKayitliFiltre'
+          description: ''
+  /api/v1/dogrudan-temin/kayitli-filtreler/{id}/:
+    get:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_retrieve
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      summary: DT filtresini getir
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: DT kayıtlı filtresinin kimliği.
+        required: true
+      tags:
+      - dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtKayitliFiltre'
+          description: ''
+    put:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_update
+      description: 'Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`,
+        `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var`
+        — tanınmayan anahtar **400** döner.
+
+
+        **Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca
+        anında bildirim) **Pro''ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme
+        **403 `premium_required`** döner.'
+      summary: DT filtresini değiştir
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: DT kayıtlı filtresinin kimliği.
+        required: true
+      tags:
+      - dogrudan-temin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+            examples:
+              MazotAlımları,Diyarbakır:
+                value:
+                  ad: Diyarbakır mazot
+                  filters:
+                    q: mazot
+                    il_id:
+                    - 270
+                    tur:
+                    - 1
+                  alarm: true
+                summary: Mazot alımları, Diyarbakır
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DtKayitliFiltre'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtKayitliFiltre'
+          description: ''
+    patch:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_partial_update
+      description: 'Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`,
+        `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var`
+        — tanınmayan anahtar **400** döner.
+
+
+        **Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca
+        anında bildirim) **Pro''ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme
+        **403 `premium_required`** döner.'
+      summary: DT filtresini kısmi güncelle
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: DT kayıtlı filtresinin kimliği.
+        required: true
+      tags:
+      - dogrudan-temin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDtKayitliFiltre'
+            examples:
+              MazotAlımları,Diyarbakır:
+                value:
+                  ad: Diyarbakır mazot
+                  filters:
+                    q: mazot
+                    il_id:
+                    - 270
+                    tur:
+                    - 1
+                  alarm: true
+                summary: Mazot alımları, Diyarbakır
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDtKayitliFiltre'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDtKayitliFiltre'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtKayitliFiltre'
+          description: ''
+    delete:
+      operationId: api_v1_dogrudan_temin_kayitli_filtreler_destroy
+      description: İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.
+      summary: DT filtresini sil
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: DT kayıtlı filtresinin kimliği.
+        required: true
+      tags:
+      - dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/ekap/authorities/profile/:
     get:
       operationId: ekap_authority_profile
@@ -1619,6 +1829,12 @@ paths:
           type: string
         description: İl id listesi (virgülle) — `/ekap/cities/`'teki `ekap_il_id`,
           ihale filtresiyle aynı.
+      - in: query
+        name: kayitli_filtre
+        schema:
+          type: integer
+        description: DT kayıtlı filtresi id'si (yalnızca sahibine; giriş gerekir,
+          anonimse 400).
       - in: query
         name: madde_kod
         schema:
@@ -4522,6 +4738,40 @@ components:
           description: ekapv2.kik.gov.tr için `Cookie` başlığı
       required:
       - cookie
+    DtKayitliFiltre:
+      type: object
+      description: 'Doğrudan temin kayıtlı filtresi.
+
+
+        ⚠️ Tanınmayan filtre anahtarı REDDEDİLİR (400): yok saymak, filtreyi kullanıcının
+
+        sandığından geniş yapar ve alarmı "her şeye" uyan bir alarma çevirirdi. Mobilde
+        bir
+
+        anahtar yazım hatası bu yüzden sessiz değil, görünür bir hatadır.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        ad:
+          type: string
+          maxLength: 200
+        filters: {}
+        alarm:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - ad
+      - created_at
+      - id
+      - updated_at
     FCMToken:
       type: object
       properties:
@@ -4800,6 +5050,9 @@ components:
         idare_detsis_liste:
           type: string
           readOnly: true
+        dtn_liste:
+          type: string
+          readOnly: true
         read:
           type: boolean
           readOnly: true
@@ -4813,6 +5066,7 @@ components:
       - contractor_id
       - conversation_id
       - created_at
+      - dtn_liste
       - filter_id
       - filtre_idler
       - id
@@ -4854,6 +5108,35 @@ components:
         * `skipped` - Atlandı
 
         * `completed` - Tamamlandı'
+    PatchedDtKayitliFiltre:
+      type: object
+      description: 'Doğrudan temin kayıtlı filtresi.
+
+
+        ⚠️ Tanınmayan filtre anahtarı REDDEDİLİR (400): yok saymak, filtreyi kullanıcının
+
+        sandığından geniş yapar ve alarmı "her şeye" uyan bir alarma çevirirdi. Mobilde
+        bir
+
+        anahtar yazım hatası bu yüzden sessiz değil, görünür bir hatadır.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        ad:
+          type: string
+          maxLength: 200
+        filters: {}
+        alarm:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
     PatchedPreferences:
       type: object
       description: Tercih güncelleme (serbest JSON).

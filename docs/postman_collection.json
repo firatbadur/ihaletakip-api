@@ -1482,6 +1482,12 @@
                   "disabled": true
                 },
                 {
+                  "key": "kayitli_filtre",
+                  "value": "1",
+                  "description": "DT kayıtlı filtresi id'si (yalnızca sahibine; giriş gerekir, anonimse 400).",
+                  "disabled": true
+                },
+                {
                   "key": "madde_kod",
                   "value": "ornek",
                   "description": "4734/22 maddesi kodları (`/ekap/dogrudan-temin/filtreler/`).",
@@ -3640,6 +3646,238 @@
               ]
             },
             "description": "Oturumu ve içindeki tüm mesajları siler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dogrudan-temin",
+      "item": [
+        {
+          "name": "DT filtrelerini listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ""
+              ]
+            },
+            "description": "Kullanıcının doğrudan temin filtreleri.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "DT filtresi kaydet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ""
+              ]
+            },
+            "description": "Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`, `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var` — tanınmayan anahtar **400** döner.\n\n**Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca anında bildirim) **Pro'ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme **403 `premium_required`** döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ad\": \"Diyarbakır mazot\",\n  \"filters\": {\n    \"q\": \"mazot\",\n    \"il_id\": [\n      270\n    ],\n    \"tur\": [\n      1\n    ]\n  },\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DT filtresini getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** DT kayıtlı filtresinin kimliği."
+                }
+              ]
+            },
+            "description": "İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "DT filtresini değiştir",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** DT kayıtlı filtresinin kimliği."
+                }
+              ]
+            },
+            "description": "Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`, `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var` — tanınmayan anahtar **400** döner.\n\n**Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca anında bildirim) **Pro'ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme **403 `premium_required`** döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ad\": \"Diyarbakır mazot\",\n  \"filters\": {\n    \"q\": \"mazot\",\n    \"il_id\": [\n      270\n    ],\n    \"tur\": [\n      1\n    ]\n  },\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DT filtresini kısmi güncelle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** DT kayıtlı filtresinin kimliği."
+                }
+              ]
+            },
+            "description": "Doğrudan temin filtresi. `filters` anahtarları: `q`, `il_id`, `tur`, `madde_kod`, `idare_detsis`, `son_teklif_min`, `son_teklif_max`, `dokuman_var` — tanınmayan anahtar **400** döner.\n\n**Kaydetmek Free + Pro.** `alarm: true` (filtreye uyan yeni alım yayımlanınca anında bildirim) **Pro'ya özeldir**: Free üyede `alarm: true` ile oluşturma/güncelleme **403 `premium_required`** döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ad\": \"Diyarbakır mazot\",\n  \"filters\": {\n    \"q\": \"mazot\",\n    \"il_id\": [\n      270\n    ],\n    \"tur\": [\n      1\n    ]\n  },\n  \"alarm\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DT filtresini sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dogrudan-temin/kayitli-filtreler/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dogrudan-temin",
+                "kayitli-filtreler",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.** DT kayıtlı filtresinin kimliği."
+                }
+              ]
+            },
+            "description": "İstekteki kullanıcıya ait kayıtları filtreler ve otomatik atar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
       ]

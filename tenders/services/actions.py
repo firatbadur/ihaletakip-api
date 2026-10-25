@@ -11,7 +11,7 @@ kalır ve asistan üzerinden Pro özelliği bedavaya açılır.
 orada exception 403'e dönüşmez, görevi çökertir. Asistanın araçları bu fonksiyonları
 ÇAĞIRMAZ; yalnızca kullanıcının onaylayacağı bir öneri üretir.
 """
-from accounts.premium import MSG_ALARM, MSG_IDARE_TAKIP, require_premium
+from accounts.premium import MSG_ALARM, MSG_DT_ALARM, MSG_IDARE_TAKIP, require_premium
 
 from ..models import (
     FavoriteAuthority,
@@ -59,6 +59,18 @@ def alarm_kur(user, *, tender_id, **alanlar):
 # kapıları arama ucundadır (`TenderListView`). Bu asimetri bilinçli; sonucu
 # `tenders.tasks._filtre_acilabilir` soğuruyor (Free üyeye açılamayacak filtre için
 # bildirim üretilmez).
+
+
+def dt_filtre_alarm_izni(user, alarm) -> None:
+    """
+    Doğrudan temin filtresinde alarm **açmak** Pro'dur; kaydetmek serbesttir.
+
+    ⚠️ Yalnızca istek alarmı `True` yapıyorsa kapı çalışır: Pro'dan düşmüş bir üyenin
+    eski alarmlı filtresinde ad değiştirmesi 403 almamalı (o alarm zaten bildirim
+    üretmez — `check_dt_alarms` premium olmayanı atlar).
+    """
+    if alarm is True:
+        require_premium(user, MSG_DT_ALARM)
 
 
 def filtre_kaydet(user, *, name, filters, alarm=None, tags=None):

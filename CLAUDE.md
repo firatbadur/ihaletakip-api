@@ -93,6 +93,11 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── sonuc_ilani.py # Sonuç İlanı (ilanTip=4) HTML ayrıştırıcı — doğru yaklaşık maliyet kaynağı
 ├── tasks.py       # Celery: sync_recent/detail/refresh_stale/backfill/okas/authorities/contractors
 ├── views.py       # /ekap/tenders, detail, announcements, contracts, contractors, document-url, okas, authorities, cities
+├── views_dt.py    # /ekap/dogrudan-temin/ (liste, detay, filtreler, doküman proxy'si)
+├── dt_sorgu.py    # DT filtresi — liste ucu ile DT alarm görevinin ORTAK kaynağı
+├── views_kurul.py # /ekap/kurul-kararlari/ + ihale detayına gömülen kurulKararlari
+├── mobil/         # birincil kaynak: client, throttle, tasks (tik, dt_tik, kurul_kontrol),
+│                  #   dt.py (doğrudan temin), kurul.py (KİK uyuşmazlık kararları), …
 ├── tools/         # genel amaçlı yardımcılar → ocr.py (base64 resim → metin)
 └── management/    # seed_cities, ekap_probe, run_ingest, rebuild_contractors
 
@@ -122,9 +127,19 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   burada yok, `curl_cffi` taklidi **kullanılmaz**.
 - ⚠️ **Hız sınırı IP tabanlı ve dakikalar mertebesinde.** Ölçüm: 2,4 istek/dk
   sürdürülen tempoda 12/12 istek engellendi; 4 dk soğuma yetmedi, 30 dk yetti.
-  `EKAP_MOBIL_MIN_INTERVAL_MS` (vars. 150.000 = 2,5 dk) + `EKAP_MOBIL_SAPMA_ORANI`
-  (sabit kadans da bir imzadır). Bütçe ~576 istek/gün; `EKAP_MOBIL_GUNLUK_TAVAN`
-  bir hata döngüsünün günlük hakkı bir saatte yakmasını engeller.
+  `EKAP_MOBIL_MIN_INTERVAL_MS` (kod vars. 150.000 = 2,5 dk) + `EKAP_MOBIL_SAPMA_ORANI`
+  (sabit kadans da bir imzadır). `EKAP_MOBIL_GUNLUK_TAVAN` bir hata döngüsünün günlük
+  hakkı bir saatte yakmasını engeller.
+  ⚠️⚠️ **ÜRETİM DEĞERLERİ KOD VARSAYILANLARINDAN FARKLI** (ölçüldü 2026-10-25,
+  `.env.prod`): `MIN_INTERVAL_MS=60000` (1 dk), `GUNLUK_TAVAN=900`,
+  `KULLANICI_REZERV=600`. O gün 23:00'te arka plan **681/900** (keşif 348, tazeleme 261,
+  durum 62). Tik beat'te `*/2` **sabit** (`EKAP_MOBIL_TIK_DK/ISTEK` OKUNMUYOR) → tik
+  kapasitesi **720/gün ve dolu**. Bu belgede "2,5 dk / 600" geçen eski hesaplar o
+  döneme aittir.
+  ⚠️ **Bütçe pencere ALINDIKTAN SONRA düşülür** (düzeltildi 2026-10-25): eskiden önce
+  düşülüyordu ve `MobilSlotError` alan tur EKAP'a gitmeden günlük hakkı yakıyordu.
+  Bütçe kategorileri `arka_plan` · `dt` · `kullanici` (`throttle.BUTCE_KATEGORILERI`);
+  kategori **bütçeyi** ayırır, **pencereyi değil** (`EkapMobilClient(pencere_adi=…)`).
   ⚠️ **Eşiği aramak için tekrar tekrar engellenmeyin**: ceza büyür ve **aynı IP**
   v2 için de kullanılıyor.
 - **Çekmeli (pull) tek tüketici**: beat 2 dk'da bir `ekap.mobil.tasks.tik` tetikler,
@@ -485,7 +500,7 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
   `document-url` ucu mobil kaynaklı ihalelerde bu adresi döner (`data.url` sözleşmesi
   korunur, `proxy:true` eklenir).
   ⚠️ **Kullanıcı yolu AYRI pencere kullanır** (`EKAP_MOBIL_KULLANICI_INTERVAL_MS`,
-  vars. 30 sn) + ayrı günlük rezerv (100): 2,5 dk'lık arka plan penceresini bir insanın
+  vars. 5 sn) + ayrı günlük rezerv (kod vars. 100, üretim 600): 2,5 dk'lık arka plan penceresini bir insanın
   beklemesi pratikte "indirilemiyor" demektir. Slot bulunamazsa uç **503** + net Türkçe
   mesaj döner (sessiz başarısızlık yok). ⚠️ Rezerv tavanı bilinçlidir: kullanıcı
   trafiğinin toplam tempoyu ölçülen eşiğin üstüne çıkarmasını engeller.
@@ -499,6 +514,56 @@ beat'te kapalı. Uçların tam haritası `docs/ekap-mobil-api.md`'de.
 - ⚠️ **Kill switch `EKAP_MOBIL_ENABLED` (vars. False).** Üretimde açmadan önce
   `mobil_probe --is tempo` **üretim sunucusunda** koşturulmalı: hız sınırı IP
   tabanlıdır, geliştirici makinesinde ölçülen tempo oraya taşınmaz.
+
+### Doğrudan temin (DT) — `ekap/mobil/dt.py` (2026-10-25)
+
+Uçlar mitm kaydından (EKAP iOS 2.2.0) alındı; harita `docs/ekap-mobil-api.md` §6, mobil
+sözleşme `docs/mobil-dogrudan-temin.md`. Tablo `ekap.DogrudanTemin` (**`Tender`'a
+konmadı**: anahtar dtn, yaşam döngüsü farklı). Liste = **şu an açık olanların hepsi**
+(ürün kararı). Kayıtlı filtre `tenders.DtKayitliFiltre` — kaydetmek Free+Pro, **alarm Pro**.
+
+- ⚠️⚠️ **DT tik dönüşümüne SOKULMADI**: tik kapasitesi dolu (yukarıda) ve DT oraya
+  girseydi sözleşme verisinin tek kaynağı olan sonuç/tazeleme aç kalırdı. Ayrı görev
+  `ekap.mobil.tasks.dt_tik` (beat `*/5`, `expires=240`), **ayrı günlük bütçe** (`dt`,
+  `EKAP_MOBIL_DT_TAVAN` 400), **ortak arka plan penceresi** (bekleyerek alır — tik'le
+  çakışınca turu kaybetmesin). Kill switch `EKAP_MOBIL_DT_ENABLED` (vars. False).
+- İki iş: **yoklama** (bugünün açıkları, dtn azalan, genelde 1 istek; mesai içi 5 dk,
+  dışı 30 dk) + **tam açık taraması** (2 sa'de bir, tur başına **bir sayfa**).
+- ⚠️ **`encID` her çağrıda farklı** → anahtar `dtn`. Eski `encID` 3,5 sa sonra da çalıştı →
+  saklanır; bayatsa listeden taze alınıp **bir kez** tekrar denenir.
+- ⚠️⚠️ "Açık" tanımının **tek kaynağı `dt.acik_q`** (202 + son teklif geçmemiş + ilan
+  ≤ `EKAP_DT_ACIK_AZAMI_GUN` + son **iki** tam taramadan birinde görülmüş). Uç ve alarm
+  görevi aynı fonksiyonu (+ `ekap.dt_sorgu.filtrele`) kullanır.
+  ⚠️ İlan yaşı tavanı **zombi** kayıtlar için: 25DT2095274 (ilan 21.11.2025) son teklif
+  "24.11.2028" ve hâlâ 202.
+  ⚠️ **İki** tam tarama eşiği: sayfalı tarama sırasında bir kayıt kapanırsa arkadakiler
+  yukarı kayar ve sayfa sınırındaki kayıt o turda hiç görülmeyebilir.
+- ⚠️ DT dokümanı **tek dosya, tek istek** (`TeknikSartnameIndir`), biçim serbest (RAR!) —
+  ihale dokümanının Liste+İndir zinciri yok. `dokuman_var=false` → EKAP'a gitmeden 404.
+- ⚠️ DT alarmı **anlık** (`tenders.tasks.check_dt_alarms`, DT turu yeni kayıt yazınca
+  `send_task` + beat `*/10`): kullanıcı başına tek bildirim, `Notification.dtn_liste`;
+  sessiz saatte ve `NOTIF_DT_MIN_ARALIK_DK` dolmadan **işaretlemez** (alımlar devreder).
+  İlk dolum fırtına koruması: `created_at` son 6 sa **ve** ilan bugün/dün.
+- ⚠️⚠️ **`DogrudanTemin/*` altında yol TAHMİN ETMEYİN**: bilinmeyen yol 404 değil F5 WAF
+  **406** döndürüyor (3 tahminde ölçüldü). Yeni uç yalnızca mitm kaydından.
+- Komutlar: `run_mobil --is dt|dt_tam`, `mobil_probe --is dt [--dtn X --enc Y]` (yazmaz).
+
+### KİK kurul kararları — `ekap/mobil/kurul.py` (2026-10-25)
+
+Yalnızca **uyuşmazlık** (`kararNitelikKod=2`). Tablo `ekap.KurulKarari` (anahtar
+`karar_no`, `ikn` indeksli — `Tender`'a FK yok: ölçüldü 56 İKN'nin 50'si bizde).
+Mobil sözleşme `docs/mobil-kurul-karar.md`.
+
+- `ekap.mobil.tasks.kurul_kontrol` beat **06:40**: `Tarihler` + son 2 toplantının `Liste`'si
+  ≈3 istek/gün, arka plan bütçesi. Toplantı çoğunlukla Çarşamba, yayım Perşembe 00:00 ama
+  düzensiz → günlük. Kill switch `EKAP_MOBIL_KURUL_ENABLED` (vars. False). İlk dolum:
+  `run_mobil --is kurul --geri 12`.
+- `Detay` ucu kullanılmaz (aynı bilgi, PDF yok). Yazım EKAP'ınki: "Tutunaklari"/"Tutanaklari".
+- Alarm: **mevcut ihale alarmına seçenek** `TenderAlarm.kurul_karar` (vars. **kapalı**,
+  mevcut alarmlarda da kapalı — ürün kararı). `check_kurul_karar_alarms` (beat 07:05 +
+  kurul turu sonrası), kalıcı dedup `kurul_bildirilen` (CSV — JSONField'a güvenli DB
+  default'u verilemedi). İlk dolum koruması: `ilk_gorulme` son 3 gün **ve** yayın son 14 gün.
+- İhale detay yanıtına additive `kurulKararlari`; `detail_raw` değiştirilmez.
 
 ## EKAP v2 Entegrasyonu (YEDEK — kritik geçmiş)
 
@@ -3225,6 +3290,11 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
   üç tur ölçümle gereksizdi, kayıtlar 00:09-02:33'te bitiyor; **Free dahil herkese**,
   2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim
 - `check_favorite_contractor_matches` — takip edilen firma yeni iş aldı bildirimi (günlük 12:00, **Pro'ya özel**)
+- `ekap.mobil.tasks.dt_tik` — doğrudan temin yoklaması + tam tarama (`*/5`, kadansı görev belirler; kill switch kapalı)
+- `tenders.tasks.check_dt_alarms` — DT filtre alarmı (anlık; DT turu tetikler + `*/10` emniyet, **Pro'ya özel**)
+- `ekap.mobil.tasks.dt_temizle` — son teklif anı 30 gün önce geçmiş DT satırları (günlük 03:20)
+- `ekap.mobil.tasks.kurul_kontrol` — KİK uyuşmazlık kararları (günlük 06:40; kill switch kapalı)
+- `tenders.tasks.check_kurul_karar_alarms` — ihale alarmının kurul kararı seçeneği (07:05 + kurul turu sonrası, **Pro'ya özel**)
 - `detect_recurring_series` — tekrar eden ihale serilerini tespit eder (**her gün 02:30**
   — haftalıktan çevrildi 2026-09-24: beklenen ilan çıktığında seri güncellenmezse tahmin
   geçmişte kalıp bir hafta "gecikti" görünüyordu; ayrıca yarım kalan tur haftalık

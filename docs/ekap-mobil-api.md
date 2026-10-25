@@ -417,7 +417,69 @@ OCR'ı zorlayarak değil, yeni captcha isteyerek çözersiniz.
 
 ---
 
+### 6. Doğrudan temin (DT) — `DogrudanTemin/*`
+
+Kaynak: EKAP iOS 2.2.0 trafiği (mitm, 2026-10-25) + aynı gece birkaç canlı doğrulama.
+Kod: `ekap/mobil/dt.py`, uçlar `ekap/views_dt.py`, mobil not `docs/mobil-dogrudan-temin.md`.
+
+| Uç | Gövde / parametre | Not |
+|---|---|---|
+| `POST DogrudanTemin/FiltreEnumlari?api-version=1.0` | gövdesiz | durum/kapsam/tür/madde/istisna/ilan tipi/il (il anahtarı **plaka**) |
+| `POST DogrudanTemin/Liste?api-version=1.0` | JSON, 23 alan (`constants.DT_LISTE_GOVDESI`) | `{dtBilgiListesi, kod, mesaj, sonuc}` |
+| `POST DogrudanTemin/DogrudanTemin?dtEncId=<encID>` | gövdesiz, **api-version YOK** | detay: bilgiler, idare hiyerarşisi, duyuru/sonuç ilanı HTML'i, sözleşmeler |
+| `POST DogrudanTemin/TeknikSartnameIndir?dtEncId=<encID>` | gövdesiz, **api-version YOK** | DT dokümanı — **tek dosya, tek istek**, `application/octet-stream`, ad `content-disposition`'da, biçim serbest (ölçülen ilk örnek RAR) |
+| `GET ekap.kik.gov.tr/EKAP/YeniIhaleArama.aspx?qs=1&birimFiyatCetvelIndir=1&dogrudanTeminId=<encID>` | — | birim fiyat teklif cetveli (.docx), **eski portal**; telefondan 200, sunucudan denenmedi |
+
+#### Liste parametre davranışı (ölçüldü 2026-10-25)
+
+| parametre | davranış |
+|---|---|
+| `dogrudanTeminDurumu` | ✅ çalışıyor — **202 = açık** ("Doğrudan Temin Duyurusu Yayımlanmış") |
+| `ilanTarihiBaslangic/Bitis` | ✅ **çalışıyor** (`dd.mm.yyyy`) — ihale listesinin AKSİNE |
+| `topRowCnt` | ✅ 250 kabul ediyor (üstü denenmedi) |
+| `pageIndex` | ✅ **sayfalama VAR** (ihale listesinde yok) |
+| `orderBy` | 10 = dtn azalan (en yeni kayıt başta) · 4 ve 8 başka sıralar |
+| `totalCount` | ❌ yanıtta yok → sayfa < 250 gelince bitti sayılır |
+
+- ⚠️ **`encID` / `encIdareID` her çağrıda farklı** (aynı dtn, iki liste çağrısı, farklı
+  değer) → kararlı anahtar **`dtn`**. Ama eski `encID` **3,5 saat sonra da** detayı açtı
+  → son görülen saklanır, detay/doküman talep üzerine tek istekle çekilir. Daha uzun
+  ömür Faz 0'da ölçülecek; tutmazsa listeden taze `encID` alınıp bir kez tekrar denenir.
+- ⚠️ `dogrudanTeminTarihSaat` = **son teklif anı** (`"30.10.2026 11:30"`) ya da
+  `"Tarih Belirtilmemiş"` → NULL.
+- ⚠️ **Zombi açık kayıtlar**: 25DT2095274 (ilan 21.11.2025) son teklif "24.11.2028"
+  yazılı ve hâlâ 202 → "açık" tanımına ilan yaşı tavanı (30 gün) konuldu.
+- Ölçülen hacim (Pazar 23:00): açık ≥ 250 (tavana takıldı) — 209 Cuma, 30 Cumartesi,
+  11 Pazar ilanı. Hafta içi hacim henüz ölçülmedi.
+
+### 7. KİK kurul karar tutanakları
+
+| Uç | Not |
+|---|---|
+| `POST KurulKararTutunaklari/Tarihler?kararNitelikKod=2&api-version=1.0` | toplantı tarihleri (ISO, yeniden eskiye) |
+| `POST KurulKararTutunaklari/Liste?gundenTarihi=<ISO>&kararNitelikKod=2&api-version=1.0` | o toplantının **tüm** kararları, sayfalama yok (21.10: 65 karar / 54 KB) |
+| `POST KurulKararTutanaklari/Detay?tutanakId=<gundemMaddesiId>` | listeyle aynı bilgi, `kararAdres`/`kararId` null → **kullanılmıyor** |
+
+- ⚠️ Yazım EKAP'ınki: liste/tarih ucu **"Tutunaklari"**, detay ucu **"Tutanaklari"**;
+  parametre **`gundenTarihi`** (sic).
+- `kararNitelikKod`: **2 = Uyuşmazlık** (UM/UH/UY, `ikn` dolu) · 3 = Düzenleyici (DK) ·
+  5 = Mahkeme (MK) — 3 ve 5'te `ikn` null.
+- Toplantı çoğunlukla Çarşamba 10:00, `yayinTarihi` Perşembe 00:00 — ama düzensiz
+  (03.07 Cuma 09:30, 16.07 Perşembe) → günlük kontrol (son 2 toplantı, ≈3 istek/gün).
+- Kararlı anahtar `kararNo` ("2026/UH.II-2688"). Geçen haftanın 56 tekil İKN'sinin
+  50'si `Tender`'da var.
+
 ### Denenip bulunamayan uçlar (hepsi HTTP 404)
+
+⚠️⚠️ **`DogrudanTemin/*` altında bilinmeyen yol 404 DEĞİL, F5 WAF 406 + HTML engel
+sayfası döndürüyor** (2026-10-25: `DogrudanTemin/DogrudanTeminDokumani/Liste`,
+`DogrudanTemin/Dokuman`, `DogrudanTemin/DokumanListe` — üçü de 406). Yani bu ağaçta yol
+tahmini **WAF ihlali sayılıyor** ve IP'yi engele sokabilir. Yeni uç yalnızca uygulama
+trafiğinden (mitm) alınır; aşağıdaki liste `IhaleArama` dönemine aittir.
+Ayrıca `IhaleArama/IhaleDokumani/Liste` bir DT numarasıyla (`iknYili=2026&iknSayi=<dt sayısı>`)
+`404` veriyor — DT dokümanı ihale doküman uçlarından alınamaz.
+Yan bulgu: uygulama açık ihalede `IhaleArama/SonucIlanlari/SayiSorgula` de çağırıyor
+(404 "kayıt yok") — sonuç ilanı var mı diye ucuz bir ön kontrol olabilir, kullanılmıyor.
 
 `IhaleArama` altında **yalnızca `Ihale`, `SonucIlanlari/Ilan`, `IhaleDokumani/*`,
 `TeknikSartname/Bilgiler`, `IdariSartname/Bilgiler`, `Liste`** var. Denenenler:
@@ -483,6 +545,13 @@ cezayı büyütebilir ve **aynı sunucu IP'si** v2/tarayıcı köprüsü için d
 | Yeni ihale detayı (~300 yeni/gün) | ~300 |
 | Yeni sonuçlananların sonuç ilanı | ~300-700 |
 | Belge indirme (kullanıcı tetikli) | değişken |
+| **DT yoklaması** (mesai 5 dk, dışı 30 dk) + tam tarama (2 sa, sayfa başına 1) | ~200 (ayrı `dt` bütçesi) |
+| **Kurul kararı** (günde 1: Tarihler + 2 toplantı) | ~3 |
+
+⚠️ **2026-10-25 ölçümü (üretim)**: pencere `EKAP_MOBIL_MIN_INTERVAL_MS=60000`, tavan 900;
+o gün saat 23:00'te arka plan 681/900 (keşif 348, tazeleme 261, durum 62). Tik beat'te
+`*/2` sabit → **tik kapasitesi 720/gün ve doluydu** → DT tik dönüşümüne sokulmadı, ayrı
+görev + ayrı günlük bütçe (`dt`, vars. 400) + **ortak** pencere.
 
 Toplam **~600-1000 istek/gün** ≈ 0,4-0,7 istek/dk. Ölçülen engel eşiğinin
 (2,4/dk) altında ama **aynı büyüklük mertebesinde** → güvenli tarafta kalmak için

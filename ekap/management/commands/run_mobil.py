@@ -8,6 +8,7 @@ EKAP Mobil toplama görevlerini **senkron** tetikler (Celery/beat beklemeden).
     manage.py run_mobil --is durum
     manage.py run_mobil --is dt          # DT yeni ilan yoklaması (1-2 istek)
     manage.py run_mobil --is dt_tam      # DT tam açık taraması, bitene kadar
+    manage.py run_mobil --is kurul [--geri 12]   # KİK uyuşmazlık kararları (ilk dolum: 12)
 
 ⚠️ `EKAP_MOBIL_ENABLED=False` iken `tik` bedavaya çıkar; `detay`/`sonuc`/`kesif`
 doğrudan çalışır (kill switch yalnızca otomatik döngüyü kapatır, elle teşhisi değil).
@@ -25,9 +26,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--is", dest="is_", required=True,
                             choices=["tik", "kesif", "detay", "sonuc", "durum", "durum_tara",
-                                     "dt", "dt_tam"])
+                                     "dt", "dt_tam", "kurul"])
         parser.add_argument("--ikn")
         parser.add_argument("--max-istek", type=int, default=200)
+        parser.add_argument("--geri", type=int, default=2,
+                            help="kurul: son kaç toplantı okunsun (istek = 1 + geri)")
 
     def handle(self, *args, **o):
         if o["is_"] == "durum":
@@ -50,6 +53,16 @@ class Command(BaseCommand):
                 self.stdout.write(str(sonuc))
                 if sonuc.get("atlandi") or not sonuc.get("kalan_dilim"):
                     break
+            return
+        if o["is_"] == "kurul":
+            from ekap.mobil import kurul as kurul_mod
+            from ekap.mobil.client import EkapMobilClient
+
+            # ⚠️ Kill switch'e bakmaz (elle teşhis/ilk dolum); pencere beklenir.
+            sonuc = kurul_mod.kontrol(EkapMobilClient(slot_bekleme=180), geri=o["geri"])
+            mobil_tasks._say("kurul", sonuc["istek"])
+            for t in sonuc["toplanti"]:
+                self.stdout.write(f"{t['tarih']}: {t['karar']} karar, {t['yeni']} yeni")
             return
         if o["is_"] in ("dt", "dt_tam"):
             return self._dt(o["is_"], o["max_istek"])

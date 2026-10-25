@@ -1574,6 +1574,97 @@
           }
         },
         {
+          "name": "KİK uyuşmazlık kararları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/kurul-kararlari/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "kurul-kararlari",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "ikn",
+                  "value": "2026/1676818",
+                  "description": "İKN (YYYY/NNNNNNN).",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "En fazla 100.",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "bilgisayar",
+                  "description": "İhale adı / idare / başvuru sahibi / karar no.",
+                  "disabled": true
+                },
+                {
+                  "key": "toplanti",
+                  "value": "ornek",
+                  "description": "Toplantı günü (YYYY-MM-DD).",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Kamu İhale Kurulu'nun **uyuşmazlık** kararları (itirazen şikâyet başvuruları), yeniden eskiye. Kurul çoğunlukla Çarşamba toplanır, kararlar Perşembe 00:00'da yayımlanır; veri her sabah kontrol edilir.\n\n`ekap_id` doluysa ihale bizde vardır → `/ekap/tenders/{ekap_id}/` açılabilir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Kurul toplantıları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/kurul-kararlari/toplantilar/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "kurul-kararlari",
+                "toplantilar",
+                ""
+              ]
+            },
+            "description": "Kararı bulunan toplantılar (yeniden eskiye) ve karar sayıları.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Pazar panosu — yıl özeti ve en büyük iş grupları",
           "request": {
             "method": "GET",
@@ -2054,6 +2145,44 @@
               ]
             },
             "description": "İhalenin indirilebilir dosyalarını listeler: **ihale dokümanı** (tek ZIP) ve varsa **teknik şartname** dosyaları (adı + boyutu + indirme adresi).\n\n⚠️ EKAP teknik şartnameyi tek dosya olarak vermiyor; bir ihalede 10-11 ayrı dosya olabiliyor ve toplamları 1 GB'a ulaşabiliyor (ölçüldü). Bu yüzden birleştirilmez — kullanıcı boyutu görüp seçer.\n\nSonuç 24 saat önbelleklenir: aynı ihaleyi çok kullanıcı açsa da EKAP'a bir kez gidilir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "İhalenin kurul kararları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/:key/kurul-kararlari/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                ":key",
+                "kurul-kararlari",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "key",
+                  "value": "ornek",
+                  "description": "**Zorunlu.** İhalenin `ekap_id`'si (İKN `/` içerir)."
+                }
+              ]
+            },
+            "description": "Bu ihale hakkında verilmiş KİK uyuşmazlık kararları. Yoksa boş liste.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "auth": {
               "type": "noauth"
             }

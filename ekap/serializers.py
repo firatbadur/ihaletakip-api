@@ -248,3 +248,34 @@ class DogrudanTeminSerializer(serializers.Serializer):
         yol = reverse("v1:ekap-dt-dokuman", kwargs={"dtn": obj.dtn})
         istek = self.context.get("request")
         return istek.build_absolute_uri(yol) if istek else yol
+
+
+# ── KİK kurul kararları ────────────────────────────────
+class KurulKarariSerializer(serializers.Serializer):
+    """
+    Uyuşmazlık kararı. `ekap_id` doluysa ihale bizde vardır → mobil detayına gidebilir
+    (çağıran `context["ekap_idler"]` = {ikn: ekap_id} verir; tek sorguyla, N+1 olmasın).
+    """
+
+    karar_no = serializers.CharField()
+    toplanti_tarihi = serializers.DateTimeField(allow_null=True)
+    kurul = serializers.SerializerMethodField()
+    sira_no = serializers.IntegerField(allow_null=True)
+    karar_tarihi = serializers.DateTimeField(allow_null=True)
+    yayin_tarihi = serializers.DateTimeField(allow_null=True)
+    karar_tur_kod = serializers.IntegerField(allow_null=True)
+    karar_aciklama = serializers.CharField()
+    karsi_oy = serializers.CharField()
+    ikn = serializers.CharField()
+    ihale_adi = serializers.CharField()
+    idare_adi = serializers.CharField()
+    basvuru_sahibi = serializers.CharField()
+    ekap_id = serializers.SerializerMethodField()
+
+    def get_kurul(self, obj):
+        if obj.kurul_yil and obj.kurul_sayi:
+            return f"{obj.kurul_yil} / {obj.kurul_sayi}"
+        return ""
+
+    def get_ekap_id(self, obj):
+        return (self.context.get("ekap_idler") or {}).get(obj.ikn)

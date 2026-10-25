@@ -560,6 +560,12 @@ EKAP_DT_SAKLA_GUN = env.int("EKAP_DT_SAKLA_GUN", default=30)
 # Slotu en çok bu kadar bekle — tik'le çakışınca tur kaybolmasın (pencere 60 sn).
 EKAP_MOBIL_DT_SLOT_BEKLEME = env.int("EKAP_MOBIL_DT_SLOT_BEKLEME", default=90)
 
+# ── KİK kurul karar tutanakları (yalnızca uyuşmazlık) ──
+# Günde bir kontrol: son N toplantı yeniden okunur (geç eklenen kararlar için) →
+# 1 + N istek/gün. Yayım çoğunlukla Perşembe 00:00, ama toplantı günü düzensiz.
+EKAP_MOBIL_KURUL_ENABLED = env.bool("EKAP_MOBIL_KURUL_ENABLED", default=False)
+EKAP_MOBIL_KURUL_GERI = env.int("EKAP_MOBIL_KURUL_GERI", default=2)
+
 # Arama uçlarının `totalCount` cache süresi (sn). COUNT soğuk buffer cache'te pahalıdır
 # (500k satır + GIN indeksleri); bu TTL soğuk yola düşme sıklığını doğrudan belirler.
 # `totalCount` yalnızca bir ilerleme göstergesidir, sayfa içeriği hep canlı sorgudur.

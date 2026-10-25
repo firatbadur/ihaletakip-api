@@ -149,6 +149,15 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/10"),
         "options": {"expires": 540},
     },
+    # ── KİK kurul kararları (uyuşmazlık) ──
+    # ⚠️ 06:40: yayım Perşembe 00:00'da düşüyor ama sarkabiliyor/erken olabiliyor
+    # (kullanıcı gözlemi) → her gün bir kontrol. Alarm görevi kurul turu yeni karar
+    # bulunca tetiklenir; 07:05 girdisi sessiz saatin (07:00) bitişinden sonraki
+    # emniyet turudur — 06:40'ta bulunan karar sessiz saate denk gelirse orada gider.
+    "ekap-mobil-kurul-kontrol": {
+        "task": "ekap.mobil.tasks.kurul_kontrol",
+        "schedule": crontab(hour=6, minute=40),
+    },
     "ekap-mobil-dt-temizle": {
         "task": "ekap.mobil.tasks.dt_temizle",
         "schedule": crontab(hour=3, minute=20),

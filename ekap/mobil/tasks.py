@@ -754,3 +754,42 @@ def dt_temizle():
     from . import dt as dt_mod
 
     return {"silinen": dt_mod.temizle()}
+
+
+# ── KİK kurul kararları ────────────────────────────────
+@shared_task(name="ekap.mobil.tasks.kurul_kontrol")
+def kurul_kontrol(geri=None):
+    """
+    Son toplantıların uyuşmazlık kararları (≈3 istek). Beat günde bir.
+
+    ⚠️ Arka plan bütçesinden düşer ama pencereyi BEKLER: günde bir koşan bir işin tik
+    ile çakışıp turu kaybetmesi, kararın bir gün geç görülmesi demek.
+    """
+    from . import kurul as kurul_mod
+
+    if not getattr(settings, "EKAP_MOBIL_ENABLED", False) or not getattr(
+        settings, "EKAP_MOBIL_KURUL_ENABLED", False
+    ):
+        return {"atlandi": "kapali"}
+    if captcha_mod.bekliyor_mu():
+        return {"atlandi": "captcha_bekliyor"}
+    geri = geri or getattr(settings, "EKAP_MOBIL_KURUL_GERI", 2)
+    cli = EkapMobilClient(slot_bekleme=120)
+    try:
+        sonuc = kurul_mod.kontrol(cli, geri=geri)
+    except (MobilSlotError, MobilButceError) as e:
+        return {"atlandi": type(e).__name__}
+    except MobilError as e:
+        logger.warning("kurul kontrolü hata: %s", e)
+        _say("hata")
+        return {"hata": str(e)[:200]}
+    _say("kurul", sonuc["istek"])
+    if sonuc["yeni"]:
+        try:
+            from celery import current_app
+
+            current_app.send_task("tenders.tasks.check_kurul_karar_alarms")
+        except Exception:                               # noqa: BLE001
+            logger.exception("kurul alarm görevi tetiklenemedi")
+    sonuc["yeni"] = len(sonuc["yeni"])
+    return sonuc

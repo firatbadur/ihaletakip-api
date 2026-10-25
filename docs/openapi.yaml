@@ -1982,6 +1982,70 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/ekap/kurul-kararlari/:
+    get:
+      operationId: ekap_kurul_kararlari_list
+      description: 'Kamu İhale Kurulu''nun **uyuşmazlık** kararları (itirazen şikâyet
+        başvuruları), yeniden eskiye. Kurul çoğunlukla Çarşamba toplanır, kararlar
+        Perşembe 00:00''da yayımlanır; veri her sabah kontrol edilir.
+
+
+        `ekap_id` doluysa ihale bizde vardır → `/ekap/tenders/{ekap_id}/` açılabilir.'
+      summary: KİK uyuşmazlık kararları
+      parameters:
+      - in: query
+        name: ikn
+        schema:
+          type: string
+        description: İKN (YYYY/NNNNNNN).
+        examples:
+          İKN:
+            value: 2026/1676818
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 20
+        description: En fazla 100.
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: İhale adı / idare / başvuru sahibi / karar no.
+      - in: query
+        name: toplanti
+        schema:
+          type: string
+        description: Toplantı günü (YYYY-MM-DD).
+      tags:
+      - kurul-kararlari
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KurulKarariSayfa'
+          description: ''
+  /api/v1/ekap/kurul-kararlari/toplantilar/:
+    get:
+      operationId: ekap_kurul_toplantilar
+      description: Kararı bulunan toplantılar (yeniden eskiye) ve karar sayıları.
+      summary: Kurul toplantıları
+      tags:
+      - kurul-kararlari
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/market/:
     get:
       operationId: ekap_market_overview
@@ -3042,6 +3106,30 @@ paths:
           description: ''
         '404':
           description: No response body
+  /api/v1/ekap/tenders/{key}/kurul-kararlari/:
+    get:
+      operationId: ekap_tender_kurul_kararlari
+      description: Bu ihale hakkında verilmiş KİK uyuşmazlık kararları. Yoksa boş
+        liste.
+      summary: İhalenin kurul kararları
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: İhalenin `ekap_id`'si (İKN `/` içerir).
+        required: true
+      tags:
+      - kurul-kararlari
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KurulKarari'
+          description: ''
   /api/v1/ekap/tenders/{key}/recurring/:
     get:
       operationId: ekap_tender_recurring
@@ -4951,6 +5039,82 @@ components:
       - group
       - group_name
       - is_saved
+    KurulKarari:
+      type: object
+      description: 'Uyuşmazlık kararı. `ekap_id` doluysa ihale bizde vardır → mobil
+        detayına gidebilir
+
+        (çağıran `context["ekap_idler"]` = {ikn: ekap_id} verir; tek sorguyla, N+1
+        olmasın).'
+      properties:
+        karar_no:
+          type: string
+        toplanti_tarihi:
+          type: string
+          format: date-time
+          nullable: true
+        kurul:
+          type: string
+          readOnly: true
+        sira_no:
+          type: integer
+          nullable: true
+        karar_tarihi:
+          type: string
+          format: date-time
+          nullable: true
+        yayin_tarihi:
+          type: string
+          format: date-time
+          nullable: true
+        karar_tur_kod:
+          type: integer
+          nullable: true
+        karar_aciklama:
+          type: string
+        karsi_oy:
+          type: string
+        ikn:
+          type: string
+        ihale_adi:
+          type: string
+        idare_adi:
+          type: string
+        basvuru_sahibi:
+          type: string
+        ekap_id:
+          type: string
+          readOnly: true
+      required:
+      - basvuru_sahibi
+      - ekap_id
+      - idare_adi
+      - ihale_adi
+      - ikn
+      - karar_aciklama
+      - karar_no
+      - karar_tarihi
+      - karar_tur_kod
+      - karsi_oy
+      - kurul
+      - sira_no
+      - toplanti_tarihi
+      - yayin_tarihi
+    KurulKarariSayfa:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/KurulKarari'
+        totalCount:
+          type: integer
+        page:
+          type: integer
+      required:
+      - list
+      - page
+      - totalCount
     Login:
       type: object
       description: '`username` veya `email`den biri + `password` zorunlu.'

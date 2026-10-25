@@ -1507,6 +1507,23 @@ def _unwrap_item(raw):
     return raw.get("item", raw) if isinstance(raw, dict) else raw
 
 
+def _kurul_ekle(data, tender):
+    """
+    Detay yanıtına ihalenin KİK uyuşmazlık kararlarını ekler (`kurulKararlari`, additive).
+
+    ⚠️ Yeni sözlük döner — `detail_raw`'ın bellekteki nesnesi değiştirilmez (ham veri
+    kanıttır, `_aciklamalari_duzelt` ile aynı ilke). İKN indeksli tek sorgu.
+    """
+    if not isinstance(data, dict) or tender is None:
+        return data
+    from .serializers import KurulKarariSerializer
+    from .views_kurul import ihale_kararlari
+
+    kararlar = ihale_kararlari(tender.ikn)
+    return {**data, "kurulKararlari": KurulKarariSerializer(
+        kararlar, many=True, context={"ekap_idler": {tender.ikn: tender.ekap_id}}).data}
+
+
 class TenderDetailView(APIView):
     """GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde)."""
 
@@ -1520,9 +1537,8 @@ class TenderDetailView(APIView):
             # Bayatsa arka planda yenile, eldekini dön
             self._maybe_refresh(tender)
             data = _unwrap_item(tender.detail_raw)
-            return api_response(
-                data=_aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender)
-            )
+            return api_response(data=_kurul_ekle(
+                _aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender), tender))
 
         # Detay yoksa → canlı çek (lazy sync)
         ekap_id = tender.ekap_id if tender else key
@@ -1533,8 +1549,8 @@ class TenderDetailView(APIView):
             client = EkapV2Client()
             detail = client.get_detail(ekap_id)
             taze = sync_mod.upsert_tender_detail(ekap_id, detail)
-            return api_response(data=_aciklamalari_duzelt(
-                _attach_idare_kimlik(_unwrap_item(detail), taze), taze))
+            return api_response(data=_kurul_ekle(_aciklamalari_duzelt(
+                _attach_idare_kimlik(_unwrap_item(detail), taze), taze), taze))
         except Exception as e:
             logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
             if tender:
@@ -1542,7 +1558,8 @@ class TenderDetailView(APIView):
                     _attach_idare_kimlik(_unwrap_item(tender.detail_raw or {}), tender),
                     tender,
                 )
-                return api_response(data=data, message="Detay güncel değil.")
+                return api_response(data=_kurul_ekle(data, tender),
+                                    message="Detay güncel değil.")
             return api_response(message="İhale bulunamadı.", success=False, status=404)
 
     @staticmethod

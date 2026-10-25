@@ -2,6 +2,7 @@
 from django.urls import path
 
 from .verification_views import DogrulamaCereziView
+from .views_kurul import KurulKarariListView, KurulToplantiListView, TenderKurulKarariView
 from .views_dt import (
     DogrudanTeminDetailView,
     DogrudanTeminDokumanView,
@@ -38,6 +39,8 @@ urlpatterns = [
     path("tenders/<str:key>/announcements/", TenderAnnouncementsView.as_view(), name="ekap-tender-announcements"),
     # İKN `/` içerdiği için bu alt rotalarda **ekap_id** kullanılır (bkz. TenderDetailView).
     path("tenders/<str:key>/contracts/", TenderContractsView.as_view(), name="ekap-tender-contracts"),
+    path("tenders/<str:key>/kurul-kararlari/", TenderKurulKarariView.as_view(),
+         name="ekap-tender-kurul-kararlari"),
     path("recurring/", RecurringSeriesListView.as_view(), name="ekap-recurring"),
     path("tenders/<str:key>/recurring/", TenderRecurringView.as_view(), name="ekap-tender-recurring"),
     path("tenders/<str:key>/benchmark/", TenderBenchmarkView.as_view(), name="ekap-tender-benchmark"),
@@ -59,6 +62,10 @@ urlpatterns = [
     path("market/", MarketOverviewView.as_view(), name="ekap-market"),
     path("market/<str:okas_bucket>/", MarketBucketView.as_view(), name="ekap-market-bucket"),
     path("sektorler/", SectorListView.as_view(), name="ekap-sektorler"),
+    # KİK kurul kararları (uyuşmazlık). ⚠️ `toplantilar/` sabit yol, parametreli yol yok.
+    path("kurul-kararlari/", KurulKarariListView.as_view(), name="ekap-kurul-kararlari"),
+    path("kurul-kararlari/toplantilar/", KurulToplantiListView.as_view(),
+         name="ekap-kurul-toplantilar"),
     # Doğrudan temin. ⚠️ `filtreler/` `<str:dtn>/`'den ÖNCE: aksi hâlde "filtreler"
     # bir dtn sanılırdı. dtn ASCII ve `/` içermez → `<str:>` yeterli.
     path("dogrudan-temin/", DogrudanTeminListView.as_view(), name="ekap-dt-list"),

@@ -1217,3 +1217,52 @@ class DogrudanTemin(models.Model):
 
     def __str__(self):
         return f"{self.dtn} — {self.ad[:60]}"
+
+
+class KurulKarari(models.Model):
+    """
+    KİK kurul karar tutanağı — **yalnızca uyuşmazlık kararları** (`kararNitelikKod=2`).
+
+    Kaynak: mobil API `KurulKararTutunaklari/Liste` (bir toplantının tüm kararları,
+    sayfalama yok). Toplantılar çoğunlukla Çarşamba 10:00, yayım Perşembe 00:00 —
+    ama düzensiz (ölçüldü: 03.07 Cuma, 16.07 Perşembe) → günlük kontrol.
+
+    ⚠️ Kararlı anahtar **karar_no** ("2026/UH.II-2688"). `gundem_maddesi_id` bir şifreli
+    kimliktir; DT `encID`'si gibi çağrıdan çağrıya değişebilir, anahtar yapılmaz.
+    ⚠️ `ikn` ile `Tender`'a FK KURULMAZ: kararların bir kısmının ihalesi bizde yok
+    (ölçüldü: 56 İKN'nin 50'si var) ve karar, ihale satırı silinse de kalmalı.
+    """
+
+    karar_no = models.CharField(max_length=64, unique=True)
+    gundem_maddesi_id = models.CharField(max_length=128, blank=True)
+    nitelik_kod = models.SmallIntegerField(default=2)
+    toplanti_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
+    kurul_yil = models.IntegerField(null=True, blank=True)
+    kurul_sayi = models.IntegerField(null=True, blank=True)
+    sira_no = models.IntegerField(null=True, blank=True)
+    rapor_turu = models.IntegerField(null=True, blank=True)
+    karar_tur_kod = models.IntegerField(null=True, blank=True)
+    karar_aciklama = models.TextField(blank=True)
+    karsi_oy = models.CharField(max_length=64, blank=True)
+    karar_tarihi = models.DateTimeField(null=True, blank=True)
+    yayin_tarihi = models.DateTimeField(null=True, blank=True, db_index=True)
+    idare_adi = models.CharField(max_length=500, blank=True)
+    basvuru_sahibi = models.CharField(max_length=500, blank=True)
+    ihale_adi = models.TextField(blank=True)
+    ikn = models.CharField(max_length=100, blank=True, db_index=True)
+    # `normalize_tr(karar_no + ihale + idare + başvuru sahibi)` — Türkçe-i güvenli arama
+    # (CLAUDE.md: Türkçe alanda `icontains` YASAK, normalize kolon + `__contains`).
+    arama_norm = models.TextField(blank=True)
+    raw = models.JSONField(default=dict, blank=True)
+    # İlk kez gördüğümüz an — alarmın "yeni karar" ölçütü (yayın tarihi değil: geç
+    # eklenen bir karar eski bir yayın tarihi taşıyabilir).
+    ilk_gorulme = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Kurul Kararı"
+        verbose_name_plural = "Kurul Kararları"
+        ordering = ["-toplanti_tarihi", "sira_no"]
+
+    def __str__(self):
+        return f"{self.karar_no} — {self.ikn}"

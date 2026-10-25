@@ -17,6 +17,7 @@ from .models import (
     DogrudanTemin,
     Keyword,
     KeywordBatch,
+    KurulKarari,
     OkasCode,
     OkasItem,
     SyncCheckpoint,
@@ -336,6 +337,23 @@ class SyncRunAdmin(admin.ModelAdmin):
 
 
 admin.site.register(ContractSection)
+
+
+@admin.register(KurulKarari)
+class KurulKarariAdmin(admin.ModelAdmin):
+    """⚠️ Salt okunur: satırlar `ekap/mobil/kurul.py`'nin ürünüdür."""
+
+    list_display = ["karar_no", "toplanti_tarihi", "ikn", "ihale_adi", "karar_aciklama",
+                    "ilk_gorulme"]
+    list_filter = ["toplanti_tarihi"]
+    search_fields = ["karar_no", "ikn", "ihale_adi", "basvuru_sahibi"]
+    show_full_result_count = False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(DogrudanTemin)

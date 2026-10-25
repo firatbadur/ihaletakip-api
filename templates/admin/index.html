@@ -65,8 +65,11 @@
         {{ pano.mobil.bugun_detay|tr_sayi }} ihalenin detayı çekildi
         (keşif {{ pano.mobil.sayac.kesif|tr_sayi }} ·
          sonuç {{ pano.mobil.sayac.sonuc|tr_sayi }} ·
+         doğrudan temin {{ pano.mobil.sayac.dt|tr_sayi }} ·
+         captcha {{ pano.mobil.sayac.captcha|tr_sayi }} ·
          hata {{ pano.mobil.sayac.hata|tr_sayi }}) ·
         bütçe {{ pano.mobil.butce.arka_plan.kullanilan|tr_sayi }}/{{ pano.mobil.butce.arka_plan.tavan|tr_sayi }}
+        {% if pano.mobil.butce.dt %}· DT bütçe {{ pano.mobil.butce.dt.kullanilan|tr_sayi }}/{{ pano.mobil.butce.dt.tavan|tr_sayi }}{% endif %}
       </div>
     {% endif %}
 

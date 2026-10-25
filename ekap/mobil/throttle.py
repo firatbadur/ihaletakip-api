@@ -28,6 +28,9 @@ logger = logging.getLogger("ihaletakip")
 _SLOT_PREFIX = "ekap:mobil:slot:"
 _BUTCE_PREFIX = "ekap:mobil:butce:"
 
+_SAYAC_PREFIX = "ekap:mobil:sayac:"
+BUTCE_KATEGORILERI = ("arka_plan", "dt", "kullanici")
+
 _YEREL_KILIT = threading.Lock()
 _SON_CAGRI = {"t": 0.0}
 
@@ -36,16 +39,17 @@ def _aralik(ad: str = "arka_plan") -> float:
     """
     Pencere uzunluğu (sn) — **kullanıcı istekleri ayrı ve daha dar bir pencere kullanır.**
 
-    ⚠️ Gerekçe: arka plan penceresi 2,5 dk. Kullanıcı bir belgeyi indirmek istediğinde
-    o pencereyi beklemek pratikte "indirilemiyor" demektir. Kullanıcı yolu bu yüzden
-    ayrı bir pencere (vars. 30 sn) + ayrı **günlük rezerv** (vars. 100 istek) kullanır:
+    ⚠️ Gerekçe: arka plan penceresi dakikalar mertebesinde. Kullanıcı bir belgeyi
+    indirmek istediğinde o pencereyi beklemek pratikte "indirilemiyor" demektir.
+    Kullanıcı yolu bu yüzden ayrı bir pencere (vars. 5 sn) + ayrı **günlük rezerv**
+    kullanır:
     rezerv, kullanıcı trafiğinin toplam tempoyu ölçülen eşiğin üstüne çıkarmasını
     engeller (100 istek/gün, en yoğun hâlde ~50 dk sürecek bir patlama).
     ⚠️ Bu iki pencere **ayrı anahtar uzayındadır**; kullanıcı isteği arka plan turunu
     ötelemez, ikisi birlikte EKAP'a giden toplam hızı belirler.
     """
     if ad == "kullanici":
-        return getattr(settings, "EKAP_MOBIL_KULLANICI_INTERVAL_MS", 30000) / 1000.0
+        return getattr(settings, "EKAP_MOBIL_KULLANICI_INTERVAL_MS", 5000) / 1000.0
     return getattr(settings, "EKAP_MOBIL_MIN_INTERVAL_MS", 150000) / 1000.0
 
 
@@ -130,8 +134,19 @@ def butce_kalan(ad: str = "arka_plan") -> int:
 
 
 def _tavan(ad: str) -> int:
+    """
+    Bütçe kategorisinin günlük tavanı.
+
+    ⚠️ Kategori **bütçeyi** ayırır, **pencereyi değil**: doğrudan temin şeridi (`dt`)
+    kendi günlük hakkını harcar ama zaman penceresini arka planla paylaşır
+    (`EkapMobilClient(pencere_adi=...)`). Böylece DT yoklaması tik'in tazeleme/sonuç
+    hakkını yemez, ama EKAP'a giden toplam hız yine tek pencereyle sınırlı kalır —
+    hız sınırı IP tabanlıdır, kategori tanımaz.
+    """
     if ad == "kullanici":
         return getattr(settings, "EKAP_MOBIL_KULLANICI_REZERV", 100)
+    if ad == "dt":
+        return getattr(settings, "EKAP_MOBIL_DT_TAVAN", 400)
     return getattr(settings, "EKAP_MOBIL_GUNLUK_TAVAN", 600)
 
 
@@ -162,7 +177,7 @@ def butce_harca(ad: str = "arka_plan", adet: int = 1) -> bool:
 def butce_ozet() -> dict:
     """Pano/sağlık raporu için: {ad: {kullanilan, tavan}}."""
     out = {}
-    for ad in ("arka_plan", "kullanici"):
+    for ad in BUTCE_KATEGORILERI:
         tavan = _tavan(ad)
         try:
             kullanilan = int(cache.get(_butce_anahtar(ad)) or 0)
@@ -170,3 +185,26 @@ def butce_ozet() -> dict:
             kullanilan = 0
         out[ad] = {"kullanilan": kullanilan, "tavan": tavan}
     return out
+
+
+# ── İş sayaçları (SyncRun yerine) ──────────────────────
+def say(ad: str, adet: int = 1):
+    """
+    Bugünkü iş sayacını artırır (`tasks.sayaclar` okur).
+
+    Burada durmasının sebebi istemcinin de saymasıdır (captcha): `client` →
+    `tasks` importu döngüsel olurdu.
+    """
+    anahtar = f"{_SAYAC_PREFIX}{timezone.localdate()}:{ad}"
+    try:
+        cache.add(anahtar, 0, timeout=36 * 3600)
+        cache.incr(anahtar, adet)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def sayac_oku(ad: str) -> int:
+    try:
+        return int(cache.get(f"{_SAYAC_PREFIX}{timezone.localdate()}:{ad}") or 0)
+    except Exception:                                   # noqa: BLE001
+        return 0

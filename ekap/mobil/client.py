@@ -99,10 +99,22 @@ def _user_agent() -> str:
 class EkapMobilClient:
     """Mobil API POST istemcisi (throttle + kalıcı oturum + captcha)."""
 
-    def __init__(self, base_url=None, timeout=None, butce="arka_plan"):
+    def __init__(self, base_url=None, timeout=None, butce="arka_plan",
+                 pencere_adi=None, slot_bekleme=None):
+        """
+        `butce`       → günlük hakkın düşüleceği kategori (`throttle.BUTCE_KATEGORILERI`).
+        `pencere_adi` → zaman penceresi; vars. kullanıcı için `kullanici`, diğerleri
+                        için `arka_plan`. ⚠️ Doğrudan temin şeridi `butce="dt"` ile
+                        **arka plan penceresini paylaşır**: hız sınırı IP tabanlıdır,
+                        ayrı pencere EKAP'a giden toplam hızı ikiye katlardı.
+        `slot_bekleme`→ `None` ise pencere doluyken hemen `MobilSlotError` (tik
+                        deseni); sayı verilirse en çok o kadar saniye beklenir.
+        """
         self.base_url = (base_url or settings.EKAP_MOBIL_BASE_URL).rstrip("/")
         self.timeout = timeout or getattr(settings, "EKAP_MOBIL_TIMEOUT", 60)
         self.butce = butce
+        self.pencere_adi = pencere_adi or ("kullanici" if butce == "kullanici" else "arka_plan")
+        self.slot_bekleme = slot_bekleme
         self.session = requests.Session()
         self.son_istek_captcha = False
 
@@ -127,7 +139,7 @@ class EkapMobilClient:
         return h
 
     def _ham_istek(self, path, *, json_body=None, params=None, ek_baslik=None,
-                   stream=False, throttle_uygula=True, pencere=True):
+                   stream=False, throttle_uygula=True, pencere=True, api_version=True):
         """
         Tek POST — captcha çözümü YAPMAZ (sonsuz özyineleme olurdu).
 
@@ -138,9 +150,19 @@ class EkapMobilClient:
         yani ikisi bitişik olmak zorunda. Her ikisi için ayrı pencere beklemek
         (30 sn) indirmeyi pratikte imkânsız kılardı. Bütçeden yine düşülür — EKAP'a
         giden istek sayısı doğru sayılmalı.
+
+        ⚠️ `api_version=False`: doğrudan temin detay/doküman uçları `?api-version`
+        taşımıyor (uygulama trafiğinde ölçüldü) — uygulamanın göndermediği bir
+        parametreyi eklemek WAF gözünde ayrı bir imzadır.
         """
         if throttle_uygula:
-            if not throttle.butce_harca(self.butce):
+            # ⚠️⚠️ **Bütçe slot ALINDIKTAN SONRA düşülür.** Eskiden önce düşülüyordu:
+            # pencere dolu olduğu için `MobilSlotError` alan tur EKAP'a hiç gitmeden
+            # günlük hakkı yakıyordu. Tek tüketiciyle seyrekti; doğrudan temin şeridi
+            # aynı pencereyi paylaşınca çakışma olağan hâle gelir. Önce ucuz bir ön
+            # kontrol yapılır (bütçe bitmişse pencere boşuna rezerve edilmesin),
+            # kesin (atomik) düşüm pencereden sonradır.
+            if throttle.butce_kalan(self.butce) <= 0:
                 raise MobilButceError(
                     f"EKAP mobil günlük bütçe doldu ({self.butce}); tur atlandı."
                 )
@@ -148,7 +170,7 @@ class EkapMobilClient:
             # kullanır: karşıda bekleyen bir insan var, arka plan turu ise bekleyebilir.
             if not pencere:
                 pass
-            elif self.butce == "kullanici":
+            elif self.pencere_adi == "kullanici":
                 # ⚠️⚠️ **Kullanıcı yolunda slot alınamaması isteği DÜŞÜRMEZ.**
                 # Karşıda butona basmış bir insan var ve buradaki pencere EKAP'ın
                 # değil **bizim** koyduğumuz koruma; onu bir "indirilemiyor" hatasına
@@ -164,11 +186,21 @@ class EkapMobilClient:
                     azami_bekleme=getattr(settings, "EKAP_MOBIL_KULLANICI_BEKLEME", 15),
                 ):
                     logger.info("kullanıcı isteği pencere beklemeden geçiyor (%s)", path)
-            elif not throttle.slot_al():
-                raise MobilSlotError("EKAP mobil hız penceresi dolu (slot alınamadı).")
+            elif self.slot_bekleme is None:
+                if not throttle.slot_al(ad=self.pencere_adi):
+                    raise MobilSlotError("EKAP mobil hız penceresi dolu (slot alınamadı).")
+            elif not throttle.slot_al(ad=self.pencere_adi, bekle=True,
+                                      azami_bekleme=self.slot_bekleme):
+                raise MobilSlotError(
+                    f"EKAP mobil hız penceresi {self.slot_bekleme:.0f} sn içinde boşalmadı."
+                )
+            if not throttle.butce_harca(self.butce):
+                raise MobilButceError(
+                    f"EKAP mobil günlük bütçe doldu ({self.butce}); tur atlandı."
+                )
 
         url = f"{self.base_url}{path}"
-        sorgu = {"api-version": C.API_VERSION}
+        sorgu = {"api-version": C.API_VERSION} if api_version else {}
         if params:
             sorgu.update({k: v for k, v in params.items() if v is not None})
 
@@ -217,14 +249,12 @@ class EkapMobilClient:
             mobil_session.guncelle(dict(resp.cookies))
         return resp
 
-    def _post(self, path, *, json_body=None, params=None, ek_baslik=None):
+    def _post(self, path, *, json_body=None, params=None, ek_baslik=None, api_version=True):
         """JSON döndüren uçlar için: captcha duvarını bir kez aşmayı dener."""
-        resp = self._ham_istek(
-            path, json_body=json_body, params=params, ek_baslik=ek_baslik
-        )
-        resp = self._captcha_asilirsa_tekrarla(
-            resp, path, json_body=json_body, params=params, ek_baslik=ek_baslik
-        )
+        kw = dict(json_body=json_body, params=params, ek_baslik=ek_baslik,
+                  api_version=api_version)
+        resp = self._ham_istek(path, **kw)
+        resp = self._captcha_asilirsa_tekrarla(resp, path, **kw)
         return self._govde(resp, path)
 
     def _captcha_asilirsa_tekrarla(self, resp, path, **kw):
@@ -232,6 +262,9 @@ class EkapMobilClient:
         if not captcha_mod.captcha_mi(resp.status_code, metin):
             return resp
         self.son_istek_captcha = True
+        # Captcha sıklığı tempo kararlarının tek geri bildirimidir (DT şeridi
+        # eklendiğinde artıp artmadığı buradan izlenir) → günlük sayaç.
+        throttle.say("captcha")
         if captcha_mod.bekliyor_mu():
             raise MobilCaptchaError(
                 "EKAP mobil CAPTCHA duvarı — geri çekilme süresi doluyor."

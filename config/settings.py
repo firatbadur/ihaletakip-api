@@ -523,8 +523,34 @@ EKAP_MOBIL_DETAY_REZERV = env.int("EKAP_MOBIL_DETAY_REZERV", default=150)
 EKAP_MOBIL_KESIF_ILERI_GUN = env.int("EKAP_MOBIL_KESIF_ILERI_GUN", default=45)
 EKAP_MOBIL_KESIF_GERI_GUN = env.int("EKAP_MOBIL_KESIF_GERI_GUN", default=3)
 # Çekmeli iş döngüsünün kalp atışı (dk) ve tur başına harcanacak istek sayısı.
+# ⚠️ İkisi de şu an OKUNMUYOR: beat `config/celery.py`'de `*/2` sabit, tik tek iş seçer.
+# Tik kapasitesi bu yüzden 720 istek/gün'dür (ölçüldü 2026-10-25: 681/900 dolu).
 EKAP_MOBIL_TIK_DK = env.int("EKAP_MOBIL_TIK_DK", default=2)
 EKAP_MOBIL_TIK_ISTEK = env.int("EKAP_MOBIL_TIK_ISTEK", default=1)
+
+# ── Doğrudan temin (DT) şeridi ─────────────────────────
+# ⚠️ DT tik dönüşümüne SOKULMAZ: tik kapasitesi doludur ve DT'yi oraya koymak
+# sözleşme verisinin tek kaynağı olan sonuç/tazeleme işlerini aç bırakırdı. Ayrı
+# beat görevi + ayrı günlük bütçe (`dt`), ama **ortak zaman penceresi** (arka plan):
+# hız sınırı IP tabanlı, ayrı pencere toplam hızı ikiye katlardı.
+EKAP_MOBIL_DT_ENABLED = env.bool("EKAP_MOBIL_DT_ENABLED", default=False)
+EKAP_MOBIL_DT_TAVAN = env.int("EKAP_MOBIL_DT_TAVAN", default=400)
+# Yeni ilan yoklaması: mesai içinde her N dk, dışında her M dk (beat */5 tetikler).
+# ⚠️ DT'lerin bir kısmı aynı gün, saatler içinde kapanıyor → mesai aralığı kısa tutulur.
+EKAP_MOBIL_DT_ARALIK_DK = env.int("EKAP_MOBIL_DT_ARALIK_DK", default=5)
+EKAP_MOBIL_DT_GECE_ARALIK_DK = env.int("EKAP_MOBIL_DT_GECE_ARALIK_DK", default=30)
+EKAP_MOBIL_DT_MESAI_BAS = env("EKAP_MOBIL_DT_MESAI_BAS", default="07:30")
+EKAP_MOBIL_DT_MESAI_BIT = env("EKAP_MOBIL_DT_MESAI_BIT", default="18:30")
+# Tam açık taraması (iptal/sonuca geçen kayıtları gizlemek için) aralığı.
+EKAP_MOBIL_DT_TAM_ARALIK_DK = env.int("EKAP_MOBIL_DT_TAM_ARALIK_DK", default=120)
+# ⚠️ Zombi "açık" kayıtlar: ölçüldü 25DT2095274 (ilan 21.11.2025, son teklif
+# "24.11.2028" — idare yazım hatası) hâlâ 202. İlanı bundan eski DT listelenmez ve
+# tam taramaya da girmez (sayfa harcatmasın).
+EKAP_DT_ACIK_AZAMI_GUN = env.int("EKAP_DT_ACIK_AZAMI_GUN", default=30)
+# Son teklif anı bu kadar gün önce geçmiş DT satırları silinir.
+EKAP_DT_SAKLA_GUN = env.int("EKAP_DT_SAKLA_GUN", default=30)
+# Slotu en çok bu kadar bekle — tik'le çakışınca tur kaybolmasın (pencere 60 sn).
+EKAP_MOBIL_DT_SLOT_BEKLEME = env.int("EKAP_MOBIL_DT_SLOT_BEKLEME", default=90)
 
 # Arama uçlarının `totalCount` cache süresi (sn). COUNT soğuk buffer cache'te pahalıdır
 # (500k satır + GIN indeksleri); bu TTL soğuk yola düşme sıklığını doğrudan belirler.

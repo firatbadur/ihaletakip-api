@@ -69,7 +69,8 @@ class Command(BaseCommand):
         sayac = mobil_tasks.sayaclar()
         self.stdout.write(
             "  bugün: keşif={kesif} detay={detay} sonuç={sonuc} "
-            "tazeleme={tazeleme} hata={hata}".format(**sayac)
+            "tazeleme={tazeleme} durum={durum} dt={dt} kurul={kurul} "
+            "captcha={captcha} hata={hata}".format(**sayac)
         )
         for ad, v in mobil_throttle.butce_ozet().items():
             self.stdout.write(f"  bütçe {ad:10s} {v['kullanilan']}/{v['tavan']}")

@@ -70,23 +70,18 @@ BIRLESTIR_ESIK = 200
 
 # ── Sayaçlar (SyncRun yerine) ──────────────────────────
 def _say(ad: str, adet: int = 1):
-    anahtar = f"ekap:mobil:sayac:{timezone.localdate()}:{ad}"
-    try:
-        cache.add(anahtar, 0, timeout=36 * 3600)
-        cache.incr(anahtar, adet)
-    except Exception:                                   # noqa: BLE001
-        pass
+    throttle.say(ad, adet)
+
+
+# ⚠️ Pano, `ingest_saglik` ve `run_mobil --is durum` bu sırayı okur; yeni bir iş
+# türü eklenince buraya da eklenmeli, yoksa sayılır ama hiçbir yerde görünmez.
+SAYAC_ADLARI = ("kesif", "detay", "sonuc", "tazeleme", "durum", "dt", "kurul",
+                "captcha", "hata")
 
 
 def sayaclar() -> dict:
     """Pano/sağlık raporu için bugünkü iş sayıları."""
-    out = {}
-    for ad in ("kesif", "detay", "sonuc", "tazeleme", "durum", "hata"):
-        try:
-            out[ad] = int(cache.get(f"ekap:mobil:sayac:{timezone.localdate()}:{ad}") or 0)
-        except Exception:                               # noqa: BLE001
-            out[ad] = 0
-    return out
+    return {ad: throttle.sayac_oku(ad) for ad in SAYAC_ADLARI}
 
 
 def _isaretle(ikn: str) -> bool:

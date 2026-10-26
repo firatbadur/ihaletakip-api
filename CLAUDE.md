@@ -4559,7 +4559,8 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 - Portal bu API'yi **aynı adresten** kullanır (`https://ihale-takip.envisoft.com.tr/api/v1`). Üretimde portal konteyneri bu adı `extra_hosts: host-gateway` ile **bu nginx'e** çözer (Cloudflare'i atlar: 160-240 ms → 12 ms) → API'de `ALLOWED_HOSTS`/Docker ağı değişikliği **yok**. Tarayıcı API'ye hiç gitmez (BFF) → CORS gerekmez.
 - ⚠️ Portalın tüm istekleri **tek IP'den** (konteyner) gelir: ileride DRF throttling eklenirse portala ayrı kapsam verilmeli, yoksa tüm web kullanıcıları tek kovayı paylaşır.
 - nginx'e `ihaletakip.com` bloğu eklenecek (Pinmotion deseni, upstream `172.17.0.1:3100`, sertifika `certs/ihaletakip-origin.{pem,key}`). ⚠️ Sertifika dosyaları config'ten **önce** sunucuya konmalı — eksikse nginx açılmaz ve **API de düşer**.
-- **Portal için bekleyen API işleri**: (1) `_tender_by_key` tireli İKN'yi (`2026-1690784`) eşleştirsin + DB'de olmayan tireli İKN/`mobil:` anahtarında `TenderDetailView` canlı EKAP'a gitmeden 404 dönsün (arama motoru tarayıcıları rastgele adresle canlı istek tetiklemesin); (2) Apple web girişi için `APPLE_CLIENT_IDS` listesi (`accounts/services/apple.py`).
+- Portal ihaleyi İKN ile **`?ikn_yil=&ikn_sayi=`** (liste ucu) üzerinden bulur ve detayı oradan gelen `ekap_id` ile çağırır → bilinmeyen adresler detay ucunda canlı EKAP isteği tetikleyemez. ⚠️ Bu iki parametrenin birebir İKN eşleşmesi semantiği (`startswith "<yil>/"` + `endswith "/<sayi>"`) **değiştirilmemeli**.
+- **Portal için bekleyen API işleri**: zorunlu olan yalnız Apple web girişi için `APPLE_CLIENT_IDS` listesi (`accounts/services/apple.py`). İsteğe bağlı iyileştirmeler (firma uçlarında sunucu taraflı maskeleme, `GET /ekap/authorities/<detsis_no>/`, bilinmeyen anahtarda canlı EKAP yerine 404): web reposunda `docs/gelistirme-rehberi.md` §4.12.
 
 ## Önemli Uyarılar
 

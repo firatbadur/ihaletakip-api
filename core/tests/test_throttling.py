@@ -137,3 +137,54 @@ class SayfaDerinligiTest(TestCase):
         r = self.client.get("/api/v1/ekap/contractors/", {"page": 11, "page_size": 20},
                             HTTP_X_IT_CLIENT_IP="1.2.3.5", **PORTAL)
         self.assertEqual(r.status_code, 400)
+
+
+DOLUM = {"HTTP_X_IT_CACHE_FILL": "1"}
+
+
+@override_settings(PORTAL_KEY=ANAHTAR, API_THROTTLE_ORANLAR=KUCUK,
+                   API_THROTTLE_DOLUM_ORANLARI={"ihale_arama": [[60, 3]]},
+                   API_THROTTLE_MODU="uygula", API_THROTTLE_PORTAL_MODU="uygula")
+class OnbellekDolumuTest(TestCase):
+    """Portal 2. not #8: `X-IT-Cache-Fill` ayrı kova."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _n(self, n, **meta):
+        return [self.client.get(LISTE, **meta).status_code for _ in range(n)]
+
+    def test_dolum_kendi_kovasinda_ip_kovasi_etkilenmez(self):
+        # Anonim IP sınırı 2; dolum sınırı 3 → dolum IP kovasını tüketseydi 3. istek 429 olurdu.
+        self.assertEqual(self._n(3, HTTP_X_REAL_IP="10.0.0.9", **DOLUM, **PORTAL),
+                         [200, 200, 200])
+        self.assertEqual(self._n(1, HTTP_X_REAL_IP="10.0.0.9", **DOLUM, **PORTAL), [429])
+        # Aynı web konteyneri IP'sinden gelen kişiye özel istek kendi kovasında.
+        self.assertEqual(self._n(2, HTTP_X_IT_CLIENT_IP="11.0.0.1", HTTP_X_REAL_IP="10.0.0.9",
+                                 **PORTAL), [200, 200])
+
+    def test_dolum_dolunca_girisli_kullanici_etkilenmez(self):
+        self._n(4, **DOLUM, **PORTAL)
+        u = get_user_model().objects.create_user(username="g", email="g@t.local",
+                                                 password="x")
+        self.client.force_login(u)
+        self.assertEqual(self._n(1, **PORTAL), [200])
+
+    def test_anahtarsiz_dolum_basligi_etkisiz(self):
+        """Taklit: anahtarsız `X-IT-Cache-Fill` normal IP kovasına düşer (sınır 2)."""
+        sahte = {"HTTP_X_IT_PORTAL_KEY": "yanlis", "HTTP_X_REAL_IP": "12.0.0.1", **DOLUM}
+        self.assertEqual(self._n(3, **sahte), [200, 200, 429])
+
+    def test_dolum_kovasina_kademeli_engel_yok_ve_loglanir(self):
+        from core.throttling import DOLUM_KIMLIGI
+
+        with self.assertLogs("ihaletakip", level="WARNING") as log:
+            for _ in range(15):
+                self.client.get(LISTE, {"q": "asfalt"}, **DOLUM, **PORTAL)
+        self.assertIsNone(cache.get(f"thr:ban:{DOLUM_KIMLIGI}"))
+        self.assertTrue(any("portal-dolum" in s and "q=asfalt" in s for s in log.output))
+        self.assertFalse(any(ANAHTAR in s for s in log.output))
+
+    def test_dolum_derin_sayfada_girisli_siniri(self):
+        self.assertEqual(self.client.get(LISTE, {"page": 30, "page_size": 20},
+                                         **DOLUM, **PORTAL).status_code, 200)

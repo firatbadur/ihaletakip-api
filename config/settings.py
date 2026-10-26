@@ -325,6 +325,8 @@ API_THROTTLE_MODU = env("API_THROTTLE_MODU", default="gozlem")
 API_THROTTLE_PORTAL_MODU = env("API_THROTTLE_PORTAL_MODU", default="uygula")
 # Kapsam bazında oran ezme: {"ihale_arama": {"anonim": [[60, 30]], "girisli": [...]}}
 API_THROTTLE_ORANLAR = env.json("API_THROTTLE_ORANLAR", default={})
+# Portal önbellek dolumu kovası ezme: {"detay": [[60, 300]], "ihale_arama": [[60, 200]]}
+API_THROTTLE_DOLUM_ORANLARI = env.json("API_THROTTLE_DOLUM_ORANLARI", default={})
 # Sayfa derinliği = kayıt ofseti sınırı (web'in 20'lik sayfasıyla 10 / 50 sayfa).
 API_SAYFA_DERINLIK_ANONIM = env.int("API_SAYFA_DERINLIK_ANONIM", default=200)
 API_SAYFA_DERINLIK_GIRISLI = env.int("API_SAYFA_DERINLIK_GIRISLI", default=1000)

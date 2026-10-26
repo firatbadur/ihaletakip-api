@@ -4623,10 +4623,27 @@ mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak
   Revalidate: `WEB_REVALIDATE_URL` + `WEB_REVALIDATE_SECRET` (boşsa istek yok), hata
   yutulur, yazı kaydı asla düşmez. Arama kelime bazlı VE (`arama_norm`), etiket
   `etiketler_norm` (`|a|b|`, SQLite'ta da çalışsın diye JSON contains değil).
+- ⚠️⚠️ **Önbellek dolumu kovası (2. not #8)**: web portal anahtarını artık HER istekte
+  gönderiyor; paylaşılan önbelleği dolduran istekler `X-IT-Cache-Fill: 1` taşır ve
+  `X-IT-Client-IP` taşıyamaz (Next.js önbellekli fonksiyonda başlık yok). Bunlar tek bir
+  `portal:dolum` kovasına sayılır (`VARSAYILAN_DOLUM_ORANLARI`: detay 300/dk, liste
+  200/dk; `API_THROTTLE_DOLUM_ORANLARI` ile ezilir). Web konteynerinin IP kovasına
+  düşselerdi tek bir tarayıcı bütün anonim web kullanıcılarını 429'a düşürürdü.
+  ⚠️ Anahtar yoksa başlık yok sayılır. ⚠️ Bu kovaya **kademeli engel UYGULANMAZ** (kimlik
+  bütün sitedir; 24 sa engel tüm önbellek ıskalarını kapatırdı) — dolma olayı yol + sorgu
+  ile loglanır (dakikada ≤20 satır, sır yok). Dolumda sayfa derinliği girişli sınırıdır
+  (dolum kimin için yapıldığını bilmez; anonim 10 sayfayı web kendisi uyguluyor).
+- ⚠️⚠️ **`ihaletakip.com` nginx bloğu (2. not #9)** `docker/nginx/default.conf` sonunda
+  **yorum satırı olarak hazır** — sertifika (`certs/ihaletakip-origin.*`) sunucuya konmadan
+  açılırsa nginx açılmaz ve API de düşer. Blokta `proxy_set_header X-Real-IP
+  $remote_addr` ŞART: web kullanıcı IP'sini yalnız oradan okuyor, ezilmezse sahte IP ile
+  hız sınırı atlatılır. `core/tests/test_nginx_conf.py` (yorum dışı) her server ve
+  kendi başlığını tanımlayan her location bloğunda bunu denetler.
 - **Üretime açarken env**: `PORTAL_KEY`, `WEB_REVALIDATE_SECRET`, `APPLE_CLIENT_IDS`
   (+ isteğe bağlı `API_THROTTLE_*`). `env_file` olduğu için `restart` YETMEZ → `up -d`
   + `restart nginx`. Yeni beat girdisi `blog-zamanlanmis-revalidate` beat açılışında DB'ye yazılır.
-- Testler: `blog/tests/test_blog.py` (24), `core/tests/test_throttling.py` (14),
+- Testler: `blog/tests/test_blog.py` (24), `core/tests/test_throttling.py` (19),
+  `core/tests/test_nginx_conf.py` (2),
   `ekap/tests/test_portal_guvenlik.py` (13), `ekap/tests/test_portal_uclari.py` (6),
   `accounts/tests/test_apple_audience.py` (4).
 

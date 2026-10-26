@@ -29,12 +29,14 @@ from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
 from accounts.premium import (
+    MSG_FIRMA_SOZLESME,
     MSG_IDARE_PROFIL,
     MSG_PRO_FILTRE,
     MSG_TEKRAR,
     require_premium,
 )
 from core.response import api_response
+from core.throttling import sayfa_derinligi_asimi
 
 from . import authority_profile, benchmark as benchmark_mod, market as market_mod
 
@@ -62,7 +64,7 @@ from .serializers import (
     TenderContractSerializer,
     _dec,
 )
-from .utils import normalize_tr, parse_ekap_datetime
+from .utils import local_day_range, normalize_tr, parse_ekap_datetime
 
 logger = logging.getLogger("ihaletakip")
 
@@ -344,7 +346,7 @@ def _cached_rapor(scope, params, hesapla, ekstra=""):
     return (dict(veri) if isinstance(veri, dict) else veri), hata
 
 
-def _tek_ucus(key, hesapla):
+def _tek_ucus(key, hesapla, ttl=None):
     """
     Tek-uçuş (single-flight): aynı raporu isteyen eşzamanlı istekler **bir kez** hesaplar.
 
@@ -380,7 +382,7 @@ def _tek_ucus(key, hesapla):
             veri, hata = hesapla()
             # ⚠️ Hata önbelleğe alınmaz (bkz. `_cached_rapor`), ama yine döndürülür.
             if hata is None and veri is not None:
-                cache.set(key, (veri, hata), _RAPOR_TTL)
+                cache.set(key, (veri, hata), ttl or _RAPOR_TTL)
             return veri, hata
         finally:
             cache.delete(lock_key)
@@ -455,6 +457,15 @@ def tender_sira_ifadesi(alan: str, artan: bool) -> tuple:
     else:
         birincil = alan if artan else f"-{alan}"
     return (birincil, "pk" if artan else "-pk")
+
+
+def sayfa_parametreleri(params, *, varsayilan=10, azami=100):
+    """`(page, page_size)` — `sirala_sayfala` ile birebir aynı ayrıştırma."""
+    try:
+        return (max(1, int(params.get("page", 1))),
+                min(azami, max(1, int(params.get("page_size", varsayilan)))))
+    except (TypeError, ValueError):
+        return 1, varsayilan
 
 
 def sirala_sayfala(qs, params, *, varsayilan_boyut=10, azami_boyut=100):
@@ -1271,9 +1282,16 @@ class TenderListView(APIView):
     """GET /ekap/tenders/ — DB'den arama/filtre/sıralama/pagination."""
 
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
+    throttle_kapsam = "ihale_arama"
 
     def get(self, request):
         qp = request.query_params
+
+        # Sayfa derinliği — DB'ye dokunmadan önce (bkz. core/throttling.py; mobil için
+        # vars. yalnızca gözlem).
+        page, boyut = sayfa_parametreleri(qp, varsayilan=10, azami=100)
+        if mesaj := sayfa_derinligi_asimi(request, page, boyut, "ihale_arama"):
+            return api_response(message=mesaj, success=False, status=400)
 
         # ── Pro kapısı ────────────────────────────────────────────────────────
         # Uç `AllowAny` KALIR: temel arama herkese açık. Yalnızca gelişmiş parametreler
@@ -1358,6 +1376,128 @@ class TenderListView(APIView):
         if uyari:
             payload["uyari"] = uyari
         return api_response(data=payload)
+
+
+# ── Anasayfa istatistikleri (web portalı) ─────────────────────────────────────
+_ISTATISTIK_TTL = 600
+_ISTATISTIK_ANAHTAR = "ekap:istatistik:v1"
+
+# ⚠️ Tanımlar yanıtta da döner: web "bugün yayınlanan 1.918" yazarken bunun neyi
+# saydığını belgeleyebilsin, ileride tanım değişirse istemci fark etsin.
+_ISTATISTIK_TANIMLAR = {
+    "bugun_yayinlanan": "İlan tarihi bugün (İstanbul) olan ihaleler.",
+    "bugun_yapilacak": "İhale (teklif son) tarihi bugün (İstanbul) olan ihaleler.",
+    "bugun_sonuclanan": (
+        "Ölçülemiyor → null. Sonuç ilanları EKAP hız sınırı yüzünden kısıtlı "
+        "kapasiteyle ve gecikmeli toplanıyor; bugünkü sayı gerçeğin küçük ve "
+        "sistematik olarak eksik bir kısmı olurdu."
+    ),
+    "acik_ihale": "`teklif_verilebilir=true` ile aynı: teklif süresi geçmemiş, iptal "
+                  "edilmemiş ihaleler.",
+    "sektorler": "Sektör başına açık ihale ve bugün yayınlanan ihale. `kod=\"\"` "
+                 "sınıflandırılmamış ihalelerdir (gizlenmez, toplamlar tutsun diye).",
+    "iller": "EKAP il kodu (`ekap_il_id`, plaka DEĞİL) başına açık + bugün yayınlanan.",
+}
+
+
+def ihale_istatistikleri(simdi=None) -> dict:
+    """Anasayfa sayaçları. ⚠️ Her sayı `apply_tender_filters`'ın KENDİSİYLE kurulur
+    ve yanıttaki `sorgular` parametreleri `GET /ekap/tenders/`'e verilince aynı
+    `totalCount` döner — sayaç ile tıklanınca açılan liste ayrışmasın (bu dosyada üç
+    kez ısırmış "sayı ≠ liste" hata sınıfı).
+    """
+    from django.db.models import Count
+
+    simdi = simdi or timezone.now()
+    gun = timezone.localdate(simdi)
+    bas, bit = local_day_range(gun)
+    son = bit - timedelta(seconds=1)
+    sorgular = {
+        "bugun_yayinlanan": {"ilan_tarihi_min": bas.isoformat(),
+                             "ilan_tarihi_max": son.isoformat()},
+        "bugun_yapilacak": {"ihale_tarihi_min": bas.isoformat(),
+                            "ihale_tarihi_max": son.isoformat()},
+        "acik_ihale": {"teklif_verilebilir": "true"},
+    }
+
+    def kume(ad):
+        # `.order_by()`: Meta.ordering GROUP BY'a sızmasın (CLAUDE.md).
+        return apply_tender_filters(Tender.objects.all(), sorgular[ad]).order_by()
+
+    yayin, acik = kume("bugun_yayinlanan"), kume("acik_ihale")
+
+    def grupla(qs, alan):
+        return dict(qs.values(alan).annotate(n=Count("id")).values_list(alan, "n"))
+
+    sek_acik, sek_bugun = grupla(acik, "sektor"), grupla(yayin, "sektor")
+    il_acik, il_bugun = grupla(acik, "il_id"), grupla(yayin, "il_id")
+
+    sektorler = [
+        {"kod": kod, "ad": ad, "acik": sek_acik.get(kod, 0), "bugun": sek_bugun.get(kod, 0)}
+        for kod, ad in SEKTORLER.items()
+    ]
+    # Taksonomi dışı kodlar (eski/bilinmeyen) ve boş kod da listelenir: düşürülseler
+    # sektör toplamı `acik_ihale`yi tutmazdı.
+    for kod in sorted((set(sek_acik) | set(sek_bugun)) - set(SEKTORLER),
+                      key=lambda k: (k is None or k == "", str(k))):
+        sektorler.append({"kod": kod or "", "ad": SEKTORLER.get(kod) or (
+            kod if kod else "Sınıflandırılmamış"),
+            "acik": sek_acik.get(kod, 0), "bugun": sek_bugun.get(kod, 0)})
+    iller = [
+        {"ekap_il_id": il_id, "ad": ad, "acik": il_acik.get(il_id, 0),
+         "bugun": il_bugun.get(il_id, 0)}
+        for il_id, _plaka, ad, _buyuk in CITIES
+    ]
+    return {
+        "gun": gun.isoformat(),
+        "bugun_yayinlanan": yayin.count(),
+        "bugun_yapilacak": kume("bugun_yapilacak").count(),
+        "bugun_sonuclanan": None,
+        "acik_ihale": acik.count(),
+        "sektorler": sektorler,
+        "iller": iller,
+        "guncelleme": timezone.localtime(simdi).isoformat(),
+        "tanimlar": _ISTATISTIK_TANIMLAR,
+        "sorgular": sorgular,
+    }
+
+
+@extend_schema(
+    tags=["ekap"],
+    auth=[],
+    summary="Anasayfa ihale istatistikleri",
+    description=(
+        "Web anasayfasının sayaçları tek çağrıda: bugün yayınlanan / bugün yapılacak / "
+        "açık ihale sayısı + sektör ve il kırılımı. **10 dk önbellekli** ve tek-uçuşlu "
+        "(eşzamanlı istekler bir kez hesaplar).\n\n"
+        "Gün **İstanbul** günüdür. Ölçülemeyen değer `null` döner, `0` değil "
+        "(`bugun_sonuclanan` şimdilik `null` — gerekçe `tanimlar`'da).\n\n"
+        "`sorgular`: her sayının `GET /ekap/tenders/` karşılığı; o parametrelerle "
+        "dönen `totalCount` sayaçla aynıdır."
+    ),
+    responses={200: OpenApiTypes.OBJECT},
+    examples=[OpenApiExample("İstatistik", response_only=True, value={
+        "gun": "2026-10-26", "bugun_yayinlanan": 1918, "bugun_yapilacak": 1943,
+        "bugun_sonuclanan": None, "acik_ihale": 4564,
+        "sektorler": [{"kod": "gida_catering", "ad": "Gıda ve Yemek Hizmeti",
+                       "acik": 916, "bugun": 41}],
+        "iller": [{"ekap_il_id": 251, "ad": "İSTANBUL", "acik": 388, "bugun": 17}],
+        "guncelleme": "2026-10-26T14:50:00+03:00",
+    })],
+)
+class TenderStatsView(APIView):
+    """GET /ekap/tenders/stats/ — anasayfa sayaçları (10 dk önbellek)."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        kayit = cache.get(_ISTATISTIK_ANAHTAR)
+        if kayit is None:
+            kayit = _tek_ucus(_ISTATISTIK_ANAHTAR,
+                              lambda: (ihale_istatistikleri(), None), ttl=_ISTATISTIK_TTL)
+            if kayit is None:  # lider beklemesi doldu → kendimiz hesaplarız
+                kayit = (ihale_istatistikleri(), None)
+        return api_response(data=kayit[0])
 
 
 # EKAP'ın çevrilmemiş i18n anahtarı: "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_EXCEPTION"
@@ -1528,9 +1668,18 @@ class TenderDetailView(APIView):
     """GET /ekap/tenders/{key}/ — İKN veya ekap_id ile detay (EKAP şeklinde)."""
 
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
+    throttle_kapsam = "detay"
 
     def get(self, request, key):
         tender = _tender_by_key(key)
+
+        # ⚠️ DB'de HİÇ olmayan anahtar için canlı EKAP'a gidilmez (vars.): rastgele
+        # anahtarlarla gelen istekler gunicorn slotlarını (mobil ile ortak) EKAP
+        # beklemesine bağlıyordu. Meşru istemciler anahtarı zaten bizim yanıtımızdan
+        # alıyor (mobil: liste/kayıt/bildirim; web: liste ucundan `ekap_id`).
+        # Kayıtlı ama detayı gelmemiş ihalede canlı deneme AYNEN sürer.
+        if tender is None and not getattr(settings, "EKAP_DETAY_BILINMEYEN_CANLI", False):
+            return api_response(message="İhale bulunamadı.", success=False, status=404)
 
         # DB'de var ve detayı çekilmiş → saklanan ham detayı (item açılmış) dön
         if tender and tender.detail_synced_at and tender.detail_raw:
@@ -1600,6 +1749,96 @@ class TenderAnnouncementsView(APIView):
         return api_response(data={"list": data})
 
 
+# ── Belge uçları: giriş + imzalı indirme bağlantısı ───────────────────────────
+# ⚠️⚠️ Mobil proxy indirmesi (`DocumentSheet.js` → `RNFS.downloadFile`) Authorization
+# başlığı GÖNDERMİYOR. `document/` ucu doğrudan `IsAuthenticated` yapılsaydı giriş
+# yapmış Pro kullanıcılar dahil HERKESİN doküman indirmesi dururdu. Bu yüzden
+# `documents/` yanıtındaki bağlantılar kısa ömürlü bir `imza` taşır: kimin için ve
+# hangi ihale için üretildiği imzanın içindedir, istemci onu opak bir URL olarak
+# kullanır (yanıt şekli değişmez).
+_BELGE_IMZA_TUZU = "ekap-belge-v1"
+
+
+def belge_imzasi(uid, key) -> str:
+    from django.core import signing
+
+    return signing.TimestampSigner(salt=_BELGE_IMZA_TUZU).sign(f"{uid or 0}:{key}")
+
+
+def belge_imzasi_coz(token, key) -> int | None:
+    """Geçerli imza → kullanıcı id'si (anonim üretilmişse 0); değilse `None`."""
+    from django.core import signing
+
+    if not token:
+        return None
+    try:
+        deger = signing.TimestampSigner(salt=_BELGE_IMZA_TUZU).unsign(
+            token, max_age=getattr(settings, "EKAP_BELGE_IMZA_SURE_SN", 86400))
+    except signing.BadSignature:  # süresi dolmuş da buraya düşer
+        return None
+    uid, _, imzali_key = deger.partition(":")
+    if imzali_key != str(key) or not uid.isdigit():
+        return None
+    return int(uid)
+
+
+def _imzali(url: str, request, key) -> str:
+    from urllib.parse import quote
+
+    ayrac = "&" if "?" in url else "?"
+    uid = request.user.pk if request.user.is_authenticated else 0
+    return f"{url}{ayrac}imza={quote(belge_imzasi(uid, key))}"
+
+
+def _belge_giris_zorunlu() -> bool:
+    return getattr(settings, "EKAP_BELGE_GIRIS_ZORUNLU", False)
+
+
+def _belge_anonim_izle(request, kapsam="belge"):
+    """Bayrak kapalıyken anonim belge erişimini say — açmadan önceki ölçüm."""
+    try:
+        from core.throttling import gozlem_kaydet, istemci
+
+        gozlem_kaydet("belge_anonim", kapsam, istemci(request))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+class BelgeIzni(permissions.BasePermission):
+    """`documents/` + `document-url/`: bayrak açıksa giriş ister (mobil zaten Bearer
+    gönderiyor ve bu ekrana yalnızca `requireAuth('document')` sonrası geliyor)."""
+
+    def has_permission(self, request, view):
+        if request.user and request.user.is_authenticated:
+            return True
+        if not _belge_giris_zorunlu():
+            _belge_anonim_izle(request)
+            return True
+        return False
+
+
+class BelgeIndirmeIzni(permissions.BasePermission):
+    """`document/`: girişli istek **ya da** geçerli `imza` (mobil başlıksız indiriyor)."""
+
+    def has_permission(self, request, view):
+        if request.user and request.user.is_authenticated:
+            return True
+        uid = belge_imzasi_coz(request.query_params.get("imza"),
+                               view.kwargs.get("key"))
+        if uid:  # girişli kullanıcı için üretilmiş imza
+            return True
+        if not _belge_giris_zorunlu():
+            _belge_anonim_izle(request)
+            return True
+        return False
+
+
+def _imzali_uid(request):
+    """Throttle kimliği için: imzadaki kullanıcı (başlıksız mobil indirmesi)."""
+    key = getattr(request, "parser_context", {}).get("kwargs", {}).get("key")
+    return belge_imzasi_coz(request.query_params.get("imza"), key) or None
+
+
 @extend_schema(
     tags=["ekap"],
     summary="Belge indirme bağlantısı",
@@ -1632,7 +1871,8 @@ class TenderAnnouncementsView(APIView):
 class DocumentUrlView(APIView):
     """GET /ekap/tenders/{ekap_id}/document-url/ — canlı proxy (dinamik URL)."""
 
-    permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
+    permission_classes = [BelgeIzni]
+    throttle_kapsam = "belge"
 
     def get(self, request, ekap_id):
         """
@@ -1684,7 +1924,7 @@ class DocumentUrlView(APIView):
         # hız bütçesini boşa yakardı. Bağlantı iyimser verilir; yoksa indirme ucu
         # **404** ve net bir mesaj döner.
         return api_response(data={
-            "url": temel,
+            "url": _imzali(temel, request, ekap_id),
             "documents_url": request.build_absolute_uri(
                 reverse("v1:ekap-tender-documents", kwargs={"key": ekap_id})
             ),
@@ -1736,7 +1976,8 @@ def _dosya_adi_temizle(ham: str) -> str:
 class TenderDocumentsView(APIView):
     """GET /ekap/tenders/{key}/documents/ — indirilebilir dosya listesi."""
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [BelgeIzni]
+    throttle_kapsam = "belge"
 
     def get(self, request, key):
         from .mobil.client import EkapMobilClient, MobilError, MobilYokError
@@ -1806,13 +2047,14 @@ class TenderDocumentsView(APIView):
             veri["ihale_dokumanlari"] = [
                 {"ad": d["ad"], "boyut": d["boyut"], "tarih": d["tarih"],
                  "aciklama": d["aciklama"], "tur": "ihale",
-                 "url": f"{temel}?dosya={d['anahtar']}"}
+                 "url": _imzali(f"{temel}?dosya={d['anahtar']}", request, key)}
                 for d in dokumanlar
             ]
             # Geriye dönük uyum: tek bağlantı bekleyen istemciler için **en güncel**
             # doküman (parametresiz indirme de onu verir).
             veri["ihale_dokumani"] = {
-                "ad": "İhale Dokümanı", "tur": "ihale", "url": temel,
+                "ad": "İhale Dokümanı", "tur": "ihale",
+                "url": _imzali(temel, request, key),
                 "dosya_sayisi": len(dokumanlar),
             }
 
@@ -1825,7 +2067,7 @@ class TenderDocumentsView(APIView):
                 "boyut": k.get("boyut"),
                 "dosya_id": dosya_id,
                 "tur": "teknik",
-                "url": f"{temel}?tur=teknik&dosyaId={dosya_id}",
+                "url": _imzali(f"{temel}?tur=teknik&dosyaId={dosya_id}", request, key),
             })
 
         # ⚠️ "Doküman yok" bir HATA DEĞİL, yaygın bir durumdur: EKAP istisna ve
@@ -1874,7 +2116,9 @@ class TenderDocumentsView(APIView):
 class TenderDocumentView(APIView):
     """GET /ekap/tenders/{key}/document/ — mobil API'den akış (streaming) indirme."""
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [BelgeIndirmeIzni]
+    throttle_kapsam = "belge"
+    imzali_uid = staticmethod(_imzali_uid)
 
     def get(self, request, key):
         from django.http import StreamingHttpResponse
@@ -2137,6 +2381,36 @@ class AuthoritySearchView(APIView):
 
 @extend_schema(
     tags=["ekap"],
+    auth=[],
+    summary="Tek idare (DETSIS düğümü)",
+    description=(
+        "DETSIS numarasıyla tek idare. Şekil arama/ağaç düğümüyle aynıdır "
+        "(`detsis_no, idare_id, ad, parent_detsis, has_items, seviye, path`); `path` "
+        "kök→ebeveyn ata adlarıdır. Bilinmeyen numara → **404**."
+    ),
+    parameters=[OpenApiParameter(
+        "detsis_no", str, location=OpenApiParameter.PATH, required=True,
+        examples=[OpenApiExample("İBB", value="74731203")],
+    )],
+    responses={200: AuthorityNodeSerializer, 404: OpenApiTypes.OBJECT},
+)
+class AuthorityDetailView(APIView):
+    """GET /ekap/authorities/<detsis_no>/ — tek idare + ata yolu."""
+
+    permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "detay"
+
+    def get(self, request, detsis_no):
+        # `.order_by()`: Meta.ordering=["ad"] unique indeks yerine sıralı taramaya itmesin.
+        a = Authority.objects.filter(detsis_no=detsis_no).order_by().first()
+        if a is None:
+            return api_response(message="İdare bulunamadı.", success=False, status=404)
+        ser = AuthorityNodeSerializer(a, context={"paths": annotate_paths([a])})
+        return api_response(data=ser.data)
+
+
+@extend_schema(
+    tags=["ekap"],
     summary="Sektör listesi",
     description=(
         "Deterministik sınıflandırmada kullanılan sektör kodları ve adları.\n\n"
@@ -2179,8 +2453,13 @@ class CityListView(APIView):
 
 
 # ── Yüklenici (firma) uçları ───────────────────────────
-def _paginate(request, qs, serializer_class, default_page_size=20, context=None):
-    """assistant.views._paginate ile aynı zarf: {list, totalCount, page}."""
+def _paginate(request, qs, serializer_class, default_page_size=20, context=None,
+              donustur=None, ek=None):
+    """assistant.views._paginate ile aynı zarf: {list, totalCount, page}.
+
+    `donustur`: satır başına dönüşüm (ör. Free maskelemesi). `ek`: zarfa eklenecek
+    alanlar (ör. `kilitli`).
+    """
     qp = request.query_params
     try:
         page = max(1, int(qp.get("page", 1)))
@@ -2199,7 +2478,32 @@ def _paginate(request, qs, serializer_class, default_page_size=20, context=None)
     start = (page - 1) * page_size
     data = serializer_class(qs[start:start + page_size], many=True,
                             context=context or {}).data
-    return api_response(data={"list": data, "totalCount": total, "page": page})
+    if donustur:
+        data = [donustur(dict(r)) for r in data]
+    return api_response(data={"list": data, "totalCount": total, "page": page, **(ek or {})})
+
+
+def firma_kilitli(request) -> bool:
+    """Firma uçlarında para/oran alanları bu istekte gizlenmeli mi?
+
+    ⚠️ Maskeleme **sunucuda**: mobil bu alanları Free'de yalnızca istemcide gizliyordu
+    ve API doğrudan kullanılarak tüm firma cirosu toplu çekilebiliyordu. Mobilde
+    `null` güvenli (ölçüldü: biçimlendiricilerin hepsi null'da `null` döner, Free
+    zaten maske gösteriyor). Sayılar (kaç sözleşme/ihale) görünür kalır — pazar
+    panosundaki `kilitli` deseninin aynısı.
+    """
+    if not getattr(settings, "EKAP_FIRMA_SUNUCU_MASKE", True):
+        return False
+    return not getattr(request.user, "is_premium", False)
+
+
+_FIRMA_PARA_ALANLARI = ("toplam_sozlesme_bedeli", "ortalama_indirim_orani")
+
+
+def _firma_satiri_maskele(satir: dict) -> dict:
+    for alan in _FIRMA_PARA_ALANLARI:
+        satir[alan] = None
+    return satir
 
 
 _CONTRACTOR_PK_PARAM = OpenApiParameter(
@@ -2278,9 +2582,13 @@ class ContractorListView(APIView):
     """GET /ekap/contractors/ — firma arama/listeleme."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "firma_liste"
 
     def get(self, request):
         qp = request.query_params
+        page, boyut = sayfa_parametreleri(qp, varsayilan=20, azami=100)
+        if mesaj := sayfa_derinligi_asimi(request, page, boyut, "firma_liste"):
+            return api_response(message=mesaj, success=False, status=400)
         qs = Contractor.objects.all()
 
         q = qp.get("q")
@@ -2314,7 +2622,10 @@ class ContractorListView(APIView):
         )
         qs = qs.order_by(order_expr, "kanonik_ad")
 
-        return _paginate(request, qs, ContractorListSerializer)
+        kilitli = firma_kilitli(request)
+        return _paginate(request, qs, ContractorListSerializer,
+                         donustur=_firma_satiri_maskele if kilitli else None,
+                         ek={"kilitli": kilitli})
 
 
 @extend_schema(
@@ -2338,6 +2649,7 @@ class ContractorDetailView(APIView):
     """GET /ekap/contractors/<pk>/ — firma detayı + kırılımlar."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "detay"
 
     def get(self, request, pk):
         try:
@@ -2390,6 +2702,15 @@ class ContractorDetailView(APIView):
             ],
             "uyeleri_cozumlendi": c.uyeleri_cozumlendi,
         }
+        data["kilitli"] = firma_kilitli(request)
+        if data["kilitli"]:
+            # ⚠️ Yalnızca para/oran: `dagilim.sektor` ve `dagilim.idare[].detsis_no`
+            # mobil tanışma sihirbazında Free kullanıcıya da lazım (ön seçim).
+            for alan in _FIRMA_PARA_ALANLARI:
+                data["istatistik"][alan] = None
+            for satirlar in data["dagilim"].values():
+                for r in satirlar:
+                    r["toplam_bedel"] = None
         return api_response(data=data)
 
     @staticmethod
@@ -3010,6 +3331,10 @@ class ContractorContractsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, pk):
+        # ⚠️ Sözleşme listesi her satırda bedel taşır → Free/anonim için 403. Mobil
+        # Free'de bu listeyi zaten hiç çekmiyor (`ContractorDetail`: `if (locked) return`).
+        if firma_kilitli(request):
+            require_premium(request.user, MSG_FIRMA_SOZLESME)
         if not Contractor.objects.filter(pk=pk).exists():
             return api_response(
                 data=None, message="Yüklenici bulunamadı.", success=False, status=404

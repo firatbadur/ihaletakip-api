@@ -3,7 +3,7 @@ Apple Sign-In doğrulama.
 
 Mobil istemci `@invertase/react-native-apple-authentication` ile alınan
 `identityToken`'ı (JWT) gönderir. Apple'ın public key'leriyle imzayı,
-issuer ve audience'ı (bundle id) doğrularız.
+issuer ve audience'ı (bundle id; web için Services ID) doğrularız.
 """
 from django.conf import settings
 
@@ -30,7 +30,9 @@ def verify_apple_identity_token(identity_token: str) -> dict:
     if not identity_token:
         raise AppleAuthError("identityToken eksik.")
 
-    audience = settings.APPLE_CLIENT_ID
+    # Mobil (bundle id) + web (Services ID). PyJWT liste verildiğinde `aud` bunlardan
+    # BİRİYLE eşleşirse kabul eder.
+    audience = list(getattr(settings, "APPLE_CLIENT_IDS", None) or [settings.APPLE_CLIENT_ID])
 
     try:
         jwk_client = PyJWKClient(APPLE_KEYS_URL)

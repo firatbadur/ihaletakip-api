@@ -1849,6 +1849,36 @@
           }
         },
         {
+          "name": "Anasayfa ihale istatistikleri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/tenders/stats/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "tenders",
+                "stats",
+                ""
+              ]
+            },
+            "description": "Web anasayfasının sayaçları tek çağrıda: bugün yayınlanan / bugün yapılacak / açık ihale sayısı + sektör ve il kırılımı. **10 dk önbellekli** ve tek-uçuşlu (eşzamanlı istekler bir kez hesaplar).\n\nGün **İstanbul** günüdür. Ölçülemeyen değer `null` döner, `0` değil (`bugun_sonuclanan` şimdilik `null` — gerekçe `tanimlar`'da).\n\n`sorgular`: her sayının `GET /ekap/tenders/` karşılığı; o parametrelerle dönen `totalCount` sayaçla aynıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "EKAP doğrulama çerezini kaydet",
           "request": {
             "method": "POST",
@@ -1885,6 +1915,43 @@
                 }
               }
             },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Tek idare (DETSIS düğümü)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ekap/authorities/:detsis_no/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ekap",
+                "authorities",
+                ":detsis_no",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "detsis_no",
+                  "value": "74731203",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "DETSIS numarasıyla tek idare. Şekil arama/ağaç düğümüyle aynıdır (`detsis_no, idare_id, ad, parent_detsis, has_items, seviye, path`); `path` kök→ebeveyn ata adlarıdır. Bilinmeyen numara → **404**.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "auth": {
               "type": "noauth"
             }
@@ -3775,6 +3842,138 @@
               ]
             },
             "description": "Oturumu ve içindeki tüm mesajları siler.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
+      "name": "blog",
+      "item": [
+        {
+          "name": "Blog kategorileri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/blog/categories/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories",
+                ""
+              ]
+            },
+            "description": "`order`'a göre sıralı. Yalnızca en az bir yayımlanmış yazısı olan kategoriler döner; `post_count` yayımlanmış yazı sayısıdır.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Blog yazıları",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/blog/posts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "etiket",
+                  "value": "eşik değer",
+                  "description": "Etiket (Türkçe karakter duyarsız).",
+                  "disabled": true
+                },
+                {
+                  "key": "kategori",
+                  "value": "mevzuat",
+                  "description": "Kategori slug'ı.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Sayfa (1'den başlar).",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "12",
+                  "description": "Sayfa boyutu, en çok 50.",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "bilgisayar",
+                  "description": "Başlık + özet içinde arama; her kelime geçmeli (Türkçe karakter duyarsız).",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Yayımlanmış yazılar, en yeni önce (`published_at` azalan). Taslak ve ileri tarihli (zamanlanmış) yazılar dönmez.\n\nSatırlarda **`content` yoktur** — tam metin için detay ucunu kullanın.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Blog yazısı detayı",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/blog/posts/:slug/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts",
+                ":slug",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "slug",
+                  "value": "4734-sayili-kanunda-esik-degerler-2027",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Tam yazı: liste satırının alanları + `content` (**Markdown**), `seo_title`, `seo_description` (boşsa başlık/özet ile doldurulur) ve `related` (aynı kategoriden en çok 3 yazı).\n\nYazı yoksa, taslaksa ya da yayın tarihi gelmemişse **404**.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
           }
         }
       ]

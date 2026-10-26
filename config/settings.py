@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "core",
     "ekap",
     "subscription",
+    "blog",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -218,6 +219,8 @@ REST_FRAMEWORK = {
         else ("core.renderers.EnvelopeJSONRenderer",)
     ),
     "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
+    # Yalnızca `throttle_kapsam` özniteliği taşıyan uçları sayar (bkz. core/throttling.py).
+    "DEFAULT_THROTTLE_CLASSES": ("core.throttling.KapsamliThrottle",),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -301,8 +304,50 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 # Google Sign-In (idToken audience'ları)
 GOOGLE_CLIENT_IDS = env.list("GOOGLE_CLIENT_IDS", default=[])
 
+# ── Web portalı (ihaletakip.com) ───────────────────────
+# Mutlak medya adresleri (blog kapakları) bu tabandan kurulur. ⚠️ `request`'ten
+# türetilmez: portal Cloudflare'i atlayıp doğrudan nginx'e geldiği için orada
+# `X-Forwarded-Proto` yok ve adres `http://` çıkardı.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="https://ihale-takip.envisoft.com.tr")
+# Blog yazısı değişince web önbelleğini tazeleme çağrısı. ⚠️ Sır boşsa hiç istek
+# atılmaz (yerel geliştirme/test) — yazı kaydı bundan hiçbir zaman etkilenmez.
+WEB_REVALIDATE_URL = env("WEB_REVALIDATE_URL", default="https://ihaletakip.com/api/revalidate")
+WEB_REVALIDATE_SECRET = env("WEB_REVALIDATE_SECRET", default="")
+
+# Portal ↔ API ortak sırrı (`X-IT-Portal-Key`). Doğruysa throttle kimliği
+# `X-IT-Client-IP` olur; boşsa portal yolu kapalıdır ve o başlıklar yok sayılır.
+PORTAL_KEY = env("PORTAL_KEY", default="")
+# Hız sınırı modları: kapali | gozlem | uygula (bkz. core/throttling.py).
+# ⚠️ Mobil/doğrudan trafik `gozlem`de başlar: hiçbir istek reddedilmez, yalnızca
+# "reddedilirdi" sayaçları birikir (`manage.py throttle_rapor`). `uygula`ya geçmeden
+# önce bu ölçüme bakın — mobilde 429 için özel bir ele alma yok.
+API_THROTTLE_MODU = env("API_THROTTLE_MODU", default="gozlem")
+API_THROTTLE_PORTAL_MODU = env("API_THROTTLE_PORTAL_MODU", default="uygula")
+# Kapsam bazında oran ezme: {"ihale_arama": {"anonim": [[60, 30]], "girisli": [...]}}
+API_THROTTLE_ORANLAR = env.json("API_THROTTLE_ORANLAR", default={})
+# Sayfa derinliği = kayıt ofseti sınırı (web'in 20'lik sayfasıyla 10 / 50 sayfa).
+API_SAYFA_DERINLIK_ANONIM = env.int("API_SAYFA_DERINLIK_ANONIM", default=200)
+API_SAYFA_DERINLIK_GIRISLI = env.int("API_SAYFA_DERINLIK_GIRISLI", default=1000)
+# Belge uçları (documents/ document-url/ document/) giriş istesin mi?
+# ⚠️ Vars. KAPALI: mobil proxy indirmesi (`RNFS.downloadFile`) Authorization başlığı
+# GÖNDERMİYOR → `documents/` artık bağlantılara kısa ömürlü `imza` ekliyor. Eski
+# yanıtı elinde tutan istemciler bir süre imzasız bağlantı kullanabilir; anonim erişim
+# gözlem sayacına yazılır (`belge_anonim`). Sayaç sıfıra inince açın.
+EKAP_BELGE_GIRIS_ZORUNLU = env.bool("EKAP_BELGE_GIRIS_ZORUNLU", default=False)
+EKAP_BELGE_IMZA_SURE_SN = env.int("EKAP_BELGE_IMZA_SURE_SN", default=24 * 3600)
+# Firma uçlarında para/oran alanlarını Free/anonim için SUNUCUDA maskele.
+EKAP_FIRMA_SUNUCU_MASKE = env.bool("EKAP_FIRMA_SUNUCU_MASKE", default=True)
+# DB'de olmayan anahtar için canlı EKAP v2 detayı denensin mi (eski davranış)?
+EKAP_DETAY_BILINMEYEN_CANLI = env.bool("EKAP_DETAY_BILINMEYEN_CANLI", default=False)
+
 # Apple Sign-In
 APPLE_CLIENT_ID = env("APPLE_CLIENT_ID", default="com.envisoft.ihaletakip")
+# Kabul edilen audience'lar: iOS bundle id + web portalının Services ID'si
+# (`com.envisoft.ihaletakip.web`). ⚠️ Varsayılan yalnızca `APPLE_CLIENT_ID` → env'e
+# hiç yazılmazsa davranış eskisiyle birebir aynı (mobil girişi etkilenmez).
+# ⚠️ Services ID'nin Apple Developer'daki **primary App ID'si** iOS bundle id olmalı;
+# aksi hâlde aynı kişi için `sub` farklı gelir ve web'de ikinci bir hesap açılır.
+APPLE_CLIENT_IDS = env.list("APPLE_CLIENT_IDS", default=[APPLE_CLIENT_ID])
 
 # Text-to-Speech
 TTS_LANGUAGE_CODE = env("TTS_LANGUAGE_CODE", default="tr-TR")
@@ -831,6 +876,7 @@ JAZZMIN_SETTINGS = {
         "accounts",
         "ai",
         "core",
+        "blog",
         "django_celery_beat",
         "django_celery_results",
         "auth",
@@ -865,6 +911,9 @@ JAZZMIN_SETTINGS = {
         "tenders.Notification": "fas fa-envelope",
         "ai": "fas fa-brain",
         "ai.AnalysisCache": "fas fa-microchip",
+        "blog": "fas fa-newspaper",
+        "blog.BlogPost": "fas fa-pen-nib",
+        "blog.BlogCategory": "fas fa-folder",
         "core": "fas fa-cogs",
         "core.AppConfig": "fas fa-triangle-exclamation",
         "core.AppSetting": "fas fa-sliders-h",

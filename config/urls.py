@@ -7,6 +7,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from blog.views import blog_medya
 from core.views import health_check
 from ekap.admin_views import sektor_ekrani
 from ekap.mobil.admin_views import captcha_ekrani
@@ -22,6 +23,7 @@ api_v1 = [
     path("assistant/", include("assistant.urls")),
     path("ekap/", include("ekap.urls")),
     path("subscription/", include("subscription.urls")),
+    path("blog/", include("blog.urls")),
     path("", include("core.urls")),
 ]
 
@@ -42,6 +44,9 @@ urlpatterns = [
     ),
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health"),
+    # Blog kapak görselleri (web portalı). ⚠️ Yalnızca `media/blog/` — başka medya
+    # bilinçli olarak dışarı açılmaz.
+    path("media/blog/<path:yol>", blog_medya, name="blog-medya"),
     path("api/v1/", include((api_v1, "v1"))),
     # API şema & dokümantasyon
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

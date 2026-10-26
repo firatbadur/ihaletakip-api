@@ -70,6 +70,11 @@ MSG_PRO_FILTRE = (
 )
 
 
+MSG_FIRMA_SOZLESME = (
+    "Firmanın sözleşme geçmişi (iş, tarih ve bedel listesi) Pro aboneliğe özeldir."
+)
+
+
 # Doğrudan temin filtre alarmı. Filtre KAYDETMEK serbesttir; yalnızca alarm Pro.
 MSG_DT_ALARM = (
     "Doğrudan temin alarmları Pro üyelere özeldir. Filtrenizi kaydedebilirsiniz; "

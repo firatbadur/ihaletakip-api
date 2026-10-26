@@ -101,9 +101,16 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── tools/         # genel amaçlı yardımcılar → ocr.py (base64 resim → metin)
 └── management/    # seed_cities, ekap_probe, run_ingest, rebuild_contractors
 
+blog/              # Web portalı "Blog" sekmesi (yalnız admin'den yazılır, web salt okur)
+├── models.py      # BlogCategory, BlogPost (yayinda() = tek "yayımlanmış" tanımı)
+├── views.py       # /blog/posts/, posts/<slug>/, categories/ + /media/blog/ kapak sunumu
+├── signals.py     # kayıt/silme → web revalidate (on_commit, hata yutulur)
+└── tasks.py       # zamanlanmış yazı yayın anında revalidate (beat */10)
+
 core/              # Ortak altyapı
 ├── models.py      # TimeStampedModel, AppSetting, SupportTicket
 ├── renderers.py   # EnvelopeJSONRenderer (global {success,message,data})
+├── throttling.py  # kapsam bazlı hız sınırı + sayfa derinliği (portal/gözlem modları)
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
 ├── response.py    # api_response() yardımcısı
 ├── storage.py     # JazzminManifestStaticFilesStorage (statik dosya storage)
@@ -4560,7 +4567,68 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 - ⚠️ Portalın tüm istekleri **tek IP'den** (konteyner) gelir: ileride DRF throttling eklenirse portala ayrı kapsam verilmeli, yoksa tüm web kullanıcıları tek kovayı paylaşır.
 - nginx'e `ihaletakip.com` bloğu eklenecek (Pinmotion deseni, upstream `172.17.0.1:3100`, sertifika `certs/ihaletakip-origin.{pem,key}`). ⚠️ Sertifika dosyaları config'ten **önce** sunucuya konmalı — eksikse nginx açılmaz ve **API de düşer**.
 - Portal ihaleyi İKN ile **`?ikn_yil=&ikn_sayi=`** (liste ucu) üzerinden bulur ve detayı oradan gelen `ekap_id` ile çağırır → bilinmeyen adresler detay ucunda canlı EKAP isteği tetikleyemez. ⚠️ Bu iki parametrenin birebir İKN eşleşmesi semantiği (`startswith "<yil>/"` + `endswith "/<sayi>"`) **değiştirilmemeli**.
-- **Portal için bekleyen API işleri**: zorunlu olan yalnız Apple web girişi için `APPLE_CLIENT_IDS` listesi (`accounts/services/apple.py`). İsteğe bağlı iyileştirmeler (firma uçlarında sunucu taraflı maskeleme, `GET /ekap/authorities/<detsis_no>/`, bilinmeyen anahtarda canlı EKAP yerine 404): web reposunda `docs/gelistirme-rehberi.md` §4.12.
+- **Portal istekleri UYGULANDI (2026-10-26)** — bkz. aşağıdaki "Web portalı için API" bölümü.
+
+### Web portalı için API (2026-10-26) — ⚠️ mevcut mobil kullanıcıyı etkilemeyecek şekilde
+
+Kaynak: web ekibinin `portal-istekleri.md` + `blog-api.md` notları. Her madde önce
+mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak** var.
+
+- **Apple web girişi**: `APPLE_CLIENT_IDS` (vars. `[APPLE_CLIENT_ID]` → env yazılmazsa
+  eskisiyle birebir). Üretimde `.env.prod`'a
+  `APPLE_CLIENT_IDS=com.envisoft.ihaletakip,com.envisoft.ihaletakip.web`.
+- ⚠️⚠️ **Hız sınırı `core/throttling.py`** — `DEFAULT_THROTTLE_CLASSES` global ama
+  yalnızca `throttle_kapsam` özniteliği olan uçlar sayılır (`ihale_arama`, `detay`,
+  `firma_liste`, `belge`). Kimlik: girişli → `u:<id>`; portal anahtarı doğru →
+  `X-IT-Client-IP`; değilse `X-Real-IP`. **Mod portal ve diğerleri için AYRI**:
+  `API_THROTTLE_PORTAL_MODU=uygula`, `API_THROTTLE_MODU=gozlem` (vars.).
+  ⚠️ **Mobil için `gozlem` bilinçli**: mobilde 429'a özel dal YOK (genel hata, firma
+  detayında yanıltıcı "Yüklenici bulunamadı") ve anonim kullanıcılar CGNAT ile aynı
+  IP'yi paylaşabiliyor. Gözlem hiçbir isteği reddetmez, "reddedilirdi" sayaçlarını
+  yazar → `python manage.py throttle_rapor`. `uygula`ya geçmeden önce bu ölçüme bakın.
+  ⚠️ Kod/Redis hatası isteği **geçirir** (koruma API'yi kırmaz).
+  Doğrulanmış bot (`X-IT-Verified-Bot: 1`, yalnızca doğru anahtarla) sınırlanmaz.
+  Kademeli engel (yalnız `uygula`): farklı dakikalarda 3/6/10 aşım → 15 dk/1 sa/24 sa.
+- ⚠️⚠️ **Sayfa derinliği = ofset sınırı** (anonim 200, girişli 1000 kayıt), aynı mod
+  kuralıyla. Mobil liste sonsuz kaydırmada sınır tanımıyor ve uç hata dönerse
+  **yüklenmiş sonuçlar dahil** tüm liste hata ekranına düşüyor → mobilde gözlem.
+- ⚠️⚠️ **Belge uçları: `document/` mobil proxy'si BAŞLIKSIZ indiriliyor**
+  (`DocumentSheet.js` → `RNFS.downloadFile`, Authorization YOK). Düz `IsAuthenticated`
+  herkesin indirmesini kırardı. → `documents/` (ve `document-url` proxy dalı)
+  bağlantılara `imza` ekler (`TimestampSigner`, `uid:key`, 24 sa); `document/` girişli
+  istek **ya da** girişli kullanıcı için üretilmiş geçerli imza kabul eder. Yanıt şekli
+  aynı. Giriş zorunluluğu `EKAP_BELGE_GIRIS_ZORUNLU` (vars. **False**) — kapalıyken
+  anonim erişim `belge_anonim` gözlem sayacına yazılır; sayaç sıfıra inince açın.
+  Belge kotası kimliği imzadaki kullanıcıdır (`imzali_uid`).
+- **Firma maskeleme** (`firma_kilitli`, `EKAP_FIRMA_SUNUCU_MASKE` vars. True): Free/anonim
+  liste+detayda `toplam_sozlesme_bedeli`, `ortalama_indirim_orani`, `dagilim[*].toplam_bedel`
+  → `null`, `kilitli: true`; sayılar açık. `contracts/` Free/anonim → 403
+  `premium_required` (mobil Free'de zaten çekmiyor). ⚠️ `dagilim.sektor`/`idare` satırları
+  KALIR — mobil tanışma sihirbazı Free'de onları kullanıyor. Mobilde null güvenli (ölçüldü).
+- **`GET /ekap/tenders/stats/`** (10 dk önbellek, tek-uçuş): sayılar `apply_tender_filters`
+  ile kurulur, yanıttaki `sorgular` liste ucuna verilince aynı `totalCount` döner (testli).
+  ⚠️ `bugun_sonuclanan` **null**: sonuç ilanı tik kapasitesiyle kısıtlı toplanıyor, sayı
+  sistematik eksik olurdu. Sektörsüz (`kod=""`) satır gizlenmez.
+- **`GET /ekap/authorities/<detsis_no>/`** — arama düğümüyle aynı şekil + `path`, yoksa 404.
+- **Bilinmeyen anahtarda 404**: DB'de olmayan ihale anahtarı için canlı EKAP v2 denenmez
+  (`EKAP_DETAY_BILINMEYEN_CANLI` vars. False). Kayıtlı ama detayı gelmemiş ihalede canlı
+  deneme sürer. Mobil yalnızca backend'den aldığı anahtarları gönderiyor.
+- **Blog** (`blog/`): "yayımlanmış" = `status=published` **ve** `published_at <= now`
+  (`BlogPost.objects.yayinda()`). Slug Türkçe→ASCII (`turkce_slug`, düz `slugify` "ı"yı
+  siler), yayımlandıktan sonra kilitli. İçerik Markdown; `<script>/<iframe>/on*/javascript:`
+  reddedilir. Kapak `blog/<içerik-hash>.<uzantı>` (JPEG/PNG/WebP ≤2 MB) →
+  `/media/blog/` Django'dan `immutable` önbellekle (nginx medya sunmuyor).
+  ⚠️ Kapak URL'i `PUBLIC_BASE_URL`'den kurulur, `build_absolute_uri`'den DEĞİL: portal
+  Cloudflare'i atladığı için orada `X-Forwarded-Proto` yok → `http://` çıkardı.
+  Revalidate: `WEB_REVALIDATE_URL` + `WEB_REVALIDATE_SECRET` (boşsa istek yok), hata
+  yutulur, yazı kaydı asla düşmez. Arama kelime bazlı VE (`arama_norm`), etiket
+  `etiketler_norm` (`|a|b|`, SQLite'ta da çalışsın diye JSON contains değil).
+- **Üretime açarken env**: `PORTAL_KEY`, `WEB_REVALIDATE_SECRET`, `APPLE_CLIENT_IDS`
+  (+ isteğe bağlı `API_THROTTLE_*`). `env_file` olduğu için `restart` YETMEZ → `up -d`
+  + `restart nginx`. Yeni beat girdisi `blog-zamanlanmis-revalidate` beat açılışında DB'ye yazılır.
+- Testler: `blog/tests/test_blog.py` (24), `core/tests/test_throttling.py` (14),
+  `ekap/tests/test_portal_guvenlik.py` (13), `ekap/tests/test_portal_uclari.py` (6),
+  `accounts/tests/test_apple_audience.py` (4).
 
 ## Önemli Uyarılar
 

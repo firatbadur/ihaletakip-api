@@ -20,6 +20,12 @@ app.autodiscover_tasks(["ekap.mobil"])
 
 # ── Celery Beat — periyodik görevler ───────────────────
 app.conf.beat_schedule = {
+    # Blog: zamanlanmış yazının yayın anı gelince web önbelleğini tazele (bkz.
+    # blog/tasks.py). Koşmasa da yazı en geç web'in 1 saatlik önbelleği dolunca görünür.
+    "blog-zamanlanmis-revalidate": {
+        "task": "blog.tasks.zamanlanmis_yazilari_bildir",
+        "schedule": crontab(minute="*/10"),
+    },
     # Eski AI analiz cache kayıtlarını temizle (her gün 03:00)
     "cleanup-expired-analyses": {
         "task": "ai.tasks.cleanup_expired_analyses",

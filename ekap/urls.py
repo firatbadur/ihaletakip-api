@@ -10,6 +10,7 @@ from .views_dt import (
     DogrudanTeminListView,
 )
 from .views import (
+    AuthorityDetailView,
     AuthorityProfileView,
     AuthoritySearchView,
     AuthorityTreeView,
@@ -31,10 +32,13 @@ from .views import (
     TenderDetailView,
     TenderListView,
     TenderRecurringView,
+    TenderStatsView,
 )
 
 urlpatterns = [
     path("tenders/", TenderListView.as_view(), name="ekap-tenders"),
+    # ⚠️ `<str:key>/`'den ÖNCE: aksi hâlde "stats" bir ihale anahtarı sanılırdı.
+    path("tenders/stats/", TenderStatsView.as_view(), name="ekap-tender-stats"),
     path("tenders/<str:key>/", TenderDetailView.as_view(), name="ekap-tender-detail"),
     path("tenders/<str:key>/announcements/", TenderAnnouncementsView.as_view(), name="ekap-tender-announcements"),
     # İKN `/` içerdiği için bu alt rotalarda **ekap_id** kullanılır (bkz. TenderDetailView).
@@ -57,6 +61,10 @@ urlpatterns = [
     path("authorities/profile/", AuthorityProfileView.as_view(), name="ekap-authority-profile"),
     path("authorities/tree/", AuthorityTreeView.as_view(), name="ekap-authority-tree"),
     path("authorities/search/", AuthoritySearchView.as_view(), name="ekap-authority-search"),
+    # ⚠️ Sabit yolların (profile/tree/search) SONRASINDA: aksi hâlde "search" bir
+    # detsis_no sanılırdı.
+    path("authorities/<str:detsis_no>/", AuthorityDetailView.as_view(),
+         name="ekap-authority-detail"),
     # Pazar panosu (Adım 6). ⚠️ `okas_bucket` 4 haneli ASCII → `<str:>` yeterli,
     # İKN'deki gibi `path:` gerekmez.
     path("market/", MarketOverviewView.as_view(), name="ekap-market"),

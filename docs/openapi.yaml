@@ -1216,6 +1216,140 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefresh'
           description: ''
+  /api/v1/blog/categories/:
+    get:
+      operationId: blog_categories
+      description: '`order`''a göre sıralı. Yalnızca en az bir yayımlanmış yazısı
+        olan kategoriler döner; `post_count` yayımlanmış yazı sayısıdır.'
+      summary: Blog kategorileri
+      tags:
+      - blog
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Kategoriler:
+                  value:
+                  - name: Mevzuat
+                    slug: mevzuat
+                    post_count: 12
+          description: ''
+  /api/v1/blog/posts/:
+    get:
+      operationId: blog_posts_list
+      description: 'Yayımlanmış yazılar, en yeni önce (`published_at` azalan). Taslak
+        ve ileri tarihli (zamanlanmış) yazılar dönmez.
+
+
+        Satırlarda **`content` yoktur** — tam metin için detay ucunu kullanın.'
+      summary: Blog yazıları
+      parameters:
+      - in: query
+        name: etiket
+        schema:
+          type: string
+        description: Etiket (Türkçe karakter duyarsız).
+        examples:
+          Etiket:
+            value: eşik değer
+      - in: query
+        name: kategori
+        schema:
+          type: string
+        description: Kategori slug'ı.
+        examples:
+          Mevzuat:
+            value: mevzuat
+      - in: query
+        name: page
+        schema:
+          type: integer
+          default: 1
+        description: Sayfa (1'den başlar).
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          default: 12
+        description: Sayfa boyutu, en çok 50.
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Başlık + özet içinde arama; her kelime geçmeli (Türkçe karakter
+          duyarsız).
+      tags:
+      - blog
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Liste:
+                  value:
+                    list:
+                    - slug: 4734-sayili-kanunda-esik-degerler-2027
+                      title: 4734 Sayılı Kanunda 2027 Eşik Değerleri
+                      summary: Yeni yılda geçerli eşik değerler ve parasal limitler
+                        …
+                      cover_image: https://ihale-takip.envisoft.com.tr/media/blog/3f9c1a2b.jpg
+                      cover_alt: Hesap makinesi ve ihale dosyası
+                      category:
+                        name: Mevzuat
+                        slug: mevzuat
+                      tags:
+                      - eşik değer
+                      - '4734'
+                      author_name: İhale Takip
+                      published_at: '2027-02-01T09:00:00+03:00'
+                      updated_at: '2027-02-01T09:00:00+03:00'
+                      reading_minutes: 4
+                    totalCount: 37
+                    page: 1
+          description: ''
+  /api/v1/blog/posts/{slug}/:
+    get:
+      operationId: blog_post_detail
+      description: 'Tam yazı: liste satırının alanları + `content` (**Markdown**),
+        `seo_title`, `seo_description` (boşsa başlık/özet ile doldurulur) ve `related`
+        (aynı kategoriden en çok 3 yazı).
+
+
+        Yazı yoksa, taslaksa ya da yayın tarihi gelmemişse **404**.'
+      summary: Blog yazısı detayı
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+        examples:
+          Slug:
+            value: 4734-sayili-kanunda-esik-degerler-2027
+      tags:
+      - blog
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/dogrudan-temin/kayitli-filtreler/:
     get:
       operationId: api_v1_dogrudan_temin_kayitli_filtreler_list
@@ -1426,6 +1560,34 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/ekap/authorities/{detsis_no}/:
+    get:
+      operationId: api_v1_ekap_authorities_retrieve
+      description: DETSIS numarasıyla tek idare. Şekil arama/ağaç düğümüyle aynıdır
+        (`detsis_no, idare_id, ad, parent_detsis, has_items, seviye, path`); `path`
+        kök→ebeveyn ata adlarıdır. Bilinmeyen numara → **404**.
+      summary: Tek idare (DETSIS düğümü)
+      parameters:
+      - in: path
+        name: detsis_no
+        schema:
+          type: string
+        required: true
+        examples:
+          İBB:
+            value: '74731203'
+      tags:
+      - ekap
+      responses:
+        '200':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/ekap/authorities/profile/:
     get:
       operationId: ekap_authority_profile
@@ -2872,7 +3034,6 @@ paths:
       - ekap
       security:
       - cookieAuth: []
-      - {}
       responses:
         '200':
           content:
@@ -3168,6 +3329,50 @@ paths:
               schema:
                 type: object
                 additionalProperties: {}
+          description: ''
+  /api/v1/ekap/tenders/stats/:
+    get:
+      operationId: api_v1_ekap_tenders_stats_retrieve
+      description: 'Web anasayfasının sayaçları tek çağrıda: bugün yayınlanan / bugün
+        yapılacak / açık ihale sayısı + sektör ve il kırılımı. **10 dk önbellekli**
+        ve tek-uçuşlu (eşzamanlı istekler bir kez hesaplar).
+
+
+        Gün **İstanbul** günüdür. Ölçülemeyen değer `null` döner, `0` değil (`bugun_sonuclanan`
+        şimdilik `null` — gerekçe `tanimlar`''da).
+
+
+        `sorgular`: her sayının `GET /ekap/tenders/` karşılığı; o parametrelerle dönen
+        `totalCount` sayaçla aynıdır.'
+      summary: Anasayfa ihale istatistikleri
+      tags:
+      - ekap
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                İstatistik:
+                  value:
+                    gun: '2026-10-26'
+                    bugun_yayinlanan: 1918
+                    bugun_yapilacak: 1943
+                    bugun_sonuclanan: null
+                    acik_ihale: 4564
+                    sektorler:
+                    - kod: gida_catering
+                      ad: Gıda ve Yemek Hizmeti
+                      acik: 916
+                      bugun: 41
+                    iller:
+                    - ekap_il_id: 251
+                      ad: İSTANBUL
+                      acik: 388
+                      bugun: 17
+                    guncelleme: '2026-10-26T14:50:00+03:00'
           description: ''
   /api/v1/ekap/verification-cookie/:
     post:

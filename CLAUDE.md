@@ -4554,6 +4554,13 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 - ⚠️ IhaleTakip bloğu dosyada **ilk** kalmalı (varsayılan sunucu). Pinmotion bloğunu silmek/değiştirmek Pinmotion'u kapatır; IhaleTakip'i etkilemez.
 - ⚠️ Pinmotion kapalıyken yalnızca o alan 502 verir. `nginx -t` bu blok yüzünden hata verirse genellikle sertifika dosyası eksiktir.
 
+### Web portalı: ihaletakip.com (`~/Desktop/ihaletakip-web`) — 2026-10-26
+- **Ayrı repo** (`firatbadur/ihaletakip-web`, Next.js 16.4). Kendi `CLAUDE.md`'si ve `docs/plan.md` yol haritası var; **web'de satın alma yok** (Pro mobilden alınır, `is_premium` web'de de geçerli).
+- Portal bu API'yi **aynı adresten** kullanır (`https://ihale-takip.envisoft.com.tr/api/v1`). Üretimde portal konteyneri bu adı `extra_hosts: host-gateway` ile **bu nginx'e** çözer (Cloudflare'i atlar: 160-240 ms → 12 ms) → API'de `ALLOWED_HOSTS`/Docker ağı değişikliği **yok**. Tarayıcı API'ye hiç gitmez (BFF) → CORS gerekmez.
+- ⚠️ Portalın tüm istekleri **tek IP'den** (konteyner) gelir: ileride DRF throttling eklenirse portala ayrı kapsam verilmeli, yoksa tüm web kullanıcıları tek kovayı paylaşır.
+- nginx'e `ihaletakip.com` bloğu eklenecek (Pinmotion deseni, upstream `172.17.0.1:3100`, sertifika `certs/ihaletakip-origin.{pem,key}`). ⚠️ Sertifika dosyaları config'ten **önce** sunucuya konmalı — eksikse nginx açılmaz ve **API de düşer**.
+- **Portal için bekleyen API işleri**: (1) `_tender_by_key` tireli İKN'yi (`2026-1690784`) eşleştirsin + DB'de olmayan tireli İKN/`mobil:` anahtarında `TenderDetailView` canlı EKAP'a gitmeden 404 dönsün (arama motoru tarayıcıları rastgele adresle canlı istek tetiklemesin); (2) Apple web girişi için `APPLE_CLIENT_IDS` listesi (`accounts/services/apple.py`).
+
 ## Önemli Uyarılar
 
 - **PostgreSQL üretimde zorunlu**: Yerel `manage.py check` `DATABASE_URL` yoksa

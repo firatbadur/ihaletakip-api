@@ -4558,6 +4558,7 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 ### Paylaşılan nginx: Pinmotion (entegration.pinmotion.app) — 2026-09-30
 - `docker/nginx/default.conf` sonunda **ayrı bir projeye** (Pinmotion, `/opt/pinmotion-api`) ait `server` bloğu var. 443 bu nginx'te olduğu için Pinmotion da buradan Host/SNI ile ayrılır.
 - Upstream `172.17.0.1:8100` (Pinmotion web, docker0 host adresi). Sertifika `certs/pinmotion-origin.{pem,key}` (`*.pinmotion.app` Cloudflare Origin, git dışında).
+- **`pinmotion.app` paylaşım bloğu** (2026-10-18, yalnız `/p|i|c/<kod>`, `.well-known`, `/`, `/static/`; gerisi 404) üretimde elle eklenmişti ve git'te YOKTU → 2026-10-26 deploy'unda repo'ya alındı. ⚠️ Sunucuda bu dosyayı elle düzenlemeyin: bir sonraki `git pull` ya çakışır ya da düzenlemeyi siler.
 - ⚠️ IhaleTakip bloğu dosyada **ilk** kalmalı (varsayılan sunucu). Pinmotion bloğunu silmek/değiştirmek Pinmotion'u kapatır; IhaleTakip'i etkilemez.
 - ⚠️ Pinmotion kapalıyken yalnızca o alan 502 verir. `nginx -t` bu blok yüzünden hata verirse genellikle sertifika dosyası eksiktir.
 
@@ -4639,6 +4640,12 @@ mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak
   $remote_addr` ŞART: web kullanıcı IP'sini yalnız oradan okuyor, ezilmezse sahte IP ile
   hız sınırı atlatılır. `core/tests/test_nginx_conf.py` (yorum dışı) her server ve
   kendi başlığını tanımlayan her location bloğunda bunu denetler.
+- ✅ **ÜRETİMDE (2026-10-26, `0c79d9a`)**: `APPLE_CLIENT_IDS` `.env.prod`'a yazıldı;
+  `PORTAL_KEY` ve `WEB_REVALIDATE_SECRET` **BOŞ** (portal yolu kapalı, revalidate atılmıyor)
+  — web canlıya çıkarken iki tarafa aynı değerle yazılacak.
+  ⚠️⚠️ **`db` servisi de `env_file: .env.prod` kullanıyor** → `.env.prod`'a dokunulan
+  deploy'da Postgres konteyneri de YENİDEN YARATILIR (ölçüldü: ~15 sn 500/502). Env
+  değişikliğini mümkünse kod deploy'uyla aynı ana koyun ki tek kesinti olsun.
 - **Üretime açarken env**: `PORTAL_KEY`, `WEB_REVALIDATE_SECRET`, `APPLE_CLIENT_IDS`
   (+ isteğe bağlı `API_THROTTLE_*`). `env_file` olduğu için `restart` YETMEZ → `up -d`
   + `restart nginx`. Yeni beat girdisi `blog-zamanlanmis-revalidate` beat açılışında DB'ye yazılır.

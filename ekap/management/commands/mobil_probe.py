@@ -62,6 +62,10 @@ class Command(BaseCommand):
                                  "gerçek durum metnini basar (değer başına +1 istek)")
         parser.add_argument("--dtn", help="dt: dtn filtresi denenecek kayıt (26DT…)")
         parser.add_argument("--enc", help="dt: ömrü denenecek eski encID")
+        parser.add_argument("--hizli", action="store_true",
+                            help="dt: yalnızca bugünkü açık sayısı (1 istek)")
+        parser.add_argument("--atla-hacim", action="store_true",
+                            help="dt: 30 günlük hacim taramasını atla")
         parser.add_argument("--sayfa", type=int, default=8,
                             help="dt: açık hacim ölçümünde en çok kaç sayfa")
         parser.add_argument("--aralik", type=int,
@@ -423,10 +427,12 @@ class Command(BaseCommand):
                         ilanTarihiBitis=f(bugun), orderBy=10, topRowCnt=250, pageIndex=1)
         self.stdout.write(f"bugün yayımlanan açık DT : {len(bugunku)}"
                           + (" (sayfa DOLU — daha fazlası var)" if len(bugunku) == 250 else ""))
+        if o.get("hizli"):
+            return
 
         taban = bugun - timedelta(days=30)
         toplam, son = 0, None
-        for sayfa in range(1, o["sayfa"] + 1):
+        for sayfa in range(1, 0 if o.get("atla_hacim") else o["sayfa"] + 1):
             satirlar = liste(dogrudanTeminDurumu=C.DT_DURUM_ACIK,
                              ilanTarihiBaslangic=f(taban), ilanTarihiBitis=f(bugun),
                              orderBy=10, topRowCnt=250, pageIndex=sayfa)
@@ -440,9 +446,13 @@ class Command(BaseCommand):
         if o.get("dtn"):
             from ekap.mobil.dt import dtn_parcala
             yil, sayi = dtn_parcala(o["dtn"])
-            bulunan = liste(dtnYil=yil[2:], dtnSayi=sayi, topRowCnt=10, pageIndex=1)
-            self.stdout.write(f"dtn filtresi ({o['dtn']}, dtnYil={yil[2:]}): "
-                              f"{[r.get('dtn') for r in bulunan]}")
+            # Yılın biçimi bilinmiyor ("26" mı "2026" mı) → ikisi de denenir.
+            for y in (yil[2:], yil):
+                bulunan = liste(dtnYil=y, dtnSayi=sayi, topRowCnt=10, pageIndex=1)
+                self.stdout.write(f"dtn filtresi ({o['dtn']}, dtnYil={y}): "
+                                  f"{[r.get('dtn') for r in bulunan]}")
+                if bulunan:
+                    break
 
         if o.get("enc"):
             try:

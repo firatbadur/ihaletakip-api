@@ -20,6 +20,7 @@ import uuid
 import requests
 from django.conf import settings
 
+from ..utils import normalize_tr
 from . import captcha as captcha_mod
 from . import constants as C
 from . import session as mobil_session
@@ -439,6 +440,13 @@ class EkapMobilClient:
         if not isinstance(yanit, dict):
             raise MobilError(f"DT listesi beklenmeyen yanıt: {str(yanit)[:120]}")
         if yanit.get("sonuc") is False:
+            # ⚠️⚠️ **Boş sonuç bir HATA olarak gelir**: ölçüldü (2026-10-26, üretim) —
+            # eşleşme yoksa EKAP `{"sonuc": false, "mesaj": "Kayit bulunamadı."}` döner,
+            # boş `dtBilgiListesi` değil. Bunu hata saymak, ilan olmayan her saatte
+            # (gece, hafta sonu sabahı) yoklamayı "hata"ya düşürür ve zaman damgası
+            # yazılmadığı için her turda yeniden denetirdi.
+            if "bulunamad" in normalize_tr(yanit.get("mesaj") or ""):
+                return []
             raise MobilError(f"DT listesi sonuc=false: {yanit.get('mesaj')!r}")
         return yanit.get("dtBilgiListesi") or []
 

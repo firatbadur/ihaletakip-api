@@ -92,3 +92,30 @@ class CaptchaSayaciTest(TestCase):
             with self.assertRaises(Exception):
                 cli._captcha_asilirsa_tekrarla(_yanit(300), "/x")
         self.assertEqual(throttle.sayac_oku("captcha"), 1)
+
+
+class DtBosSonucTest(TestCase):
+    """Ölçüldü (2026-10-26): eşleşme yoksa EKAP `sonuc=false` + "Kayit bulunamadı." döner."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _cli(self, govde):
+        cli = EkapMobilClient(butce="dt")
+        cli.session.post = MagicMock(return_value=_yanit(govde=govde))
+        return cli
+
+    def test_kayit_bulunamadi_BOS_LISTEDIR_hata_degil(self):
+        cli = self._cli({"dtBilgiListesi": None, "kod": 0, "mesaj": "Kayit bulunamadı.",
+                         "sonuc": False})
+        with patch.object(throttle, "slot_al", return_value=True):
+            self.assertEqual(cli.dt_liste({}), [])
+
+    def test_baska_sonuc_false_HATADIR(self):
+        from ekap.mobil.client import MobilError
+
+        cli = self._cli({"dtBilgiListesi": None, "kod": 5, "mesaj": "Sistem hatası",
+                         "sonuc": False})
+        with patch.object(throttle, "slot_al", return_value=True):
+            with self.assertRaises(MobilError):
+                cli.dt_liste({})

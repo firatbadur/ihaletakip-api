@@ -57,15 +57,15 @@ def _taze_enc(cli, obj):
     """
     Saklı `encID` çalışmazsa listeden tazesini alır (1 istek). Bulamazsa `None`.
 
-    ⚠️ `dtnYil` iki hanelidir ("26DT…" → "26") — Faz 0 ölçümünde doğrulanacak
-    (`mobil_probe --is dt --dtn …`); tutmazsa liste boş döner ve çağıran hatayı
-    kullanıcıya iletir, uydurma bir kayıt dönmez.
+    ⚠️ `dtnYil` **dört hanelidir** ("26DT…" → "2026"). Ölçüldü (2026-10-26, üretim):
+    `dtnYil=26` → "Kayit bulunamadı", `dtnYil=2026` → kayıt geldi. Bulunamazsa `None`;
+    çağıran hatayı kullanıcıya iletir, uydurma bir kayıt dönmez.
     """
     yil, sayi = dtn_parcala(obj.dtn)
     if not yil:
         return None
     satirlar = cli.dt_liste(cli.dt_liste_govdesi(
-        dtnYil=yil[2:], dtnSayi=sayi, topRowCnt=10, pageIndex=1,
+        dtnYil=yil, dtnSayi=sayi, topRowCnt=10, pageIndex=1,
     ))
     satir = next((s for s in satirlar if (s.get("dtn") or "").upper() == obj.dtn), None)
     if not satir or not satir.get("encID"):

@@ -126,6 +126,9 @@ class DetayTest(TestCase):
         self.assertIsNotNone(d["detay"])
         self.assertEqual(cli.dt_detay.call_args.args[0], "taze")
         self.assertEqual(DogrudanTemin.objects.get().enc_id, "taze")
+        # ⚠️ Yıl DÖRT haneli gider (ölçüldü: "26" → kayıt yok, "2026" → kayıt var).
+        govde = cli.dt_liste.call_args.args[0]
+        self.assertEqual((govde["dtnYil"], govde["dtnSayi"]), ("2026", "1"))
 
     def test_yok(self, Cli):
         self.assertEqual(self.c.get(URL + "26DT404/").status_code, 404)

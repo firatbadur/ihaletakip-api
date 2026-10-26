@@ -446,8 +446,8 @@ class Command(BaseCommand):
         if o.get("dtn"):
             from ekap.mobil.dt import dtn_parcala
             yil, sayi = dtn_parcala(o["dtn"])
-            # Yılın biçimi bilinmiyor ("26" mı "2026" mı) → ikisi de denenir.
-            for y in (yil[2:], yil):
+            # Ölçüldü (2026-10-26): dört haneli yıl çalışıyor, iki haneli bulmuyor.
+            for y in (yil, yil[2:]):
                 bulunan = liste(dtnYil=y, dtnSayi=sayi, topRowCnt=10, pageIndex=1)
                 self.stdout.write(f"dtn filtresi ({o['dtn']}, dtnYil={y}): "
                                   f"{[r.get('dtn') for r in bulunan]}")

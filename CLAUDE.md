@@ -4664,7 +4664,7 @@ için sorun değil ama yeniden kullanılırsa yedeklemesi de kurulmalı.
 - **Ayrı repo** (`firatbadur/ihaletakip-web`, Next.js 16.4). Kendi `CLAUDE.md`'si ve `docs/plan.md` yol haritası var; **web'de satın alma yok** (Pro mobilden alınır, `is_premium` web'de de geçerli).
 - Portal bu API'yi **aynı adresten** kullanır (`https://ihale-takip.envisoft.com.tr/api/v1`). Üretimde portal konteyneri bu adı `extra_hosts: host-gateway` ile **bu nginx'e** çözer (Cloudflare'i atlar: 160-240 ms → 12 ms) → API'de `ALLOWED_HOSTS`/Docker ağı değişikliği **yok**. Tarayıcı API'ye hiç gitmez (BFF) → CORS gerekmez.
 - ⚠️ Portalın tüm istekleri **tek IP'den** (konteyner) gelir: ileride DRF throttling eklenirse portala ayrı kapsam verilmeli, yoksa tüm web kullanıcıları tek kovayı paylaşır.
-- nginx'e `ihaletakip.com` bloğu eklenecek (Pinmotion deseni, upstream `172.17.0.1:3100`, sertifika `certs/ihaletakip-origin.{pem,key}`). ⚠️ Sertifika dosyaları config'ten **önce** sunucuya konmalı — eksikse nginx açılmaz ve **API de düşer**.
+- nginx'te `ihaletakip.com` bloğu **açık** (2026-10-27; Pinmotion deseni, upstream `172.17.0.1:3100`, sertifika `certs/ihaletakip-origin.{pem,key}`). ⚠️ Sertifika dosyaları eksikse nginx açılmaz ve **API de düşer**. ⚠️ Bu dosyayı sunucuda elle düzenlemeyin; repoda değiştirip çekin.
 - Portal ihaleyi İKN ile **`?ikn_yil=&ikn_sayi=`** (liste ucu) üzerinden bulur ve detayı oradan gelen `ekap_id` ile çağırır → bilinmeyen adresler detay ucunda canlı EKAP isteği tetikleyemez. ⚠️ Bu iki parametrenin birebir İKN eşleşmesi semantiği (`startswith "<yil>/"` + `endswith "/<sayi>"`) **değiştirilmemeli**.
 - **Portal istekleri UYGULANDI (2026-10-26)** — bkz. aşağıdaki "Web portalı için API" bölümü.
 
@@ -4732,15 +4732,19 @@ mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak
   bütün sitedir; 24 sa engel tüm önbellek ıskalarını kapatırdı) — dolma olayı yol + sorgu
   ile loglanır (dakikada ≤20 satır, sır yok). Dolumda sayfa derinliği girişli sınırıdır
   (dolum kimin için yapıldığını bilmez; anonim 10 sayfayı web kendisi uyguluyor).
-- ⚠️⚠️ **`ihaletakip.com` nginx bloğu (2. not #9)** `docker/nginx/default.conf` sonunda
-  **yorum satırı olarak hazır** — sertifika (`certs/ihaletakip-origin.*`) sunucuya konmadan
-  açılırsa nginx açılmaz ve API de düşer. Blokta `proxy_set_header X-Real-IP
+- ⚠️⚠️ **`ihaletakip.com` nginx bloğu (2. not #9)** `docker/nginx/default.conf` sonunda,
+  **2026-10-27'den beri AÇIK** (4. not #13; web oturumu sunucuda açtı, repo aynı gün
+  eşitlendi). Sertifika `certs/ihaletakip-origin.*` (git dışında, 2041'e kadar) silinirse
+  nginx açılmaz ve API de düşer. Blokta `proxy_set_header X-Real-IP
   $remote_addr` ŞART: web kullanıcı IP'sini yalnız oradan okuyor, ezilmezse sahte IP ile
   hız sınırı atlatılır. `core/tests/test_nginx_conf.py` (yorum dışı) her server ve
   kendi başlığını tanımlayan her location bloğunda bunu denetler.
 - ✅ **ÜRETİMDE (2026-10-26, `0c79d9a`)**: `APPLE_CLIENT_IDS` `.env.prod`'a yazıldı;
-  `PORTAL_KEY` ve `WEB_REVALIDATE_SECRET` **BOŞ** (portal yolu kapalı, revalidate atılmıyor)
-  — web canlıya çıkarken iki tarafa aynı değerle yazılacak.
+  ✅ **2026-10-27 (4. not #12)**: `PORTAL_KEY` + `WEB_REVALIDATE_SECRET` yazıldı (web'de
+  `API_PORTAL_KEY` / `WEB_REVALIDATE_SECRET` aynı değerle), `ihaletakip.com` canlı.
+  ⚠️ Yalnız `web` + `worker` yeniden yaratıldı — sırları kullanan da yalnız onlar
+  (portal kimliği `web`'de, blog görevi varsayılan `celery` kuyruğunda). Diğer
+  konteynerlerde değişken boş; sonraki `up -d` hepsini zaten yeniden yaratır.
   ⚠️⚠️ **`db` servisi de `env_file: .env.prod` kullanıyor** → `.env.prod`'a dokunulan
   deploy'da Postgres konteyneri de YENİDEN YARATILIR (ölçüldü: ~15 sn 500/502). Env
   değişikliğini mümkünse kod deploy'uyla aynı ana koyun ki tek kesinti olsun.

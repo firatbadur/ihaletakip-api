@@ -1218,10 +1218,12 @@ paths:
     patch:
       operationId: api_v1_auth_profile_partial_update
       description: 'Kısmi güncelleme. Yazılabilir: `display_name`, `first_name`, `last_name`,
-        `email`, `photo_url`, `preferences`, `age_range` (`18_24|25_34|35_44|45_54|55_plus`)
-        ve `onboarding_status` (`pending|skipped|completed`). `completed`''a ilk geçişte
-        `onboarding_completed_at` sunucuda damgalanır. `id`, `username`, `provider`
-        ve `date_joined` salt okunurdur.'
+        `photo_url`, `preferences`, **`email_notifications`** (günlük e-posta bülteni,
+        vars. `true`), `age_range` (`18_24|25_34|35_44|45_54|55_plus`) ve `onboarding_status`
+        (`pending|skipped|completed`). `completed`''a ilk geçişte `onboarding_completed_at`
+        sunucuda damgalanır. `id`, `username`, **`email`**, `provider` ve `date_joined`
+        salt okunurdur (e-posta giriş kimliğidir, doğrulamasız değiştirilemez; gönderilirse
+        yok sayılır).'
       summary: Profili güncelle
       tags:
       - auth
@@ -1235,6 +1237,10 @@ paths:
                 value:
                   display_name: Fırat Badur
                 summary: İsim güncelle
+              E-postaBildirimleriniKapat:
+                value:
+                  email_notifications: false
+                summary: E-posta bildirimlerini kapat
               TanışmaSihirbazınıTamamla:
                 value:
                   first_name: Fırat
@@ -5882,8 +5888,8 @@ components:
         email:
           type: string
           format: email
+          readOnly: true
           title: E-posta
-          maxLength: 254
         display_name:
           type: string
           title: Görünen ad
@@ -5942,6 +5948,10 @@ components:
           readOnly: true
           nullable: true
           title: Sihirbaz tamamlanma
+        email_notifications:
+          type: boolean
+          title: E-posta bildirimleri
+          description: Günlük bildirim özetini e-postayla al.
     Preferences:
       type: object
       description: Tercih güncelleme (serbest JSON).
@@ -6428,8 +6438,8 @@ components:
         email:
           type: string
           format: email
+          readOnly: true
           title: E-posta
-          maxLength: 254
         display_name:
           type: string
           title: Görünen ad
@@ -6488,6 +6498,10 @@ components:
           readOnly: true
           nullable: true
           title: Sihirbaz tamamlanma
+        email_notifications:
+          type: boolean
+          title: E-posta bildirimleri
+          description: Günlük bildirim özetini e-postayla al.
       required:
       - date_joined
       - email

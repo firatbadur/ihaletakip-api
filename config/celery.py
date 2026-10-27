@@ -40,6 +40,14 @@ app.conf.beat_schedule = {
     # Deneme bitiş hatırlatması — SAATLİK (her saatin 10. dakikası). Mobil paywall
     # "deneme bitmeden hatırlatırız" vaadinin karşılığı; sessiz saatte atlanan push
     # sonraki turda yeniden denenir (bkz. subscription/tasks.py pencere notu).
+    # Günlük e-posta bülteni — günün bildirimlerinin TEK e-postada özeti (yalnızca
+    # `email_notifications` açık olanlara). ⚠️ Sabah bildirim dizisinden SONRA (10:00);
+    # 4 tetik: süre bütçesi dolarsa kalan kullanıcılar sonraki tetikte gönderilir
+    # (kullanıcı başına gün kilidi mükerreri engeller). Saat `EPOSTA_BULTEN_SAAT` ile aynı.
+    "tenders-email-digest": {
+        "task": "tenders.tasks.send_email_digest",
+        "schedule": crontab(hour=10, minute="0,15,30,45"),
+    },
     "subscription-trial-reminders": {
         "task": "subscription.tasks.send_trial_reminders",
         "schedule": crontab(minute=10),

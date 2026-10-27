@@ -328,15 +328,26 @@ EPOSTA_KOD_SURE_DK = env.int("EPOSTA_KOD_SURE_DK", default=10)
 EPOSTA_KOD_TEKRAR_SN = env.int("EPOSTA_KOD_TEKRAR_SN", default=60)
 EPOSTA_KOD_SAATLIK = env.int("EPOSTA_KOD_SAATLIK", default=5)
 EPOSTA_KOD_DENEME = env.int("EPOSTA_KOD_DENEME", default=5)
-# Workspace hesap başına ~2.000 alıcı/gün gönderir; tavan onun altında tutulur ki
-# dağıtık bir kötüye kullanım gönderen hesabı kilitletmesin.
-EPOSTA_GUNLUK_TAVAN = env.int("EPOSTA_GUNLUK_TAVAN", default=1500)
+# Workspace hesap başına ~2.000 alıcı/gün gönderir. ⚠️ İki tavanın TOPLAMI onun altında
+# kalmalı (500 + 1200): dağıtık bir kötüye kullanım ya da büyüyen bülten gönderen hesabı
+# kilitletirse doğrulama kodları da gitmez.
+EPOSTA_GUNLUK_TAVAN = env.int("EPOSTA_GUNLUK_TAVAN", default=500)
 EPOSTA_SIFRE_TOKEN_SURE_SN = env.int("EPOSTA_SIFRE_TOKEN_SURE_SN", default=15 * 60)
 # IP bazlı sınır ezme: {"kod_gonder": [[600, 10]], "kod_dogrula": [...], "giris": [...]}
 EPOSTA_IP_ORANLARI = env.json("EPOSTA_IP_ORANLARI", default={})
 # Eski doğrulamasız `POST /auth/register/` açık mı? (mobil + web hiç kullanmıyor —
 # ölçüldü 2026-10-27). Açık kalsa doğrulama akışı atlanabilirdi.
 EPOSTA_DOGRULAMASIZ_KAYIT = env.bool("EPOSTA_DOGRULAMASIZ_KAYIT", default=False)
+# Günlük e-posta bülteni (tenders/services/eposta_bulten.py) — kill switch, saat, tavan.
+EPOSTA_BULTEN_ENABLED = env.bool("EPOSTA_BULTEN_ENABLED", default=True)
+# Pencere (saat−24 sa, saat]; beat bu saatte + 15/30/45. dakikada koşar. ⚠️ Sabah
+# bildirimlerinden (08:00 filtre, 08:30 idare, 09:00 alarm + asistan) SONRA olmalı.
+EPOSTA_BULTEN_SAAT = env.int("EPOSTA_BULTEN_SAAT", default=10)
+EPOSTA_BULTEN_GUNLUK_TAVAN = env.int("EPOSTA_BULTEN_GUNLUK_TAVAN", default=1200)
+# Tur süre bütçesi (< CELERY_TASK_TIME_LIMIT=300); kalan kullanıcılar sonraki tetikte.
+EPOSTA_BULTEN_MAX_SN = env.int("EPOSTA_BULTEN_MAX_SN", default=240)
+# E-postadaki bağlantıların tabanı (web portalı: /ihale/<yil-sayi>, /bildirimler, /hesabim).
+EPOSTA_LINK_TABANI = env("EPOSTA_LINK_TABANI", default="https://ihaletakip.com")
 
 # ── Web portalı (ihaletakip.com) ───────────────────────
 # Mutlak medya adresleri (blog kapakları) bu tabandan kurulur. ⚠️ `request`'ten

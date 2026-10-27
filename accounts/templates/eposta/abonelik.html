@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>E-posta bildirimleri · İhale Takip</title>
+<style>
+  :root { --zemin:#eef2f7; --kart:#fff; --metin:#1d2733; --soluk:#5b6b7b; --vurgu:#0074cb; }
+  @media (prefers-color-scheme: dark) { :root { --zemin:#0f1722; --kart:#18222f; --metin:#e6edf5; --soluk:#9fb0c1; --vurgu:#4aa3ea; } }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:var(--zemin); color:var(--metin); padding:16px; box-sizing:border-box;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .kart { background:var(--kart); border-radius:14px; padding:28px; max-width:440px; width:100%;
+          box-shadow:0 6px 24px rgba(0,30,80,.08); }
+  .marka { font-weight:700; color:var(--vurgu); margin-bottom:18px; }
+  h1 { font-size:20px; margin:0 0 10px; }
+  p { color:var(--soluk); line-height:1.55; margin:0 0 18px; font-size:15px; }
+  button { border:0; border-radius:8px; padding:11px 18px; font-size:15px; font-weight:600; cursor:pointer;
+           background:var(--vurgu); color:#fff; }
+  button.ikincil { background:transparent; color:var(--vurgu); padding-left:0; }
+</style>
+</head>
+<body>
+<main class="kart">
+  <div class="marka">İhale Takip</div>
+  {% if durum == "gecersiz" %}
+    <h1>Bağlantı geçersiz</h1>
+    <p>Bu bağlantı tanınmadı. E-posta bildirimlerini uygulamada Profil → Bildirim tercihleri ekranından kapatabilirsiniz.</p>
+  {% elif durum == "onay" %}
+    <h1>E-posta bildirimlerinden çıkılsın mı?</h1>
+    <p><strong>{{ email }}</strong> adresine günlük ihale özeti gönderilmeyecek. Uygulama içi ve push bildirimleriniz değişmez.</p>
+    <form method="post"><input type="hidden" name="t" value="{{ token }}"><button type="submit">Evet, çık</button></form>
+  {% elif durum == "cikildi" or durum == "zaten" %}
+    <h1>E-posta bildirimleri kapalı</h1>
+    <p><strong>{{ email }}</strong> adresine artık günlük özet göndermeyeceğiz. Fikrinizi değiştirirseniz buradan ya da uygulamadan yeniden açabilirsiniz.</p>
+    <form method="post"><input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="islem" value="geri"><button type="submit" class="ikincil">E-posta bildirimlerini yeniden aç</button></form>
+  {% elif durum == "acildi" %}
+    <h1>E-posta bildirimleri açıldı</h1>
+    <p>Günlük ihale özetiniz <strong>{{ email }}</strong> adresine gönderilmeye devam edecek.</p>
+  {% endif %}
+</main>
+</body>
+</html>

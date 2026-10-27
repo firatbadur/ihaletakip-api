@@ -1096,3 +1096,80 @@ def check_kurul_karar_alarms():
         finally:
             cache.delete(f"kurul:tur:{alarm.pk}")
     return {"alarm": len(alarmlar), "bildirim": bildirim}
+
+
+@shared_task(name="tenders.tasks.send_email_digest")
+def send_email_digest(gun=None):
+    """Günlük e-posta bülteni — beat 10:00/15/30/45 (bkz. `services/eposta_bulten.py`).
+
+    Kullanıcı başına GÜNDE BİR e-posta: `bulten:{uid}:{gün}` kilidi (`cache.add`) aynı
+    sabahın tekrar tetiklerinde mükerreri engeller; gönderim düşerse kilit silinir ve
+    sonraki tetik yeniden dener. ⚠️ Pencere takvimden kurulur (`eposta_bulten.pencere`),
+    bu yüzden dört tetik de aynı bildirim kümesini görür.
+    `gun` (ISO) elle geçmiş bir günü göndermek içindir.
+    """
+    import time as _time
+    from datetime import date
+
+    from django.contrib.auth import get_user_model
+    from django.core.mail import get_connection
+
+    from core.throttling import _say
+
+    from .models import Notification
+    from .services import eposta_bulten as eb
+
+    if not getattr(settings, "EPOSTA_BULTEN_ENABLED", True):
+        return {"atlandi": "kapali"}
+    gun = date.fromisoformat(gun) if gun else timezone.localdate()
+    taban, tavan = eb.pencere(gun)
+    if timezone.now() < tavan:
+        return {"atlandi": "pencere_kapanmadi"}
+
+    User = get_user_model()
+    adaylar = (User.objects.filter(
+        is_active=True, email_notifications=True,
+        pk__in=Notification.objects.filter(
+            created_at__gt=taban, created_at__lte=tavan).values("user_id"))
+        .exclude(email="").order_by("pk"))
+    iller = eb._iller()
+    bas = _time.monotonic()
+    gonderilen = atlanan = hatali = 0
+    yarim = False
+    baglanti = get_connection()
+    try:
+        for user in adaylar.iterator():
+            if _time.monotonic() - bas > settings.EPOSTA_BULTEN_MAX_SN:
+                yarim = True
+                break
+            kilit = f"bulten:{user.pk}:{gun.isoformat()}"
+            if not cache.add(kilit, 1, 36 * 3600):
+                atlanan += 1
+                continue
+            try:
+                baglam = eb.bulten_kur(user, taban, tavan, iller=iller)
+                if baglam is None:
+                    continue
+                if _say(f"eposta:bulten:{gun.isoformat()}", 2 * 86400) > \
+                        settings.EPOSTA_BULTEN_GUNLUK_TAVAN:
+                    cache.delete(kilit)
+                    logger.error("e-posta bülteni günlük tavana takıldı (%s)",
+                                 settings.EPOSTA_BULTEN_GUNLUK_TAVAN)
+                    yarim = True
+                    break
+                eb.eposta_olustur(user, baglam, connection=baglanti).send()
+                gonderilen += 1
+            except Exception:
+                cache.delete(kilit)
+                hatali += 1
+                logger.exception("e-posta bülteni gönderilemedi: kullanıcı %s", user.pk)
+                # Bozulmuş SMTP oturumuyla devam edilmesin.
+                baglanti.close()
+                baglanti = get_connection()
+    finally:
+        baglanti.close()
+
+    sonuc = {"gun": gun.isoformat(), "gonderilen": gonderilen, "atlanan": atlanan,
+             "hatali": hatali, "yarim": yarim}
+    logger.info("e-posta bülteni: %s", sonuc)
+    return sonuc

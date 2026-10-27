@@ -7,6 +7,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from accounts.views_eposta import eposta_abonelik
 from blog.views import blog_medya
 from core.views import health_check
 from ekap.admin_views import sektor_ekrani
@@ -47,6 +48,8 @@ urlpatterns = [
     # Blog kapak görselleri (web portalı). ⚠️ Yalnızca `media/blog/` — başka medya
     # bilinçli olarak dışarı açılmaz.
     path("media/blog/<path:yol>", blog_medya, name="blog-medya"),
+    # Günlük e-posta bülteninden çıkma (e-postadaki bağlantı + List-Unsubscribe).
+    path("eposta/abonelik/", eposta_abonelik, name="eposta-abonelik"),
     path("api/v1/", include((api_v1, "v1"))),
     # API şema & dokümantasyon
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

@@ -88,6 +88,16 @@ class User(AbstractUser):
     # ⚠️ Boş = "bilinmiyor", "doğrulanmamış" DEĞİL: Google/Apple hesapları ve bu
     # özellikten önceki e-posta kayıtları boş kalır; hiçbir kapı buna bağlı değil.
     email_verified_at = models.DateTimeField("e-posta doğrulandı", null=True, blank=True)
+    # Günlük e-posta bülteni (`tenders/services/eposta_bulten.py`) — varsayılan AÇIK.
+    # ⚠️ `preferences` JSON'una DEĞİL ayrı kolona konuldu: `PATCH /auth/preferences/`
+    # JSON'un TAMAMINI değiştiriyor, başka bir ayarı kaydeden istemci bu tercihi
+    # sessizce silip (yokluk = açık) geri açardı. Kolon ayrıca bülten sorgusunda süzülür.
+    # ⚠️ `db_default` şart: eski worker'lar bu kolonu tanımadan User yazmaya devam eder
+    # (2026-08-28 / ekap 0023 dersi — NOT NULL kolon + eski kod = her INSERT düşer).
+    email_notifications = models.BooleanField(
+        "e-posta bildirimleri", default=True, db_default=True,
+        help_text="Günlük bildirim özetini e-postayla al.",
+    )
 
     # ── Abonelik ───────────────────────────────────────────
     # Premium (Pro) özellikler `is_premium` üzerinden kapılanır (bkz. accounts.premium).

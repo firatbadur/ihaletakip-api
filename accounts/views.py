@@ -345,11 +345,13 @@ class ProfileView(APIView):
         summary="Profili güncelle",
         description=(
             "Kısmi güncelleme. Yazılabilir: `display_name`, `first_name`, `last_name`, "
-            "`email`, `photo_url`, `preferences`, `age_range` "
+            "`photo_url`, `preferences`, **`email_notifications`** (günlük e-posta bülteni, "
+            "vars. `true`), `age_range` "
             "(`18_24|25_34|35_44|45_54|55_plus`) ve `onboarding_status` "
             "(`pending|skipped|completed`). `completed`'a ilk geçişte "
-            "`onboarding_completed_at` sunucuda damgalanır. `id`, `username`, "
-            "`provider` ve `date_joined` salt okunurdur."
+            "`onboarding_completed_at` sunucuda damgalanır. `id`, `username`, **`email`**, "
+            "`provider` ve `date_joined` salt okunurdur (e-posta giriş kimliğidir, "
+            "doğrulamasız değiştirilemez; gönderilirse yok sayılır)."
         ),
         request=UserSerializer,
         responses={200: UserSerializer},
@@ -358,6 +360,11 @@ class ProfileView(APIView):
                 "İsim güncelle",
                 request_only=True,
                 value={"display_name": "Fırat Badur"},
+            ),
+            OpenApiExample(
+                "E-posta bildirimlerini kapat",
+                request_only=True,
+                value={"email_notifications": False},
             ),
             OpenApiExample(
                 "Tanışma sihirbazını tamamla",

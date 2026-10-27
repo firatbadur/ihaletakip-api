@@ -35,10 +35,14 @@ class UserSerializer(serializers.ModelSerializer):
             "age_range",
             "onboarding_status",
             "onboarding_completed_at",
+            "email_notifications",
         ]
         read_only_fields = [
             "id",
             "username",
+            # ⚠️ E-posta artık giriş kimliği + bülten adresi → doğrulamasız değiştirilemez
+            # (mobil + web hiç değiştirmiyordu — ölçüldü 2026-10-27).
+            "email",
             "provider",
             "date_joined",
             "is_premium",

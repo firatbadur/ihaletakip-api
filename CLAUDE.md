@@ -3114,6 +3114,36 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
 - Admin → *E-posta Kodları* (salt okunur; satırı silmek o adresin sınırlarını sıfırlar).
 - Testler: `accounts/tests/test_eposta_kayit.py` (22).
 
+### Günlük e-posta bülteni + `email_notifications` (2026-10-27)
+
+`tenders.tasks.send_email_digest` (beat `tenders-email-digest`, **10:00 +15/30/45**),
+içerik `tenders/services/eposta_bulten.py` + `tenders/templates/eposta/bulten.*`,
+istemci notu `docs/eposta-bildirim.md`.
+- **Tercih `User.email_notifications`** (vars. **açık**, `db_default=True`) →
+  `PATCH /auth/profile/`. ⚠️ `preferences` JSON'una KONMADI: o uç JSON'un tamamını
+  değiştiriyor, başka ayar kaydeden istemci tercihi silip (yokluk=açık) geri açardı.
+- ⚠️ **`email` profilden artık salt okunur** — giriş kimliği + bülten adresi; doğrulamasız
+  değişseydi başkasının adresine günlük e-posta yağdırılabilirdi. İstemciler göndermiyordu.
+- Bülten **yeni eşleştirme yapmaz**: penceredeki `Notification` satırlarını kullanıcı
+  başına TEK e-postada toplar (ayrı ayrı 3-5 e-posta spam olurdu). Filtre/idare listesi
+  `kayitli_filtre_birlesimi` / `idare_ozeti_dali` + bildirimin `pencere_bas/bit`'iyle
+  kurulur (sayı ≠ liste dersinin e-posta karşılığı); sayı bildirim gövdesinden, liste ilk
+  8 — "N daha" denmez.
+- ⚠️ **Pencere takvimden** (`gün 10:00 − 24 sa, gün 10:00]`), `now`'dan değil: dört
+  tetik aynı kümeyi görür. Kullanıcı başına `bulten:{uid}:{gün}` kilidi; gönderim düşerse
+  kilit silinir (diş doğrulandı). Süre bütçesi `EPOSTA_BULTEN_MAX_SN`.
+- Tavanlar: kod `EPOSTA_GUNLUK_TAVAN` 500 + bülten `EPOSTA_BULTEN_GUNLUK_TAVAN` 1200 —
+  ⚠️ toplam Workspace'in ~2.000/gün sınırının altında kalmalı.
+- **Abonelikten çıkma**: `/eposta/abonelik/?t=<imza>` (DRF değil HTML, `csrf_exempt`) +
+  `List-Unsubscribe` / `-Post` başlıkları (RFC 8058). ⚠️ **GET tercihi değiştirmez**
+  (posta tarayıcıları linkleri açar), yalnızca POST.
+- Bağlantılar web portalına (`EPOSTA_LINK_TABANI`, vars. `https://ihaletakip.com`).
+  ⚠️ Portal canlı değilken bağlantılar açılmaz — `EPOSTA_BULTEN_ENABLED=False` kill switch.
+- ⚠️ Apple "e-postamı gizle" (`privaterelay.appleid.com`) adreslerine gönderim için
+  gönderen alan/adres Apple Developer → *Sign in with Apple for Email Communication*'a
+  kayıtlı olmalı; değilse geri döner.
+- Testler: `tenders/tests/test_eposta_bulten.py` (14).
+
 ### `last_seen_at` — etkinlik izi (MAU/DAU)
 
 ⚠️ **`last_login` bu projede İŞE YARAMAZ**: JWT uçları (`serializers.issue_tokens`)
@@ -3329,6 +3359,7 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
   adaylar 08:00 filtre bildiriminin kümesi, seçim yapay zekâ — bkz. İhale Asistanı → Öneriler)
 - ~~`recommend_by_saved_okas`~~ — **KALDIRILDI (2026-10-06)**, bkz. Bildirim Servisi → Kaynaklar 5
 - `check_tender_alarms` — ihale alarm hatırlatıcıları + push (günlük 09:00)
+- `send_email_digest` — günlük e-posta bülteni (10:00 +15/30/45; `email_notifications` açık olanlara, bkz. "Günlük e-posta bülteni")
 - `check_saved_filter_matches` — kayıtlı filtre **günlük özeti** + push (**her sabah 08:00, son 24 saatte KAYDEDİLENLER** — pencere `Tender.created_at` üzerinde; 2026-09-28'de yayım tarihinden kayıt tarihine çevrildi, sebebi hafta sonu deliği; **Free dahil herkese**, 2026-09-29). `NOTIF_BIRLESIK_BILDIRIM` açıkken **kullanıcı başına TEK** bildirim üretir
 - `check_favorite_authority_matches` — favori idare bildirimi + push (**her sabah 08:30,
   son 24 saatte KAYDEDİLENLER** — 2026-09-28'de 11/15/19 × "ilan_tarihi bugün"den çevrildi;

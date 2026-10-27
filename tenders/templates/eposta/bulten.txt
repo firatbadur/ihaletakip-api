@@ -1,0 +1,19 @@
+{% autoescape off %}{% if ad %}Günaydın {{ ad }},{% else %}Günaydın,{% endif %}
+
+{{ tarih }} — son 24 saatte sizin için {{ adet }} yeni gelişme var.
+{% for b in bolumler %}
+────────────────────────────────────────
+[{{ b.etiket }}] {{ b.baslik }}
+{% if b.metin %}{{ b.metin }}
+{% endif %}{% for t in b.ihaleler %}
+• {{ t.ad }}
+  {{ t.idare }}{% if t.il %} · {{ t.il }}{% endif %}{% if t.tarih %} · İhale: {{ t.tarih }}{% endif %}
+  {{ t.url }}
+{% endfor %}
+{{ b.dugme }}: {{ b.url }}
+{% endfor %}
+────────────────────────────────────────
+Bu e-postayı {{ email }} adresine, İhale Takip hesabınızda e-posta bildirimleri açık olduğu için gönderdik.
+Bildirim tercihleri: {{ ayarlar }}
+E-posta bildirimlerinden çık: {{ abonelik }}
+{% endautoescape %}

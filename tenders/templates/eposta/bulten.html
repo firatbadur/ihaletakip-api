@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>İhale Takip · {{ kisa_tarih }} özeti</title>
+</head>
+<body style="margin:0;padding:0;background:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d2733;-webkit-text-size-adjust:100%;">
+<span style="display:none;max-height:0;max-width:0;opacity:0;overflow:hidden;">{{ ozet }}</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f7;">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+
+    <!-- Üst bant -->
+    <tr><td style="background:#003ea1;background-image:linear-gradient(135deg,#003ea1,#0074cb);border-radius:14px 14px 0 0;padding:26px 28px 22px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.2px;">İhale Takip</td>
+        <td align="right" style="font-size:13px;color:#cfe3f7;">{{ tarih }}</td>
+      </tr></table>
+      <p style="margin:18px 0 4px;font-size:24px;line-height:1.3;font-weight:700;color:#ffffff;">{% if ad %}Günaydın {{ ad }},{% else %}Günaydın,{% endif %}</p>
+      <p style="margin:0;font-size:15px;line-height:1.5;color:#e3eefa;">Son 24 saatte sizin için <strong style="color:#ffffff;">{{ adet }} yeni gelişme</strong> var.</p>
+    </td></tr>
+
+    <!-- Gövde -->
+    <tr><td style="background:#ffffff;padding:8px 20px 4px;border-radius:0 0 14px 14px;">
+      {% for b in bolumler %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e3e9f0;border-radius:12px;">
+        <tr><td style="padding:18px 18px 6px;">
+          <span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#eaf3fc;color:#0062ad;font-size:12px;font-weight:600;">{{ b.etiket }}</span>
+          <p style="margin:10px 0 4px;font-size:17px;line-height:1.35;font-weight:700;color:#14202c;">{{ b.baslik }}</p>
+          {% if b.metin %}<p style="margin:0 0 6px;font-size:14px;line-height:1.5;color:#4a5866;">{{ b.metin }}</p>{% endif %}
+        </td></tr>
+        {% if b.ihaleler %}
+        <tr><td style="padding:4px 18px 0;">
+          {% for t in b.ihaleler %}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eef2f6;">
+            <tr><td style="padding:12px 0;">
+              <a href="{{ t.url }}" style="font-size:15px;line-height:1.4;font-weight:600;color:#0a4f9a;text-decoration:none;">{{ t.ad|truncatechars:140 }}</a>
+              <p style="margin:4px 0 0;font-size:13px;line-height:1.45;color:#66737f;">{{ t.idare|truncatechars:90 }}{% if t.il %} · {{ t.il }}{% endif %}</p>
+              {% if t.tarih or t.tur %}<p style="margin:3px 0 0;font-size:12px;color:#8492a0;">{% if t.tur %}{{ t.tur }}{% endif %}{% if t.tur and t.tarih %} · {% endif %}{% if t.tarih %}İhale: {{ t.tarih }}{% endif %}</p>{% endif %}
+            </td></tr>
+          </table>
+          {% endfor %}
+        </td></tr>
+        {% endif %}
+        <tr><td style="padding:10px 18px 18px;">
+          <a href="{{ b.url }}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#0074cb;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">{{ b.dugme }} →</a>
+        </td></tr>
+      </table>
+      {% endfor %}
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;background:#f6f9fc;border-radius:10px;">
+        <tr><td style="padding:16px 18px;font-size:13px;line-height:1.55;color:#4a5866;">
+          💡 Bildirimleri anlık almak için uygulamada push bildirimlerini açık tutun. Filtrelerinizi ve takip ettiğiniz idareleri <a href="{{ anasayfa }}" style="color:#0074cb;text-decoration:none;">İhale Takip</a>'ten yönetebilirsiniz.
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <!-- Alt bilgi -->
+    <tr><td style="padding:18px 16px 8px;font-size:12px;line-height:1.6;color:#7d8a97;text-align:center;">
+      Bu e-postayı <strong>{{ email }}</strong> adresine, İhale Takip hesabınızda e-posta bildirimleri açık olduğu için gönderdik.<br>
+      <a href="{{ ayarlar }}" style="color:#5b6b7b;">Bildirim tercihleri</a> &nbsp;·&nbsp; <a href="{{ abonelik }}" style="color:#5b6b7b;">E-posta bildirimlerinden çık</a><br>
+      Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayın.
+    </td></tr>
+
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

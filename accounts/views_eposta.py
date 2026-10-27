@@ -12,7 +12,9 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
 from django.db import IntegrityError, transaction
+from django.shortcuts import render
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
@@ -325,3 +327,31 @@ class PasswordResetConfirmView(_EpostaUcu):
         kapanan = _oturumlari_kapat(user)
         logger.info("şifre sıfırlandı: uid=%s kapatılan oturum=%s", user.pk, kapanan)
         return Response(issue_tokens(user))
+
+
+@csrf_exempt  # imzalı token kimliktir; Gmail'in tek tık POST'u CSRF token'ı taşımaz
+def eposta_abonelik(request):
+    """`/eposta/abonelik/?t=<imza>` — günlük e-posta bülteninden çıkma (DRF DEĞİL, HTML).
+
+    - **GET**: onay sayfası (düğme POST eder). ⚠️ GET tercihi DEĞİŞTİRMEZ: kurumsal
+      posta tarayıcıları ve bağlantı önizleyicileri e-postadaki her linki açar; GET'te
+      çıkarmak kullanıcıyı haberi olmadan abonelikten düşürürdü.
+    - **POST** (form ya da `List-Unsubscribe-Post` tek tık): `email_notifications=False`.
+      `islem=geri` yeniden açar.
+    """
+    from tenders.services.eposta_bulten import abonelik_coz
+
+    uid = abonelik_coz(request.GET.get("t") or request.POST.get("t") or "")
+    user = User.objects.filter(pk=uid).first() if uid else None
+    if user is None:
+        return render(request, "eposta/abonelik.html", {"durum": "gecersiz"}, status=400)
+    if request.method == "POST":
+        acik = request.POST.get("islem") == "geri"
+        User.objects.filter(pk=user.pk).update(email_notifications=acik)
+        logger.info("e-posta bülteni tercihi: uid=%s acik=%s (bağlantı)", user.pk, acik)
+        durum = "acildi" if acik else "cikildi"
+    else:
+        durum = "onay" if user.email_notifications else "zaten"
+    return render(request, "eposta/abonelik.html", {
+        "durum": durum, "email": user.email, "token": request.GET.get("t") or request.POST.get("t"),
+    })

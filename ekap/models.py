@@ -168,6 +168,14 @@ class Tender(models.Model):
     # tahminle dolduğu **denetlenebilir** olmalı; gerekirse yalnızca "benzer"
     # olanlar geri alınabilir. Bkz. `ekap/mobil/idare.py`.
     idare_kaynak = models.CharField(max_length=16, blank=True, default="")
+    # ⚠️⚠️ Gerçek EKAP v2 ihale kimliği. `ekap_id` mobil keşfinde sahte (`mobil:…`)
+    # olabilir ve istemciler onu ANAHTAR olarak saklar (`Favorite.tender_id`,
+    # `TenderAlarm.tender_id`, bildirim bağlantıları) → gerçek id `ekap_id`'ye
+    # YAZILMAZ, burada durur. "" = bilinmiyor. Bkz. `sync.upsert_tender_from_list`.
+    v2_id = models.CharField(max_length=64, blank=True, db_default="")
+    # Sonuçlanmış ihalenin sözleşme/sonuç ilanı verisi v2'den bir kez çekildi mi —
+    # "bir kez" kuralının kalıcı işareti (sonuç ne olursa olsun yeniden denenmez).
+    sonuc_denendi_at = models.DateTimeField(null=True, blank=True)
 
     # Yüklenici/sonuç çözümlemesi (bkz. ekap/contractors.py, ekap/sonuc_ilani.py)
     contractors_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)

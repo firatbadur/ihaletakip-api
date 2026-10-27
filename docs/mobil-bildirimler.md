@@ -229,14 +229,18 @@ POST /alarms/
   "tender_title": "Bilgisayar ve Çevre Birimi Alımı",
   "institution": "Ankara Büyükşehir Belediyesi",
   "reminder_day": true,       // ihale günü hatırlat
-  "document_change": true,     // doküman değişince bildir
   "completed": false           // sonuçlanınca bildir
 }
 ```
 
+> ⚠️ **"Doküman değişince bildir" (`document_change`) KALDIRILDI (2026-10-27).** Backend
+> alanı eski sürümler gönderdiği için kabul ediyor ama **hiçbir bildirim üretmiyor**
+> (mobil kaynaklı ihalelerde doküman sayısı hiç gelmiyordu; 55 alarmın 53'ünde zaten
+> ölüydü). Alarm ekranından anahtarı kaldırın; gönderilirse yok sayılır.
+
 Alarm bildirimleri günde bir (09:00) kontrol edilir. **Her ihale için AYRI push** gider
 (`data.type = "alarm"` + `tenderId`/`tenderIkn` → ihale detayı). Bir ihalede birden çok olay
-(ihale günü + doküman) varsa tek bildirimde birleşir. Kullanıcının 3 alarmlı ihalesi bugün
+(ihale günü + sonuçlandı) varsa tek bildirimde birleşir. Kullanıcının 3 alarmlı ihalesi bugün
 tetiklenirse **3 ayrı bildirim** düşer (birleşik özet DEĞİL).
 
 ---

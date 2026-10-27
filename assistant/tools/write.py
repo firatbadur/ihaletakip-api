@@ -92,7 +92,7 @@ def ihale_kaydet_oner(ctx, ikn=None, klasor=None, **_):
 
 
 # ── Alarm kur ──────────────────────────────────────────
-def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, dokuman_degisikligi=True, **_):
+def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, **_):
     kart, hata = _ihale_coz(ctx, ikn)
     if hata:
         return hata
@@ -107,7 +107,8 @@ def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, dokuman_degisikligi=True, **_
             "tender_title": (kart.get("ihale_adi") or "")[:500],
             "institution": (kart.get("idare_adi") or "")[:500],
             "reminder_day": bool(ihale_gunu),
-            "document_change": bool(dokuman_degisikligi),
+            # Doküman alarmı kaldırıldı (bkz. `tenders.tasks._detect_alarm_events`).
+            "document_change": False,
         },
         f"“{(kart.get('ihale_adi') or kart['ikn'])[:90]}” için alarm kurayım mı?",
     )

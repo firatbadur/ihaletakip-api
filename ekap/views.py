@@ -1681,46 +1681,42 @@ class TenderDetailView(APIView):
         if tender is None and not getattr(settings, "EKAP_DETAY_BILINMEYEN_CANLI", False):
             return api_response(message="İhale bulunamadı.", success=False, status=404)
 
-        # DB'de var ve detayı çekilmiş → saklanan ham detayı (item açılmış) dön
+        # DB'de var ve detayı çekilmiş → saklanan ham detayı (item açılmış) dön.
+        # ⚠️ Sayfa açılışı tazeleme TETİKLEMEZ (eskiden `_maybe_refresh` → v2
+        # `sync_detail`): tazeleme yalnızca zamanlanmış görevin işidir — sayfa
+        # görüntülemesine bağlı tazeleme, en çok bakılan ihaleye bütçe yakar ve
+        # durum odaklı önceliği (bkz. CLAUDE.md "v2 tazeleme") bozardı.
         if tender and tender.detail_synced_at and tender.detail_raw:
-            # Bayatsa arka planda yenile, eldekini dön
-            self._maybe_refresh(tender)
             data = _unwrap_item(tender.detail_raw)
             return api_response(data=_kurul_ekle(
                 _aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender), tender))
 
-        # Detay yoksa → canlı çek (lazy sync)
+        from .mobil.adapt import sentetik_mi
+
+        # Detay yoksa → canlı çek (lazy sync).
+        # ⚠️ Mobil keşfinin sahte kimliği (`mobil:…`) v2'de YOK: göndermek web isteği
+        # içinde throttle beklemesi + kesin hata demekti. Detayı mobil hat getirir.
         ekap_id = tender.ekap_id if tender else key
-        try:
-            from .client import EkapV2Client
-            from . import sync as sync_mod
+        if not sentetik_mi(ekap_id):
+            try:
+                from .client import EkapV2Client
+                from . import sync as sync_mod
 
-            client = EkapV2Client()
-            detail = client.get_detail(ekap_id)
-            taze = sync_mod.upsert_tender_detail(ekap_id, detail)
-            return api_response(data=_kurul_ekle(_aciklamalari_duzelt(
-                _attach_idare_kimlik(_unwrap_item(detail), taze), taze), taze))
-        except Exception as e:
-            logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
-            if tender:
-                data = _aciklamalari_duzelt(
-                    _attach_idare_kimlik(_unwrap_item(tender.detail_raw or {}), tender),
-                    tender,
-                )
-                return api_response(data=_kurul_ekle(data, tender),
-                                    message="Detay güncel değil.")
-            return api_response(message="İhale bulunamadı.", success=False, status=404)
-
-    @staticmethod
-    def _maybe_refresh(tender):
-        from . import sync as sync_mod
-
-        try:
-            if sync_mod.should_refresh_detail(tender):
-                from .tasks import sync_detail
-                sync_detail.delay(tender.ekap_id)
-        except Exception:
-            pass  # Celery/redis yoksa sessiz geç
+                client = EkapV2Client()
+                detail = client.get_detail(ekap_id)
+                taze = sync_mod.upsert_tender_detail(ekap_id, detail)
+                return api_response(data=_kurul_ekle(_aciklamalari_duzelt(
+                    _attach_idare_kimlik(_unwrap_item(detail), taze), taze), taze))
+            except Exception as e:
+                logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
+        if tender:
+            data = _aciklamalari_duzelt(
+                _attach_idare_kimlik(_unwrap_item(tender.detail_raw or {}), tender),
+                tender,
+            )
+            return api_response(data=_kurul_ekle(data, tender),
+                                message="Detay güncel değil.")
+        return api_response(message="İhale bulunamadı.", success=False, status=404)
 
 
 @extend_schema(

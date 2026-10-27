@@ -682,8 +682,9 @@ class SavedTenderDetailView(APIView):
                 "İhale alarmı kur",
                 request_only=True,
                 description=(
-                    "`reminder_day` ihale gününde, `document_change` doküman değişince "
-                    "bildirim üretir. Alarmlar saatlik Celery görevi ile kontrol edilir. "
+                    "`reminder_day` ihale gününde, `completed` ihale sonuçlanınca bildirim "
+                    "üretir. `document_change` geriye uyumluluk için kabul edilir ama artık "
+                    "bildirim ÜRETMEZ (kaldırıldı). Alarmlar günlük Celery görevi ile kontrol edilir. "
                     "Aynı `tender_id` tekrar gönderilirse kayıt güncellenir (upsert)."
                 ),
                 value={
@@ -692,7 +693,7 @@ class SavedTenderDetailView(APIView):
                     "tender_title": "Bilgisayar ve Çevre Birimi Alımı",
                     "institution": "Ankara Büyükşehir Belediyesi",
                     "reminder_day": True,
-                    "document_change": True,
+                    "completed": True,
                 },
             )
         ],

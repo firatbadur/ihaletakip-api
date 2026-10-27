@@ -316,11 +316,13 @@ paths:
                   tender_title: Bilgisayar ve Çevre Birimi Alımı
                   institution: Ankara Büyükşehir Belediyesi
                   reminder_day: true
-                  document_change: true
+                  completed: true
                 summary: İhale alarmı kur
-                description: '`reminder_day` ihale gününde, `document_change` doküman
-                  değişince bildirim üretir. Alarmlar saatlik Celery görevi ile kontrol
-                  edilir. Aynı `tender_id` tekrar gönderilirse kayıt güncellenir (upsert).'
+                description: '`reminder_day` ihale gününde, `completed` ihale sonuçlanınca
+                  bildirim üretir. `document_change` geriye uyumluluk için kabul edilir
+                  ama artık bildirim ÜRETMEZ (kaldırıldı). Alarmlar günlük Celery
+                  görevi ile kontrol edilir. Aynı `tender_id` tekrar gönderilirse
+                  kayıt güncellenir (upsert).'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/TenderAlarm'

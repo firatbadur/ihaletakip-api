@@ -135,13 +135,20 @@ class Command(BaseCommand):
                 # v2'nin verebildiği alanlar (idare_id, DETSIS ağacı, OKAS kataloğu,
                 # düzeltme/iptal ilanları) tazelenemez.
                 self.stdout.write(self.style.WARNING(
-                    "  ⚠️ Doğrulama yok → YEDEK yol kapalı (idare_id / DETSIS / OKAS "
-                    "kataloğu tazelenmez). Çözüm: tarayıcıda doğrulayıp "
-                    "`manage.py ekap_dogrula --cookie …`"))
+                    "  ⚠️ Doğrulama yok → v2 kapalı (DETSIS / OKAS kataloğu tazelenmez). "
+                    "Çözüm: tarayıcı köprüsü eklentisinin sekmesini açın "
+                    "(`tools/ekap-cerez-eklentisi/`) ya da `manage.py ekap_dogrula --cookie …`"))
+        from ekap.tasks import katalog_durumu
+        for k in katalog_durumu(now):
+            satir = (f"  {k['ad']:20s} son başarılı: "
+                     + (f"{timezone.localtime(k['son_basarili']):%d.%m.%Y} "
+                        f"({k['gun']} gün önce, {k['kayit']} kayıt)"
+                        if k["son_basarili"] else "hiç"))
+            self.stdout.write(self.style.WARNING(satir + "  ⚠️ ESKİ") if k["eski"] else satir)
 
         # 1) Son çalışmalar — görev başına en son kayıt
         self._baslik("Son senkron çalışmaları")
-        for task in ("sync_recent", "backfill", "refresh_stale", "sync_contractors"):
+        for task in ("sync_okas", "sync_authorities", "sync_contractors"):
             run = SyncRun.objects.filter(task=task).order_by("-started_at").first()
             if not run:
                 self.stdout.write(f"  {task:20s} — hiç çalışmamış")

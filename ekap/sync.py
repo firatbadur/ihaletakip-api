@@ -14,6 +14,7 @@ from django.utils import timezone
 from . import contractors as contractors_mod
 from . import keywords as keywords_mod
 from .constants import DURUM_SONUCLANMIS
+from .mobil.adapt import sentetik_mi
 from .models import (
     Announcement,
     Authority,
@@ -170,6 +171,16 @@ def upsert_tender_from_list(item, *, koruyucu: bool = False) -> Tender | None:
         for alan, anahtarlar in _LISTE_KAYNAK_ANAHTARI.items():
             if not any(a in item for a in anahtarlar):
                 defaults.pop(alan, None)
+    elif not sentetik_mi(ekap_id):
+        # ⚠️⚠️ v2 listesi: gerçek id `v2_id`'ye yazılır; satırın `ekap_id`'si mobil
+        # keşfinin sahte kimliğiyse EZİLMEZ. Ezilseydi `Favorite.tender_id` (İKN alanı
+        # yok), `alarms/<tender_id>/` uçları ve eski bildirim bağlantıları sessizce
+        # kopardı — istemciler `ekap_id`'yi anahtar olarak saklıyor.
+        defaults["v2_id"] = str(ekap_id)
+        if sentetik_mi(
+            Tender.objects.filter(ikn=str(ikn)).values_list("ekap_id", flat=True).first()
+        ):
+            defaults.pop("ekap_id")
 
     # İKN kanonik ihale kimliğidir (bir ihale = bir İKN). EKAP'ın iç `id`'si aynı
     # İKN için değişebildiğinden (yeniden yayım vb.) upsert İKN'ye göre yapılır;

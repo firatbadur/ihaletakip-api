@@ -606,6 +606,38 @@ DETSIS ağacı (`sync_authorities`), OKAS kataloğu (`sync_okas` — mobil OKAS
 çıkarımının temeli), düzeltme/iptal ilanları. Aşağıdaki tuzakların tamamı hâlâ
 geçerlidir; v2'yi tekrar açan herkes önce bunları okumalı.
 
+### ⚠️⚠️ v2 YENİDEN AÇILIYOR — tazeleme + OKAS/DETSIS (2026-10-27, plan: 4 faz)
+
+Mobil tik hattında tazeleme hafta içi aç kalıyordu (ölçüm 2026-10-27: tazeleme 6/gün,
+sonuç ilanı 0, kuyruk 11.245). Kullanıcı kararı: **tazeleme YALNIZCA v2'de**, mobile
+otomatik dönüş YOK; erişim **tarayıcı köprüsü** (`tools/ekap-cerez-eklentisi/`, bir
+insan kendi Chrome'unda doğrular). Kural: teklif tarihi geçmiş + sonuçlanmamış ihaleler
+(önce durum 2, sonra 3, sonra 4); sonuçlanmış/iptal **hiç** tazelenmez, sonuç verisi
+**bir kez** çekilir; açık ihale tazelenmez.
+
+✅ **Faz 1 — korumalar (köprüden ÖNCE).** Doğrulama çerezi 2026-09-11'den beri bayattı;
+aşağıdaki yollar yalnızca bu yüzden sessizdi ve çerez geçerli olunca bozacaklardı:
+- ⚠️⚠️ **`ekap_id` ARTIK DEĞİŞMEZ.** v2 liste upsert'i mobil keşfinin sahte `mobil:…`
+  kimliğini gerçek id'ye yeniden yazıyordu → `Favorite.tender_id` (İKN alanı yok),
+  `alarms/<tender_id>/` ve eski bildirim bağlantıları kopardı. Gerçek id artık
+  **`Tender.v2_id`**'de (`0033`, `db_default=""`, indeks yok); sahte kimlik ezilmez.
+- `ekap-sync-recent` ve `ekap-refresh-stale` beat'ten silindi (+ DB satırları `.delete()`).
+- `sync_detail` sahte kimliği v2'ye göndermez; `enqueue_missing_detail` onları kuyruklamaz.
+- İhale detay sayfası **tazeleme tetiklemez** (`_maybe_refresh` kaldırıldı); canlı detay yolu
+  sahte kimlikte v2'ye gitmez.
+- **"Doküman Güncellendi" alarmı kaldırıldı** (`_detect_alarm_events` olay üretmez, asistan
+  aracı vaat etmez; alan geriye uyumluluk için duruyor) — mobil hat `dokuman_sayisi`'nı
+  hiç doldurmuyordu ve v2'nin 0→N ilk yazımı sahte bildirim doğururdu.
+- **OKAS / DETSIS izlemesi**: son BAŞARILI tur `ekap.tasks.katalog_durumu` → pano v2 şeridi
+  (geri geldi) + `ingest_saglik`; 8 günden eskiyse uyarı. Son başarılı tur **2026-09-07**'ydi
+  (7 hafta boyunca her tur `error / 0`, hiçbir ekranda görünmedi).
+- ⚠️ `SqliteDuzAddField` (`_pg_ops`): 0027'nin `NULLS LAST` ifadeli indeksi yüzünden SQLite,
+  `Tender`'a NOT NULL alan eklerken tabloyu yeniden kuramıyor → yerel test DB'si hiç
+  oluşmuyordu. `Tender`'a yeni alan eklerken bunu kullanın.
+Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 korumanın 5'i ısırıyor).
+Sıradaki: Faz 2 köprü + salt okunur ölçüm (İKN araması, tempo, mobil captcha) → OKAS/DETSIS
+bir kez elle; Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
+
 Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
 
 - **TLS parmak izi engeli**: EKAP v2 WAF'ı düz `requests`/OpenSSL'i reddeder

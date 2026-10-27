@@ -73,12 +73,35 @@
       </div>
     {% endif %}
 
-    {# ⚠️ **v2 (eski sistem) doğrulama şeridi KALDIRILDI (2026-09-10).**
-       Toplama artık mobil API'den yapılıyor; v2 yalnızca mobilde olmayan alanları
-       (idare_id, DETSIS ağacı, OKAS kataloğu) besleyen bir yedek. Çerezi düşünce
-       panoda kırmızı/sarı uyarı basmak, çalışan bir sistemde **yanlış alarm**
-       üretiyordu. Durum yine `manage.py ingest_saglik`'in "v2 yedek" bölümünde
-       görülebilir; `pano.dogrulama` verisi de yerinde duruyor. #}
+    {% comment %}
+      ⚠️ v2 (eski sistem) şeridi 2026-09-10'da "yanlış alarm" gerekçesiyle kaldırılmıştı
+      ve bu yüzden OKAS/DETSIS'in 7 hafta boyunca güncellenmediği hiçbir ekranda
+      görünmedi. 2026-10-27'de geri geldi: OKAS kataloğu ve DETSIS ağacı YALNIZCA
+      v2'den gelir ve ihale tazelemesi v2'ye taşınıyor. Uyarı, son BAŞARILI tur
+      8 günden eskiyse ya da doğrulama düştüyse yanar.
+    {% endcomment %}
+    {% if pano.dogrulama.seviye != "ok" or pano.dogrulama.katalog_eski %}
+      <div class="alert alert-warning py-2">
+        <i class="fas fa-plug-circle-exclamation me-1"></i>
+        <strong>Eski EKAP (v2) bağlantısı
+          {% if pano.dogrulama.seviye == "ok" %}açık ama güncellemeler gecikmiş{% else %}yok{% endif %}.</strong>
+        {% for k in pano.dogrulama.katalog %}
+          {{ k.ad }}: {% if k.son_basarili %}son başarılı {{ k.son_basarili|date:"d.m.Y" }} ({{ k.gun }} gün önce){% else %}hiç başarılı olmamış{% endif %}{% if not forloop.last %} · {% endif %}
+        {% endfor %}
+        <div class="small mt-1">
+          Doğrulama: {{ pano.dogrulama.metin }}. Çözüm: tarayıcı köprüsü eklentisinin çalıştığı
+          sekmeyi açın (<code>tools/ekap-cerez-eklentisi/</code>).
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-success py-2">
+        <i class="fas fa-plug-circle-check me-1"></i>
+        <strong>Eski EKAP (v2) bağlantısı çalışıyor</strong> —
+        {% for k in pano.dogrulama.katalog %}
+          {{ k.ad }} {{ k.son_basarili|date:"d.m.Y" }}{% if not forloop.last %} · {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
 
     {# ── 1. Kullanıcı KPI şeridi ───────────────────────────── #}
     <div class="it-section-title">

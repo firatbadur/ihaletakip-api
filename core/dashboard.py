@@ -438,7 +438,9 @@ def ekap_dogrulama_durumu() -> dict:
     """
     from core.models import AppSetting
     from ekap import session as ekap_session
+    from ekap.tasks import katalog_durumu
 
+    katalog = katalog_durumu()
     kayit = AppSetting.objects.filter(key=ekap_session.ANAHTAR_DURUM).first()
     metin = kayit.value if kayit else ""
     dustu = bool(cache.get("ekap:dogrulama:dustu"))
@@ -453,6 +455,9 @@ def ekap_dogrulama_durumu() -> dict:
         "seviye": seviye,
         "metin": metin or "hiç yapılandırılmadı",
         "guncelleme": timezone.localtime(kayit.updated_at) if kayit else None,
+        # OKAS / DETSIS yalnızca v2'den gelir; son başarılı tur 8 günden eskiyse uyarı.
+        "katalog": katalog,
+        "katalog_eski": any(k["eski"] for k in katalog),
     }
 
 

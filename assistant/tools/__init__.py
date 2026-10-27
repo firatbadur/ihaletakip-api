@@ -231,7 +231,8 @@ _ALARM_KUR = {
         "properties": {
             "ikn": {"type": "string"},
             "ihale_gunu": {"type": "boolean", "description": "İhale günü hatırlat."},
-            "dokuman_degisikligi": {"type": "boolean", "description": "Doküman değişince bildir."},
+            # ⚠️ "Doküman değişince bildir" seçeneği yok (2026-10-27'de kaldırıldı) —
+            # model kullanıcıya artık çalışmayan bir bildirimi vaat etmesin.
         },
         "required": ["ikn"],
     },

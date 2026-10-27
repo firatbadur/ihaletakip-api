@@ -180,22 +180,16 @@ app.conf.beat_schedule = {
         "task": "ekap.mobil.tasks.dt_temizle",
         "schedule": crontab(hour=3, minute=20),
     },
-    # ⚠️ **Günde İKİ kez: 04:00 (gece) + 12:00 (öğlen kontrol turu).** Aşağıdaki
-    # "gün içinde koşmalı" gerekçesi v2 birincil kaynakken geçerliydi; birincil
-    # kaynak artık mobil API ve gün içi tazelik oradan geliyor. v2 turu yalnızca
-    # **yedek/karşılaştırma** amaçlı: mobilde olmayan alanları (idare_id,
-    # ozellikler, kısım listesi) taze tutar. Öğlen turu, gece turundan sonra
-    # EKAP'a düşen kayıtları aynı gün içinde yakalayan kontrol turudur.
-    # Turnstile çerezi yoksa görev zaten bedavaya çıkar (`_dogrulama_kapisi`).
-    "ekap-sync-recent": {
-        "task": "ekap.tasks.sync_recent",
-        "schedule": crontab(minute=0, hour="4,12"),
-    },
-    # Akıllı detay yenileme — her 3 saatte bir (yalnızca son 1 yıl; EKAP_REFRESH_YEARS)
-    "ekap-refresh-stale": {
-        "task": "ekap.tasks.refresh_stale",
-        "schedule": crontab(minute=30, hour="*/3"),
-    },
+    # ⚠️⚠️ **`ekap-sync-recent` ve `ekap-refresh-stale` KALDIRILDI (2026-10-27).**
+    # İkisi de v2 doğrulama çerezi bayat olduğu için (2026-09-11'den beri) sessizdi;
+    # tazeleme v2'ye taşınırken çerez geçerli olunca çalışmaya başlayacaklardı:
+    #   - `sync_recent` v2 liste upsert'i mobilin keşfettiği ihalelerin sahte
+    #     `mobil:…` ekap_id'sini gerçek v2 id'sine YENİDEN YAZARDI → Favorite ve
+    #     `alarms/<tender_id>/` eşleşmez, eski bildirim bağlantıları 404 olurdu.
+    #   - `refresh_stale` kuyruğa fan-out yapıyor ve "açık ihaleyi 3 günde bir"
+    #     tazeliyordu; yerine durum odaklı çekmeli görev geliyor.
+    # Keşif mobilin işi. `sync_recent` elle kullanım için duruyor
+    # (`run_ingest --task recent`). Üretimde DB satırları `.delete()` ile silindi.
     # Geçmiş doldurma (backfill) — TÜM GÜN, 15 dk'da bir. 5 yıl tabanına ulaşınca
     # görev DB kontrolüyle anında döner → boşta maliyeti yok. EKAP gün içinde
     # yavaş/yanıtsız olabildiğinden görev sayfa hatasını zarifçe yutar (kısmi

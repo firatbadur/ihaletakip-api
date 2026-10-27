@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from .client import EkapDogrulamaError, EkapV2Client
 from .constants import DURUM_IPTAL
+from .mobil.adapt import SENTETIK_ONEK, sentetik_mi
 from .models import SyncCheckpoint, SyncRun, Tender
 from . import session as ekap_session, sync as sync_mod
 from .series import series_skeleton
@@ -137,6 +138,12 @@ def sync_detail(self, ekap_id, only_if_missing=False):
     bu bayrağı verir; `refresh_stale` **vermez** — onun işi zaten tazelemek.
     """
     mark = f"{_DETAY_KUYRUK_PREFIX}{ekap_id}"
+    # ⚠️ Mobil keşfinin sahte kimliği (`mobil:…`) v2'de YOK → `ihaleId="mobil:…"`
+    # kesin hata + throttle israfı. Çerez bayatken kapıya takıldığı için sessizdi;
+    # tazeleme v2'ye taşınırken çerez geçerli olunca her biri EKAP'a gidecekti.
+    if sentetik_mi(ekap_id):
+        cache.delete(mark)
+        return {"ekap_id": ekap_id, "atlandi": "sentetik_kimlik"}
     if only_if_missing and Tender.objects.filter(
         ekap_id=str(ekap_id), detail_synced_at__isnull=False
     ).exists():
@@ -451,6 +458,35 @@ def sync_authorities():
         return {"authorities": count}
 
 
+# ⚠️ İkisi de haftalık; 8 gün = bir tur kaçtı. 2026-09-07 → 10-27 arası 7 hafta
+# boyunca her tur `error / 0` yazdı ve hiçbir ekranda görünmedi (v2 şeridi 09-10'da
+# "yanlış alarm" gerekçesiyle kaldırılmıştı).
+KATALOG_ESKI_GUN = 8
+KATALOG_GOREVLERI = (("sync_okas", "OKAS kataloğu"), ("sync_authorities", "DETSIS idare ağacı"))
+
+
+def katalog_durumu(now=None) -> list[dict]:
+    """OKAS / DETSIS'in son BAŞARILI turu — pano şeridi + `ingest_saglik` ortak kaynağı.
+
+    ⚠️ Son tura değil son `ok` tura bakılır: düşen turlar da `SyncRun` yazar ve
+    "son çalışma 3 gün önce" görüntüsü 7 haftalık bayatlığı gizlerdi.
+    """
+    now = now or timezone.now()
+    sonuc = []
+    for gorev, ad in KATALOG_GOREVLERI:
+        run = (SyncRun.objects.filter(task=gorev, status="ok")
+               .order_by("-started_at").only("started_at", "items").first())
+        gun = (now - run.started_at).days if run else None
+        sonuc.append({
+            "gorev": gorev, "ad": ad,
+            "son_basarili": run.started_at if run else None,
+            "kayit": run.items if run else None,
+            "gun": gun,
+            "eski": gun is None or gun >= KATALOG_ESKI_GUN,
+        })
+    return sonuc
+
+
 def _update_checkpoint(name, newest=None, oldest=None):
     cp, _ = SyncCheckpoint.objects.get_or_create(name=name)
     if newest:
@@ -652,6 +688,8 @@ def sync_contractors(
             for ekap_id in (
                 Tender.objects.filter(detail_synced_at__isnull=True)
                 .exclude(ekap_id="")
+                # Sahte kimlikli yeni ihalenin detayı mobil hattın işi (`_sirada_detay`).
+                .exclude(ekap_id__startswith=SENTETIK_ONEK)
                 .order_by("-ihale_tarihi")
                 .values_list("ekap_id", flat=True)[:missing_limit]
             ):

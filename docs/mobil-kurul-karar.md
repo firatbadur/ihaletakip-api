@@ -78,7 +78,7 @@ Ayrı bir alarm yok: **ihale alarmına** `kurul_karar` anahtarı eklendi.
 
 ```json
 { "tender_id": "…", "tender_ikn": "2026/1519213", "tender_title": "Personel Hizmeti",
-  "reminder_day": true, "document_change": false, "completed": true, "kurul_karar": true }
+  "reminder_day": true, "completed": true, "kurul_karar": true }
 ```
 
 - ⚠️ **Varsayılan kapalı** — mevcut alarmların hepsi de kapalı başlar. Alarm ekranına

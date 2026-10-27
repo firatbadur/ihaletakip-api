@@ -3312,7 +3312,7 @@
             "description": "İhale için alarm kurar.\n\n**İhale alarmları Pro aboneliğe özeldir.** Free üyelik alarm kuramaz → **403** döner (`errors.code = premium_required`); mobil abonelik paketlerini sunar. Alarmları listeleme/silme her üyeye açıktır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\",\n  \"reminder_day\": true,\n  \"document_change\": true\n}",
+              "raw": "{\n  \"tender_id\": \"1234567\",\n  \"tender_ikn\": \"2025/1234567\",\n  \"tender_title\": \"Bilgisayar ve Çevre Birimi Alımı\",\n  \"institution\": \"Ankara Büyükşehir Belediyesi\",\n  \"reminder_day\": true,\n  \"completed\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"

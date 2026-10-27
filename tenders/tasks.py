@@ -173,21 +173,19 @@ def _local_date(dt):
 
 def _detect_alarm_events(alarm, tender, today, settled_set):
     """
-    Alarm aboneliklerine göre tetiklenen olayları döner: {"reminder", "document", "completed"}.
-    İlk görüşte (snapshot null) değişim olayları tetiklenmez (yalnızca taban alınır).
+    Alarm aboneliklerine göre tetiklenen olayları döner: {"reminder", "completed"}.
+
+    ⚠️⚠️ **"Doküman Güncellendi" olayı KALDIRILDI (2026-10-27, ürün kararı).** Alan
+    (`document_change`) eski istemciler gönderdiği için duruyor ama olay üretilmez:
+    mobil hat `dokuman_sayisi`'nı hiç doldurmuyor (55 doküman alarmının 53'ü ölüydü)
+    ve tazeleme v2'ye taşınınca v2'nin 0→N ilk yazımı her birinde SAHTE bir
+    "doküman güncellendi" bildirimi doğururdu.
     """
     events = set()
 
     # İhale günü — snapshot gerektirmez, her koşulda bugün mü diye bakılır.
     if alarm.reminder_day and _local_date(tender.ihale_tarihi) == today:
         events.add("reminder")
-
-    # Doküman değişikliği — önceki ve şimdiki sayı biliniyorken fark varsa.
-    if alarm.document_change:
-        prev = alarm.last_dokuman_sayisi
-        cur = tender.dokuman_sayisi
-        if prev is not None and cur is not None and cur != prev:
-            events.add("document")
 
     # Tamamlandı — sonuçlanmamış durumdan sonuçlanmış duruma GEÇİŞ; tek sefer.
     if alarm.completed and not alarm.completed_notified:
@@ -220,7 +218,6 @@ def check_tender_alarms():
     alarms = list(
         TenderAlarm.objects.filter(
             Q(reminder_day=True)
-            | Q(document_change=True)
             | Q(completed=True, completed_notified=False)
         ).select_related("user")
     )

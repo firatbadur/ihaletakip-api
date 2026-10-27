@@ -103,6 +103,35 @@ class PgRunSQL(_PostgresOnly, migrations.RunSQL):
     """Yalnızca PostgreSQL'de çalışan ham SQL (SQLite'ta sessizce atlanır)."""
 
 
+class SqliteDuzAddField(migrations.AddField):
+    """
+    `AddField` — PostgreSQL'de birebir aynı; **SQLite'ta tabloyu yeniden kurmadan**
+    düz `ALTER TABLE … ADD COLUMN`.
+
+    ⚠️ Django'nun SQLite şema editörü NOT NULL / varsayılanlı her yeni alan için tabloyu
+    baştan kurar ve state'teki TÜM indeksleri yeniden yaratır. `ekap_tender`'da 0027'nin
+    `ilan_tarihi DESC NULLS LAST` ifadeli indeksi (yalnızca Postgres'te kurulur) state'te
+    durduğu için bu yeniden kurulum `unsupported use of NULLS LAST` ile patlar ve yerel
+    test veritabanı hiç oluşmaz (0027'den sonra `Tender`'a eklenen ilk alanda — 0033 —
+    yaşandı). SQLite, NOT NULL kolonu sabit DEFAULT ile `ADD COLUMN` olarak kabul eder.
+    Yalnızca sabit `db_default`'lu alanlar için.
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        if schema_editor.connection.vendor != "sqlite":
+            return super().database_forwards(app_label, schema_editor, from_state, to_state)
+        model = to_state.apps.get_model(app_label, self.model_name)
+        field = model._meta.get_field(self.name)
+        tip = field.db_parameters(connection=schema_editor.connection)["type"]
+        # Django sürümüne göre ham değer ya da `Value(...)` olarak saklanıyor.
+        varsayilan = schema_editor.quote_value(getattr(field.db_default, "value", field.db_default))
+        bos_olamaz = "" if field.null else " NOT NULL"
+        schema_editor.execute(
+            f'ALTER TABLE "{model._meta.db_table}" ADD COLUMN "{field.column}" '
+            f"{tip}{bos_olamaz} DEFAULT {varsayilan}"
+        )
+
+
 def lock_timeout(saniye="5s"):
     """
     `SET LOCAL lock_timeout` — dolu tabloda `ALTER TABLE` için **zorunlu koruma**.

@@ -8,8 +8,10 @@ Kurul çoğunlukla Çarşamba toplanır, kararlar Perşembe 00:00'da yayımlanı
 düzensiz olabiliyor). Veri her sabah 06:40'ta kontrol edilir; alarm bildirimi en erken
 07:00'den sonra gider.
 
-> **Durum:** Backend hazır; toplayıcı **kapalı** (`EKAP_MOBIL_KURUL_ENABLED=False`).
-> Açıldığında son 12 toplantı geriye dönük doldurulacak. O ana kadar listeler boş döner.
+> **Durum:** Üretimde **açık** (2026-10-27); son 12 toplantı (29.07 – 21.10.2026) geriye
+> dönük dolduruldu: **760 karar**, 595 tekil İKN'nin **574'ü (%96)** uygulamadaki bir
+> ihaleye bağlanıyor (`ekap_id` dolu). Sonrası her sabah 06:40'ta kontrol ediliyor.
+> Toplantı başına 44–94 karar çıkıyor (21.10.2026: 65).
 
 Kök: `https://ihale-takip.envisoft.com.tr/api/v1` · Alan adları **snake_case Türkçe**.
 Görüntüleme uçları **herkese açık** (giriş gerekmez); alarm **Pro**.

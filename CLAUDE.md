@@ -656,10 +656,12 @@ Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 koruman�
   Bizim ağacımız `detsis_no` anahtarlı, tüm idare özellikleri SAYISAL `idare_id`'ye bağlı →
   bu veri yazılamaz. Mevcut kodla tur "-1" adlı tek çöp düğüm yazıp **"ok"** görünürdü →
   `sync.detsis_bicimi_dogrula` kilidi: biçim bozuksa hiçbir şey yazılmaz, tur hata verir,
-  pano uyarısı yanık kalır. **Ağaç 2026-09-07 hâlinde DONDU**; yeni kurumlar gelmez.
-  Karmaların çağrılar arasında sabit olup olmadığı ölçülmedi.
-Sıradaki: OKAS bir kez elle; DETSIS için ürün kararı (dondurulmuş ağaç / karma tabanlı
-ayrı ağaç); Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
+  pano uyarısı yanık kalır. Karmaların çağrılar arasında sabit olup olmadığı ölçülmedi.
+  ✅ **Ürün kararı: DONDUR.** Ağaç 2026-09-07 hâlinde kullanılır, yeni kurumlar gelmez;
+  `ekap-sync-authorities` beat'ten çıkarıldı, pano DETSIS'i uyarı değil "donduruldu" diye
+  gösterir (`tasks.DONDURULAN_KATALOGLAR`). EKAP eski biçime dönerse ikisi geri alınır.
+- ✅ **OKAS elle güncellendi** (2026-10-27, 40 sn, 9.590 kod — Eylül'den beri yeni kod yok).
+Sıradaki: Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
 
 Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
 

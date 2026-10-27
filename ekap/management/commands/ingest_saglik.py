@@ -148,6 +148,8 @@ class Command(BaseCommand):
                      + (f"{timezone.localtime(k['son_basarili']):%d.%m.%Y} "
                         f"({k['gun']} gün önce, {k['kayit']} kayıt)"
                         if k["son_basarili"] else "hiç"))
+            if k["donduruldu"]:
+                satir += "  (DONDURULDU — EKAP anonimleştirdi, beat'te yok)"
             self.stdout.write(self.style.WARNING(satir + "  ⚠️ ESKİ") if k["eski"] else satir)
 
         # 1) Son çalışmalar — görev başına en son kayıt

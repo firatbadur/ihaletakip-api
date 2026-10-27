@@ -86,7 +86,7 @@
         <strong>Eski EKAP (v2) bağlantısı
           {% if pano.dogrulama.seviye == "ok" %}açık ama güncellemeler gecikmiş{% else %}yok{% endif %}.</strong>
         {% for k in pano.dogrulama.katalog %}
-          {{ k.ad }}: {% if k.son_basarili %}son başarılı {{ k.son_basarili|date:"d.m.Y" }} ({{ k.gun }} gün önce){% else %}hiç başarılı olmamış{% endif %}{% if not forloop.last %} · {% endif %}
+          {{ k.ad }}: {% if k.donduruldu %}donduruldu ({{ k.son_basarili|date:"d.m.Y" }} — EKAP anonimleştirdi){% elif k.son_basarili %}son başarılı {{ k.son_basarili|date:"d.m.Y" }} ({{ k.gun }} gün önce){% else %}hiç başarılı olmamış{% endif %}{% if not forloop.last %} · {% endif %}
         {% endfor %}
         <div class="small mt-1">
           Doğrulama: {{ pano.dogrulama.metin }}. Çözüm: tarayıcı köprüsü eklentisinin çalıştığı
@@ -98,7 +98,7 @@
         <i class="fas fa-plug-circle-check me-1"></i>
         <strong>Eski EKAP (v2) bağlantısı çalışıyor</strong> —
         {% for k in pano.dogrulama.katalog %}
-          {{ k.ad }} {{ k.son_basarili|date:"d.m.Y" }}{% if not forloop.last %} · {% endif %}
+          {{ k.ad }} {{ k.son_basarili|date:"d.m.Y" }}{% if k.donduruldu %} (donduruldu){% endif %}{% if not forloop.last %} · {% endif %}
         {% endfor %}
       </div>
     {% endif %}

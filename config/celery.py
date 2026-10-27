@@ -287,11 +287,11 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.sync_okas",
         "schedule": crontab(hour=5, minute=0, day_of_week=1),
     },
-    # DETSIS kurumlar — haftalık (Pazartesi 05:30)
-    "ekap-sync-authorities": {
-        "task": "ekap.tasks.sync_authorities",
-        "schedule": crontab(hour=5, minute=30, day_of_week=1),
-    },
+    # ⚠️⚠️ `ekap-sync-authorities` KALDIRILDI (2026-10-27, ürün kararı: DONDUR). EKAP DETSIS'i
+    # anonimleştirdi (`detsisNo: -1`, `idareId` 64 hex karma) → ağaç yazılamıyor
+    # (`sync.detsis_bicimi_dogrula` kilidi). Ağaç 2026-09-07 hâlinde kullanılmaya devam
+    # ediyor. Görev elle çalıştırılabilir (`run_ingest --task authorities`); EKAP eski
+    # biçime dönerse buraya geri eklenir + `tasks.DONDURULAN_KATALOGLAR`'dan çıkarılır.
 
     # ── Anahtar kelime boru hattı ───────────────────────
     # Hiçbiri EKAP'a gitmez → `celery` kuyruğu (bkz. settings.CELERY_TASK_ROUTES).

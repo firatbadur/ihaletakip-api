@@ -109,14 +109,23 @@ class KatalogDurumuTest(TestCase):
     def test_son_BASARILI_tura_bakilir_dusen_tur_bayatligi_gizlemez(self):
         self._run("sync_okas", "ok", 50)
         self._run("sync_okas", "error", 1)            # son tur yakın ama başarısız
-        self._run("sync_authorities", "ok", KATALOG_ESKI_GUN - 1)
         durum = {k["gorev"]: k for k in katalog_durumu()}
         self.assertEqual(durum["sync_okas"]["gun"], 50)
         self.assertTrue(durum["sync_okas"]["eski"])
-        self.assertFalse(durum["sync_authorities"]["eski"])
+
+    def test_esik_alti_eski_DEGIL(self):
+        self._run("sync_okas", "ok", KATALOG_ESKI_GUN - 1)
+        self.assertFalse({k["gorev"]: k for k in katalog_durumu()}["sync_okas"]["eski"])
 
     def test_hic_basarili_tur_yoksa_eski(self):
-        self.assertTrue(all(k["eski"] and k["son_basarili"] is None for k in katalog_durumu()))
+        self.assertTrue({k["gorev"]: k for k in katalog_durumu()}["sync_okas"]["eski"])
+
+    def test_DONDURULAN_DETSIS_uyari_URETMEZ(self):
+        # Ürün kararı 2026-10-27: EKAP anonimleştirdi, ağaç 09-07 hâlinde donduruldu.
+        self._run("sync_authorities", "ok", 50)
+        detsis = {k["gorev"]: k for k in katalog_durumu()}["sync_authorities"]
+        self.assertTrue(detsis["donduruldu"])
+        self.assertFalse(detsis["eski"])
 
 
 class DetsisBicimKilidiTest(TestCase):

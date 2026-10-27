@@ -463,6 +463,10 @@ def sync_authorities():
 # "yanlış alarm" gerekçesiyle kaldırılmıştı).
 KATALOG_ESKI_GUN = 8
 KATALOG_GOREVLERI = (("sync_okas", "OKAS kataloğu"), ("sync_authorities", "DETSIS idare ağacı"))
+# ⚠️ Ürün kararı (2026-10-27): EKAP DETSIS'i anonimleştirdi → ağaç 2026-09-07 hâlinde
+# DONDURULDU, haftalık görev beat'ten çıkarıldı. Panoda uyarı değil bilgi olarak görünür —
+# kalıcı bir sarı uyarı gerçek uyarıları da körleştirirdi.
+DONDURULAN_KATALOGLAR = {"sync_authorities"}
 
 
 def katalog_durumu(now=None) -> list[dict]:
@@ -477,12 +481,14 @@ def katalog_durumu(now=None) -> list[dict]:
         run = (SyncRun.objects.filter(task=gorev, status="ok")
                .order_by("-started_at").only("started_at", "items").first())
         gun = (now - run.started_at).days if run else None
+        donduruldu = gorev in DONDURULAN_KATALOGLAR
         sonuc.append({
             "gorev": gorev, "ad": ad,
             "son_basarili": run.started_at if run else None,
             "kayit": run.items if run else None,
             "gun": gun,
-            "eski": gun is None or gun >= KATALOG_ESKI_GUN,
+            "donduruldu": donduruldu,
+            "eski": not donduruldu and (gun is None or gun >= KATALOG_ESKI_GUN),
         })
     return sonuc
 

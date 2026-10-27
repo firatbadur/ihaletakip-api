@@ -554,9 +554,18 @@ konmadı**: anahtar dtn, yaşam döngüsü farklı). Liste = **şu an açık ola
   günceller (iptal/sonuç → düşer, hâlâ 202 → kalır, EKAP "yok" → açık sayılmaz).
   Açık bir alımı yanlışlıkla gizlemek, kapanmış birini birkaç saat geç gizlemekten kötüdür.
 - ⚠️ `dtnYil` **4 hanelidir** (`2026`; `26` → "Kayit bulunamadı" — ölçüldü).
-- ⚠️ Tur başına en çok **3 istek / 170 sn** (`_DT_TUR_ISTEK`, `_DT_TUR_SURE`): her istek
-  pencere için ~60 sn + sapma bekler, görev sınırı 300 sn ve tek concurrency'li worker'da
-  uzun DT turu tik'i de bekletir.
+- ⚠️⚠️ **Pencere beklemesi İKİ pencere (130 sn), tur en çok 2 istek** (`_DT_TUR_ISTEK`,
+  `_DT_TUR_SURE`=140 sn — ikinci istek ancak bu süre dolmadıysa başlar). Ölçüldü
+  (2026-10-27, açılışın ilk turu): DT tik ile aynı tek worker'da sırayla koşar; tik
+  bir sonraki pencereyi almışsa DT'nin ilk boş penceresi 60-120 sn ileridedir ve 75 sn
+  tavanla tur pencere alamadan **anında** düşüyordu (`hiz_penceresi`). 2 × ~145 sn < 300
+  sn görev sınırı; kapasite günde ~570, ihtiyaç ~280.
+- ⚠️⚠️ **Doğrulanmış bot EKAP'ı TETİKLEYEMEZ** (`views_dt`): bot hız sınırından muaf
+  (`core.throttling`), DT detay/doküman ise mobilin belge bütçesini (günlük kullanıcı
+  rezervi) harcar → web'i tarayan bir bot mobil kullanıcıya "kota doldu" dedirtirdi.
+  Bota detayda yalnızca önbellekteki ayrıntı verilir, doküman 403. DT/kurul uçları
+  `throttle_kapsam`'a katıldı: liste `ihale_arama`, detay/doküman `belge`, ihale kurul
+  kararları `detay`. Web notu: `docs/web-dogrudan-temin-kurul.md`.
 - **Ölçülen hacim (Salı 2026-10-27 12:52)**: o gün yayımlanmış açık DT **864**, son 30 günün
   açıkları **≥ 1.500** (6+ sayfa); Pazartesi ilanlarının ~%1'inin son teklifi aynı gün.
   Bütçe tahmini: yoklama ~160 + tam tarama 12 × ~8 sayfa ≈ 96 + doğrulama ~20 ≈ **~280/gün**

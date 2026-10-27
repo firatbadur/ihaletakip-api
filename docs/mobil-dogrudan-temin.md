@@ -7,9 +7,13 @@ DT'ler normal ihaleden farklıdır: bir kısmı yayımlandıktan **birkaç saat 
 Bu yüzden liste yalnızca **şu an teklif verilebilir** alımları gösterir ve alarm bildirimi
 günlük özet değil, **anlık**tır (yeni ilanlar mesai içinde 5 dakikada bir yoklanıyor).
 
-> **Durum:** Backend kodu hazır; toplayıcı **kapalı** (`EKAP_MOBIL_DT_ENABLED=False`).
-> Hafta içi hacim ölçümünden sonra açılacak. O ana kadar liste boş döner — uygulama
-> boş durumu göstermeli (bkz. §7).
+> **Durum:** Üretimde **açık** (2026-10-27). Açılıştan sonraki ilk ~40 dakikada liste
+> kademeli dolar: önce o günün ilanları, ardından önceki günlerin hâlâ açık olanları
+> (tam tarama turda bir sayfa ilerler).
+>
+> **Hacim (ölçüldü, Salı 2026-10-27):** günde ~900 yeni ilan; aynı anda açık **≥ 1.500**
+> alım. Liste ucu sayfalıdır — sonsuz kaydırma ile `page` artırarak çekin, tek
+> istekte hepsini almaya çalışmayın (`page_size` en çok 100).
 
 Kök: `https://ihale-takip.envisoft.com.tr/api/v1` · Tüm yanıtlar `{success, message, data}`
 zarfındadır. Alan adları **snake_case Türkçe**dir (ihale uçlarındaki EKAP camelCase değil).
@@ -73,6 +77,21 @@ Yanıt:
 - `idare_id` boş olabilir (mobil kaynakta idare kimliği yok, adla eşleştiriliyor).
 
 ## 2. Detay — `GET /ekap/dogrudan-temin/{dtn}/`
+
+⚠️⚠️ **Bu uç ilk açılışta EKAP'a gider** (ihale detayından farklı: ihale detayı önceden
+toplanmış veriden anında döner). Aynı alım 30 dk içinde tekrar açılırsa — başka bir
+kullanıcı açmış olsa bile — önbellekten anında döner. İlk açılış tipik olarak birkaç
+saniye, kötü durumda (EKAP doğrulama istediğinde) 15–20 saniye sürebilir.
+**Önerilen ekran akışı:**
+1. Listedeki satırda zaten olan alanlarla (`ad`, `idare_adi`, `il_adi`, `son_teklif`,
+   `kalan_dakika`, `tur_adi`, `madde`, `dokuman_url`) detay ekranını **hemen** açın.
+2. Detay ucunu arka planda çağırın; yalnızca "Ayrıntılar" bölümünde (duyuru metni,
+   iletişim, idare hiyerarşisi, birim fiyat cetveli) yükleniyor göstergesi gösterin.
+3. Zaman aşımını en az **30 sn** tutun; `detay: null` + `mesaj` gelirse bölümde mesajı
+   gösterin, ekranı hataya düşürmeyin.
+
+Bildirimden (`dtn_liste` tek kayıt) gelindiğinde listede satır yoktur → ekranı detay
+ucunun cevabıyla açın (liste alanları cevabın içinde de var).
 
 Liste alanları **+**:
 
@@ -220,7 +239,7 @@ Sabit veridir (EKAP'a gitmez); önbelleğe alınabilir.
 
 | Durum | Gösterim |
 |---|---|
-| Liste boş (`totalCount: 0`) | "Şu an açık doğrudan temin yok" — toplayıcı kapalıyken de bu döner |
+| Liste boş (`totalCount: 0`) | "Şu an açık doğrudan temin yok" (filtre çok darsa da olur) |
 | Hafta sonu / gece | Az kayıt normaldir (EKAP'a hafta sonu az ilan düşüyor) |
 | Detayda `detay: null` | Liste alanlarıyla ekranı aç, ayrıntıda `mesaj` |
 | Doküman 404 | "Bu alım için EKAP'ta doküman yok" (bilgi, hata değil) |

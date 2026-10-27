@@ -5,7 +5,14 @@ Veri `ekap.mobil.dt` şeridinin topladığı `DogrudanTemin` tablosundan servis 
 yalnızca **detay** ve **doküman** talep üzerine EKAP'a gider (kullanıcı şeridi:
 `EkapMobilClient(butce="kullanici")`, ayrı pencere + ayrı günlük rezerv).
 
-Mobil entegrasyon notu: `docs/mobil-dogrudan-temin.md`.
+Mobil entegrasyon notu: `docs/mobil-dogrudan-temin.md` · web: `docs/web-dogrudan-temin-kurul.md`.
+
+⚠️⚠️ **Doğrulanmış arama botu EKAP'ı TETİKLEYEMEZ.** Bot hız sınırından muaftır
+(`core.throttling`: 429 Google'ın tarama bütçesini düşürür). Detay ve doküman ise ilk
+istekte EKAP'a gider ve mobilin belge indirmesiyle paylaşılan günlük kullanıcı
+bütçesini harcar → web portalının DT sayfalarını tarayan bir bot o bütçeyi tüketip
+mobil kullanıcıya "kota doldu" dedirtirdi. Bota yalnızca önbellekte olan ayrıntı
+verilir (içerik aynı, yalnızca canlı istek yok); doküman bota kapalıdır.
 """
 import logging
 import mimetypes
@@ -22,6 +29,7 @@ from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
 from core.response import api_response
+from core.throttling import istemci
 
 from . import dt_sorgu
 from .mobil import adapt
@@ -158,6 +166,7 @@ class DogrudanTeminListView(APIView):
     """GET /ekap/dogrudan-temin/ — açık DT listesi."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "ihale_arama"
 
     def get(self, request):
         qp = request.query_params
@@ -251,6 +260,8 @@ class DogrudanTeminDetailView(APIView):
     """GET /ekap/dogrudan-temin/<dtn>/ — DB + talep üzerine EKAP ayrıntısı."""
 
     permission_classes = [permissions.AllowAny]
+    # Canlı EKAP isteği yapabilen uç → belge uçlarıyla aynı kapsam (günlük bütçe).
+    throttle_kapsam = "belge"
 
     def get(self, request, dtn):
         from .mobil.client import EkapMobilClient, MobilError
@@ -264,7 +275,10 @@ class DogrudanTeminDetailView(APIView):
         mesaj = ""
         if not isinstance(detay, dict):    # ⚠️ şekil doğrulaması (eski biçim → ıska)
             detay = None
-            if obj.enc_id:
+            if istemci(request).bot:
+                # Bot canlı istek tetiklemez (modül notu). İçerik farkı değil, bütçe koruması.
+                mesaj = "Ayrıntı şu an önbellekte değil."
+            elif obj.enc_id:
                 cli = EkapMobilClient(butce="kullanici")
                 try:
                     ham = _enc_ile(cli, obj, cli.dt_detay)
@@ -351,6 +365,7 @@ class DogrudanTeminDokumanView(APIView):
     """GET /ekap/dogrudan-temin/<dtn>/dokuman/ — mobil API'den akış indirme."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "belge"
 
     def get(self, request, dtn):
         from django.http import StreamingHttpResponse
@@ -358,6 +373,9 @@ class DogrudanTeminDokumanView(APIView):
         from .mobil.client import EkapMobilClient, MobilError
 
         yok = "Bu doğrudan temin için EKAP'ta yayımlanmış doküman yok."
+        if istemci(request).bot:
+            return api_response(message="Doküman indirme bu istemciye kapalı.",
+                                success=False, status=403)
         obj = _dt(dtn)
         if obj is None:
             return api_response(message="Doğrudan temin bulunamadı.", success=False, status=404)

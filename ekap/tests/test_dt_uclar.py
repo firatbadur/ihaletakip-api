@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -171,3 +171,41 @@ class DokumanTest(TestCase):
         Cli.return_value.dt_dokuman_indir.side_effect = MobilCaptchaError("duvar")
         self.assertEqual(self.c.get(URL + "26DT1/dokuman/").status_code, 503)
         self.assertIsNone(cache.get("dt:dokyok:26DT1"))
+
+
+@override_settings(PORTAL_KEY="portal-sirri")
+@patch("ekap.mobil.client.EkapMobilClient")
+class BotKorumasiTest(TestCase):
+    """⚠️ Doğrulanmış bot hız sınırından muaf → EKAP'ı tetikleyemez (kullanıcı bütçesi)."""
+
+    BOT = {"HTTP_X_IT_PORTAL_KEY": "portal-sirri", "HTTP_X_IT_VERIFIED_BOT": "1"}
+
+    def setUp(self):
+        cache.clear()
+        self.c = APIClient()
+
+    def test_bot_detayda_EKAPa_GITMEZ_liste_alanlari_gelir(self, Cli):
+        _dt("26DT1")
+        d = self.c.get(URL + "26DT1/", **self.BOT).json()["data"]
+        Cli.return_value.dt_detay.assert_not_called()
+        self.assertIsNone(d["detay"])
+        self.assertEqual(d["dtn"], "26DT1")
+
+    def test_bot_onbellekteki_ayrintiyi_alir(self, Cli):
+        _dt("26DT1")
+        Cli.return_value.dt_detay.return_value = _DETAY
+        self.c.get(URL + "26DT1/")                       # insan: doldurur
+        d = self.c.get(URL + "26DT1/", **self.BOT).json()["data"]
+        self.assertIsNotNone(d["detay"])
+        self.assertEqual(Cli.return_value.dt_detay.call_count, 1)
+
+    def test_bot_dokuman_INDIREMEZ(self, Cli):
+        _dt("26DT1", dokuman_var=True)
+        self.assertEqual(self.c.get(URL + "26DT1/dokuman/", **self.BOT).status_code, 403)
+        Cli.return_value.dt_dokuman_indir.assert_not_called()
+
+    def test_anahtarsiz_bot_basligi_YOK_SAYILIR(self, Cli):
+        _dt("26DT1")
+        Cli.return_value.dt_detay.return_value = _DETAY
+        self.c.get(URL + "26DT1/", HTTP_X_IT_VERIFIED_BOT="1")
+        Cli.return_value.dt_detay.assert_called_once()

@@ -655,10 +655,10 @@ EKAP_MOBIL_DT_TAM_ARALIK_DK = env.int("EKAP_MOBIL_DT_TAM_ARALIK_DK", default=120
 EKAP_DT_ACIK_AZAMI_GUN = env.int("EKAP_DT_ACIK_AZAMI_GUN", default=30)
 # Son teklif anı bu kadar gün önce geçmiş DT satırları silinir.
 EKAP_DT_SAKLA_GUN = env.int("EKAP_DT_SAKLA_GUN", default=30)
-# Slotu en çok bu kadar bekle — tik'le çakışınca tur kaybolmasın. Pencere 60 sn ve DT
-# tik ile aynı tek worker'da sırayla koştuğu için bir sonraki boş pencere ≤ 60 sn sonradır.
-# ⚠️ Büyütmeyin: tur 3 istek × (bekleme + sapma) ile 300 sn görev sınırına yaklaşır.
-EKAP_MOBIL_DT_SLOT_BEKLEME = env.int("EKAP_MOBIL_DT_SLOT_BEKLEME", default=75)
+# Slotu en çok bu kadar bekle. ⚠️ İKİ pencere (2 × 60 sn + pay): tik bir sonraki pencereyi
+# almışsa DT'nin ilk boş penceresi 60-120 sn ileridedir — ölçüldü (2026-10-27), 75 sn'de
+# tur pencere alamadan anında düşüyordu. Tur bu yüzden en çok 2 istek (bkz. tasks._DT_TUR_*).
+EKAP_MOBIL_DT_SLOT_BEKLEME = env.int("EKAP_MOBIL_DT_SLOT_BEKLEME", default=130)
 
 # ── KİK kurul karar tutanakları (yalnızca uyuşmazlık) ──
 # Günde bir kontrol: son N toplantı yeniden okunur (geç eklenen kararlar için) →

@@ -285,23 +285,26 @@ class DtTikTest(TestCase):
         self.assertEqual(T.dt_tik(), {"atlandi": "kapali"})
 
     def test_yoklama_ve_tam_sayfa_ayni_turda_sayac_artar(self, _coz):
-        cli = _cli(_sayfa(2000000, 2), [], _sayfa(2000000, 2))
+        D.upsert(_sayfa(2000000, 2))                 # son satır bilinir → yoklama 1 istek
+        cli = _cli(_sayfa(2000001, 3), _sayfa(2000000, 2))
         with patch.object(T, "_dt_cli", return_value=cli), \
              patch.object(T, "_dt_yeni_bildir") as bildir:
             sonuc = T.dt_tik()
         self.assertIn("yoklama", sonuc)
         self.assertIn("tam", sonuc)
-        self.assertEqual(throttle.sayac_oku("dt"), 3)
+        self.assertEqual(throttle.sayac_oku("dt"), 2)
         bildir.assert_called_once()
 
     def test_tur_ISTEK_TAVANINI_asmaz(self, _coz):
-        """3 istek × pencere beklemesi ≈ 300 sn görev sınırı → tur 3'te durur."""
+        """2 istek × (130 sn pencere + sapma) ≈ 300 sn görev sınırı → tur 2'de durur."""
         cli = _cli(_sayfa(2000000, 250), _sayfa(1999750, 250), _sayfa(2000000, 250))
         with patch.object(T, "_dt_cli", return_value=cli), \
              patch.object(T, "_dt_yeni_bildir"), \
+             patch("ekap.mobil.dt.tam_tarama_adimi") as tam, \
              patch("ekap.mobil.dt.dogrulama_adimi") as dog:
             T.dt_tik()
-        self.assertEqual(cli.dt_liste.call_count, 3)
+        self.assertEqual(cli.dt_liste.call_count, 2)
+        tam.assert_not_called()
         dog.assert_not_called()
 
     def test_yeni_yoksa_bildirim_tetiklenmez(self, _coz):

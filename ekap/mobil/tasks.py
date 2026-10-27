@@ -653,10 +653,15 @@ def kesif_turu(max_istek=200):
 
 # ── Doğrudan temin şeridi ──────────────────────────────
 _DT_KILIT = "ekap:mobil:dt:kilit"
-# Tur başına istek/süre tavanı (bkz. `dt_tik`). 3 × (60 sn pencere + 15 sn sapma) ≈ 225
-# sn < 300 sn görev sınırı; süre kontrolü yeni istek BAŞLATMADAN önce yapılır.
-_DT_TUR_ISTEK = 3
-_DT_TUR_SURE = 170
+# Tur başına istek/süre tavanı (bkz. `dt_tik`). ⚠️ Ölçüldü (2026-10-27, açılışın ilk
+# turu): DT, tik ile aynı tek worker'da sırayla koşar; tik bir sonraki pencereyi almışsa
+# DT'nin ilk boş penceresi 60-120 sn ileridedir. Bekleme tavanı 75 sn iken tur pencere
+# alamadan anında düşüyordu → tavan iki pencere (`EKAP_MOBIL_DT_SLOT_BEKLEME`=130).
+# Bedeli: istek başına en kötü ~145 sn → tur en çok 2 istek, ikinci istek ancak geçen
+# süre `_DT_TUR_SURE`'nin altındaysa başlar (≈ 2 × 145 < 300 sn görev sınırı).
+# Kapasite turda 2 = günde ~570 istek; ölçülen ihtiyaç ~280.
+_DT_TUR_ISTEK = 2
+_DT_TUR_SURE = 140
 
 
 def _dt_cli():
@@ -678,9 +683,9 @@ def dt_tik():
     DT turu, öncelik sırasıyla: yeni ilan yoklaması (zamanıysa) → tam taramanın bir
     sayfası (sürüyorsa ya da zamanı geldiyse) → bir şüpheli kaydın doğrulanması.
 
-    ⚠️ Tur başına en çok `_DT_TUR_ISTEK` istek ve `_DT_TUR_SURE` sn: her istek pencere
-    için ~60 sn + sapma bekleyebilir ve `CELERY_TASK_TIME_LIMIT` 300 sn'dir (aşan görev
-    öldürülür). Tek concurrency'li `ekap_mobil` worker'ında uzun bir DT turu tik'i de
+    ⚠️ Tur başına en çok `_DT_TUR_ISTEK` istek; yeni istek ancak geçen süre `_DT_TUR_SURE`
+    sn'nin altındaysa başlar: her istek pencere için 130 sn'ye kadar + sapma bekleyebilir
+    ve `CELERY_TASK_TIME_LIMIT` 300 sn'dir (aşan görev öldürülür). Tek concurrency'li `ekap_mobil` worker'ında uzun bir DT turu tik'i de
     bekletir.
     """
     import time as _time

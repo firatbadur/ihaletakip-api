@@ -71,6 +71,7 @@ class KurulKarariListView(APIView):
     """GET /ekap/kurul-kararlari/"""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "ihale_arama"
 
     def get(self, request):
         qp = request.query_params
@@ -137,6 +138,7 @@ class TenderKurulKarariView(APIView):
     """GET /ekap/tenders/<key>/kurul-kararlari/"""
 
     permission_classes = [permissions.AllowAny]
+    throttle_kapsam = "detay"
 
     def get(self, request, key):
         from .views import _tender_by_key

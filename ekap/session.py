@@ -33,6 +33,13 @@ sunucudan `200` döndürdü) — yani doğrulamayı sunucuda yapmak gerekmez.
 
 ⚠️ Çerez **sırdır**: EKAP oturumunun tamamını taşır. `AppSetting` içinde durur,
 loglara **asla** tam basılmaz (`maskele`).
+
+⚠️⚠️ **2026-10-27: EKAP doğrulamayı KAPATTI** — durum ucu `{"enabled": false}` dönüyor,
+`ekap.human-verification` çerezi hiç oluşmuyor ve çerezsiz istekler `200` alıyor (Mac +
+üretim IP'si). Aynı gün üretimden **bayat çerezle** giden istek `428` aldı: kapalıyken
+eski çerezi göndermek ZARAR veriyor. EKAP doğrulamayı geri getirebilir → kapı
+**uyarlanır** (`dogrulama_gerekli`): kapalıysa çerez gönderilmez, açıksa köprü çerezi
+(`tools/ekap-cerez-eklentisi/`) gerekir. 406/428 görülünce durum yeniden sorulur.
 """
 import logging
 import re
@@ -58,6 +65,12 @@ _DUSTU_CACHE = "ekap:dogrulama:dustu"
 _DUSTU_TTL = 900
 
 DOGRULAMA_YOLU = "/b_han/api/human-verification/status"
+
+# "EKAP doğrulama istiyor mu?" — EKAP'ın kendi durum ucundan, küme geneli önbellekli.
+# "1" açık · "0" kapalı · "?" öğrenilemedi (kısa TTL, kapı kapalı sayılır).
+_GEREKLI_CACHE = "ekap:dogrulama:gerekli"
+_GEREKLI_TTL = 300
+_GEREKLI_HATA_TTL = 60
 
 # Analitik/izleme çerezleri: doğrulamayla ilgisi yok, üstelik kaydeden kişinin
 # kimliğini taşır → saklamayız.
@@ -130,6 +143,8 @@ def dustu(sebep: str = ""):
     olduğu için tek başına "ne zaman düştü" sorusunu cevaplayamaz ve arıza
     admin'de görünmez kalırdı.
     """
+    # EKAP doğrulamayı yeniden açmış olabilir → bir sonraki kapı durumu yeniden sorsun.
+    cache.delete(_GEREKLI_CACHE)
     if cache.add(_DUSTU_CACHE, "1", timeout=_DUSTU_TTL):
         from core.models import AppSetting
         AppSetting.objects.update_or_create(
@@ -144,13 +159,51 @@ def dustu(sebep: str = ""):
         )
 
 
+def dogrulama_gerekli(canli: bool = True):
+    """EKAP şu an insan doğrulaması istiyor mu? `True` / `False` / `None` (bilinmiyor).
+
+    `canli=False` önbellekte yoksa EKAP'a sormaz (`None`) — admin panosu her açılışta
+    dışarıya istek atmasın.
+    """
+    deger = cache.get(_GEREKLI_CACHE)
+    if deger is None and canli:
+        try:
+            d = durum(cerezli=False)
+            deger = "?" if d.get("http") != 200 else ("0" if d.get("enabled") is False else "1")
+        except Exception as e:                      # noqa: BLE001
+            logger.warning("EKAP doğrulama durumu sorulamadı: %s", e)
+            deger = "?"
+        cache.set(_GEREKLI_CACHE, deger,
+                  _GEREKLI_HATA_TTL if deger == "?" else _GEREKLI_TTL)
+    return {"0": False, "1": True}.get(deger)
+
+
+def istek_cerezi() -> str:
+    """İsteğe eklenecek çerez: doğrulama KAPALIYKEN boş (bayat çerez 428 tetikliyor)."""
+    if dogrulama_gerekli() is False:
+        return ""
+    return cerez()
+
+
 def gecerli() -> bool:
-    """Görev başlangıcı kapısı: çerez var mı ve yakın zamanda düşmedi mi?"""
-    return bool(cerez()) and not cache.get(_DUSTU_CACHE)
+    """Görev başlangıcı kapısı.
+
+    Yakın zamanda düştüyse kapalı. Doğrulama kapalıysa çerezsiz açık; açıksa köprü
+    çerezi gerekir. EKAP'ın durumu öğrenilemediyse kapalı (tahminle istek atılmaz).
+    """
+    if cache.get(_DUSTU_CACHE):
+        return False
+    gerekli = dogrulama_gerekli()
+    if gerekli is None:
+        return False
+    return (not gerekli) or bool(cerez())
 
 
-def durum():
+def durum(cerezli: bool = True):
     """EKAP'a sorup doğrulamanın canlı durumunu döner.
+
+    `cerezli=False`: kayıtlı çerez eklenmez — "EKAP doğrulama istiyor mu" küme geneli
+    bir sorudur, bayat çerez cevabı bozmasın.
 
     ⚠️ **GET isteğine `Content-Type` EKLEMEYİN** — F5 ASM bunu protokol ihlali
     sayıp `406` döndürür ve teşhis "doğrulama geçersiz" sanılır (ölçüldü).
@@ -166,7 +219,7 @@ def durum():
         "Origin": base,
         "Referer": f"{base}/ekap/search",
     }
-    c = cerez()
+    c = cerez() if cerezli else ""
     if c:
         h["Cookie"] = c
     s = curl_requests.Session(impersonate=getattr(settings, "EKAP_IMPERSONATE", "chrome"))

@@ -87,9 +87,10 @@ class EkapV2Client:
                 "Origin": self.base_url,
                 "Referer": f"{self.base_url}/ekap/search",
             }
-            # ⚠️ İnsan doğrulaması çerezi (bkz. ekap/session.py). Yoksa EKAP
-            # **406** + HTML engel sayfası döndürür; 401 DEĞİL.
-            cerez = ekap_session.cerez()
+            # ⚠️ İnsan doğrulaması çerezi (bkz. ekap/session.py) — yalnızca EKAP
+            # doğrulama istiyorsa. Gerekirken yoksa 406/428; gerekmezken BAYAT çerez
+            # göndermek de 428 tetikliyor (ölçüldü 2026-10-27).
+            cerez = ekap_session.istek_cerezi()
             if cerez:
                 headers["Cookie"] = cerez
             # ⚠️ İmza başlıkları 2026-09-08'de EKAP tarafından KALDIRILDI (portal

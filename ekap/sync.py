@@ -1135,6 +1135,37 @@ def sync_okas(client, take=5000):
 UNCONNECTED_PARENT = -999999
 
 
+# Bu orandan fazlası anonim/karma gelirse ağaç YAZILMAZ (tek tük bozuk satır tolere edilir).
+_DETSIS_ANONIM_TAVAN = 0.01
+
+
+def detsis_bicimi_dogrula(satirlar):
+    """
+    ⚠️⚠️ **2026-10-27: EKAP DETSIS'i ANONİMLEŞTİRDİ.** Portalın kendi isteğinde
+    (kullanıcı tarayıcıdan yakaladı) her düğümde `detsisNo: -1`, `idareId` ve `key`
+    64 hex karma. `Authority` `detsis_no` ile anahtarlı ve `Tender.idare_id` /
+    DETSIS filtresi / favori idare / idare profili SAYISAL `idare_id`'ye bağlı.
+    Bu veriyle upsert: `seen` kümesi -1'leri tekilleştirip "-1" adlı tek bir çöp düğüm
+    yazar ve tur **"ok"** görünür → pano "DETSIS güncel" der, sorun gizlenirdi.
+    → Biçim bozuksa `ValueError`: hiçbir şey yazılmaz, `SyncRun` hata kaydeder ve
+    `katalog_durumu` uyarısı yanmaya devam eder. Eldeki ağaç (2026-09-07) korunur.
+    ⚠️ Eksi `detsisNo` tek başına bozukluk DEĞİL (ör. `-1006661` gerçek düğüm); bozukluk
+    `-1` gözcü değeri ve sayısal olmayan `idareId`'dir.
+    """
+    if not satirlar:
+        raise ValueError("DETSIS boş döndü — ağaç YAZILMADI (uç/filtre değişmiş olabilir).")
+    anonim = sum(
+        1 for a in satirlar
+        if str(a.get("detsisNo")) in ("-1", "None")
+        or (a.get("idareId") not in (None, "") and not str(a.get("idareId")).isdigit())
+    )
+    if anonim > len(satirlar) * _DETSIS_ANONIM_TAVAN:
+        raise ValueError(
+            f"DETSIS biçimi değişti: {anonim}/{len(satirlar)} düğümde detsisNo=-1 ya da "
+            "idareId karma — ağaç YAZILMADI (sayısal idare_id eşlemesi bozulurdu)."
+        )
+
+
 def sync_authorities(client, take=300000):
     """
     DETSIS kurum **ağacını** çekip `Authority` tablosunu tazeler (3 EKAP isteği:
@@ -1154,6 +1185,7 @@ def sync_authorities(client, take=300000):
     roots, _ = extract_list(client.detsis_roots())
     descendants, _ = extract_list(client.detsis_all_descendants(take=take))
     unconnected, _ = extract_list(client.detsis_children(UNCONNECTED_PARENT, take=take))
+    detsis_bicimi_dogrula([*roots, *descendants, *unconnected])
 
     seen = set()
     objs = []

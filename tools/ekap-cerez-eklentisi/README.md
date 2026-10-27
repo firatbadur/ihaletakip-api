@@ -8,6 +8,11 @@ EKAP arayüzü açık sekmede oturumu kendi kendine tazeliyor.
 Bu eklenti yalnızca **tazelenen çerezi sunucuya taşır**. CAPTCHA çözmez,
 tıklama taklit etmez, tarayıcı kimliğini gizlemez.
 
+> ⚠️ **2026-10-27: EKAP doğrulamayı kapattı** (`enabled: false`). Çerez oluşmuyor ve
+> gerek de yok — sunucu çerezsiz çalışıyor; eklenti "EKAP şu an doğrulama istemiyor"
+> der (hata değil). Eklentiyi kurulu bırakın: EKAP doğrulamayı geri açarsa sunucu
+> bunu kendiliğinden fark eder (`ekap.session.dogrulama_gerekli`) ve çerezi bekler.
+
 ## Kurulum
 
 1. Chrome → `chrome://extensions` → sağ üstte **Geliştirici modu** açık.

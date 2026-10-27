@@ -126,6 +126,10 @@ class Command(BaseCommand):
             if d.get("http") != 200:
                 self.stdout.write(self.style.ERROR(
                     f"  HTTP {d.get('http')} — {d.get('hata', '')}"))
+            elif d.get("enabled") is False:
+                self.stdout.write(self.style.SUCCESS(
+                    "  ✅ EKAP doğrulama İSTEMİYOR — çerezsiz çalışılıyor "
+                    "(geri açılırsa kapı köprü çerezini ister)"))
             elif d.get("verified"):
                 self.stdout.write(self.style.SUCCESS(
                     f"  ✅ GEÇERLİ — bitiş {d.get('expiresAtUtc')} "

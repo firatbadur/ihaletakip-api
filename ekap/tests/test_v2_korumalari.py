@@ -117,3 +117,39 @@ class KatalogDurumuTest(TestCase):
 
     def test_hic_basarili_tur_yoksa_eski(self):
         self.assertTrue(all(k["eski"] and k["son_basarili"] is None for k in katalog_durumu()))
+
+
+class DetsisBicimKilidiTest(TestCase):
+    """2026-10-27: EKAP DETSIS'i anonimleştirdi (detsisNo -1, idareId karma)."""
+
+    KARMA = "e3b92d4b62251a63a78a9bbf93f289965fed3a1c9a0c414f01efc79a052a8be3"
+
+    def _istemci(self, satirlar):
+        from unittest.mock import MagicMock
+        cli = MagicMock()
+        cli.detsis_roots.return_value = {"loadResult": {"data": []}}
+        cli.detsis_all_descendants.return_value = {"loadResult": {"data": []}}
+        cli.detsis_children.return_value = {"loadResult": {"data": satirlar}}
+        return cli
+
+    def test_ANONIM_veri_YAZILMAZ_tur_hata_verir(self):
+        from ekap.models import Authority
+        from ekap.sync import sync_authorities
+        satirlar = [{"detsisNo": -1, "ad": f"KURUM {i}", "idareId": self.KARMA,
+                     "parentIdareKimlikKodu": "-999999", "hasItems": False} for i in range(5)]
+        with self.assertRaises(ValueError):
+            sync_authorities(self._istemci(satirlar))
+        self.assertFalse(Authority.objects.exists())
+
+    def test_bos_yanit_YAZILMAZ(self):
+        from ekap.sync import sync_authorities
+        with self.assertRaises(ValueError):
+            sync_authorities(self._istemci([]))
+
+    def test_eksi_ama_GERCEK_detsis_no_gecer(self):
+        from ekap.models import Authority
+        from ekap.sync import sync_authorities
+        satirlar = [{"detsisNo": -1006661, "ad": "Yatılı Okul", "idareId": 6661,
+                     "parentIdareKimlikKodu": -999999, "hasItems": False}]
+        sync_authorities(self._istemci(satirlar))
+        self.assertTrue(Authority.objects.filter(detsis_no="-1006661", idare_id="6661").exists())

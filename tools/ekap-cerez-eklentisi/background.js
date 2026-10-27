@@ -36,6 +36,14 @@ async function gonder(zorla = false) {
     return { ok: false, mesaj: `Ayar eksik: ${eksik}` };
   }
 
+  // ⚠️ 2026-10-27'den beri EKAP doğrulamayı KAPATTI (`enabled: false`) → çerez hiç
+  // oluşmuyor ve gerek de yok; sunucu çerezsiz çalışıyor. Bu bir hata değil.
+  // EKAP doğrulamayı geri açarsa aşağıdaki akış kendiliğinden devreye girer.
+  const d = await dogrulamaDurumu();
+  if (d && d.enabled === false) {
+    return { ok: true, mesaj: "EKAP şu an doğrulama istemiyor — gönderim gerekmiyor" };
+  }
+
   const cookie = await cerezMetni();
   if (!cookie.includes("ekap.human-verification")) {
     return { ok: false, mesaj: "Doğrulama çerezi yok — EKAP sekmesinde doğrulama yapın" };

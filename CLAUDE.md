@@ -635,8 +635,31 @@ aşağıdaki yollar yalnızca bu yüzden sessizdi ve çerez geçerli olunca boza
   `Tender`'a NOT NULL alan eklerken tabloyu yeniden kuramıyor → yerel test DB'si hiç
   oluşmuyordu. `Tender`'a yeni alan eklerken bunu kullanın.
 Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 korumanın 5'i ısırıyor).
-Sıradaki: Faz 2 köprü + salt okunur ölçüm (İKN araması, tempo, mobil captcha) → OKAS/DETSIS
-bir kez elle; Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
+
+⚠️⚠️ **Faz 2 ölçümü (2026-10-27) — v2'nin bugünkü hâli:**
+- **EKAP insan doğrulamasını KAPATTI**: durum ucu `{"enabled": false}`, çerez oluşmuyor,
+  çerezsiz arama/detay **200** (Mac + üretim IP'si). Aynı gün **bayat çerezle** giden istek
+  **428** aldı → kapı artık **uyarlanır** (`session.dogrulama_gerekli`, 5 dk önbellek):
+  kapalıysa çerez GÖNDERİLMEZ (`istek_cerezi`), açıksa köprü çerezi gerekir, durum
+  öğrenilemezse kapı kapalı; 406/428 görülünce durum yeniden sorulur. Pano yalnızca
+  önbelleği okur. Testler `ekap/tests/test_dogrulama_kapisi.py` (dişli: 3/3).
+- **İKN araması çalışıyor** (`iknYili`/`iknSayi` → tek satır).
+- ⚠️ **İhale `id`'si artık 64 hex ve HER ÇAĞRIDA DEĞİŞİYOR** (mobil `encID` gibi); eski id
+  detayda yine çalıştı. `Tender.v2_id` = son görülen id; bayatsa İKN aramasıyla tazelenir.
+- ⚠️⚠️ **Detaydaki `idareId` de 64 hex karma** (eskiden sayısal = `Authority.idare_id`).
+  v2 detay yazımı (`sync.py` `tender.idare_id = …idareId…`) sayısal eşlemeyi EZERDİ →
+  Faz 3'te yalnızca sayısal `idareId` kabul edilecek.
+- **OKAS ucu çalışıyor, biçim aynı.**
+- ⚠️⚠️ **DETSIS ANONİMLEŞTİRİLDİ.** Portalın kendi isteği (kullanıcı tarayıcıdan yakaladı):
+  aynı yol, gövde boş filtre + `selectedKeys: []`, yanıt 10.000+ düğüm; her düğümde
+  **`detsisNo: -1`**, `idareId` = `key` = **64 hex karma**, `parentIdareKimlikKodu` metin.
+  Bizim ağacımız `detsis_no` anahtarlı, tüm idare özellikleri SAYISAL `idare_id`'ye bağlı →
+  bu veri yazılamaz. Mevcut kodla tur "-1" adlı tek çöp düğüm yazıp **"ok"** görünürdü →
+  `sync.detsis_bicimi_dogrula` kilidi: biçim bozuksa hiçbir şey yazılmaz, tur hata verir,
+  pano uyarısı yanık kalır. **Ağaç 2026-09-07 hâlinde DONDU**; yeni kurumlar gelmez.
+  Karmaların çağrılar arasında sabit olup olmadığı ölçülmedi.
+Sıradaki: OKAS bir kez elle; DETSIS için ürün kararı (dondurulmuş ağaç / karma tabanlı
+ayrı ağaç); Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
 
 Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
 

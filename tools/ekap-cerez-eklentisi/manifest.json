@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IhaleTakip — EKAP Oturum Köprüsü",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Doğrulanmış EKAP oturumunun çerezini IhaleTakip sunucusuna iletir.",
   "permissions": ["cookies", "storage", "alarms", "notifications"],
   "host_permissions": [

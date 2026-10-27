@@ -445,7 +445,14 @@ def ekap_dogrulama_durumu() -> dict:
     metin = kayit.value if kayit else ""
     dustu = bool(cache.get("ekap:dogrulama:dustu"))
     var = bool(ekap_session.cerez())
-    if dustu or metin.startswith("DÜŞTÜ"):
+    # ⚠️ Yalnızca önbellek okunur (canli=False) — pano EKAP'a istek atmaz.
+    gerekli = ekap_session.dogrulama_gerekli(canli=False)
+    if dustu:
+        seviye = "hata"
+    elif gerekli is False:
+        # 2026-10-27'den beri EKAP doğrulama istemiyor; eski "DÜŞTÜ" kaydı geçmiştir.
+        seviye, metin = "ok", "EKAP şu an doğrulama istemiyor (çerezsiz çalışılıyor)"
+    elif metin.startswith("DÜŞTÜ"):
         seviye = "hata"
     elif var:
         seviye = "ok"

@@ -1,6 +1,7 @@
 """accounts view'ları — kayıt, giriş, sosyal giriş, profil, çıkış."""
 import logging
 
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -26,6 +27,7 @@ from .serializers import (
     issue_tokens,
 )
 from .models import PushDevice
+from .services.eposta_kod import EpostaHatasi, EpostaIpThrottle
 from .services.apple import AppleAuthError, verify_apple_identity_token
 from .services.google import GoogleAuthError, verify_google_id_token
 
@@ -38,8 +40,11 @@ logger = logging.getLogger("ihaletakip")
     summary="Kayıt ol",
     auth=[],
     description=(
-        "E-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token "
-        "döner — ayrıca login çağırmaya gerek yoktur. Şifre en az 6 karakter olmalıdır."
+        "⚠️ **KULLANIMDAN KALKTI** — e-posta doğrulaması olmadan hesap açar. Üretimde "
+        "kapalıdır (`EPOSTA_DOGRULAMASIZ_KAYIT=False` → 400 `verification_required`); "
+        "yerine `email/register/start/` + `email/register/verify/` kullanın.\n\n"
+        "Açıkken: e-posta + şifre ile yeni hesap açar ve doğrudan `access` + `refresh` token "
+        "döner. Şifre en az 6 karakter olmalıdır."
         "\n\nYanıt `created: true` taşır (bu uç yalnızca kayıt yapar); sosyal girişle "
         "aynı sözleşmeyi kullanır."
     ),
@@ -63,6 +68,12 @@ class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        # ⚠️ Açık kalsa doğrulama akışı atlanıp başkasının e-postasıyla hesap açılabilirdi.
+        # Mobil + web bu ucu hiç çağırmıyor (ölçüldü 2026-10-27).
+        if not settings.EPOSTA_DOGRULAMASIZ_KAYIT:
+            raise EpostaHatasi(
+                "Kayıt için e-posta doğrulaması gerekiyor. Lütfen uygulamayı güncelleyin.",
+                "verification_required")
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -101,6 +112,10 @@ class LoginView(APIView):
     """POST /auth/login — username veya email + şifre ile giriş."""
 
     permission_classes = [permissions.AllowAny]
+    # Şifre deneme sınırı (IP başına, her zaman uygulanır) — e-posta girişi artık
+    # mobil + web'de açık olduğu için kaba kuvvete karşı.
+    throttle_classes = [EpostaIpThrottle]
+    eposta_kapsam = "giris"
 
     def post(self, request):
         identifier = request.data.get("username") or request.data.get("email")

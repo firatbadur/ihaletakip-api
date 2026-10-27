@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{% if kayit %}Doğrulama kodu{% else %}Şifre sıfırlama kodu{% endif %}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f6fa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d2733;">
+<span style="display:none;max-height:0;overflow:hidden;">Kodunuz: {{ kod }} — {{ sure_dk }} dakika geçerli.</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fa;padding:32px 16px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;">
+      <tr><td style="background:#003ea1;padding:20px 28px;">
+        <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.2px;">İhale Takip</span>
+      </td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 12px;font-size:16px;">Merhaba,</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">
+          {% if kayit %}Hesabınızı oluşturmak için aşağıdaki doğrulama kodunu uygulamaya girin.{% else %}Şifrenizi sıfırlamak için aşağıdaki doğrulama kodunu uygulamaya girin.{% endif %}
+        </p>
+        <div style="margin:0 0 20px;padding:16px;border-radius:10px;background:#eef5fc;text-align:center;">
+          <span style="font-size:32px;font-weight:700;letter-spacing:8px;color:#0074cb;font-family:Menlo,Consolas,monospace;">{{ kod }}</span>
+        </div>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.5;color:#4a5866;">
+          Kod <strong>{{ sure_dk }} dakika</strong> geçerlidir ve yalnızca bir kez kullanılabilir.
+        </p>
+        <p style="margin:0;font-size:14px;line-height:1.5;color:#4a5866;">
+          {% if kayit %}Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz; hesap açılmaz.{% else %}Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz; şifreniz değişmez.{% endif %}
+          Kodu kimseyle paylaşmayın — İhale Takip ekibi sizden asla kod istemez.
+        </p>
+      </td></tr>
+      <tr><td style="padding:16px 28px;border-top:1px solid #e6ebf1;font-size:12px;color:#8492a0;">
+        Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayın. · <a href="https://ihaletakip.com" style="color:#0074cb;text-decoration:none;">ihaletakip.com</a>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

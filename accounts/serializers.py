@@ -1,5 +1,7 @@
 """accounts serializer'ları."""
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -82,6 +84,65 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
+
+
+def _sifre_dogrula(sifre, aday):
+    """Django şifre kuralları (en az 8 karakter, yaygın/yalnız rakam olamaz, e-postaya
+    benzemez) — mesajlar `LANGUAGE_CODE=tr` ile Türkçe gelir."""
+    try:
+        validate_password(sifre, user=aday)
+    except DjangoValidationError as e:
+        raise serializers.ValidationError(list(e.messages)) from e
+    return sifre
+
+
+class EmailRegisterStartSerializer(serializers.Serializer):
+    """E-posta ile kayıt — 1. adım (kod gönderilir, hesap henüz AÇILMAZ)."""
+
+    email = serializers.EmailField(max_length=254)
+    password = serializers.CharField(write_only=True, max_length=128, trim_whitespace=False)
+    display_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        email = attrs["email"].strip().lower()
+        attrs["email"] = email
+        aday = User(email=email, username=email.split("@")[0],
+                    display_name=attrs.get("display_name", ""))
+        try:
+            _sifre_dogrula(attrs["password"], aday)
+        except serializers.ValidationError as e:
+            raise serializers.ValidationError({"password": e.detail}) from e
+        return attrs
+
+
+class EmailCodeSerializer(serializers.Serializer):
+    """E-posta + 6 haneli kod (kayıt ve şifre sıfırlama doğrulaması)."""
+
+    email = serializers.EmailField(max_length=254)
+    code = serializers.CharField(max_length=12, help_text="E-postadaki 6 haneli kod.")
+
+
+class EmailOnlySerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    reset_token = serializers.CharField(max_length=500)
+    new_password = serializers.CharField(write_only=True, max_length=128, trim_whitespace=False)
+
+
+class CodeSentSerializer(serializers.Serializer):
+    """Kod gönderildi yanıtı — geri sayım ekranları bu sürelerle kurulur."""
+
+    email = serializers.EmailField()
+    gecerlilik_sn = serializers.IntegerField(help_text="Kodun geçerlilik süresi (sn).")
+    tekrar_gonderim_sn = serializers.IntegerField(
+        help_text="Yeni kod istemeden önce beklenecek süre (sn).")
+
+
+class ResetTokenSerializer(serializers.Serializer):
+    reset_token = serializers.CharField()
+    gecerlilik_sn = serializers.IntegerField()
 
 
 class PreferencesSerializer(serializers.Serializer):

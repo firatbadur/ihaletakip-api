@@ -3076,6 +3076,44 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
   key'leriyle doğrular (audience = `com.envisoft.ihaletakip`).
 - **Çıkış**: `POST /api/v1/auth/logout` body `{refresh}` → token kara listeye alınır.
 
+### E-posta ile kayıt + şifre sıfırlama (2026-10-27) — 6 haneli kod
+
+Uçlar `accounts/views_eposta.py`, mantık `accounts/services/eposta_kod.py`, istemci
+notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
+`email/register/start` → `email/register/verify` (201 token çifti, `created:true`) ·
+`password/reset/start` → `verify` (`reset_token`, 15 dk) → `confirm` (token çifti).
+
+- **Gönderim = Google Workspace SMTP** (`smtp.gmail.com:587`, `noreply@ihaletakip.com`,
+  **uygulama şifresi** → `.env.prod` `EMAIL_HOST_PASSWORD`). SPF/DKIM/DMARC kayıtları
+  alan adında var (ölçüldü). Şifre boşsa üretimde gönderim düşer → **503 `send_failed`**
+  (konsola "gönderilmiş gibi" yazmak bilinçli olarak yapılmadı).
+  ⚠️ `secrets.txt` git dışıdır (`.gitignore`); sır yalnızca `.env.prod`'da yaşamalı.
+- **`EpostaKodu`** `(email, amac)` başına tek satır; kod düz saklanmaz (HMAC özeti),
+  bekleyen kaydın şifresi `make_password` özeti olarak `veri`'de durur ve hesap
+  açılınca silinir. Satır sınır durumunu da taşır → Redis'te değil DB'de.
+- ⚠️⚠️ **Hatalı deneme sayacı transaction DIŞINDA fırlatılan hatayla korunur**
+  (`dogrula`): istisna `atomic` içinde atılsaydı artan sayaç geri alınır, kod sınırsız
+  tahmin edilirdi (testte dişi doğrulandı).
+- ⚠️ **SMTP gönderimi transaction İÇİNDE**: düşerse satır geri alınır → başarısız deneme
+  bekleme/saatlik hakkı yemez.
+- **Sınırlar HER ZAMAN uygulanır** (`EpostaIpThrottle`, `core/throttling.py`'nin gözlem
+  modundan bağımsız): IP başına `kod_gonder` / `kod_dogrula` / **`giris`** (`LoginView`'a
+  da eklendi — e-posta girişi artık açık), e-posta başına 60 sn bekleme + saatte 5 kod,
+  kod başına 5 deneme, küresel günlük tavan `EPOSTA_GUNLUK_TAVAN` (Workspace ~2.000/gün).
+  ⚠️ Web için `PORTAL_KEY` ŞART — yoksa tüm web kullanıcıları tek IP kovasında.
+- ⚠️ **Şifre sıfırlama başlatma her zaman aynı 200'ü döner** (kayıtlı adres sızmasın);
+  bekleme/tavan 429'u orada **sessizce yutulur**. Kayıtta ise `email_exists` açıkça döner
+  (UX tercihi).
+- `confirm` diğer oturumları kapatır (`OutstandingToken` → `BlacklistedToken`); access
+  token'lar süreleri bitene kadar (1 gün) geçerli kalır.
+- Google/Apple hesabı sıfırlama akışıyla şifre belirleyip e-postayla da girebilir.
+- `User.email_verified_at` (nullable): boş = "bilinmiyor", kapı değil.
+- ⚠️ **Eski `POST /auth/register/` KAPALI** (`EPOSTA_DOGRULAMASIZ_KAYIT=False` → 400
+  `verification_required`) — mobil + web hiç çağırmıyordu (ölçüldü); açık kalsa doğrulama
+  atlanırdı.
+- Admin → *E-posta Kodları* (salt okunur; satırı silmek o adresin sınırlarını sıfırlar).
+- Testler: `accounts/tests/test_eposta_kayit.py` (22).
+
 ### `last_seen_at` — etkinlik izi (MAU/DAU)
 
 ⚠️ **`last_login` bu projede İŞE YARAMAZ**: JWT uçları (`serializers.issue_tokens`)

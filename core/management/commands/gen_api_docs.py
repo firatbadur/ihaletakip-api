@@ -45,8 +45,13 @@ TEARDOWN_PATHS = {
 # Burada olmayan uçlar `_generic_rank` ile sıralanır.
 ITEM_ORDER = {
     "auth": [
+        ("post", "/api/v1/auth/email/register/start/"),
+        ("post", "/api/v1/auth/email/register/verify/"),
         ("post", "/api/v1/auth/register/"),
         ("post", "/api/v1/auth/login/"),
+        ("post", "/api/v1/auth/password/reset/start/"),
+        ("post", "/api/v1/auth/password/reset/verify/"),
+        ("post", "/api/v1/auth/password/reset/confirm/"),
         ("post", "/api/v1/auth/social/google/"),
         ("post", "/api/v1/auth/social/apple/"),
         ("post", "/api/v1/auth/token/refresh/"),
@@ -186,6 +191,8 @@ try {
 TOKEN_CAPTURE_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/register",
+    "/api/v1/auth/email/register/verify",
+    "/api/v1/auth/password/reset/confirm",
     "/api/v1/auth/social/google",
     "/api/v1/auth/social/apple",
     "/api/v1/auth/token/refresh",

@@ -50,3 +50,6 @@ docker/nginx/certs/*
 .vscode/
 *.swp
 .DS_Store
+
+# Elle bırakılan sır notları (ör. e-posta uygulama şifresi)
+secrets.txt

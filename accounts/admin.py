@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import PushDevice, User
+from .models import EpostaKodu, PushDevice, User
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -116,6 +116,7 @@ class UserAdmin(BaseUserAdmin):
                     "photo_url",
                     "provider",
                     "provider_uid",
+                    "email_verified_at",
                     "preferences",
                     "deactivated_at",
                     "age_range",
@@ -148,6 +149,7 @@ class UserAdmin(BaseUserAdmin):
 
 
     readonly_fields = [
+        "email_verified_at",
         "subscription_cancelled_at",
         "subscription_cancel_reason",
         "subscription_period_type",
@@ -217,3 +219,27 @@ class PushDeviceAdmin(admin.ModelAdmin):
     @admin.display(description="Token", ordering="token")
     def token_kisa(self, obj):
         return obj.token if len(obj.token) <= 24 else f"{obj.token[:24]}…"
+
+
+@admin.register(EpostaKodu)
+class EpostaKoduAdmin(admin.ModelAdmin):
+    """Doğrulama kodları — destek için "kod gelmedi / kilitlendi" ekranı.
+
+    ⚠️ Kod görünmez (yalnızca özeti saklanır). Satırı SİLMEK o e-postanın bekleme ve
+    saatlik sınırını sıfırlar — kullanıcı kilitlendiyse meşru bir destek işlemidir.
+    """
+
+    list_display = ["email", "amac", "son_gonderim", "gecerlilik", "deneme",
+                    "gonderim", "kullanildi_at"]
+    list_filter = ["amac"]
+    search_fields = ["email"]
+    ordering = ["-son_gonderim"]
+    fields = ["email", "amac", "son_gonderim", "gecerlilik", "deneme", "gonderim",
+              "pencere_bas", "kullanildi_at", "created_at"]
+    readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

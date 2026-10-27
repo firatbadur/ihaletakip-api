@@ -84,6 +84,11 @@ class User(AbstractUser):
         help_text="Uygulamayı en son ne zaman kullandı (kimliği doğrulanan istek).",
     )
 
+    # E-posta sahipliği kodla kanıtlandığı an (kayıt doğrulaması ya da şifre sıfırlama).
+    # ⚠️ Boş = "bilinmiyor", "doğrulanmamış" DEĞİL: Google/Apple hesapları ve bu
+    # özellikten önceki e-posta kayıtları boş kalır; hiçbir kapı buna bağlı değil.
+    email_verified_at = models.DateTimeField("e-posta doğrulandı", null=True, blank=True)
+
     # ── Abonelik ───────────────────────────────────────────
     # Premium (Pro) özellikler `is_premium` üzerinden kapılanır (bkz. accounts.premium).
     # Katman yalnızca admin/ödeme entegrasyonu tarafından değiştirilir; API'de read-only.
@@ -233,3 +238,45 @@ class PushDevice(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user_id} · {self.token[:12]}…"
+
+
+class EpostaKodu(models.Model):
+    """
+    E-posta doğrulama kodu — kayıt ve şifre sıfırlama (`accounts/services/eposta_kod.py`).
+
+    `(email, amac)` başına TEK satır: yeni kod istenince satır güncellenir (eski kod
+    geçersizleşir). Satırın kendisi hız sınırının durumudur (bekleme, saatlik sayaç),
+    bu yüzden Redis'te değil DB'dedir — Redis temizlenince sınırlar sıfırlanmasın ve
+    destek "kod gelmedi" sorusuna admin'den bakabilsin.
+
+    ⚠️ Kodun kendisi SAKLANMAZ, yalnızca HMAC özeti (`kod_hash`).
+    ⚠️ `veri` kayıt amacında bekleyen hesabın şifre ÖZETİNİ (`make_password`) taşır;
+    hesap açılınca boşaltılır. Ham şifre hiçbir yere yazılmaz.
+    """
+
+    class Amac(models.TextChoices):
+        KAYIT = "kayit", "Kayıt"
+        SIFRE = "sifre", "Şifre sıfırlama"
+
+    email = models.EmailField("e-posta")
+    amac = models.CharField("amaç", max_length=10, choices=Amac.choices)
+    kod_hash = models.CharField(max_length=64, blank=True)
+    gecerlilik = models.DateTimeField("geçerlilik sonu", null=True, blank=True)
+    deneme = models.PositiveSmallIntegerField("hatalı deneme", default=0)
+    son_gonderim = models.DateTimeField("son gönderim", null=True, blank=True)
+    pencere_bas = models.DateTimeField(null=True, blank=True)
+    gonderim = models.PositiveSmallIntegerField("penceredeki gönderim", default=0)
+    kullanildi_at = models.DateTimeField("kullanıldı", null=True, blank=True)
+    veri = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "E-posta Kodu"
+        verbose_name_plural = "E-posta Kodları"
+        ordering = ["-son_gonderim"]
+        constraints = [
+            models.UniqueConstraint(fields=["email", "amac"], name="eposta_kodu_email_amac"),
+        ]
+
+    def __str__(self):
+        return f"{self.email} · {self.get_amac_display()}"

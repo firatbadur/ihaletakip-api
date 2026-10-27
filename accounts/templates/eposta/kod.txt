@@ -1,0 +1,14 @@
+{% autoescape off %}Merhaba,
+
+{% if kayit %}İhale Takip hesabınızı oluşturmak için doğrulama kodunuz:{% else %}İhale Takip şifrenizi sıfırlamak için doğrulama kodunuz:{% endif %}
+
+    {{ kod }}
+
+Kod {{ sure_dk }} dakika geçerlidir ve yalnızca bir kez kullanılabilir.
+
+{% if kayit %}Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz; hesap açılmaz.{% else %}Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz; şifreniz değişmez.{% endif %}
+Kodu kimseyle paylaşmayın — İhale Takip ekibi sizden asla kod istemez.
+
+İhale Takip
+https://ihaletakip.com
+{% endautoescape %}

@@ -304,6 +304,40 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 # Google Sign-In (idToken audience'ları)
 GOOGLE_CLIENT_IDS = env.list("GOOGLE_CLIENT_IDS", default=[])
 
+# ── E-posta (Google Workspace SMTP) — kayıt + şifre sıfırlama kodları ─────
+# Gönderen hesap `noreply@ihaletakip.com`; şifre Workspace **uygulama şifresi**dir
+# (Google onu "abcd efgh …" diye boşluklu gösterir → boşluklar atılır).
+# ⚠️ Şifre boşken üretimde backend yine SMTP'dir: gönderim kimlik hatasıyla DÜŞER ve uç
+# 503 döner. Konsola "gönderilmiş gibi" yazmak kullanıcıyı gelmeyecek bir kodu
+# beklemeye bırakırdı; yalnızca DEBUG'da şifresizken konsol kullanılır.
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="noreply@ihaletakip.com")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="").replace(" ", "")
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default=("django.core.mail.backends.console.EmailBackend"
+             if DEBUG and not EMAIL_HOST_PASSWORD
+             else "django.core.mail.backends.smtp.EmailBackend"),
+)
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="İhale Takip <noreply@ihaletakip.com>")
+# Doğrulama kodu kuralları (bkz. accounts/services/eposta_kod.py).
+EPOSTA_KOD_SURE_DK = env.int("EPOSTA_KOD_SURE_DK", default=10)
+EPOSTA_KOD_TEKRAR_SN = env.int("EPOSTA_KOD_TEKRAR_SN", default=60)
+EPOSTA_KOD_SAATLIK = env.int("EPOSTA_KOD_SAATLIK", default=5)
+EPOSTA_KOD_DENEME = env.int("EPOSTA_KOD_DENEME", default=5)
+# Workspace hesap başına ~2.000 alıcı/gün gönderir; tavan onun altında tutulur ki
+# dağıtık bir kötüye kullanım gönderen hesabı kilitletmesin.
+EPOSTA_GUNLUK_TAVAN = env.int("EPOSTA_GUNLUK_TAVAN", default=1500)
+EPOSTA_SIFRE_TOKEN_SURE_SN = env.int("EPOSTA_SIFRE_TOKEN_SURE_SN", default=15 * 60)
+# IP bazlı sınır ezme: {"kod_gonder": [[600, 10]], "kod_dogrula": [...], "giris": [...]}
+EPOSTA_IP_ORANLARI = env.json("EPOSTA_IP_ORANLARI", default={})
+# Eski doğrulamasız `POST /auth/register/` açık mı? (mobil + web hiç kullanmıyor —
+# ölçüldü 2026-10-27). Açık kalsa doğrulama akışı atlanabilirdi.
+EPOSTA_DOGRULAMASIZ_KAYIT = env.bool("EPOSTA_DOGRULAMASIZ_KAYIT", default=False)
+
 # ── Web portalı (ihaletakip.com) ───────────────────────
 # Mutlak medya adresleri (blog kapakları) bu tabandan kurulur. ⚠️ `request`'ten
 # türetilmez: portal Cloudflare'i atlayıp doğrudan nginx'e geldiği için orada

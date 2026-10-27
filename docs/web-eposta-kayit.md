@@ -4,6 +4,11 @@ Uçlar, sözleşme ve hata kodları mobil ile **aynıdır**. Tam istek/yanıt ö
 şifre kuralları, sınırlar ve hata tablosu → **`docs/mobil-eposta-kayit.md`**.
 Bu not yalnızca web'e (Next.js BFF) özgü noktaları anlatır.
 
+> **Durum (2026-10-27): üretimde canlı.** Gönderim Amazon SES ile. ⚠️ SES hesabının
+> üretim onayı gelene kadar kodlar yalnızca SES'te doğrulanmış adreslere ulaşır;
+> geliştirme sırasında test adresinizi SES'te doğrulatın. Onay gelince istemci
+> tarafında hiçbir şey değişmez.
+
 | Adım | Uç (`API_URL` + …) | Başarı |
 |---|---|---|
 | Kayıt — kod iste | `POST auth/email/register/start/` `{email, password, display_name?}` | 200 `{email, gecerlilik_sn, tekrar_gonderim_sn}` |

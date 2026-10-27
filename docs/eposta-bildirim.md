@@ -3,6 +3,11 @@
 Kullanıcılar artık günün bildirimlerini **e-postayla da** alıyor. Tercih **varsayılan
 açık**; profilden kapatılıp açılabiliyor. Push ve uygulama-içi bildirimler **değişmedi**.
 
+> **Durum (2026-10-27):** `email_notifications` alanı ve profilden değiştirme
+> **üretimde canlı** — istemciler bugün entegre edebilir. Günlük bültenin **gönderimi
+> şimdilik kapalı**; `ihaletakip.com` yayına çıkınca açılacak (e-postadaki bağlantılar
+> oraya gidiyor). Abonelikten çıkma sayfası ve bounce/şikâyet işleme hazır.
+
 > **Mevcut sürümler etkilenmez**: yeni alan `email_notifications` profil yanıtına
 > eklendi (additive). Eski uygulama onu yok sayar; kullanıcı e-postaları alır ve
 > e-postadaki bağlantıdan çıkabilir.

@@ -4,6 +4,11 @@ Google/Apple'a ek olarak **e-posta + şifre** ile kayıt ve giriş açıldı. Ka
 sıfırlama, e-postaya gönderilen **6 haneli kod** ile doğrulanır (link yok, deep link
 gerekmez). Kodlar `noreply@ihaletakip.com` adresinden gelir.
 
+> **Durum (2026-10-27): üretimde canlı.** Gönderim Amazon SES ile. ⚠️ SES hesabının
+> üretim onayı gelene kadar kodlar yalnızca SES'te doğrulanmış adreslere ulaşır;
+> geliştirme sırasında test adresinizi SES'te doğrulatın. Onay gelince istemci
+> tarafında hiçbir şey değişmez.
+
 > **Mevcut sürüm etkilenmez**: bugünkü uygulama bu uçların hiçbirini çağırmıyor;
 > Google/Apple girişi aynen çalışır. Eski `POST /auth/register/` (doğrulamasız kayıt)
 > **kapatıldı** → 400 `verification_required`. Uygulama onu kullanmıyordu.

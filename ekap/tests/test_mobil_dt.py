@@ -129,17 +129,8 @@ class AcikTanimiTest(TestCase):
         self._dt("S", durum=15)
         self.assertEqual(self._acik(), set())
 
-    def test_IKI_tam_taramadir_gorulmeyen_gizlenir_biri_yetmez(self):
-        simdi = timezone.now()
-        eski, yeni = simdi - timedelta(hours=4), simdi - timedelta(hours=2)
-        SyncCheckpoint.objects.create(name=D.CHECKPOINT, extra={
-            "tam_baslar": [eski.isoformat(), yeni.isoformat()]})
-        self._dt("IKI_TUR_ONCE", son_gorulme=eski - timedelta(minutes=1))
-        self._dt("SON_TURDA_KACTI", son_gorulme=eski + timedelta(minutes=1))
-        self._dt("TAZE", son_gorulme=simdi)
-        self.assertEqual(self._acik(), {"SON_TURDA_KACTI", "TAZE"})
-
-    def test_hic_tam_tarama_yoksa_gorulme_esigi_uygulanmaz(self):
+    def test_taramada_gorulmemek_TEK_BASINA_gizlemez(self):
+        """⚠️ EKAP dolu sayfayı 249 verebiliyor (ölçüldü) — görülmemek şüphedir, kanıt değil."""
         self._dt("A", son_gorulme=timezone.now() - timedelta(days=3))
         self.assertEqual(self._acik(), {"A"})
 
@@ -157,10 +148,10 @@ def _sayfa(bas, adet):
 
 @patch("ekap.mobil.dt.idare_mod.coz", return_value=("", ""))
 class YoklamaTest(TestCase):
-    def test_tek_sayfa_tek_istek_ve_bugunun_filtresi(self, _coz):
-        cli = _cli(_sayfa(2000000, 3))
+    def test_bugunun_filtresi_ve_bos_sayfada_durur(self, _coz):
+        cli = _cli(_sayfa(2000000, 3), [])
         sonuc = D.yoklama(cli)
-        self.assertEqual((sonuc["istek"], len(sonuc["yeni"])), (1, 3))
+        self.assertEqual((sonuc["istek"], len(sonuc["yeni"])), (2, 3))
         govde = cli.dt_liste.call_args.args[0]
         bugun = timezone.localdate().strftime("%d.%m.%Y")
         self.assertEqual(govde["ilanTarihiBaslangic"], bugun)
@@ -169,6 +160,11 @@ class YoklamaTest(TestCase):
 
     def test_dolu_sayfanin_sonu_YENIYSE_ikinci_sayfa(self, _coz):
         cli = _cli(_sayfa(2000000, 250), _sayfa(1999750, 10))
+        self.assertEqual(D.yoklama(cli)["istek"], 2)
+
+    def test_249_kayitli_sayfa_BITIS_DEGILDIR(self, _coz):
+        """Ölçüldü: EKAP dolu sayfayı 249 kayıtla döndürüyor, sonraki sayfa yine dolu."""
+        cli = _cli(_sayfa(2000000, 249), _sayfa(1999751, 250))
         self.assertEqual(D.yoklama(cli)["istek"], 2)
 
     def test_dolu_sayfanin_sonu_BILINIYORSA_durur(self, _coz):
@@ -183,15 +179,35 @@ class YoklamaTest(TestCase):
 
 @patch("ekap.mobil.dt.idare_mod.coz", return_value=("", ""))
 class TamTaramaTest(TestCase):
-    def test_tur_sayfa_sayfa_ilerler_ve_tamamlaninca_baslangic_yazilir(self, _coz):
-        cli = _cli(_sayfa(2000000, 250), _sayfa(1999750, 4))
-        ilk = D.tam_tarama_adimi(cli)
-        self.assertEqual((ilk["sayfa"], ilk.get("tamamlandi")), (1, None))
-        self.assertEqual(D.gorulme_esigi(), None)   # yarım tur eşik üretmez
-        ikinci = D.tam_tarama_adimi(cli)
-        self.assertEqual((ikinci["sayfa"], ikinci["tamamlandi"]), (2, True))
-        self.assertIsNotNone(D.gorulme_esigi())
-        self.assertEqual(cli.dt_liste.call_args.args[0]["pageIndex"], 2)
+    def test_tur_BOS_SAYFAYA_kadar_surer_249_bitis_degildir(self, _coz):
+        cli = _cli(_sayfa(2000000, 250), _sayfa(1999750, 249), [])
+        self.assertIsNone(D.tam_tarama_adimi(cli).get("tamamlandi"))
+        self.assertIsNone(D.tam_tarama_adimi(cli).get("tamamlandi"))   # 249 → devam
+        son = D.tam_tarama_adimi(cli)
+        self.assertEqual((son["sayfa"], son["tamamlandi"]), (3, True))
+        self.assertEqual(cli.dt_liste.call_args.args[0]["pageIndex"], 3)
+
+    def test_turda_gorulmeyen_acik_kayit_DOGRULAMA_kuyruguna_girer(self, _coz):
+        simdi = timezone.now()
+        DogrudanTemin.objects.create(
+            dtn="26DT0000001", durum=C.DT_DURUM_ACIK, son_teklif=simdi + timedelta(days=1),
+            ilan_tarihi=timezone.localdate(), son_gorulme=simdi - timedelta(hours=5),
+            enc_id="e")
+        cli = _cli(_sayfa(2000000, 3), [])
+        D.tam_tarama_adimi(cli)
+        D.tam_tarama_adimi(cli)
+        cp = SyncCheckpoint.objects.get(name=D.CHECKPOINT)
+        self.assertEqual(cp.extra["dogrula"], ["26DT0000001"])
+        # Hâlâ açık listede: görülmemek tek başına gizlemez.
+        self.assertTrue(DogrudanTemin.objects.filter(D.acik_q(), dtn="26DT0000001").exists())
+
+    def test_YARIM_tur_kuyruk_uretmez(self, _coz):
+        DogrudanTemin.objects.create(
+            dtn="26DT0000001", durum=C.DT_DURUM_ACIK, ilan_tarihi=timezone.localdate(),
+            son_gorulme=timezone.now() - timedelta(hours=5), enc_id="e")
+        D.tam_tarama_adimi(_cli(_sayfa(2000000, 250)))
+        cp = SyncCheckpoint.objects.get(name=D.CHECKPOINT)
+        self.assertFalse(cp.extra.get("dogrula"))
 
     def test_aralik_dolmadiysa_ISTEK_HARCANMAZ(self, _coz):
         cli = _cli([])
@@ -199,20 +215,63 @@ class TamTaramaTest(TestCase):
         self.assertIsNone(D.tam_tarama_adimi(cli))
         self.assertEqual(cli.dt_liste.call_count, 1)
 
-    def test_son_iki_tur_tutulur(self, _coz):
-        cp = SyncCheckpoint.objects.create(name=D.CHECKPOINT, extra={
-            "tam_baslar": ["2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00+00:00"]})
-        D.tam_tarama_adimi(_cli([]))
-        cp.refresh_from_db()
-        self.assertEqual(len(cp.extra["tam_baslar"]), 2)
-        self.assertEqual(cp.extra["tam_baslar"][0], "2026-01-02T00:00:00+00:00")
-
     def test_tam_tarama_ilan_yasi_tabaniyla_sorar(self, _coz):
         cli = _cli([])
         D.tam_tarama_adimi(cli)
         govde = cli.dt_liste.call_args.args[0]
         self.assertTrue(govde["ilanTarihiBaslangic"])
         self.assertNotEqual(govde["ilanTarihiBaslangic"], govde["ilanTarihiBitis"])
+
+
+class DogrulamaTest(TestCase):
+    def setUp(self):
+        simdi = timezone.now()
+        self.d = DogrudanTemin.objects.create(
+            dtn="26DT1", durum=C.DT_DURUM_ACIK, son_teklif=simdi + timedelta(days=1),
+            ilan_tarihi=timezone.localdate(), son_gorulme=simdi - timedelta(hours=5),
+            enc_id="e1")
+        SyncCheckpoint.objects.create(name=D.CHECKPOINT, extra={
+            "dogrula": ["26DT1"], "dogrula_bas": (simdi - timedelta(hours=1)).isoformat()})
+
+    def _detay(self, durum):
+        return {"dogrudanTeminBilgileri": {"dtDurumu": durum,
+                                           "dtTarihSaati": "30.12.2099 10:00"}}
+
+    def test_IPTAL_SONUC_dogrulaninca_listeden_duser(self, ):
+        cli = MagicMock()
+        cli.dt_detay.return_value = self._detay("Doğrudan Temin Sonuçlandırıldı")
+        self.assertEqual(D.dogrulama_adimi(cli)["istek"], 1)
+        self.assertFalse(DogrudanTemin.objects.filter(D.acik_q(), dtn="26DT1").exists())
+
+    def test_hala_ACIK_dogrulaninca_listede_kalir(self):
+        cli = MagicMock()
+        cli.dt_detay.return_value = self._detay("Doğrudan Temin Duyurusu Yayımlanmış")
+        D.dogrulama_adimi(cli)
+        self.assertTrue(DogrudanTemin.objects.filter(D.acik_q(), dtn="26DT1").exists())
+        self.assertIsNone(D.dogrulama_adimi(cli))       # kuyruk boşaldı
+
+    def test_EKAP_yok_derse_acik_sayilmaz(self):
+        from ekap.mobil.client import MobilYokError
+
+        cli = MagicMock()
+        cli.dt_detay.side_effect = MobilYokError("yok")
+        D.dogrulama_adimi(cli)
+        self.assertFalse(DogrudanTemin.objects.filter(D.acik_q(), dtn="26DT1").exists())
+
+    def test_GECICI_hatada_kuyrukta_kalir(self):
+        from ekap.mobil.client import MobilCaptchaError
+
+        cli = MagicMock()
+        cli.dt_detay.side_effect = MobilCaptchaError("duvar")
+        with self.assertRaises(MobilCaptchaError):
+            D.dogrulama_adimi(cli)
+        self.assertEqual(SyncCheckpoint.objects.get(name=D.CHECKPOINT).extra["dogrula"], ["26DT1"])
+
+    def test_tur_sonrasi_yoklamanin_gordugu_kayit_SORULMAZ(self):
+        DogrudanTemin.objects.filter(pk=self.d.pk).update(son_gorulme=timezone.now())
+        cli = MagicMock()
+        self.assertIsNone(D.dogrulama_adimi(cli))
+        cli.dt_detay.assert_not_called()
 
 
 @override_settings(EKAP_MOBIL_ENABLED=True, EKAP_MOBIL_DT_ENABLED=True)
@@ -226,14 +285,24 @@ class DtTikTest(TestCase):
         self.assertEqual(T.dt_tik(), {"atlandi": "kapali"})
 
     def test_yoklama_ve_tam_sayfa_ayni_turda_sayac_artar(self, _coz):
-        cli = _cli(_sayfa(2000000, 2), _sayfa(2000000, 2))
+        cli = _cli(_sayfa(2000000, 2), [], _sayfa(2000000, 2))
         with patch.object(T, "_dt_cli", return_value=cli), \
              patch.object(T, "_dt_yeni_bildir") as bildir:
             sonuc = T.dt_tik()
         self.assertIn("yoklama", sonuc)
         self.assertIn("tam", sonuc)
-        self.assertEqual(throttle.sayac_oku("dt"), 2)
+        self.assertEqual(throttle.sayac_oku("dt"), 3)
         bildir.assert_called_once()
+
+    def test_tur_ISTEK_TAVANINI_asmaz(self, _coz):
+        """3 istek × pencere beklemesi ≈ 300 sn görev sınırı → tur 3'te durur."""
+        cli = _cli(_sayfa(2000000, 250), _sayfa(1999750, 250), _sayfa(2000000, 250))
+        with patch.object(T, "_dt_cli", return_value=cli), \
+             patch.object(T, "_dt_yeni_bildir"), \
+             patch("ekap.mobil.dt.dogrulama_adimi") as dog:
+            T.dt_tik()
+        self.assertEqual(cli.dt_liste.call_count, 3)
+        dog.assert_not_called()
 
     def test_yeni_yoksa_bildirim_tetiklenmez(self, _coz):
         D.upsert(_sayfa(2000000, 2))

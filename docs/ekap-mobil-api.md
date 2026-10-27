@@ -437,7 +437,7 @@ Kod: `ekap/mobil/dt.py`, uçlar `ekap/views_dt.py`, mobil not `docs/mobil-dogrud
 | `dogrudanTeminDurumu` | ✅ çalışıyor — **202 = açık** ("Doğrudan Temin Duyurusu Yayımlanmış") |
 | `ilanTarihiBaslangic/Bitis` | ✅ **çalışıyor** (`dd.mm.yyyy`) — ihale listesinin AKSİNE |
 | `topRowCnt` | ✅ 250 kabul ediyor (üstü denenmedi) |
-| `pageIndex` | ✅ **sayfalama VAR** (ihale listesinde yok) |
+| `pageIndex` | ✅ **sayfalama VAR** (ihale listesinde yok) — ⚠️ dolu sayfa bazen **249** kayıt döner ve sonraki sayfa yine dolu gelir (ölçüldü 2026-10-26/27); bitiş = **boş sayfa** |
 | `orderBy` | 10 = dtn azalan (en yeni kayıt başta) · 4 ve 8 başka sıralar |
 | `dtnYil` + `dtnSayi` | ✅ tek kayıt arar — ⚠️ yıl **4 haneli** (`2026`); `26` → "Kayit bulunamadı" (ölçüldü 2026-10-26) |
 | boş sonuç | ⚠️ boş liste DEĞİL: `{"sonuc": false, "mesaj": "Kayit bulunamadı."}` — istemci boş liste sayar |
@@ -451,8 +451,9 @@ Kod: `ekap/mobil/dt.py`, uçlar `ekap/views_dt.py`, mobil not `docs/mobil-dogrud
   (`ekap.kik.gov.tr`) ❌ **TLS el sıkışması reddedildi** — eski portal düz istemciyi
   kabul etmiyor (v2'deki TLS parmak izi engelinin aynısı). Sunucu bu dosyayı indirmez,
   bağlantı mobilde tarayıcıda açılır (telefondan 200 ölçüldü) → değişiklik gerekmedi.
-- Hacim (Pazartesi 2026-10-26): 09:2x'te bugünün açık ilanı 126, 09:30'da 151; son 30
-  günün açıkları 499 (2 sayfa).
+- Hacim (Pazartesi 2026-10-26): 09:2x'te bugünün açık ilanı 126, 09:30'da 151. ⚠️ Aynı
+  gün ölçülen "son 30 günün açıkları 499" **yanlıştı** — 249'luk ikinci sayfada tarama
+  kesildi. Salı 12:52: bugünün açıkları **864**, son 30 günün açıkları **≥ 1.500**.
 - ⚠️ `dogrudanTeminTarihSaat` = **son teklif anı** (`"30.10.2026 11:30"`) ya da
   `"Tarih Belirtilmemiş"` → NULL.
 - ⚠️ **Zombi açık kayıtlar**: 25DT2095274 (ilan 21.11.2025) son teklif "24.11.2028"

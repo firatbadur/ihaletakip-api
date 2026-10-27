@@ -105,6 +105,8 @@ class Command(BaseCommand):
                 f"sayfa {sonuc['sayfa']}: {sonuc['satir']} satır, {len(sonuc['yeni'])} yeni"
             )
             if sonuc.get("tamamlandi") or sonuc.get("kesildi"):
+                if sonuc.get("tamamlandi"):
+                    self.stdout.write(f"tamamlandı · doğrulama kuyruğuna {sonuc.get('supheli', 0)} kayıt")
                 break
 
     def _durum(self):
@@ -141,8 +143,10 @@ class Command(BaseCommand):
                           f"{DogrudanTemin.objects.count()}")
         self.stdout.write(f"  son yoklama    : {dtex.get('son_yoklama') or '—'}")
         self.stdout.write(f"  son tam tarama : {dtex.get('son_tam_bit') or '—'} "
-                          f"({dtex.get('son_tam_sayfa') or '—'} sayfa)"
+                          f"({dtex.get('son_tam_sayfa') or '—'} sayfa, "
+                          f"{dtex.get('son_tam_supheli', '—')} şüpheli)"
                           + (f" · sürüyor: sayfa {dtex['tam']['sayfa']}" if dtex.get("tam") else ""))
+        self.stdout.write(f"  doğrulama      : {len(dtex.get('dogrula') or [])} kayıt bekliyor")
 
         self.stdout.write(self.style.MIGRATE_HEADING("CAPTCHA"))
         self.stdout.write(f"  geri çekilme   : {'EVET' if captcha_mod.bekliyor_mu() else 'hayır'}")

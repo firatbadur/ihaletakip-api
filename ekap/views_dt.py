@@ -26,7 +26,7 @@ from core.response import api_response
 from . import dt_sorgu
 from .mobil import adapt
 from .mobil import constants as C
-from .mobil.dt import dtn_parcala
+from .mobil.dt import detaydan_guncelle, dtn_parcala
 from .models import DogrudanTemin
 from .serializers import DogrudanTeminSerializer
 
@@ -230,25 +230,6 @@ def _detay_ozeti(ham: dict) -> dict:
     }
 
 
-def _detaydan_tazele(obj, ham):
-    """Detayın daha taze durumu/son teklif anı tabloya da yazılır (liste bir sonraki
-    yoklamayı beklemesin — örn. iptal edilen bir alım hemen düşsün)."""
-    from .mobil import dt as dt_mod
-
-    b = ham.get("dogrudanTeminBilgileri") or {}
-    alanlar = ["detail_raw", "detay_at", "updated_at"]
-    obj.detail_raw = ham
-    obj.detay_at = timezone.now()
-    if b.get("dtDurumu"):
-        obj.durum = dt_mod._kod(C.DT_DURUM_METIN, b["dtDurumu"])
-        obj.durum_metin = b["dtDurumu"][:120]
-        alanlar += ["durum", "durum_metin"]
-    if "dtTarihSaati" in b:
-        obj.son_teklif = dt_mod._tarih_saat(b.get("dtTarihSaati"))
-        alanlar.append("son_teklif")
-    obj.save(update_fields=alanlar)
-
-
 @extend_schema(
     tags=["dogrudan-temin"],
     auth=[],
@@ -288,7 +269,7 @@ class DogrudanTeminDetailView(APIView):
                 try:
                     ham = _enc_ile(cli, obj, cli.dt_detay)
                     detay = _detay_ozeti(ham)
-                    _detaydan_tazele(obj, ham)
+                    detaydan_guncelle(obj, ham)
                     # ⚠️ Yalnızca KESİN cevap önbelleğe yazılır ("bilmiyorum" ≠ "yok").
                     cache.set(anahtar, detay, timeout=_DETAY_TTL)
                 except MobilError as e:

@@ -539,12 +539,28 @@ konmadı**: anahtar dtn, yaşam döngüsü farklı). Liste = **şu an açık ola
 - ⚠️ **`encID` her çağrıda farklı** → anahtar `dtn`. Eski `encID` 3,5 sa sonra da çalıştı →
   saklanır; bayatsa listeden taze alınıp **bir kez** tekrar denenir.
 - ⚠️⚠️ "Açık" tanımının **tek kaynağı `dt.acik_q`** (202 + son teklif geçmemiş + ilan
-  ≤ `EKAP_DT_ACIK_AZAMI_GUN` + son **iki** tam taramadan birinde görülmüş). Uç ve alarm
-  görevi aynı fonksiyonu (+ `ekap.dt_sorgu.filtrele`) kullanır.
+  ≤ `EKAP_DT_ACIK_AZAMI_GUN`). Uç ve alarm görevi aynı fonksiyonu (+ `ekap.dt_sorgu.filtrele`)
+  kullanır.
   ⚠️ İlan yaşı tavanı **zombi** kayıtlar için: 25DT2095274 (ilan 21.11.2025) son teklif
   "24.11.2028" ve hâlâ 202.
-  ⚠️ **İki** tam tarama eşiği: sayfalı tarama sırasında bir kayıt kapanırsa arkadakiler
-  yukarı kayar ve sayfa sınırındaki kayıt o turda hiç görülmeyebilir.
+- ⚠️⚠️ **EKAP DOLU SAYFAYI 249 KAYITLA DÖNDÜREBİLİYOR** (ölçüldü 2026-10-26/27, üretim):
+  Pazartesi ilanları sayfa 1 = 249, sayfa 2 = 250; 30 günlük açıklar 4×250 + **249**,
+  sayfa 6 yine 250. "< 250 → bitti" kuralı taramayı yarıda kesiyordu (ilk ölçüm hacmi
+  499 sandı). → Bitiş = **boş sayfa** (EKAP boş sonucu `sonuc=false` + "Kayit
+  bulunamadı." diye verir, istemci boş liste döndürür).
+  ⚠️ 249'luk sayfada bir satır **gerçekten kayboluyor mu bilinmiyor** → "taramada
+  görülmedi" tek başına gizleme sebebi DEĞİL. Tamamlanan turda görülmeyen açık kayıtlar
+  `extra["dogrula"]` kuyruğuna girer, `dt.dogrulama_adimi` detayını sorup durumu
+  günceller (iptal/sonuç → düşer, hâlâ 202 → kalır, EKAP "yok" → açık sayılmaz).
+  Açık bir alımı yanlışlıkla gizlemek, kapanmış birini birkaç saat geç gizlemekten kötüdür.
+- ⚠️ `dtnYil` **4 hanelidir** (`2026`; `26` → "Kayit bulunamadı" — ölçüldü).
+- ⚠️ Tur başına en çok **3 istek / 170 sn** (`_DT_TUR_ISTEK`, `_DT_TUR_SURE`): her istek
+  pencere için ~60 sn + sapma bekler, görev sınırı 300 sn ve tek concurrency'li worker'da
+  uzun DT turu tik'i de bekletir.
+- **Ölçülen hacim (Salı 2026-10-27 12:52)**: o gün yayımlanmış açık DT **864**, son 30 günün
+  açıkları **≥ 1.500** (6+ sayfa); Pazartesi ilanlarının ~%1'inin son teklifi aynı gün.
+  Bütçe tahmini: yoklama ~160 + tam tarama 12 × ~8 sayfa ≈ 96 + doğrulama ~20 ≈ **~280/gün**
+  (`dt` tavanı 400). Bu sayılar ölçülmeden önce yazılan "~200/gün" tahmininin yerine geçer.
 - ⚠️ DT dokümanı **tek dosya, tek istek** (`TeknikSartnameIndir`), biçim serbest (RAR!) —
   ihale dokümanının Liste+İndir zinciri yok. `dokuman_var=false` → EKAP'a gitmeden 404.
 - ⚠️ DT alarmı **anlık** (`tenders.tasks.check_dt_alarms`, DT turu yeni kayıt yazınca

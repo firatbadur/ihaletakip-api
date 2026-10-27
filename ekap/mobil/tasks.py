@@ -653,6 +653,10 @@ def kesif_turu(max_istek=200):
 
 # ── Doğrudan temin şeridi ──────────────────────────────
 _DT_KILIT = "ekap:mobil:dt:kilit"
+# Tur başına istek/süre tavanı (bkz. `dt_tik`). 3 × (60 sn pencere + 15 sn sapma) ≈ 225
+# sn < 300 sn görev sınırı; süre kontrolü yeni istek BAŞLATMADAN önce yapılır.
+_DT_TUR_ISTEK = 3
+_DT_TUR_SURE = 170
 
 
 def _dt_cli():
@@ -671,13 +675,16 @@ def _dt_cli():
 @shared_task(name="ekap.mobil.tasks.dt_tik")
 def dt_tik():
     """
-    DT turu: yoklama zamanıysa yeni ilan yoklaması, ardından (tam tarama sürüyorsa ya
-    da zamanı geldiyse) tam taramanın bir sayfası. **En çok 2 istek** (+ yoklama
-    sayfası taşarsa 1).
+    DT turu, öncelik sırasıyla: yeni ilan yoklaması (zamanıysa) → tam taramanın bir
+    sayfası (sürüyorsa ya da zamanı geldiyse) → bir şüpheli kaydın doğrulanması.
 
-    ⚠️ Tur başına istek sınırı `CELERY_TASK_TIME_LIMIT` (300 sn) içindir: her istek
-    pencere için ~60 sn + sapma bekleyebilir.
+    ⚠️ Tur başına en çok `_DT_TUR_ISTEK` istek ve `_DT_TUR_SURE` sn: her istek pencere
+    için ~60 sn + sapma bekleyebilir ve `CELERY_TASK_TIME_LIMIT` 300 sn'dir (aşan görev
+    öldürülür). Tek concurrency'li `ekap_mobil` worker'ında uzun bir DT turu tik'i de
+    bekletir.
     """
+    import time as _time
+
     from . import dt as dt_mod
 
     if not getattr(settings, "EKAP_MOBIL_ENABLED", False) or not getattr(
@@ -695,17 +702,28 @@ def dt_tik():
         pass
 
     cli = _dt_cli()
+    bas = _time.monotonic()
     out, istek, yeni = {}, 0, []
+
+    def _hak():
+        return istek < _DT_TUR_ISTEK and _time.monotonic() - bas < _DT_TUR_SURE
+
     try:
         if dt_mod.yoklama_zamani_mi():
             out["yoklama"] = dt_mod.yoklama(cli)
             istek += out["yoklama"]["istek"]
             yeni += out["yoklama"]["yeni"]
-        tam = dt_mod.tam_tarama_adimi(cli)
-        if tam is not None:
-            out["tam"] = tam
-            istek += 1
-            yeni += tam["yeni"]
+        if _hak():
+            tam = dt_mod.tam_tarama_adimi(cli)
+            if tam is not None:
+                out["tam"] = tam
+                istek += 1
+                yeni += tam["yeni"]
+        if _hak():
+            dog = dt_mod.dogrulama_adimi(cli)
+            if dog is not None:
+                out["dogrula"] = dog
+                istek += 1
         if not out:
             return {"atlandi": "is_yok"}
         return out

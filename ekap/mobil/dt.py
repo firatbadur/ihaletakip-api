@@ -7,9 +7,18 @@ Doğrudan temin (DT) toplama — mobil API `DogrudanTemin/Liste`.
    1 sayfa (gerekirse 2). DT'lerin bir kısmı aynı gün, saatler içinde kapandığı için
    mesai içinde sık koşar (`EKAP_MOBIL_DT_ARALIK_DK`).
 2. **Tam açık taraması** (`tam_tarama_adimi`) — son `EKAP_DT_ACIK_AZAMI_GUN` günün
-   tüm açık DT'leri, **tur başına bir sayfa**. Amacı iptal edilen / sonuca geçen
-   kayıtları "açık" dışına almak: o kayıtlar 202 listesinden düşer, tam taramalarda
-   görülmeyince gizlenir.
+   tüm açık DT'leri, **tur başına bir sayfa**. Yoklamanın kaçırdığını yakalar ve iptal
+   edilen / sonuca geçen kayıtları **şüpheli** işaretler: taramada görülmeyen açık
+   kayıtlar doğrulama kuyruğuna girer, `dogrulama_adimi` detayını sorup durumu günceller.
+
+⚠️⚠️ **Sayfa 250'den az diye tarama BİTMİŞ SAYILMAZ.** Ölçüldü (2026-10-26/27, üretim):
+EKAP dolu sayfaları zaman zaman **249** kayıtla döndürüyor ve sonraki sayfa yine 250
+geliyor (Pazartesi ilanları: sayfa 1 = 249, sayfa 2 = 250). "< 250 → bitti" kuralı
+taramayı yarıda kesiyordu. Bitiş = **boş sayfa** (EKAP "Kayit bulunamadı" der; istemci
+boş liste döndürür).
+⚠️ 249'luk sayfada bir satırın **gerçekten kaybolup kaybolmadığı** bilinmiyor. Bu yüzden
+"taramada görülmedi" tek başına gizleme sebebi DEĞİLDİR, yalnızca şüphedir: açık bir
+alımı yanlışlıkla gizlemek, kapanmış bir alımı birkaç saat geç gizlemekten kötüdür.
 
 ⚠️ Kararlı anahtar **dtn**; `encID` her çağrıda farklı üretilir (ölçüldü).
 
@@ -32,6 +41,9 @@ from . import idare as idare_mod
 logger = logging.getLogger("ihaletakip")
 
 CHECKPOINT = "mobil_dt"
+# Bir tam tarama turunun ürettiği doğrulama kuyruğunun tavanı (kuyruk turlar arasında
+# birikir; fazlası bir sonraki tura kalır).
+_DOGRULA_AZAMI = 60
 # Tam taramada bu kadar sayfadan sonra tur bitmiş sayılmaz, kesilir: ~10 bin açık DT
 # beklenen hacmin kat kat üstüdür → filtre bozulmuş demektir. Kesilen tur "görülmedi"
 # kararı VERMEZ (yarım tur hayatta olanları gizlerdi).
@@ -193,49 +205,48 @@ def _cp():
     return cp
 
 
-def gorulme_esigi():
-    """
-    Bir DT'nin "hâlâ listede" sayılması için en geç görülmüş olması gereken an.
-
-    ⚠️ **Son İKİ tam taramanın eskisinin başlangıcı**, sonuncununki değil. Sayfalı
-    tarama sırasında bir kayıt kapanırsa arkadaki satırlar bir sayfa yukarı kayar ve
-    sayfa sınırındaki bir kayıt o turda **hiç görülmeyebilir**. Tek tura bakan eşik
-    onu (gerçekte açık olduğu hâlde) gizlerdi; iki ardışık turda birden kaçması ise
-    pratikte olmaz. Bedeli: iptal edilen kayıt en geç iki tur (≈4 sa) daha görünür —
-    son teklif anı geçen kayıt zaten anında düşer.
-    """
-    cp = SyncCheckpoint.objects.filter(name=CHECKPOINT).first()
-    baslar = ((cp.extra or {}).get("tam_baslar") if cp else None) or []
-    if not baslar:
-        return None
-    try:
-        return datetime.fromisoformat(baslar[0])
-    except (TypeError, ValueError):
-        return None
-
-
 def acik_q(simdi=None):
     """
     Teklif verilebilir DT: durum 202 + son teklif anı geçmemiş (ya da belirtilmemiş)
-    + ilanı `EKAP_DT_ACIK_AZAMI_GUN`'den yeni + tam taramalarda görülmeye devam ediyor.
+    + ilanı `EKAP_DT_ACIK_AZAMI_GUN`'den yeni.
 
     ⚠️ İlan yaşı tavanı zombi kayıtlar içindir: ölçüldü, 25DT2095274 (ilan
     21.11.2025) son teklif "24.11.2028" yazılı ve hâlâ 202 — yalnızca tarihe bakan bir
     tanım bunu yıllarca "açık" listelerdi.
+    ⚠️ "Son taramada görüldü" şartı bilinçli olarak YOK (bkz. modül notu: 249'luk
+    sayfalar). İptal/sonuca geçiş `durum` üzerinden düşer — durumu yoklama, tarama,
+    doğrulama adımı ve kullanıcının açtığı detay günceller.
     """
     simdi = simdi or timezone.now()
     taban = timezone.localdate(simdi) - timedelta(
         days=getattr(settings, "EKAP_DT_ACIK_AZAMI_GUN", 30)
     )
-    q = (
+    return (
         Q(durum=C.DT_DURUM_ACIK)
         & (Q(son_teklif__gt=simdi) | Q(son_teklif__isnull=True))
         & Q(ilan_tarihi__gte=taban)
     )
-    esik = gorulme_esigi()
-    if esik is not None:
-        q &= Q(son_gorulme__gte=esik)
-    return q
+
+
+def detaydan_guncelle(obj, ham, *, simdi=None):
+    """
+    EKAP detayının daha taze durumu/son teklif anı tabloya yazılır. Kullanıcının açtığı
+    detay (`views_dt`) ve doğrulama adımı aynı fonksiyonu kullanır.
+    """
+    simdi = simdi or timezone.now()
+    b = ham.get("dogrudanTeminBilgileri") or {}
+    alanlar = ["detail_raw", "detay_at", "son_gorulme", "updated_at"]
+    obj.detail_raw = ham
+    obj.detay_at = simdi
+    obj.son_gorulme = simdi
+    if b.get("dtDurumu"):
+        obj.durum = _kod(C.DT_DURUM_METIN, b["dtDurumu"])
+        obj.durum_metin = b["dtDurumu"][:120]
+        alanlar += ["durum", "durum_metin"]
+    if "dtTarihSaati" in b:
+        obj.son_teklif = _tarih_saat(b.get("dtTarihSaati"))
+        alanlar.append("son_teklif")
+    obj.save(update_fields=alanlar)
 
 
 # ── Zamanlama ──────────────────────────────────────────
@@ -282,8 +293,9 @@ def yoklama(cli, *, simdi=None, azami_sayfa: int = 2) -> dict:
     """
     Bugün yayımlanmış açık DT'ler (dtn azalan). Genelde **1 istek**.
 
-    Sayfa dolu (250) ve son satırı da yeniyse bir sonraki sayfaya geçilir; son satır
-    zaten biliniyorsa daha eskiler de biliniyordur (dtn azalan) → durulur.
+    Sayfanın son satırı da yeniyse bir sonraki sayfaya geçilir; son satır zaten
+    biliniyorsa daha eskiler de biliniyordur (dtn azalan) → durulur. ⚠️ Sayfanın 250'den
+    az gelmesi bitiş DEĞİLDİR (EKAP dolu sayfayı 249 verebiliyor); bitiş boş sayfadır.
     ⚠️ Kayıt sırası ≠ yayım sırası: eski dtn'li bir DT bugün yayımlanırsa listenin
     aşağısında kalabilir; günde 250'den fazla ilan varsa o kayıt bir sonraki tam
     taramada (≤ `EKAP_MOBIL_DT_TAM_ARALIK_DK`) yakalanır.
@@ -301,7 +313,7 @@ def yoklama(cli, *, simdi=None, azami_sayfa: int = 2) -> dict:
         toplam += len(satirlar)
         sonuc = upsert(satirlar, simdi=simdi)
         yeni += sonuc["yeni"]
-        if len(satirlar) < C.DT_SAYFA:
+        if not satirlar:
             break
         son_dtn = (satirlar[-1].get("dtn") or "").strip().upper()
         if son_dtn not in set(sonuc["yeni"]):
@@ -316,9 +328,9 @@ def tam_tarama_adimi(cli, *, simdi=None):
     """
     Tam açık taramasının **bir sayfası**. İş yoksa `None` (istek harcanmaz).
 
-    Tur `extra["tam"] = {"bas", "sayfa"}` ile sürer; eksik sayfa (< 250) gelince tamam
-    sayılır ve başlangıcı `extra["tam_baslar"]`a (son iki) yazılır — `gorulme_esigi`
-    yalnızca TAMAMLANAN turlara bakar.
+    Tur `extra["tam"] = {"bas", "sayfa"}` ile sürer; **boş sayfa** gelince tamam sayılır.
+    Tamamlanınca, turda hiç görülmeyen açık kayıtlar `extra["dogrula"]` kuyruğuna
+    eklenir (yalnızca TAMAMLANAN turdan — yarım tur her şeyi "görülmedi" sayardı).
     """
     simdi = simdi or timezone.now()
     cp = _cp()
@@ -341,13 +353,21 @@ def tam_tarama_adimi(cli, *, simdi=None):
            "yeni": sonuc["yeni"]}
 
     cp = _cp()  # upsert sırasında başka yazım olmuşsa ezmeyelim
-    if len(satirlar) < C.DT_SAYFA:
-        baslar = (list(cp.extra.get("tam_baslar") or []) + [tam["bas"]])[-2:]
-        cp.extra["tam_baslar"] = baslar
+    if not satirlar:
+        bas = datetime.fromisoformat(tam["bas"])
+        supheli = list(
+            DogrudanTemin.objects.filter(acik_q(simdi), son_gorulme__lt=bas)
+            .order_by("son_teklif").values_list("dtn", flat=True)[:_DOGRULA_AZAMI]
+        )
+        kuyruk = list(dict.fromkeys(list(cp.extra.get("dogrula") or []) + supheli))
+        cp.extra["dogrula"] = kuyruk[:_DOGRULA_AZAMI]
+        cp.extra["dogrula_bas"] = tam["bas"]
         cp.extra["son_tam_bit"] = simdi.isoformat()
-        cp.extra["son_tam_sayfa"] = tam["sayfa"]
+        cp.extra["son_tam_sayfa"] = tam["sayfa"] - 1
+        cp.extra["son_tam_supheli"] = len(supheli)
         cp.extra.pop("tam", None)
         out["tamamlandi"] = True
+        out["supheli"] = len(supheli)
     elif tam["sayfa"] >= _TAM_AZAMI_SAYFA:
         logger.warning("DT tam tarama %s sayfada kesildi — filtre bozulmuş olabilir",
                        tam["sayfa"])
@@ -358,6 +378,67 @@ def tam_tarama_adimi(cli, *, simdi=None):
         cp.extra["tam"] = {"bas": tam["bas"], "sayfa": tam["sayfa"] + 1}
     cp.save(update_fields=["extra", "updated_at"])
     return out
+
+
+def dogrulama_adimi(cli, *, simdi=None):
+    """
+    Tam taramada görülmeyen bir açık DT'nin detayını sorar (1 istek). İş yoksa `None`.
+
+    - Detay geldi → durum/son teklif güncellenir (iptal/sonuç → listeden düşer; hâlâ 202
+      ise görüldü sayılır ve listede kalır).
+    - EKAP "kayıt yok" dedi → durum NULL'lanır (açık sayılmaz), metin bırakılır.
+    - Geçici hata (pencere/bütçe/captcha) → kayıt kuyrukta KALIR, yükselir.
+    - Diğer hata → kayıt kuyruktan çıkar (sonsuza dek aynı kaydı denemesin), yükselir.
+    """
+    from .client import (
+        MobilButceError, MobilCaptchaError, MobilError, MobilSlotError, MobilYokError,
+    )
+
+    simdi = simdi or timezone.now()
+    cp = _cp()
+    kuyruk = list(cp.extra.get("dogrula") or [])
+    try:
+        tur_bas = datetime.fromisoformat(cp.extra.get("dogrula_bas") or "")
+    except ValueError:
+        tur_bas = None
+    while kuyruk:
+        dtn = kuyruk[0]
+        obj = DogrudanTemin.objects.filter(dtn=dtn).first()
+        # Tur bittikten sonra yoklama görmüşse ya da bu arada kapanmışsa artık şüpheli
+        # değildir → sorulmaz (istek harcanmaz).
+        if (obj is None or not obj.enc_id
+                or (tur_bas and obj.son_gorulme and obj.son_gorulme >= tur_bas)
+                or not DogrudanTemin.objects.filter(acik_q(simdi), pk=obj.pk).exists()):
+            kuyruk.pop(0)
+            continue
+        break
+    else:
+        cp.extra["dogrula"] = []
+        cp.save(update_fields=["extra", "updated_at"])
+        return None
+
+    def _yaz(kalan):
+        c = _cp()
+        c.extra["dogrula"] = kalan
+        c.save(update_fields=["extra", "updated_at"])
+
+    try:
+        ham = cli.dt_detay(obj.enc_id)
+    except (MobilSlotError, MobilButceError, MobilCaptchaError):
+        _yaz(kuyruk)
+        raise
+    except MobilYokError:
+        obj.durum = None
+        obj.durum_metin = (obj.durum_metin or "")[:100] + " · EKAP'ta bulunamadı"
+        obj.save(update_fields=["durum", "durum_metin", "updated_at"])
+        _yaz(kuyruk[1:])
+        return {"is": "dogrula", "istek": 1, "dtn": dtn, "sonuc": "yok", "yeni": []}
+    except MobilError:
+        _yaz(kuyruk[1:])
+        raise
+    detaydan_guncelle(obj, ham, simdi=simdi)
+    _yaz(kuyruk[1:])
+    return {"is": "dogrula", "istek": 1, "dtn": dtn, "sonuc": obj.durum_metin, "yeni": []}
 
 
 def temizle(simdi=None) -> int:

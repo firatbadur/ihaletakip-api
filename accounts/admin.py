@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import EpostaKodu, PushDevice, User
+from .models import EpostaGeriBildirim, EpostaKodu, PushDevice, User
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -237,6 +237,23 @@ class EpostaKoduAdmin(admin.ModelAdmin):
     fields = ["email", "amac", "son_gonderim", "gecerlilik", "deneme", "gonderim",
               "pencere_bas", "kullanildi_at", "created_at"]
     readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EpostaGeriBildirim)
+class EpostaGeriBildirimAdmin(admin.ModelAdmin):
+    """SES bounce/şikâyet kayıtları — "kullanıcıya mail gitmiyor" sorusunun ekranı."""
+
+    list_display = ["email", "tur", "alt_tur", "bulten_kapatildi", "created_at"]
+    list_filter = ["tur", "bulten_kapatildi"]
+    search_fields = ["email"]
+    readonly_fields = ["email", "tur", "alt_tur", "aciklama", "ses_mesaj_id",
+                       "bulten_kapatildi", "created_at"]
 
     def has_add_permission(self, request):
         return False

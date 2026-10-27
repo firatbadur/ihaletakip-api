@@ -355,3 +355,23 @@ def eposta_abonelik(request):
     return render(request, "eposta/abonelik.html", {
         "durum": durum, "email": user.email, "token": request.GET.get("t") or request.POST.get("t"),
     })
+
+
+@csrf_exempt
+def ses_bildirim(request):
+    """`POST /eposta/ses-bildirim/` — SES bounce/şikâyet bildirimi (SNS HTTPS aboneliği).
+
+    ⚠️ DRF DEĞİL: SNS gövdeyi `Content-Type: text/plain` ile yollar, DRF ayrıştırıcısı
+    415 verirdi. Kimlik = SNS imzası + izinli topic (bkz. `services/ses_sns.py`).
+    """
+    from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotAllowed
+
+    from .services.ses_sns import SnsHatasi, isle
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    try:
+        return HttpResponse(isle(request.body), content_type="text/plain")
+    except SnsHatasi as e:
+        logger.warning("SES/SNS isteği reddedildi: %s", e)
+        return HttpResponseForbidden("reddedildi")

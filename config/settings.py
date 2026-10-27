@@ -304,21 +304,24 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 # Google Sign-In (idToken audience'ları)
 GOOGLE_CLIENT_IDS = env.list("GOOGLE_CLIENT_IDS", default=[])
 
-# ── E-posta (Google Workspace SMTP) — kayıt + şifre sıfırlama kodları ─────
-# Gönderen hesap `noreply@ihaletakip.com`; şifre Workspace **uygulama şifresi**dir
-# (Google onu "abcd efgh …" diye boşluklu gösterir → boşluklar atılır).
+# ── E-posta (Amazon SES, SMTP arayüzü) — doğrulama kodları + günlük bülten ─────
+# Bölge eu-north-1 (Stockholm); kimlik = SES konsolunda üretilen **IAM SMTP**
+# kullanıcı adı/şifresi (IAM erişim anahtarının secret'ı DEĞİL — o SMTP'de reddedilir).
+# Gönderen adres SMTP kullanıcısından AYRIDIR → `DEFAULT_FROM_EMAIL`. Alan adı SES'te
+# doğrulanmış (DKIM) + özel MAIL FROM `mail.ihaletakip.com` (SPF hizalaması).
+# ⚠️ Google Workspace (2026-10-27'de ilk kurulum) bırakıldı; gelen posta hâlâ Google'da.
 # ⚠️ Şifre boşken üretimde backend yine SMTP'dir: gönderim kimlik hatasıyla DÜŞER ve uç
 # 503 döner. Konsola "gönderilmiş gibi" yazmak kullanıcıyı gelmeyecek bir kodu
 # beklemeye bırakırdı; yalnızca DEBUG'da şifresizken konsol kullanılır.
-EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="noreply@ihaletakip.com")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="").replace(" ", "")
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="").strip()
 EMAIL_BACKEND = env(
     "EMAIL_BACKEND",
     default=("django.core.mail.backends.console.EmailBackend"
              if DEBUG and not EMAIL_HOST_PASSWORD
              else "django.core.mail.backends.smtp.EmailBackend"),
 )
-EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_HOST = env("EMAIL_HOST", default="email-smtp.eu-north-1.amazonaws.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
@@ -328,10 +331,10 @@ EPOSTA_KOD_SURE_DK = env.int("EPOSTA_KOD_SURE_DK", default=10)
 EPOSTA_KOD_TEKRAR_SN = env.int("EPOSTA_KOD_TEKRAR_SN", default=60)
 EPOSTA_KOD_SAATLIK = env.int("EPOSTA_KOD_SAATLIK", default=5)
 EPOSTA_KOD_DENEME = env.int("EPOSTA_KOD_DENEME", default=5)
-# Workspace hesap başına ~2.000 alıcı/gün gönderir. ⚠️ İki tavanın TOPLAMI onun altında
-# kalmalı (500 + 1200): dağıtık bir kötüye kullanım ya da büyüyen bülten gönderen hesabı
-# kilitletirse doğrulama kodları da gitmez.
-EPOSTA_GUNLUK_TAVAN = env.int("EPOSTA_GUNLUK_TAVAN", default=500)
+# Günlük gönderim tavanları — SES hesap kotasının (sandbox 200/gün; üretim onayıyla
+# genelde 50.000/gün) ALTINDA kalmalı. ⚠️ Kod tavanı ayrı tutulur: dağıtık bir kötüye
+# kullanım ya da büyüyen bülten kotayı bitirirse doğrulama kodları da gitmezdi.
+EPOSTA_GUNLUK_TAVAN = env.int("EPOSTA_GUNLUK_TAVAN", default=1000)
 EPOSTA_SIFRE_TOKEN_SURE_SN = env.int("EPOSTA_SIFRE_TOKEN_SURE_SN", default=15 * 60)
 # IP bazlı sınır ezme: {"kod_gonder": [[600, 10]], "kod_dogrula": [...], "giris": [...]}
 EPOSTA_IP_ORANLARI = env.json("EPOSTA_IP_ORANLARI", default={})
@@ -343,7 +346,10 @@ EPOSTA_BULTEN_ENABLED = env.bool("EPOSTA_BULTEN_ENABLED", default=True)
 # Pencere (saat−24 sa, saat]; beat bu saatte + 15/30/45. dakikada koşar. ⚠️ Sabah
 # bildirimlerinden (08:00 filtre, 08:30 idare, 09:00 alarm + asistan) SONRA olmalı.
 EPOSTA_BULTEN_SAAT = env.int("EPOSTA_BULTEN_SAAT", default=10)
-EPOSTA_BULTEN_GUNLUK_TAVAN = env.int("EPOSTA_BULTEN_GUNLUK_TAVAN", default=1200)
+EPOSTA_BULTEN_GUNLUK_TAVAN = env.int("EPOSTA_BULTEN_GUNLUK_TAVAN", default=5000)
+# SES geri bildirimi (bounce/şikâyet) → SNS → `/eposta/ses-bildirim/`. Yalnızca bu
+# listedeki topic'lerden gelen, imzası doğrulanan mesajlar işlenir; boşsa uç KAPALI.
+SES_SNS_TOPIC_ARNS = env.list("SES_SNS_TOPIC_ARNS", default=[])
 # Tur süre bütçesi (< CELERY_TASK_TIME_LIMIT=300); kalan kullanıcılar sonraki tetikte.
 EPOSTA_BULTEN_MAX_SN = env.int("EPOSTA_BULTEN_MAX_SN", default=240)
 # E-postadaki bağlantıların tabanı (web portalı: /ihale/<yil-sayi>, /bildirimler, /hesabim).

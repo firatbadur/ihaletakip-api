@@ -290,3 +290,34 @@ class EpostaKodu(models.Model):
 
     def __str__(self):
         return f"{self.email} · {self.get_amac_display()}"
+
+
+class EpostaGeriBildirim(models.Model):
+    """SES'ten gelen bounce/şikâyet kaydı (`accounts/services/ses_sns.py`).
+
+    Destek "mail gelmiyor" sorusuna buradan bakar; kalıcı bounce ve şikâyet o adresin
+    günlük bültenini kapatır (`User.email_notifications=False`). ⚠️ Doğrulama kodları
+    yine denenir: kullanıcı posta kutusunu düzeltmiş olabilir — SES'in hesap düzeyi
+    bastırma listesi zaten sorunlu adrese gerçek gönderimi engeller.
+    """
+
+    class Tur(models.TextChoices):
+        BOUNCE = "bounce", "Geri döndü (kalıcı)"
+        GECICI = "gecici", "Geri döndü (geçici)"
+        SIKAYET = "sikayet", "Spam şikâyeti"
+
+    email = models.EmailField("e-posta", db_index=True)
+    tur = models.CharField("tür", max_length=10, choices=Tur.choices)
+    alt_tur = models.CharField("alt tür", max_length=64, blank=True)
+    aciklama = models.CharField("açıklama", max_length=500, blank=True)
+    ses_mesaj_id = models.CharField(max_length=128, blank=True)
+    bulten_kapatildi = models.BooleanField("bülten kapatıldı", default=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "E-posta Geri Bildirimi"
+        verbose_name_plural = "E-posta Geri Bildirimleri"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} · {self.get_tur_display()}"

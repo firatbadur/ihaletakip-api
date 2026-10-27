@@ -2,7 +2,7 @@
 E-posta doğrulama kodu — kayıt ve şifre sıfırlama.
 
 Akış: `kod_gonder()` 6 haneli kod üretir, özetini `EpostaKodu`'na yazar ve Google
-Workspace SMTP ile gönderir; `dogrula()` kodu kontrol edip TEK KULLANIMLIK tüketir.
+Amazon SES (SMTP) ile gönderir; `dogrula()` kodu kontrol edip TEK KULLANIMLIK tüketir.
 
 **Sınırlar** (hepsi her zaman UYGULANIR — `core/throttling.py`'nin gözlem modundan
 bağımsız; e-posta göndermek, kodu tahmin etmek ve şifre denemek gerçek maliyeti olan
@@ -10,7 +10,7 @@ işlemlerdir):
 - e-posta başına: yeniden gönderim beklemesi (`EPOSTA_KOD_TEKRAR_SN`), saatlik
   tavan (`EPOSTA_KOD_SAATLIK`), kod başına hatalı deneme (`EPOSTA_KOD_DENEME`);
 - IP başına: `EpostaIpThrottle` (kod gönderme / doğrulama / giriş ayrı kovalar);
-- küresel: günlük gönderim tavanı (`EPOSTA_GUNLUK_TAVAN`) — Workspace kotasını korur.
+- küresel: günlük gönderim tavanı (`EPOSTA_GUNLUK_TAVAN`) — SES kotasını korur.
 
 ⚠️ Hata gövdesi `{code, detail, ...}` (bkz. `EpostaHatasi`); istemciler `errors.code`'a
 bakar. Kodların listesi `docs/mobil-eposta-kayit.md`'de.

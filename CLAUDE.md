@@ -3083,10 +3083,30 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
 `email/register/start` → `email/register/verify` (201 token çifti, `created:true`) ·
 `password/reset/start` → `verify` (`reset_token`, 15 dk) → `confirm` (token çifti).
 
-- **Gönderim = Google Workspace SMTP** (`smtp.gmail.com:587`, `noreply@ihaletakip.com`,
-  **uygulama şifresi** → `.env.prod` `EMAIL_HOST_PASSWORD`). SPF/DKIM/DMARC kayıtları
-  alan adında var (ölçüldü). Şifre boşsa üretimde gönderim düşer → **503 `send_failed`**
-  (konsola "gönderilmiş gibi" yazmak bilinçli olarak yapılmadı).
+- **Gönderim = Amazon SES, SMTP arayüzü** (`email-smtp.eu-north-1.amazonaws.com:587`,
+  hesap 932617936970, bölge **eu-north-1**). Gönderen `İhale Takip <noreply@ihaletakip.com>`
+  (`DEFAULT_FROM_EMAIL`) — posta kutusu GEREKMEZ, SES'te doğrulanan şey alan adıdır
+  (DKIM). Özel MAIL FROM `mail.ihaletakip.com` (MX `feedback-smtp.eu-north-1.amazonses.com`
+  + SPF `include:amazonses.com`) → SPF/DKIM `ihaletakip.com` ile hizalı. Gelen posta
+  (MX) hâlâ Google'da. Kimlik: SES konsolu → SMTP settings → **IAM SMTP credentials**
+  (`AKIA…` + şifre → `.env.prod` `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD`).
+  ⚠️ "Mail Manager SMTP" (konsolun önerdiği) AYRI ve ücretli bir üründür, kullanılmaz;
+  IAM erişim anahtarının secret'ı da SMTP şifresi DEĞİLDİR.
+  ⚠️ 2026-10-27'de önce Google Workspace SMTP ile kuruldu, aynı gün SES'e geçildi.
+  Doğrulama: `success@simulator.amazonses.com`'a gerçek gönderim kabul edildi (SES posta
+  simülatörü — sandbox'ta da çalışır, itibarı etkilemez; test için bunu kullanın).
+  Şifre boşsa üretimde gönderim düşer → **503 `send_failed`** (konsola "gönderilmiş
+  gibi" yazmak bilinçli olarak yapılmadı).
+  ⚠️ **Sandbox**: üretim erişimi onaylanana kadar SES yalnızca doğrulanmış adreslere
+  ve günde 200 e-posta gönderir.
+- **Bounce/şikâyet** (`accounts/services/ses_sns.py`): SES → SNS → `POST
+  /eposta/ses-bildirim/` (DRF değil; SNS `text/plain` yollar). Kimlik = izinli topic
+  (`SES_SNS_TOPIC_ARNS`, **boşsa uç kapalı**) + SNS imzası (sertifika YALNIZCA
+  `https://sns.<bölge>.amazonaws.com/*.pem`'den; aksi hâlde saldırgan kendi sertifikasıyla
+  imzalardı — diş doğrulandı, 6 kontrol). Kalıcı bounce / şikâyet →
+  `email_notifications=False` + `EpostaGeriBildirim` satırı (admin); geçici bounce yalnız
+  kaydedilir. Abonelik onayı imzadan sonra otomatik. ⚠️ SES, bounce ~%5 / şikâyet ~%0,1
+  aşan hesabı askıya alır — bu uç kurulmadan bülten açılmamalı.
   ⚠️ `secrets.txt` git dışıdır (`.gitignore`); sır yalnızca `.env.prod`'da yaşamalı.
 - **`EpostaKodu`** `(email, amac)` başına tek satır; kod düz saklanmaz (HMAC özeti),
   bekleyen kaydın şifresi `make_password` özeti olarak `veri`'de durur ve hesap
@@ -3099,7 +3119,7 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
 - **Sınırlar HER ZAMAN uygulanır** (`EpostaIpThrottle`, `core/throttling.py`'nin gözlem
   modundan bağımsız): IP başına `kod_gonder` / `kod_dogrula` / **`giris`** (`LoginView`'a
   da eklendi — e-posta girişi artık açık), e-posta başına 60 sn bekleme + saatte 5 kod,
-  kod başına 5 deneme, küresel günlük tavan `EPOSTA_GUNLUK_TAVAN` (Workspace ~2.000/gün).
+  kod başına 5 deneme, küresel günlük tavan `EPOSTA_GUNLUK_TAVAN` (SES kotasının altında).
   ⚠️ Web için `PORTAL_KEY` ŞART — yoksa tüm web kullanıcıları tek IP kovasında.
 - ⚠️ **Şifre sıfırlama başlatma her zaman aynı 200'ü döner** (kayıtlı adres sızmasın);
   bekleme/tavan 429'u orada **sessizce yutulur**. Kayıtta ise `email_exists` açıkça döner
@@ -3112,7 +3132,7 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   `verification_required`) — mobil + web hiç çağırmıyordu (ölçüldü); açık kalsa doğrulama
   atlanırdı.
 - Admin → *E-posta Kodları* (salt okunur; satırı silmek o adresin sınırlarını sıfırlar).
-- Testler: `accounts/tests/test_eposta_kayit.py` (22).
+- Testler: `accounts/tests/test_eposta_kayit.py` (22), `accounts/tests/test_ses_sns.py` (12).
 
 ### Günlük e-posta bülteni + `email_notifications` (2026-10-27)
 
@@ -3132,8 +3152,8 @@ istemci notu `docs/eposta-bildirim.md`.
 - ⚠️ **Pencere takvimden** (`gün 10:00 − 24 sa, gün 10:00]`), `now`'dan değil: dört
   tetik aynı kümeyi görür. Kullanıcı başına `bulten:{uid}:{gün}` kilidi; gönderim düşerse
   kilit silinir (diş doğrulandı). Süre bütçesi `EPOSTA_BULTEN_MAX_SN`.
-- Tavanlar: kod `EPOSTA_GUNLUK_TAVAN` 500 + bülten `EPOSTA_BULTEN_GUNLUK_TAVAN` 1200 —
-  ⚠️ toplam Workspace'in ~2.000/gün sınırının altında kalmalı.
+- Tavanlar: kod `EPOSTA_GUNLUK_TAVAN` 1000 + bülten `EPOSTA_BULTEN_GUNLUK_TAVAN` 5000 —
+  ⚠️ toplam SES hesap kotasının (üretim onayı sonrası `Account dashboard`) altında kalmalı.
 - **Abonelikten çıkma**: `/eposta/abonelik/?t=<imza>` (DRF değil HTML, `csrf_exempt`) +
   `List-Unsubscribe` / `-Post` başlıkları (RFC 8058). ⚠️ **GET tercihi değiştirmez**
   (posta tarayıcıları linkleri açar), yalnızca POST.

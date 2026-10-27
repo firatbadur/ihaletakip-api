@@ -3135,9 +3135,13 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
 - Testler: `accounts/tests/test_eposta_kayit.py` (22), `accounts/tests/test_ses_sns.py` (12).
 - ✅ **ÜRETİMDE (2026-10-27, `fa939cb`)**: SES kimliği + `SES_SNS_TOPIC_ARNS`
   (`arn:aws:sns:eu-north-1:932617936970:ses-geri-bildirim`) `.env.prod`'da, sunucudan
-  simülatöre gönderim doğrulandı. **`EPOSTA_BULTEN_ENABLED=False`** (SNS aboneliği +
-  SES Feedback notifications bağlanıp web canlıya çıkınca açılacak). SES sandbox
-  onayı bekleniyor. `.env.prod` yedeği: `.env.prod.bak-20261027-eposta`.
+  simülatöre gönderim doğrulandı. SNS HTTPS aboneliği **Confirmed** (otomatik onay,
+  11:18) + SES identity Feedback notifications (Bounce + Complaint) → topic bağlandı;
+  uçtan uca doğrulandı: `bounce@` / `complaint@simulator.amazonses.com` → 3 sn içinde
+  `EpostaGeriBildirim` satırı. **`EPOSTA_BULTEN_ENABLED=False`** (web canlıya çıkınca
+  açılacak). SES sandbox onayı bekleniyor.
+  ⚠️ Test için yalnızca SES simülatör adreslerini kullanın — gerçek bir adrese bounce
+  ürettirmek hesabın bounce oranını bozar. `.env.prod` yedeği: `.env.prod.bak-20261027-eposta`.
 
 ### Günlük e-posta bülteni + `email_notifications` (2026-10-27)
 

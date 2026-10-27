@@ -1,0 +1,116 @@
+{
+ "liste_satiri": {
+  "id": "686ef598ea8b100bfd1cfab2813ec89407272eb8e9977b993a99eddf86a9ff8c",
+  "ihaleAdi": "8 CM KİLİTLİ PARKE TAŞI ALIMI",
+  "ihaleTip": "1",
+  "ihaleTipAciklama": "Mal",
+  "ikn": "2026/1865935",
+  "ihaleUsul": null,
+  "ihaleUsulAciklama": "İhale Usulü: Açık",
+  "ihaleUsuluAltMaddeAciklama": null,
+  "ihaleDurum": "3",
+  "ihaleDurumAciklama": "İhale Tekliflere Kapalı, Teklifler Değerlendiriliyor",
+  "idareAdi": "BÜYÜKORHAN BELEDİYE BAŞKANLIĞI",
+  "ihaleIlAdi": "BURSA",
+  "ihaleTarihSaat": "23.10.2026 16:00",
+  "dokumanSayisi": 0,
+  "dokumanListe": [],
+  "paylasButonuGosterilsinMi": true,
+  "dokumanButonuGosterilsinMi": true,
+  "dokumanIndirenlerGosterilsinMi": false,
+  "teknikSartnamesizDokumanIndirButonuGosterilsinMi": true,
+  "istisnaUsulAciklama": null,
+  "idareIdHash": "eca48ea0ef41367da4bc278d8f834111a4c7153b9947df339ea0940c4905480b.png"
+ },
+ "detay": {
+  "item": {
+   "id": "3deb42ace434bf6ea8cbc468da5b6eaa5649b046aa3d3753c371633ea19a4bb7",
+   "ikn": "2026/1865935",
+   "ihaleAdi": "8 CM KİLİTLİ PARKE TAŞI ALIMI",
+   "ihaleDurum": "3",
+   "eIhale": true,
+   "ihaleUsul": "1",
+   "ihaleKapsamAciklama": "4734 Kapsamında",
+   "idareAdi": "BÜYÜKORHAN BELEDİYE BAŞKANLIĞI",
+   "idareId": "7a4366fbdb8b22aa7ef1b7166534f1088c447e75b57bfcbe4c9ff21c54a2caf0",
+   "ihaleDetayDokumaniGorsunMu": true,
+   "dokumanIndirenlerGosterilsinMi": false,
+   "sikayetlerGosterilsinMi": false,
+   "teknikSartnamesizDokumanIndirButonuGosterilsinMi": true,
+   "paylasButonuGosterilsinMi": true,
+   "dokumanSayisi": 0,
+   "kismiIhale": false,
+   "ihaleOzellikList": [
+    {
+     "ihaleOzellik": "TENDER_DETAIL.E_IHALE"
+    },
+    {
+     "ihaleOzellik": "TENDER_DETAIL.MESLEKI_TEKNIK_YETERLIK"
+    }
+   ],
+   "ihaleBilgi": {
+    "ihaleId": "36ae228902e8694d8383e6bcedd9f07d0aaedd1fca21556ba96a2314a8fb811b",
+    "ihaleAdi": "8 CM KİLİTLİ PARKE TAŞI ALIMI",
+    "idareAdi": "BÜYÜKORHAN BELEDİYE BAŞKANLIĞI",
+    "idareId": "2807ed09c4fa3d592e721b0fad2e28e75b802cfb5db51a7fab03781c02bc4fa5",
+    "ikn": "2026/1865935",
+    "iknYil": "2026",
+    "iknSayi": "1865935",
+    "yasaKapsami4734": "1",
+    "ihaleKapsamAciklama": "TENDER_SEARCH.MAIN.PAGEITEM.TENDER_LEGALSCOPE_4734",
+    "ihaleTarihSaat": "23.10.2026 16:00",
+    "ihaleTipiAciklama": "Mal",
+    "ihaleUsulAciklama": "İhale Usulü: Açık",
+    "istisnaUsulAciklama": null,
+    "ihaleDurumAciklama": "İhale Tekliflere Kapalı, Teklifler Değerlendiriliyor",
+    "isinYapilacagiYer": "Malzemenin teslim yeri İdarenin göstereceği Mahallelerdeki cadde, Sokak, Stok sahaları ve Belediye depolarıdır ",
+    "ihaleYeri": "Büyükorhan Belediyesi toplantı salonu",
+    "itirazenSikayetBasvuruBedeli": "-",
+    "okas": "45432113 - Parke döşeme işleri",
+    "ihaleDurum": "3",
+    "iptalTarihi": null,
+    "iptalNedeni": null,
+    "iptalMadde": null,
+    "ihaleTarihSaatList": [
+     {
+      "ihaleTarihiEtiket": "DATASYNC.IHALE_TARIH_SAAT",
+      "ihaleTarihiEtiketDegeri": "23.10.2026 16:00"
+     }
+    ]
+   },
+   "ihtiyacKalemiOkasList": [
+    {
+     "adi": "Parke döşeme işleri",
+     "kodu": "45432113",
+     "koduAdi": "45432113 - Parke döşeme işleri"
+    }
+   ],
+   "ilanList": [
+    {
+     "ilanTip": "1",
+     "status": "6",
+     "ihaleId": "ecac00718b3393d14a5f8d6807816944c7b8724dad6accc680d8c5011c087f3e",
+     "baslik": "KİLİTLİ PARKE TAŞI  SATIN ALINACAKTIR",
+     "ilanTarihi": "2026-10-01T00:00:00",
+     "veriHtml": "<center xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><b>KİLİTLİ PARKE TAŞI  SATIN ALINACAKTIR</b></center><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><span class=\"idareBilgi\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">8 CM KİLİTLİ PARKE TAŞI ALIMI</span>\r\n    mal alımı 4734 sayılı Kamu İhale Kanununun  19 uncu maddesine göre açık ihale usulü ile ihale edilecektir.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /> İhaleye ilişkin ayrıntılı bilgiler aşağıda yer almaktadır:\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><table width=\"100%\" class=\"ilanTabloStil\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td width=\"220\"><b>İhale Kayıt Numarası (İKN)</b></td><td width=\"1%\"><b>:</b></td><td><b>2026/1865935</b></td></tr></table><table width=\"100%\" class=\"ilanTabloStil\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td colspan=\"3\"><span class=\"ilanBaslik\">1- İdarenin</span></td></tr><tr><td width=\"220\" valign=\"top\"><b>1.1. </b> Adı\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">BÜYÜKORHAN BELEDİYE BAŞKANLIĞI</span></td></tr><tr><td width=\"220\" valign=\"top\"><b>1.2.</b> Adresi\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">HOCAHASAN MAH. BELEDİYE MEYDAN BÜYÜKORHAN/BURSA</span></td></tr><tr><td width=\"220\" valign=\"top\"><b>1.3.</b> Telefon numarası\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">02248412142</span></td></tr><tr><td width=\"220\" style=\"text-align:left\" valign=\"top\"><b>1.4.</b> İhale dokümanının görülebileceği ve indirilebileceği internet sayfası\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td valign=\"top\">\r\n          https://ekap.kik.gov.tr/EKAP/\r\n        </td></tr></table><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><span class=\"ilanBaslik\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"> 2- İhalenin</span><table width=\"100%\" class=\"ilanTabloStil\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td width=\"220\" valign=\"top\" style=\"text-align:left\"><b>2.1.</b> Tarih ve Saati\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td valign=\"top\"><span class=\"idareBilgi\">23.10.2026 - 16:00</span></td></tr><tr><td valign=\"top\" style=\"text-align:left\"><b>2.2.</b> Yapılacağı (e-tekliflerin açılacağı) adres\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td valign=\"top\"><span class=\"idareBilgi\">Büyükorhan Belediyesi toplantı salonu</span></td></tr></table><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><span class=\"ilanBaslik\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"> 3- İhale konusu mal alımının</span><table width=\"100%\" class=\"ilanTabloStil\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td width=\"220\" valign=\"top\"><b>3.1. </b> Adı\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">8 CM KİLİTLİ PARKE TAŞI ALIMI</span></td></tr><tr><td width=\"220\" valign=\"top\"><b>3.2. </b> Niteliği, türü ve miktarı\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><div style=\"width:100%; overflow:auto; height:auto;\" class=\"divIlanOver\"><span class=\"idareBilgi\">11250 m2<br />Ayrıntılı bilgiye EKAP’ta yer alan ihale dokümanı içinde bulunan idari şartnameden ulaşılabilir.</span></div></td></tr><tr><td width=\"220\" valign=\"top\"><b>3.3.</b> Yapılacağı/teslim edileceği yer\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">Malzemenin teslim yeri İdarenin göstereceği Mahallelerdeki cadde,  Sokak,  Stok sahaları ve Belediye depolarıdır </span></td></tr><tr><td width=\"220\" valign=\"top\"><b>3.4.</b> Süresi/teslim tarihi\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">60 gün / 10.11.2026</span></td></tr><tr><td width=\"220\" valign=\"top\"><b>3.5.</b> İşe başlama tarihi\r\n        </td><td width=\"1%\" valign=\"top\">:</td><td><span class=\"idareBilgi\">Sözleşme imzalanmasına müteakip 3 gün içinde işe başlanacaktır</span></td></tr></table><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4- Katılım ve yeterlik kriterleri:</b><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.</b>  Katılım ve yeterlik kriterlerine ilişkin istekliler tarafından e-teklif kapsamında sunulması gereken bilgi ve belgelere aşağıda yer verilmiştir:\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.1.</b> Teklif mektubu.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">\r\n      4.1.2. Teklif vermeye yetkili olunduğunu gösteren bilgi ve belgeler:\r\n    </b><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.2.1.</b> Tüzel kişilerde; isteklilerin yönetimindeki görevliler ile ilgisine göre, ortaklar ve ortaklık oranlarına (halka arz edilen hisseler hariç)/üyelerine/kurucularına ilişkin bilgi ve belgeler.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.2.2.</b> Vekâleten ihaleye katılma halinde vekile ilişkin bilgi ve belgeler.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.3.</b>   Geçici teminat.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.4</b> İsteklinin iş ortaklığı olması halinde iş ortaklığı beyannamesi.\r\n      <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">4.1.5.</b> Yerli malı teklif edenler lehine fiyat avantajından yararlanmak isteyen istekliler tarafından sunulacak yerli malı belgesi\r\n      <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><table width=\"100%\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td><b>4.2. Ekonomik ve mali yeterliğe ilişkin bilgi ve belgeler ile bunların taşıması gereken kriterler:</b></td></tr><tr><td>Ekonomik ve mali yeterliğe ilişkin bilgi, belge veya kriter belirtilmemiştir.</td></tr></table><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><table width=\"100%\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><tr><td><b>4.3. Mesleki ve teknik yeterliğe ilişkin bilgi ve belgeler ile bunların taşıması gereken kriterler:</b></td></tr><tr><td><b>4.3.1   Kaliteye ilişkin belgelere ait bilgiler:\r\n            </b></td></tr><tr><td>\r\n               Türk Akreditasyon Kurumu tarafından akredite edilen belgelendirme kuruluşları veya Uluslararası Akreditasyon Forumu Karşılıklı Tanınma Antlaşmasında yer alan ulusal akreditasyon kurumlarınca akredite edilmiş belgelendirme kuruluşları tarafından düzenlenmesi zorunludur. İsteklilerden bu bilgilerin tevsik edilmesinin istenilmesi halinde, söz konusu belgelerin, bu belgelendirme kuruluşlarının, Uluslararası Akreditasyon Forumu Karşılıklı Tanınma Antlaşmasında yer alan ulusal akreditasyon kurumlarınca akredite edilmiş belgelendirme kuruluşu olduklarının ve bu kuruluşlarca düzenlenen belgelerin geçerliliğini sürdürdüğünün, Türk Akreditasyon Kurumundan alınacak bir yazı ile teyit edilmesi gerekir. İhale tarihi veya bu tarihten önceki bir yıl içinde alınan teyit yazıları geçerlidir. Ancak, Türk Akreditasyon Kurumu tarafından akredite edildiği duyurulan belgelendirme kuruluşları tarafından düzenlenen ve TÜRKAK Akreditasyon Markası taşıyan belge ve sertifikalar için Türk Akreditasyon Kurumundan teyit alınması zorunlu değildir. Bu belgelerin ihale tarihinde geçerli olması yeterlidir. İş ortaklıklarında, ortaklardan birinin istenilen belgeye ilişkin bilgiyi belirtmesi yeterlidir.\r\n              <br /><div style=\"width:100%; overflow:auto; height:auto;\" class=\"divIlanOver\"><br />Bu maddede istenen standarda ilişkin diğer belgelere ait bilgiler:\r\n                  <br /><span class=\"idareBilgi\">beton parke<br></span></div></td></tr><tr><td><b>4.3.2.</b> Numune sunulması istenmektedir.\r\n          </td></tr></table><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">5-</b> Ekonomik açıdan en avantajlı teklif\r\n    \r\n      sadece fiyat esasına göre belirlenecektir.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">6- </b>\r\n        İhaleye sadece yerli istekliler katılabilecektir.\r\n      <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">7-</b> İhaleye teklif verecek olanların, EKAP hesabına giriş yaparak ihale dokümanını indirmeleri zorunludur.\r\n\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">8-</b>Teklifler, EKAP üzerinden teklif mektubu ile ihaleye katılım belgesi ve diğer ekler kullanılarak hazırlanacak ve e-imza ile imzalanarak ihale tarih ve saatine kadar EKAP üzerinden gönderilecektir.\r\n\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">9-</b> İstekliler tekliflerini,\r\n    \r\n      her bir iş kaleminin miktarı ile bu iş kalemleri için teklif edilen birim fiyatların çarpımı sonucu bulunan toplam bedel üzerinden teklif birim fiyat şeklinde vereceklerdir. İhale sonucunda, üzerine ihale yapılan istekliyle birim fiyat sözleşme imzalanacaktır.<br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">10-</b>\r\n      Bu ihalede, işin tamamı için teklif verilecektir.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">11-</b> İstekliler teklif ettikleri bedelin %3’ünden az olmamak üzere kendi belirleyecekleri tutarda geçici teminat vereceklerdir.\r\n\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">12- </b>\r\n      Bu ihalede elektronik eksiltme yapılmayacaktır.\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">13-</b>\r\n    Verilen tekliflerin geçerlilik süresi, ihale tarihinden itibaren <span class=\"idareBilgi\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">60 (Altmış)</span> takvim günüdür.\r\n\r\n    <br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">14-</b> Konsorsiyum olarak ihaleye teklif\r\n    verilemez.<br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><b xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\">15- Diğer hususlar:</b><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><div style=\"width:100%; overflow:auto; height:auto;\" class=\"divIlanOver\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><br /><span>Teklif fiyatı ihale komisyonu tarafından aşırı düşük olarak tespit edilen isteklilerden Kanunun 38 inci maddesine göre açıklama istenecektir.</span></div><br xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\" /><div style=\"width:100%; overflow:auto; height:auto;\" class=\"divIlanOver\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:fn=\"http://www.w3.org/2005/xpath-functions\"><span class=\"idareBilgi\"></span></div>"
+    }
+   ],
+   "sozlesmeBilgiList": [],
+   "idare": {
+    "adi": "BÜYÜKORHAN BELEDİYE BAŞKANLIĞI",
+    "telefon": "02248412142",
+    "fax": "2248412003",
+    "ustIdare": "",
+    "enUstIdareAdi": "BELEDİYELER",
+    "il": {
+     "id": "265",
+     "adi": "BURSA"
+    },
+    "ilce": {
+     "id": "1161",
+     "ilceAdi": "BÜYÜKORHAN"
+    }
+   }
+  }
+ }
+}

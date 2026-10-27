@@ -433,6 +433,22 @@ def refresh_stale(batch=50, years=None, defer_detail=True):
         return {"refreshed": picked}
 
 
+@shared_task(name="ekap.tasks.v2_tazeleme")
+def v2_tazeleme():
+    """Durum odaklı v2 tazelemesi — çekmeli tek tüketici (bkz. `ekap/v2_tazeleme.py`).
+
+    ⚠️ `SyncRun` YAZILMAZ: 5 dk'da bir koşar (günde 288 satır olurdu); izleme sayaçlarla
+    (`v2_tazeleme.sayaclar`, `run_ingest --task tazeleme_durum`).
+    ⚠️ Kapı kapalıysa (doğrulama istenip çerez yok / durum öğrenilemedi) mobile DÜŞMEZ.
+    """
+    if not getattr(settings, "EKAP_V2_TAZELEME_ENABLED", False):
+        return {"atlandi": "kapali"}
+    if not _dogrulama_kapisi("v2_tazeleme"):
+        return {"atlandi": "dogrulama_yok"}
+    from . import v2_tazeleme as v2
+    return v2.kilitli_tur()
+
+
 # ── Lookup senkronları (haftalık) ──────────────────────
 @shared_task(name="ekap.tasks.sync_okas")
 def sync_okas():

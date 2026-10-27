@@ -172,6 +172,11 @@ def _tur_yap(cli, tur: int):
         return detay(detay_ikn, cli=cli)
     if throttle.butce_kalan() > rezerv and _kesif_yigini(olustur=True):
         return kesif_adimi(cli)
+    # ⚠️⚠️ Tazeleme kaynağı v2 seçildiyse (ELLE — otomatik geçiş yok, ürün kararı
+    # 2026-10-27) durum taraması / sonuç / tazeleme burada KOŞMAZ: işleri
+    # `ekap.v2_tazeleme`'de. Boşalan tik istek harcamaz (captcha riski düşer).
+    if getattr(settings, "EKAP_TAZELEME_KAYNAK", "mobil") == "v2":
+        return {"atlandi": "tazeleme_v2de"}
     # ⚠️⚠️ Sonuç ve tazeleme DÖNÜŞÜMLÜ. Eskiden tazeleme yalnızca sonuç sırası
     # BOŞKEN koşuyordu; sonuç sırası ise 252 bin arşiv kaydıyla hiç boşalmıyordu →
     # 2026-10-05'te ölçüldü: tazeleme haftalardır 0, teklif tarihi geçmiş 27.691

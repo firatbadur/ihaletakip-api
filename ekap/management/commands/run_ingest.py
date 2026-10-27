@@ -8,6 +8,8 @@ Kullanım:
     python manage.py run_ingest --task okas
     python manage.py run_ingest --task authorities
     python manage.py run_ingest --task detail --ekap-id 123456
+    python manage.py run_ingest --task tazeleme [--max-ihale N]   # v2 durum odaklı tur
+    python manage.py run_ingest --task tazeleme_durum              # bekleyen kademeler + sayaçlar
 """
 from django.core.management.base import BaseCommand, CommandError
 
@@ -20,7 +22,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--task", required=True,
-                            choices=["recent", "backfill", "okas", "authorities", "detail", "refresh"])
+                            choices=["recent", "backfill", "okas", "authorities", "detail", "refresh",
+                                     "tazeleme", "tazeleme_durum"])
+        parser.add_argument("--max-ihale", type=int, dest="max_ihale",
+                            help="tazeleme: bu kadar ihale işlenince dur")
         parser.add_argument("--pages", type=int, default=1)
         # ⚠️ `recent` penceresi vars. EKAP_RECENT_DAYS (3 gün). Toplama birkaç gün
         # durduysa (ör. EKAP imza şeması değişikliği) boşluk 3 günden uzundur ve
@@ -61,6 +66,16 @@ class Command(BaseCommand):
             res = tasks.sync_authorities()
         elif task == "refresh":
             res = tasks.refresh_stale(defer_detail=o["defer"])
+        elif task == "tazeleme":
+            # Kill switch'ten bağımsız elle tur (kapı yine uygulanır).
+            from ekap import v2_tazeleme
+            if not tasks._dogrulama_kapisi("v2_tazeleme"):
+                raise CommandError("v2 doğrulama kapısı kapalı (EKAP doğrulama istiyor ve çerez yok, "
+                                   "ya da durum öğrenilemedi).")
+            res = v2_tazeleme.kilitli_tur(max_ihale=o.get("max_ihale"))
+        elif task == "tazeleme_durum":
+            from ekap import v2_tazeleme
+            res = v2_tazeleme.durum_ozeti()
         elif task == "detail":
             if not o.get("ekap_id"):
                 raise CommandError("--ekap-id gerekli")

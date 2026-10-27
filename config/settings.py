@@ -526,6 +526,17 @@ EKAP_REFRESH_YEARS = env.int("EKAP_REFRESH_YEARS", default=1)
 # ama görev `SyncRun` = ok / 50 yazıp "tazeleme çalışıyor" yanılgısı veriyordu
 # (2026-10-05). Tazeleme mobil hatta (`ekap.mobil.tasks._sirada_tazeleme`).
 EKAP_V2_TAZELEME = env.bool("EKAP_V2_TAZELEME", default=False)
+# ── v2 durum odaklı tazeleme (`ekap/v2_tazeleme.py`, 2026-10-27) ──
+# Kill switch: çekmeli `ekap.tasks.v2_tazeleme` görevi. Açılmadan önce
+# `manage.py v2_tazeleme_deneme` ile kontrollü deneme (ürün kararı).
+EKAP_V2_TAZELEME_ENABLED = env.bool("EKAP_V2_TAZELEME_ENABLED", default=False)
+# "mobil" | "v2" — ELLE seçilir, otomatik geçiş YOK (ürün kararı). "v2" iken mobil tik
+# durum taraması / sonuç / tazeleme adımlarını koşmaz (yalnızca keşif + yeni ihale detayı).
+EKAP_TAZELEME_KAYNAK = env.str("EKAP_TAZELEME_KAYNAK", default="mobil")
+# Tur süre bütçesi (CELERY_TASK_TIME_LIMIT=300'ün altında) ve istekler arası asgari süre.
+# ⚠️ Aralık global v2 throttle'ından (EKAP_MIN_INTERVAL_MS) AYRI: o web istekleriyle ortak.
+EKAP_V2_TAZELEME_SURE = env.int("EKAP_V2_TAZELEME_SURE", default=240)
+EKAP_V2_TAZELEME_ARALIK_SN = env.float("EKAP_V2_TAZELEME_ARALIK_SN", default=3.0)
 # Mobil sonuç ilanı sırasının geriye bakış penceresi (gün) — arşiv v2'den toplandı.
 EKAP_MOBIL_SONUC_GERI_GUN = env.int("EKAP_MOBIL_SONUC_GERI_GUN", default=180)
 # Toplu durum taraması (`ekap/mobil/durum.py`): yakın bölge günlük, uzak bölge haftalık.
@@ -875,6 +886,7 @@ CELERY_TASK_ROUTES = {
     # ⚠️ Bu satırlar `ekap.tasks.*` joker'inden ÖNCE gelmeli.
     "ekap.tasks.sync_recent": {"queue": "ekap_oncelik"},
     "ekap.tasks.refresh_stale": {"queue": "ekap_oncelik"},
+    "ekap.tasks.v2_tazeleme": {"queue": "ekap_oncelik"},
     "ekap.tasks.sync_okas": {"queue": "ekap_oncelik"},
     "ekap.tasks.sync_authorities": {"queue": "ekap_oncelik"},
     # ⚠️ **Mobil API AYRI kuyrukta** (`ekap_mobil`, concurrency=1) ve joker'den ÖNCE.

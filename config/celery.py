@@ -283,6 +283,14 @@ app.conf.beat_schedule = {
         "task": "ekap.tasks.refresh_idare_id_set",
         "schedule": crontab(minute="*/10"),
     },
+    # Durum odaklı v2 tazelemesi (`ekap/v2_tazeleme.py`) — çekmeli tek tüketici, Redis
+    # kilidi + 240 sn bütçe. Kill switch `EKAP_V2_TAZELEME_ENABLED` (vars. kapalı).
+    # `expires`: kuyrukta bekleyen eski turlar EKAP'a art arda gitmesin.
+    "ekap-v2-tazeleme": {
+        "task": "ekap.tasks.v2_tazeleme",
+        "schedule": crontab(minute="*/5"),
+        "options": {"expires": 240},
+    },
     "ekap-sync-okas": {
         "task": "ekap.tasks.sync_okas",
         "schedule": crontab(hour=5, minute=0, day_of_week=1),

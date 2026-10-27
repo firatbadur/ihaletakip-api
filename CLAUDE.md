@@ -661,7 +661,32 @@ Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 koruman�
   `ekap-sync-authorities` beat'ten çıkarıldı, pano DETSIS'i uyarı değil "donduruldu" diye
   gösterir (`tasks.DONDURULAN_KATALOGLAR`). EKAP eski biçime dönerse ikisi geri alınır.
 - ✅ **OKAS elle güncellendi** (2026-10-27, 40 sn, 9.590 kod — Eylül'den beri yeni kod yok).
-Sıradaki: Faz 3 durum odaklı çekmeli `v2_tazeleme` görevi; Faz 4 açılış.
+
+✅ **Faz 3 — `ekap/v2_tazeleme.py` (kodda, KAPALI).** Seçim: teklif tarihi geçmiş +
+sonuçlanmamış + sözleşmesiz, ≤120 gün; sıra takipli → 2/NULL → 3 → 4; vade ≤30 gün 20 sa,
+30–120 gün 7 gün, takipli 20 sa. Sonuç toplama (5/15/20, ≤180 gün, sözleşmesiz,
+`sonuc_denendi_at` boş) tazelemeden SONRA, **bir kez**. Çekmeli görev `ekap.tasks.v2_tazeleme`
+(beat `*/5`, `ekap_oncelik`, Redis kilidi, 240 sn, istekler arası
+`EKAP_V2_TAZELEME_ARALIK_SN`=3), `SyncRun` yazmaz → sayaçlar + `run_ingest --task
+tazeleme_durum`. Kill switch `EKAP_V2_TAZELEME_ENABLED`; `EKAP_TAZELEME_KAYNAK=v2` (elle)
+mobil tikin durum/sonuç/tazeleme adımlarını kapatır.
+⚠️⚠️ **v2'nin yeni biçimi `uyarla()`'da karşılanır — gerçek yanıtla ölçüldü** (fixture
+`ekap/tests/fixtures/v2_detay_*.json`), eski kodla şunlar oluyordu: karma `idareId` sayısal
+`idare_id`'yi EZİYORDU; `enUstIdareKod`/`islemlerKuralSeti`/`tebligatAlanIstekliList` yok →
+bakanlık kodu, fiyat dışı unsur, istekli sayısı SİLİNİYORDU; kimliksiz ilanlar tek anahtara
+düşüp İhale İlanı kayboluyordu; sonuç ilanı sözleşmeye bağlanamadığı için yaklaşık maliyet
+okunmuyordu. → karma kimlik atılır, **koruyucu yazma** (`koruyucu=True`), ilan/sözleşmeye
+içerikten kararlı anahtar (`v2:i:` / `v2:s:`), sonuç ilanı ↔ sözleşme bağı (ünvan eşleşmesi;
+tek sözleşmede en yeni sonuç ilanı), mobilin aynı türdeki ilanı v2'ninkine yer bırakır.
+⚠️ Detay İKN'si istenenle eşleşmezse ASLA yazılmaz; saklı `v2_id` bayatsa İKN aramasıyla bir
+kez tazelenir. ⚠️ Sözleşme düzeyinde yaklaşık maliyet yalnızca "Sözleşmeye Esas Kısımlarının
+Yaklaşık Maliyeti" satırından okunur — kısımsız ihalelerin ilanında yok; mobilde de aynı
+(611 mobil sözleşmenin 215'inde indirim var), v2'ye özgü değil.
+Testler `ekap/tests/test_v2_tazeleme.py` (dişli: 8/8).
+**Açmadan önce kontrollü deneme (ürün kararı):** `manage.py v2_tazeleme_deneme --adet 100`
+— seçilen ihaleleri GERÇEKTEN tazeler, önce/sonra alan alan karşılaştırır (beklenen /
+dikkat / şüpheli: dolu→boş, kimlik/idare değişimi, çocuk sayısı düşüşü), mobil captcha
+sayacını raporlar, JSON rapor `/tmp/v2_deneme_*.json`. Temizse Faz 4, değilse vazgeçilir.
 
 Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
 

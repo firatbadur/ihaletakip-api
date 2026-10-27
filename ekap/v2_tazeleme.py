@@ -1,0 +1,334 @@
+"""
+İhale tazelemesi — EKAP **v2** üzerinden, durum odaklı (2026-10-27).
+
+⚠️ Neden v2: mobil tik hattı (2 dk'da 1 istek, ~720/gün) hafta içi yeni ihale detayı +
+keşifle doluyor; tazeleme 6/gün'e, sonuç ilanı 0'a inmişti (kuyruk 11.245). Ürün
+kararı: tazeleme YALNIZCA v2'de, mobile otomatik dönüş YOK (`EKAP_TAZELEME_KAYNAK`).
+
+Kural (ürün kararı):
+  • Tazelenen = teklif tarihi GEÇMİŞ ve SONUÇLANMAMIŞ ihale; sıra: takipli (kayıtlı +
+    alarm) → hâlâ "Katılıma Açık" (2/NULL) → "Teklif Değerlendirme" (3) → "Değerlendirme
+    Tamamlanmış" (4). Teklif tarihinden ≤30 gün → günlük, 30–120 gün → haftalık,
+    takipli → günlük. Açık ihale, sonuçlanmış/iptal ve >120 gün HİÇ tazelenmez.
+  • Sonuçlanmış (5/15/20) ihalenin sözleşme + sonuç ilanı verisi BİR KEZ çekilir
+    (`Tender.sonuc_denendi_at`), sonra bir daha dokunulmaz.
+
+⚠️⚠️ v2 yanıtı 2026-10-27'de ölçüldüğü hâliyle (fixture: `ekap/tests/fixtures/v2_detay_*`):
+  • İhale `id`'si 64 hex ve HER ÇAĞRIDA DEĞİŞİYOR (eskisi bir süre çalışıyor) →
+    `Tender.v2_id` = son görülen; detay olmazsa İKN aramasıyla tazelenip BİR KEZ tekrar.
+  • `idareId` 64 hex KARMA → yazılmaz (sayısal `idare_id` = DETSIS/favori idare anahtarı).
+  • `idare.enUstIdareKod`, `islemlerKuralSeti`, `tebligatAlanIstekliList`,
+    `ihaleIlansizMi` YOK → **koruyucu yazma** (`upsert_tender_detail(koruyucu=True)`):
+    olmayan anahtar dolu alanı silmez.
+  • İlanlarda `id` / `sozlesmeId`, sözleşmelerde `id` YOK → kimliksiz ilanlar tek
+    anahtara düşüp birbirini eziyor ve sonuç ilanı sözleşmeye bağlanamıyordu (yaklaşık
+    maliyet/indirim boş kalıyordu) → içerikten kararlı anahtar + bağlama (`uyarla`).
+  • Sözleşme `*Degeri` bedelleri "0.0"; doğru bedel metinde ("818,440.00 TRY") —
+    `sync` zaten `parse_money_value(0) → None` → metin sırasıyla doğru okuyor.
+
+⚠️ Çekmeli tek tüketici (fan-out YOK — 2026-08-11 arızası, 218 bin görev): görev turu
+sırayla işler, istekler arasında `EKAP_V2_TAZELEME_ARALIK_SN` bekler.
+"""
+import copy
+import hashlib
+import logging
+import time
+from datetime import timedelta
+
+from django.conf import settings
+from django.core.cache import cache
+from django.db import transaction
+from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, When
+from django.utils import timezone
+
+from .client import EkapDogrulamaError, EkapError, EkapV2Client
+from .constants import DURUM_SONUCLANMIS
+from .mobil.adapt import ILAN_ONEK as MOBIL_ILAN_ONEK
+from .models import Contract, Tender
+from .sync import _as_int, detay_govdesi, extract_list, upsert_tender_detail
+from .utils import normalize_tr
+
+logger = logging.getLogger("ihaletakip")
+
+ILAN_ONEK = "v2:i:"
+SOZLESME_ONEK = "v2:s:"
+SONUC_DURUMLARI = (5, 15, 20)          # sonuçlanmış ama iptal DEĞİL (6/10'da sonuç verisi yok)
+
+_ISARET = "ekap:v2:taz:"               # geçici hata / bulunamadı işareti (İKN başına)
+_ISARET_HATA_TTL = 6 * 3600
+_ISARET_YOK_TTL = 7 * 86400
+_KILIT = "ekap:v2:taz:kilit"
+_SAYAC = "ekap:v2:sayac:"
+SAYAC_ADLARI = ("tazeleme", "sonuc", "kimlik", "bulunamadi", "hata")
+_ART_ARDA_HATA_TAVANI = 5              # EKAP düştüyse turu boşuna yakma
+
+
+# ── Sayaçlar (günlük, Redis) ────────────────────────────
+def _say(ad, adet=1):
+    anahtar = f"{_SAYAC}{ad}:{timezone.localdate():%Y%m%d}"
+    try:
+        if not cache.add(anahtar, adet, timeout=2 * 86400):
+            cache.incr(anahtar, adet)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def sayaclar() -> dict:
+    gun = f"{timezone.localdate():%Y%m%d}"
+    return {ad: cache.get(f"{_SAYAC}{ad}:{gun}") or 0 for ad in SAYAC_ADLARI}
+
+
+# ── Uyarlayıcı ─────────────────────────────────────────
+def _karma_mi(deger) -> bool:
+    return deger not in (None, "") and not str(deger).isdigit()
+
+
+def _sozlesme_anahtari(s, idx):
+    ham = "|".join([normalize_tr(s.get("yukleniciAdi") or ""), str(s.get("sozlesmeTarih") or ""),
+                    str(s.get("sozlesmeBedeli") or "")]).strip("|") or f"konum{idx}"
+    return f"{SOZLESME_ONEK}{hashlib.sha1(ham.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _ilan_anahtari(i, idx):
+    ham = "|".join([str(i.get("ilanTip") or ""), str(i.get("ilanTarihi") or ""),
+                    i.get("baslik") or "", (i.get("veriHtml") or "")[:500]])
+    return f"{ILAN_ONEK}{_as_int(i.get('ilanTip')) or 0}:{hashlib.sha1(ham.encode('utf-8')).hexdigest()[:12]}"
+
+
+def uyarla(detail) -> dict:
+    """2026-10 v2 detay yanıtını `sync`'in beklediği şekle getirir (yeni sözlük döner)."""
+    item = copy.deepcopy(detay_govdesi(detail))
+    # 1) Karma kimlikler: `idareId` sayısal değilse yok sayılır → `upsert_tender_detail`
+    #    mevcut `idare_id`'yi korur. İhale `id`'si de karma ve çağrıdan çağrıya değişiyor.
+    item.pop("id", None)
+    for kap in (item, item.get("ihaleBilgi") or {}):
+        if _karma_mi(kap.get("idareId")):
+            kap.pop("idareId", None)
+    # 2) Sözleşmeler: içerikten kararlı anahtar. Boş liste → anahtar hiç verilmez:
+    #    koruyucu modda sözleşme tablosuna DOKUNULMAZ (boş liste satır silerdi).
+    sozlesmeler = item.get("sozlesmeBilgiList") or []
+    for idx, s in enumerate(sozlesmeler):
+        s["id"] = _sozlesme_anahtari(s, idx)
+    if not sozlesmeler:
+        item.pop("sozlesmeBilgiList", None)
+    # 3) İlanlar: içerikten kararlı anahtar (kimliksiz ilanlar tek anahtara düşüp
+    #    birbirini eziyordu). Sonuç ilanı (tip 4) → sözleşmeye bağ (`sozlesmeId`).
+    ilanlar = item.get("ilanList") or []
+    for idx, i in enumerate(ilanlar):
+        i["id"] = _ilan_anahtari(i, idx)
+    sonuc_ilanlari = [i for i in ilanlar if _as_int(i.get("ilanTip")) == 4]
+    for s in sozlesmeler:
+        ad = normalize_tr(s.get("yukleniciAdi") or "")[:30]
+        eslesen = [i for i in sonuc_ilanlari if ad and ad in normalize_tr(i.get("veriHtml") or "")]
+        if not eslesen and len(sozlesmeler) == 1 and sonuc_ilanlari:
+            # Tek sözleşme: ilan HTML'i ünvanı kısaltmış olabilir → en yeni sonuç ilanı.
+            eslesen = sorted(sonuc_ilanlari, key=lambda i: str(i.get("ilanTarihi") or ""))[-1:]
+        if eslesen:
+            eslesen[-1]["sozlesmeId"] = s["id"]
+    return {"item": item, "_kaynak": "v2"}
+
+
+# ── Aday seçimi ────────────────────────────────────────
+def _takip_edilen_iknler():
+    from .mobil.tasks import _takip_edilen_iknler as takip
+    return takip()
+
+
+def _isaretli(ikn) -> bool:
+    return bool(cache.get(f"{_ISARET}{ikn}"))
+
+
+def tazeleme_adaylari(simdi=None, takip=None):
+    """Vadesi gelmiş tazeleme adayları, öncelik sırasıyla (QuerySet, dilimlenmemiş)."""
+    simdi = simdi or timezone.now()
+    takip = _takip_edilen_iknler() if takip is None else takip
+    gun30, gun120 = simdi - timedelta(days=30), simdi - timedelta(days=120)
+    taze = simdi - timedelta(hours=20)
+    vade = (Q(detail_synced_at__isnull=True)
+            | Q(ihale_tarihi__gte=gun30, detail_synced_at__lt=taze)
+            | Q(detail_synced_at__lt=simdi - timedelta(days=7))
+            | Q(ikn__in=takip, detail_synced_at__lt=taze))
+    return (
+        Tender.objects.filter(ihale_tarihi__lte=simdi, ihale_tarihi__gte=gun120)
+        # ⚠️ `exclude(__in)` NULL'u KORUR (durumu bilinmeyen ihale tazelenir) — istenen.
+        .exclude(ihale_durum__in=DURUM_SONUCLANMIS)
+        # Sözleşmesi olan ihale tazelenmez: sözleşme tablosuna yalnızca sonuç toplama dokunur.
+        .exclude(Exists(Contract.objects.filter(tender=OuterRef("pk"))))
+        .filter(vade)
+        .annotate(oncelik=Case(
+            When(ikn__in=takip, then=0),
+            When(Q(ihale_durum__isnull=True) | Q(ihale_durum__in=(1, 2)), then=1),
+            When(ihale_durum=3, then=2),
+            default=3, output_field=IntegerField()))
+        .order_by("oncelik", F("detail_synced_at").asc(nulls_first=True), "pk")
+    )
+
+
+def sonuc_adaylari(simdi=None):
+    """Sözleşme verisi bir kez çekilecek sonuçlanmış ihaleler (yeniden eskiye)."""
+    simdi = simdi or timezone.now()
+    return (
+        Tender.objects.filter(ihale_durum__in=SONUC_DURUMLARI,
+                              ihale_tarihi__gte=simdi - timedelta(days=180),
+                              sonuc_denendi_at__isnull=True)
+        .exclude(Exists(Contract.objects.filter(tender=OuterRef("pk"))))
+        .order_by("-ihale_tarihi", "-pk")
+    )
+
+
+_ALANLAR = ("pk", "ikn", "ekap_id", "v2_id", "ihale_durum", "detail_synced_at")
+
+
+def _sonraki(simdi):
+    """`(tender, sonuc_mu)` — önce tazeleme, sonra sonuç toplama; işaretliler atlanır."""
+    for qs, sonuc_mu in ((tazeleme_adaylari(simdi), False), (sonuc_adaylari(simdi), True)):
+        for t in qs.only(*_ALANLAR)[:200]:
+            if not _isaretli(t.ikn):
+                return t, sonuc_mu
+    return None, None
+
+
+# ── Tek ihale ──────────────────────────────────────────
+class _Tempo:
+    """İstekler arası asgari süre (global v2 throttle'ından AYRI: web istekleri onu paylaşıyor)."""
+
+    def __init__(self, aralik):
+        self.aralik, self.son = aralik, None
+
+    def bekle(self):
+        if self.son is not None:
+            kalan = self.aralik - (time.monotonic() - self.son)
+            if kalan > 0:
+                time.sleep(kalan)
+        self.son = time.monotonic()
+
+
+def _kimlik_bul(cli, tempo, ikn):
+    yil, sayi = ikn.split("/")
+    tempo.bekle()
+    satirlar, _ = extract_list(cli.search(cli.build_search_body(iknYili=int(yil), iknSayi=int(sayi))))
+    _say("kimlik")
+    for s in satirlar:
+        if str(s.get("ikn")) == ikn and s.get("id"):
+            return str(s["id"])
+    return None
+
+
+def _detay_al(cli, tempo, tender):
+    """`(detail, v2_id)`; v2'de yoksa `(None, None)`. Saklı kimlik bayatsa BİR KEZ tazelenir."""
+    kimlik = tender.v2_id or None
+    for deneme in range(2):
+        if not kimlik:
+            kimlik = _kimlik_bul(cli, tempo, tender.ikn)
+            if not kimlik:
+                return None, None
+        tempo.bekle()
+        try:
+            detail = cli.get_detail(kimlik)
+        except EkapDogrulamaError:
+            raise
+        except EkapError:
+            if deneme == 0 and tender.v2_id:
+                kimlik = None
+                continue
+            raise
+        # ⚠️ Kimlik başka ihaleye ait çıkarsa ASLA yazma (başkasının verisi bu satıra düşerdi).
+        if str(detay_govdesi(detail).get("ikn") or "") == tender.ikn:
+            return detail, kimlik
+        kimlik = None
+    raise EkapError(f"v2 kimliği İKN ile eşleşmedi: {tender.ikn}")
+
+
+def isle(tender, sonuc_mu, cli=None, tempo=None, simdi=None):
+    """Tek ihaleyi v2'den tazeler. Döner: "tazeleme" | "sonuc" | "bulunamadi"."""
+    cli = cli or EkapV2Client()
+    tempo = tempo or _Tempo(0)
+    simdi = simdi or timezone.now()
+    detail, kimlik = _detay_al(cli, tempo, tender)
+    if detail is None:
+        cache.set(f"{_ISARET}{tender.ikn}", "yok", _ISARET_YOK_TTL)
+        _say("bulunamadi")
+        if sonuc_mu:
+            Tender.objects.filter(pk=tender.pk).update(sonuc_denendi_at=simdi)
+        return "bulunamadi"
+
+    govde = uyarla(detail)
+    ilan_tipleri = {_as_int(i.get("ilanTip")) for i in govde["item"].get("ilanList") or []}
+    with transaction.atomic():
+        t = upsert_tender_detail(tender.ekap_id, govde, koruyucu=True)
+        # v2 tam ilan listesini veriyor → mobilin aynı türden ilanı yerini v2'ninkine bırakır
+        # (bırakmazsa koruyucu mod budamadığı için İhale İlanı iki kez görünürdü).
+        if ilan_tipleri:
+            t.ilanlar.filter(ekap_ilan_id__startswith=MOBIL_ILAN_ONEK,
+                             ilan_tip__in=ilan_tipleri).delete()
+        guncel = {"detay_kaynak": "v2", "v2_id": kimlik}
+        if sonuc_mu:
+            guncel["sonuc_denendi_at"] = simdi
+        Tender.objects.filter(pk=t.pk).update(**guncel)
+    sonuc = "sonuc" if sonuc_mu else "tazeleme"
+    _say(sonuc)
+    return sonuc
+
+
+# ── Tur ────────────────────────────────────────────────
+def tur(max_sure=None, max_ihale=None):
+    """Bir çekmeli tur: süre bütçesi dolana kadar sıradaki ihaleyi işler."""
+    max_sure = max_sure or getattr(settings, "EKAP_V2_TAZELEME_SURE", 240)
+    tempo = _Tempo(getattr(settings, "EKAP_V2_TAZELEME_ARALIK_SN", 3))
+    cli = EkapV2Client()
+    bas, sonuclar, art_arda_hata = time.monotonic(), {}, 0
+    while time.monotonic() - bas < max_sure:
+        if max_ihale is not None and sum(sonuclar.values()) >= max_ihale:
+            break
+        simdi = timezone.now()
+        tender, sonuc_mu = _sonraki(simdi)
+        if tender is None:
+            sonuclar["is_yok"] = 1
+            break
+        try:
+            ne = isle(tender, sonuc_mu, cli=cli, tempo=tempo, simdi=simdi)
+            art_arda_hata = 0
+        except EkapDogrulamaError:
+            # Doğrulama geri açıldı / düştü → kapı bir sonraki turda durumu yeniden sorar.
+            sonuclar["dogrulama"] = 1
+            break
+        except Exception as e:                          # noqa: BLE001
+            logger.warning("v2 tazeleme hata %s: %s", tender.ikn, e)
+            cache.set(f"{_ISARET}{tender.ikn}", "hata", _ISARET_HATA_TTL)
+            _say("hata")
+            ne = "hata"
+            art_arda_hata += 1
+            if art_arda_hata >= _ART_ARDA_HATA_TAVANI:
+                sonuclar["art_arda_hata"] = 1
+                break
+        sonuclar[ne] = sonuclar.get(ne, 0) + 1
+    return sonuclar
+
+
+def kilitli_tur(**kw):
+    if not cache.add(_KILIT, "1", timeout=getattr(settings, "EKAP_V2_TAZELEME_SURE", 240) + 60):
+        return {"atlandi": "kilit"}
+    try:
+        return tur(**kw)
+    finally:
+        cache.delete(_KILIT)
+
+
+# ── Durum (run_ingest --task tazeleme_durum, pano) ─────
+def durum_ozeti(simdi=None) -> dict:
+    simdi = simdi or timezone.now()
+    adaylar = tazeleme_adaylari(simdi)
+    # ⚠️ `.order_by()` ŞART: sıralama alanları GROUP BY'a sızıp kademe başına tek satırı bölerdi.
+    kademe = dict(adaylar.order_by().values("oncelik").annotate(n=Count("pk"))
+                  .values_list("oncelik", "n"))
+    gun30 = simdi - timedelta(days=30)
+    yakin = (Tender.objects.filter(ihale_tarihi__lte=simdi, ihale_tarihi__gte=gun30)
+             .exclude(ihale_durum__in=DURUM_SONUCLANMIS))
+    return {
+        "bekleyen": {"takipli": kademe.get(0, 0), "katilima_acik": kademe.get(1, 0),
+                     "degerlendirme": kademe.get(2, 0), "tamamlanmis": kademe.get(3, 0)},
+        "sonuc_kuyrugu": sonuc_adaylari(simdi).count(),
+        "yakin_toplam": yakin.count(),
+        "yakin_24sa_taze": yakin.filter(detail_synced_at__gte=simdi - timedelta(hours=24)).count(),
+        "bugun": sayaclar(),
+    }

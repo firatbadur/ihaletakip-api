@@ -150,3 +150,22 @@ class IsHatlariTests(TestCase):
         yanit = self.client.get("/admin/")
         self.assertContains(yanit, "Veri toplama ve iş hatları")
         self.assertContains(yanit, "mobil API")
+
+    @override_settings(EKAP_MOBIL_ENABLED=True)
+    def test_kesif_detay_kuyrugu_DOLUYKEN_beklemesi_normaldir(self):
+        # 2026-10-28: pano keşfi SyncRun'dan okuyup "0 tur" diyordu; tik turları SyncRun
+        # yazmaz, iz checkpoint'tedir. Yeni tur ancak detay kuyruğu boşken başlar.
+        from datetime import timedelta
+        from ekap.models import SyncCheckpoint, Tender
+        son_tur = (timezone.now() - timedelta(hours=6)).isoformat()
+        SyncCheckpoint.objects.create(name="mobil_kesif", extra={"yigin": [], "son_tur": son_tur})
+        Tender.objects.create(ikn="2026/1", ekap_id="m1", ihale_tarihi=timezone.now())
+
+        def kesif():
+            hatlar = panel_metrikleri(force_refresh=True)["hatlar"]["hatlar"]
+            return next(h for h in hatlar if h["ad"] == "Yeni ihale keşfi")
+        k = kesif()
+        self.assertEqual(k["seviye"], "ok")
+        self.assertIn("detay kuyruğu (1)", k["not"])
+        Tender.objects.update(detail_synced_at=timezone.now())   # kuyruk boş, 6 sa tur yok
+        self.assertEqual(kesif()["seviye"], "uyari")

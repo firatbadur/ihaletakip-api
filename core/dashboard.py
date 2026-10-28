@@ -615,17 +615,38 @@ def _hesapla_hatlar() -> dict:
     mobil_acik = getattr(settings, "EKAP_MOBIL_ENABLED", False)
     captcha = mobil_captcha.bekliyor_mu()
     ab = butce.get("arka_plan") or {}
-    kes, son_kes = _syncrun_ozet("mobil_kesif", bas)
-    son_kes_hata = (SyncRun.objects.filter(task="mobil_kesif", status="error", started_at__gte=bas)
-                    .order_by("-started_at").values_list("note", flat=True).first() or "")
-    sv = ("kapali" if not mobil_acik else "hata" if captcha else
-          "uyari" if _yasli(son_kes, timedelta(hours=5), simdi) else "ok")
+    # ⚠️ Keşfin izi `SyncRun` DEĞİL: tik turları satır yazmaz (yalnızca elle tam tur
+    # yazar). Gerçek iz checkpoint'tir: `son_tur` = son turun başlangıcı, `updated_at` =
+    # son adım, `yigin` = turda kalan dilim. Yeni tur ancak detay kuyruğu BOŞKEN başlar
+    # (detay → ilan tarihi → bildirimler önce gelir) → kuyruk doluyken bekleme normaldir.
+    from datetime import datetime
+    from ekap.models import SyncCheckpoint
+    cp = SyncCheckpoint.objects.filter(name=mobil_tasks.CHECKPOINT).first()
+    extra = (cp.extra if cp and isinstance(cp.extra, dict) else {}) or {}
+    try:
+        son_tur = datetime.fromisoformat(extra["son_tur"]) if extra.get("son_tur") else None
+    except ValueError:
+        son_tur = None
+    yigin, son_kes = len(extra.get("yigin") or []), (cp.updated_at if cp else None)
+    borc = kuyruk["detay_borcu"]
+    if not mobil_acik:
+        sv, notu = "kapali", ""
+    elif captcha:
+        sv, notu = "hata", mobil_captcha.bekleyen_durum()
+    elif yigin:
+        sv, notu = "ok", f"tur sürüyor — {yigin} dilim kaldı"
+    elif borc:
+        sv, notu = ("uyari" if _yasli(son_tur, timedelta(hours=18), simdi) else "ok",
+                    f"detay kuyruğu ({borc}) bitince yeni tur başlar")
+    else:
+        sv, notu = ("uyari" if _yasli(son_tur, timedelta(hours=4), simdi) else "ok"), ""
     hatlar.append(_hat(
         "Yeni ihale keşfi", KAYNAK_MOBIL, sv,
-        f"{kes['tur']} tur · {m.get('kesif', 0)} istek · bütçe {ab.get('kullanilan', 0)}/{ab.get('tavan', 0)}",
-        son_kes, mobil_captcha.bekleyen_durum() if captcha else son_kes_hata[:160]))
+        f"{m.get('kesif', 0)} istek · son tur {timezone.localtime(son_tur):%d.%m %H:%M} başladı · "
+        f"bütçe {ab.get('kullanilan', 0)}/{ab.get('tavan', 0)}" if son_tur else
+        f"{m.get('kesif', 0)} istek · bütçe {ab.get('kullanilan', 0)}/{ab.get('tavan', 0)}",
+        son_kes, notu))
     son_detay = Tender.objects.filter(detay_kaynak="mobil").aggregate(m=Max("detail_synced_at"))["m"]
-    borc = kuyruk["detay_borcu"]
     sv = ("kapali" if not mobil_acik else "hata" if captcha else
           "uyari" if _yasli(son_detay, timedelta(hours=2), simdi) or borc > 300 else "ok")
     hatlar.append(_hat(
@@ -686,15 +707,18 @@ TTL_KUYRUK = 600
 
 def _hesapla_kuyruklar() -> dict:
     """Ağır sayımlar (10 dk önbellek): v2 bekleyenleri + detayı gelmemiş yeni ihaleler."""
+    from django.conf import settings
     from ekap import v2_tazeleme
     from ekap.models import Tender
     simdi = timezone.now()
     return {
         "v2_tazeleme": v2_tazeleme.tazeleme_adaylari(simdi).order_by().count(),
         "v2_sonuc": v2_tazeleme.sonuc_adaylari(simdi).order_by().count(),
-        # Kısmi indeks (0009) `detail_synced_at IS NULL`; pencere `created_at` indeksli.
-        "detay_borcu": Tender.objects.filter(detail_synced_at__isnull=True,
-                                             created_at__gte=simdi - timedelta(days=7)).count(),
+        # Mobilin kendi detay kuyruğu tanımı (`mobil.tasks._sirada_detay`); kısmi indeks 0009.
+        "detay_borcu": Tender.objects.filter(
+            detail_synced_at__isnull=True,
+            ihale_tarihi__gte=simdi - timedelta(days=getattr(settings, "EKAP_MOBIL_DETAY_GERI_GUN", 30)),
+        ).count(),
     }
 
 
@@ -708,7 +732,7 @@ def panel_metrikleri(*, force_refresh: bool = False) -> dict:
     diğerinin yeniden hesaplanmasına gerek kalmasın.
     """
     if force_refresh:
-        cache.delete_many([_K_OZET, _K_SERI, _K_EKAP, _K_HAT])
+        cache.delete_many([_K_OZET, _K_SERI, _K_EKAP, _K_HAT, _K_KUYRUK])
 
     ozet = cache.get_or_set(_K_OZET, _hesapla_ozet, TTL_HIZLI)
     seriler = cache.get_or_set(_K_SERI, _hesapla_seriler, TTL_SERI)

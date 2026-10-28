@@ -663,7 +663,7 @@ Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 koruman�
 - ✅ **OKAS elle güncellendi** (2026-10-27, 40 sn, 9.590 kod — Eylül'den beri yeni kod yok).
 
 ✅ **Faz 3 — `ekap/v2_tazeleme.py` (kodda, KAPALI).** Seçim: teklif tarihi geçmiş +
-sonuçlanmamış + sözleşmesiz, ≤120 gün; sıra takipli → 2/NULL → 3 → 4; vade ≤30 gün 20 sa,
+sonuçlanmamış + sözleşmesiz, ≤120 gün; sıra takipli → 2/NULL → 3 → 4; vade ≤30 gün 20 sa (durum 4: **3 gün**, 2026-10-28 ürün kararı — hız sınırı),
 30–120 gün 7 gün, takipli 20 sa. Sonuç toplama (5/15/20, ≤180 gün, sözleşmesiz,
 `sonuc_denendi_at` boş) tazelemeden SONRA, **bir kez**. Çekmeli görev `ekap.tasks.v2_tazeleme`
 (beat `*/5`, `ekap_oncelik`, Redis kilidi, 240 sn, istekler arası

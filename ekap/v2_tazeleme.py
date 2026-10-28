@@ -8,8 +8,8 @@ kararı: tazeleme YALNIZCA v2'de, mobile otomatik dönüş YOK (`EKAP_TAZELEME_K
 Kural (ürün kararı):
   • Tazelenen = teklif tarihi GEÇMİŞ ve SONUÇLANMAMIŞ ihale; sıra: takipli (kayıtlı +
     alarm) → hâlâ "Katılıma Açık" (2/NULL) → "Teklif Değerlendirme" (3) → "Değerlendirme
-    Tamamlanmış" (4). Teklif tarihinden ≤30 gün → günlük, 30–120 gün → haftalık,
-    takipli → günlük. Açık ihale, sonuçlanmış/iptal ve >120 gün HİÇ tazelenmez.
+    Tamamlanmış" (4). Teklif tarihinden ≤30 gün → günlük (durum 4: 3 günde bir),
+    30–120 gün → haftalık, takipli → günlük. Açık ihale, sonuçlanmış/iptal ve >120 gün HİÇ tazelenmez.
   • Sonuçlanmış (5/15/20) ihalenin sözleşme + sonuç ilanı verisi BİR KEZ çekilir
     (`Tender.sonuc_denendi_at`), sonra bir daha dokunulmaz.
 
@@ -242,8 +242,14 @@ def tazeleme_adaylari(simdi=None, takip=None):
     takip = _takip_edilen_iknler() if takip is None else takip
     gun30, gun120 = simdi - timedelta(days=30), simdi - timedelta(days=120)
     taze = simdi - timedelta(hours=20)
+    # ⚠️ Durum 4 ("Değerlendirme Tamamlanmış") ≤30 gün içinde de 3 GÜNDE BİR (ürün kararı
+    # 2026-10-28): EKAP v2 hız sınırı (429) günlük kapasiteyi ~6.900 isteğe indiriyor ve
+    # 0–30 gün kümesinin ~%55'i durum 4; sonuç ilanını beklerken her gün bakmak kuyruğu
+    # eritmeye yer bırakmıyordu. `~Q(ihale_durum=4)` NULL'u KORUR (bilinmeyen günlük).
+    uc_gun = simdi - timedelta(days=3)
     vade = (Q(v2_tazelendi_at__isnull=True)
-            | Q(ihale_tarihi__gte=gun30, v2_tazelendi_at__lt=taze)
+            | (Q(ihale_tarihi__gte=gun30, v2_tazelendi_at__lt=taze) & ~Q(ihale_durum=4))
+            | Q(ihale_tarihi__gte=gun30, ihale_durum=4, v2_tazelendi_at__lt=uc_gun)
             | Q(v2_tazelendi_at__lt=simdi - timedelta(days=7))
             | Q(ikn__in=takip, v2_tazelendi_at__lt=taze))
     return (

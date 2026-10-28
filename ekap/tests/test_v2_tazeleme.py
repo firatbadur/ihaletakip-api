@@ -195,7 +195,7 @@ class AdaySecimiTest(TestCase):
         return list(v2.tazeleme_adaylari(self.simdi).values_list("ikn", flat=True))
 
     def test_kapsam_ve_SIRA(self):
-        self._t("d4", 4, 5, 48)
+        self._t("d4", 4, 5, 96)                         # durum 4: 3 günde bir
         self._t("d3", 3, 5, 48)
         self._t("d2", 2, 5, 48)
         self._t("bilinmiyor", None, 5, 48)
@@ -217,7 +217,12 @@ class AdaySecimiTest(TestCase):
         self._t("yakin_bayat", 3, 5, 21)                 # ≤30 g, 21 sa önce → evet
         self._t("uzak_taze", 3, 60, 24 * 3)              # 30–120 g, 3 gün önce → daha değil
         self._t("uzak_bayat", 3, 60, 24 * 8)             # 30–120 g, 8 gün önce → evet
-        self.assertEqual(set(self._sira()), {"yakin_bayat", "uzak_bayat"})
+        # Durum 4: ≤30 günde de 3 günde bir (EKAP hız sınırı, ürün kararı 2026-10-28).
+        self._t("d4_2gun", 4, 5, 24 * 2)                 # → daha değil
+        self._t("d4_4gun", 4, 5, 24 * 4)                 # → evet
+        self._t("bilinmiyor_21sa", None, 5, 21)          # durum NULL günlük kalır → evet
+        self.assertEqual(set(self._sira()),
+                         {"yakin_bayat", "uzak_bayat", "d4_4gun", "bilinmiyor_21sa"})
 
     def test_sozlesmesi_olan_tazelenmez(self):
         t = self._t("sozlesmeli", 4, 5, 48)

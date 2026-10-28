@@ -52,8 +52,9 @@ from .constants import DURUM_IPTAL, DURUM_SONUCLANMIS
 from .mobil.constants import DURUM_ACIKLAMA
 from .mobil.adapt import ILAN_ONEK as MOBIL_ILAN_ONEK
 from .models import Contract, Tender
+from .sonuc_ilani import parse_sonuc_ilani
 from .sync import _as_int, detay_govdesi, extract_list, sync_contracts_from_raw
-from .utils import normalize_tr
+from .utils import normalize_tr, parse_money, parse_money_value, pick_money
 
 logger = logging.getLogger("ihaletakip")
 
@@ -122,16 +123,43 @@ def uyarla(detail) -> dict:
     ilanlar = item.get("ilanList") or []
     for idx, i in enumerate(ilanlar):
         i["id"] = _ilan_anahtari(i, idx)
-    sonuc_ilanlari = [i for i in ilanlar if _as_int(i.get("ilanTip")) == 4]
-    for s in sozlesmeler:
-        ad = normalize_tr(s.get("yukleniciAdi") or "")[:30]
-        eslesen = [i for i in sonuc_ilanlari if ad and ad in normalize_tr(i.get("veriHtml") or "")]
-        if not eslesen and len(sozlesmeler) == 1 and sonuc_ilanlari:
-            # Tek sözleşme: ilan HTML'i ünvanı kısaltmış olabilir → en yeni sonuç ilanı.
-            eslesen = sorted(sonuc_ilanlari, key=lambda i: str(i.get("ilanTarihi") or ""))[-1:]
-        if eslesen:
-            eslesen[-1]["sozlesmeId"] = s["id"]
+    _sonuc_ilanlarini_bagla(sozlesmeler, [i for i in ilanlar if _as_int(i.get("ilanTip")) == 4])
     return {"item": item, "_kaynak": "v2"}
+
+
+def _sonuc_ilanlarini_bagla(sozlesmeler, sonuc_ilanlari):
+    """Her sonuç ilanını (kısım başına bir tane) TEK sözleşmeye bağlar (`sozlesmeId`).
+
+    ⚠️ Önce BEDEL: aynı firma iki kısım alınca ünvan iki sözleşmede de geçer ve ünvana
+    bakan eşleşme ilanı yanlış kısma bağlıyordu (2. deneme, 2026/1747276: 1.892.160 TL'lik
+    ilan 1.728.640 TL'lik sözleşmeye). Sonra tek aday kalan ünvan; tek sözleşmede en yeni
+    ilan. Bir ilan iki sözleşmeye verilmez."""
+    if not sonuc_ilanlari:
+        return
+    bilgi = [(i, parse_sonuc_ilani(i.get("veriHtml") or ""),
+              normalize_tr(i.get("veriHtml") or "")) for i in sonuc_ilanlari]
+    bos = list(range(len(bilgi)))
+
+    def ver(s, aday):
+        if len(aday) == 1:
+            bos.remove(aday[0])
+            bilgi[aday[0]][0]["sozlesmeId"] = s["id"]
+            return True
+        return False
+
+    kalan = []
+    for s in sozlesmeler:
+        bedel = pick_money(parse_money_value(s.get("sozlesmeBedeliDegeri")),
+                           parse_money(s.get("sozlesmeBedeli")))
+        if not (bedel and ver(s, [k for k in bos if bilgi[k][1].get("sozlesme_bedeli") == bedel])):
+            kalan.append(s)
+    for s in kalan:
+        ad = normalize_tr(s.get("yukleniciAdi") or "")[:30]
+        ver(s, [k for k in bos if ad and ad in bilgi[k][2]])
+    if len(sozlesmeler) == 1 and not any(i.get("sozlesmeId") for i in sonuc_ilanlari):
+        # Tek sözleşme: ilan HTML'i ünvanı kısaltmış olabilir → en yeni sonuç ilanı.
+        sorted(sonuc_ilanlari, key=lambda i: str(i.get("ilanTarihi") or ""))[-1]["sozlesmeId"] = \
+            sozlesmeler[0]["id"]
 
 
 # ── Aday seçimi ────────────────────────────────────────

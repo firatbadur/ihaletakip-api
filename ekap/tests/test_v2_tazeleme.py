@@ -153,6 +153,21 @@ class UyarlaTest(TestCase):
     def test_bos_sozlesme_listesi_anahtariyla_birlikte_atilir(self):
         self.assertNotIn("sozlesmeBilgiList", v2.uyarla({"item": {"sozlesmeBilgiList": []}})["item"])
 
+    def test_ayni_firma_iki_kisim_ilan_BEDELE_gore_baglanir(self):
+        # 2. deneme (2026/1747276): ünvana bakan eşleşme ilanı yanlış kısma bağlamıştı.
+        d = _fixture("v2_detay_sonuclanmis.json")["detay"]["item"]
+        ilan = [i for i in d["ilanList"] if str(i.get("ilanTip")) == "4"][0]
+        s = d["sozlesmeBilgiList"][0]
+        ilan2 = dict(ilan, veriHtml=ilan["veriHtml"].replace("818.440,00", "900.000,00"),
+                     ilanTarihi="2026-10-25T00:00:00")
+        s2 = dict(s, sozlesmeBedeli="900,000.00 TRY", sozlesmeTarih="2026-10-26T00:00:00")
+        # İlan sırası bilerek ters: ünvan eşleşmesi ilk sözleşmeye son ilanı verirdi.
+        g = v2.uyarla({"item": {"ilanList": [ilan, ilan2], "sozlesmeBilgiList": [s2, s]}})["item"]
+        bag = {i["sozlesmeId"]: i["veriHtml"] for i in g["ilanList"]}
+        s2_id, s_id = (x["id"] for x in g["sozlesmeBilgiList"])
+        self.assertIn("900.000,00", bag[s2_id])
+        self.assertIn("818.440,00", bag[s_id])
+
     def test_durum_teklif_tarihi_gecmisse_GERIYE_yazilmaz(self):
         simdi = timezone.now()
         t = Tender(ihale_durum=3, ihale_tarihi=simdi - timedelta(days=5))

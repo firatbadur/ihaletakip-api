@@ -116,6 +116,8 @@ def uyarla(detail) -> dict:
     sozlesmeler = item.get("sozlesmeBilgiList") or []
     for idx, s in enumerate(sozlesmeler):
         s["id"] = _sozlesme_anahtari(s, idx)
+        # İndirim kararı için (`sync._kismi_ihale`); `Tender.kismi_ihale` kolonuna YAZILMAZ.
+        s.setdefault("kismiIhale", item.get("kismiIhale"))
     if not sozlesmeler:
         item.pop("sozlesmeBilgiList", None)
     # 3) İlanlar: içerikten kararlı anahtar (kimliksiz ilanlar tek anahtara düşüp

@@ -837,10 +837,16 @@ def sync_contracts_from_raw(
         if ilan is not None:
             parsed = parse_sonuc_ilani(ilan.veri_html)
             defaults["ekap_ilan_id"] = ilan.ekap_ilan_id[:64]
-            ym = parsed.get("kisim_yaklasik_maliyet")
+            ym, ym_kaynak = parsed.get("kisim_yaklasik_maliyet"), "sonuc_ilani"
+            # Kısımsız tek sözleşmede ilan kısım satırı taşımaz ama ihalenin maliyeti
+            # zaten bu sözleşmenin maliyetidir (bkz. `_kisimsiz_tek_sozlesme`).
+            if ym is None and _kisimsiz_tek_sozlesme(
+                cok_sozlesmeli, _kismi_ihale(tender, s)
+            ):
+                ym, ym_kaynak = parsed.get("yaklasik_maliyet"), YM_KAYNAK_IHALE
             if ym is not None:
                 defaults["yaklasik_maliyet_num"] = ym
-                defaults["yaklasik_maliyet_kaynak"] = "sonuc_ilani"
+                defaults["yaklasik_maliyet_kaynak"] = ym_kaynak
             for src, dst in (
                 ("yaklasik_maliyet", "tender_yaklasik_maliyet_num"),
                 ("teklif_sayisi", "teklif_sayisi"),
@@ -866,7 +872,9 @@ def sync_contracts_from_raw(
             # orana bakıp teklif fiyatı belirliyor.
             # ⚠️ `kisimYMGosterilsinMi` yalnızca mobil kaynaklı sentetik gövdede
             # bulunur (bkz. `ekap/mobil/adapt.py`); v2'de `None` → sezgi çalışır.
-            if _kisim_maliyeti_belirsiz(
+            # ⚠️ Kısım beyanı/sezgisi yalnızca KISIM satırından okunan değere uygulanır;
+            # `ihale_ym` yolunda değer zaten ihalenin toplamıdır ve meşrudur.
+            if ym_kaynak == "sonuc_ilani" and _kisim_maliyeti_belirsiz(
                 ym, parsed.get("yaklasik_maliyet"), cok_sozlesmeli,
                 beyan=s.get("kisimYMGosterilsinMi"),
             ):
@@ -992,6 +1000,39 @@ def _upsert_sections(contract, kisim_list, buda: bool = True) -> None:
         lambda key, vals: ContractSection(contract=contract, ekap_kisim_id=key, **vals),
         buda=buda,
     )
+
+
+YM_KAYNAK_IHALE = "ihale_ym"
+
+
+def _kismi_ihale(tender, sozlesme):
+    """İhale kısımlı mı: kolon biliniyorsa o, değilse kaynağın sözleşmeye taşıdığı
+    değer (v2 tazelemesi `kismiIhale`yi oraya koyar; kolona yazmaz). Bilinmiyorsa None."""
+    if tender.kismi_ihale is not None:
+        return tender.kismi_ihale
+    return sozlesme.get("kismiIhale")
+
+
+def _kisimsiz_tek_sozlesme(cok_sozlesmeli: bool, kismi_ihale) -> bool:
+    """
+    Sözleşmenin yaklaşık maliyeti = ihalenin yaklaşık maliyeti sayılabilir mi?
+
+    Kısımsız ihalenin Sonuç İlanı "Sözleşmeye Esas Kısımlarının Yaklaşık Maliyeti"
+    satırını TAŞIMAZ → kısım maliyeti hiç okunmuyor ve indirim oranı boş kalıyordu
+    (ölçüldü 2026-10-28: 2024+ tek sözleşmeli + sonuç ilanlı sözleşmelerin yalnızca
+    ~%3,5'inde indirim vardı). Oysa kısımsız ihalede ihale = tek sözleşme.
+    Üretim ölçümü (tek sözleşmeli, kısım YM yok, ihale YM var, 2024+):
+
+        kismi_ihale=False  136.281 satır · medyan indirim 0,114 · >%70: %1,7  ← meşru
+        kismi_ihale=True     1.593 satır · >%70: %22                         ← BOZUK
+                                         (yalnızca bir kısmın sözleşmesi imzalanmış)
+
+    ⚠️ Yalnızca kısımsız olduğu BİLİNEN ihale: `None` ("bilinmiyor") dışarıda kalır —
+    yanlış indirim, eksik indirimden kötüdür. "İlanda kısım satırı yok" tek başına
+    işaret DEĞİLDİR (kısımlı 1.593 satırın da satırı yoktu).
+    Ayrı fonksiyon: canlı senkron + `fix_kisimsiz_indirim` onarımı ortak kullanır.
+    """
+    return not cok_sozlesmeli and kismi_ihale is False
 
 
 def _kisim_maliyeti_belirsiz(kisim_ym, ihale_ym, cok_sozlesmeli: bool,

@@ -2799,7 +2799,32 @@ VE eşit** ise kısım maliyeti "bilinmiyor" sayılır → `yaklasik_maliyet_num
 DOĞRUdur, korunur. ⚠️ **Tek sözleşmeli ihalede eşitlik meşrudur, dokunulmaz.**
 
 Geçmiş satırlar: `python manage.py fix_indirim_orani [--dry-run]` (saf DB işi, `detail_raw`
-okumaz). Süpürme zamanla aynı işi yapar ama imleci geçtiği satırlara dönmez → tek seferlik
+okumaz).
+
+##### ⚠️⚠️ Kısımsız tek sözleşmede indirim HİÇ dolmuyordu (2026-10-28)
+
+Kısımsız ihalenin Sonuç İlanı "Sözleşmeye Esas Kısımlarının Yaklaşık Maliyeti" satırını
+**taşımaz** → `Contract.yaklasik_maliyet_num`/`indirim_orani` boş kalıyordu. Ölçüm: 2024+
+tek sözleşmeli + sonuç ilanlı sözleşmelerin yalnızca **~%3,5**'inde indirim vardı
+(2024: 63.384'ün 2.323'ü; mobil 396'nın 16'sı). v2'ye özgü DEĞİL, hep böyleydi.
+→ `sync._kisimsiz_tek_sozlesme`: ihalede **tek** sözleşme **ve** kısımsız olduğu
+**biliniyorsa** (`kismi_ihale=False`; kolon boşsa kaynağın sözleşmeye taşıdığı
+`kismiIhale` — v2 tazelemesi koyar, kolona yazmaz) sözleşme YM = ihale YM, kaynak
+**`ihale_ym`** (geri alınabilir). Ölçülen bant (aday 137.939):
+
+| | satır | medyan indirim | >%70 |
+|---|---|---|---|
+| `kismi_ihale=False` | 136.281 | 0,114 | **%1,7** ← meşru |
+| `kismi_ihale=True` | 1.593 | — | **%22** ← bozuk (yalnız bir kısmın sözleşmesi var) |
+
+⚠️ `None` ("bilinmiyor") dışarıda kalır; "ilanda kısım satırı yok" tek başına işaret
+DEĞİL (kısımlı 1.593 satırın da yoktu). ⚠️ Mobil kısım beyanı (`kisimYMGosterilsinMi`)
+yalnızca KISIM satırından okunan değere uygulanır, `ihale_ym` yolunu iptal etmez.
+Geçmiş: `python manage.py fix_kisimsiz_indirim [--dry-run] [--from-pk N]` (saf DB, PK
+parçalı, firma agregalarını yeniler). Testler `ekap/tests/test_kisimsiz_indirim.py`
+(dişli: kural gevşetilince 1, beyan koruması kaldırılınca 1 test kırılıyor).
+⚠️ Pazar panosu indirim kapısı (`MIN_INDIRIM_KAPSAM`) ve benchmark örneklemi bu
+onarımla büyür — `refresh_market_stats` gece kendiliğinden günceller. Süpürme zamanla aynı işi yapar ama imleci geçtiği satırlara dönmez → tek seferlik
 onarım gerekli.
 
 ⚠️ **Ders**: `indirim_orani` fiyat analizinin manşet sayısı ve kullanıcı buna bakıp teklif

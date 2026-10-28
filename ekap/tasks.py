@@ -598,7 +598,7 @@ def sync_contractors(
         # Bilhassa `list_raw` dışarıda kalmalı — `detail_raw` kadar büyük ve hiç
         # kullanılmıyor; arşiv taramasında okunan TOAST hacmini yarıya indirir.
         base = Tender.objects.filter(detail_raw__isnull=False).only(
-            "ikn", "detail_raw", "idare_id", "il_id", "ihale_tip"
+            "ikn", "detail_raw", "idare_id", "il_id", "ihale_tip", "kismi_ihale"
         )
         # ⚠️⚠️ **ARTIMLI SORGUNUN ASIL MALİYETİ "İŞ YOK"U KANITLAMAKTIR.**
         # Üretimde yaşandı (2026-09-14): borç SIFIRDI (%2 örneklemede 0 bayat satır) ama

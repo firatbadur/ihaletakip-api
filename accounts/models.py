@@ -102,6 +102,8 @@ class User(AbstractUser):
     # ── Abonelik ───────────────────────────────────────────
     # Premium (Pro) özellikler `is_premium` üzerinden kapılanır (bkz. accounts.premium).
     # Katman yalnızca admin/ödeme entegrasyonu tarafından değiştirilir; API'de read-only.
+    # ⚠️⚠️ İki alan ETKİN DEĞERDİR: tek yazarı `subscription.services.pro_hak.recompute_pro`
+    # (kaynak `subscription.ProGrant`: mağaza / web / admin). Doğrudan yazmayın.
     subscription_tier = models.CharField(
         "abonelik katmanı",
         max_length=10,

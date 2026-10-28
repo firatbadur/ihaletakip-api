@@ -15,6 +15,9 @@ class UserSerializer(serializers.ModelSerializer):
     # Abonelik durumu — mobil bunu okuyarak Pro özellikleri gösterir/gizler.
     # Katman salt okunurdur; API üzerinden değiştirilemez (admin/ödeme ile ayarlanır).
     is_premium = serializers.BooleanField(read_only=True)
+    # Etkin bitişi sağlayan kaynak: `store` (mağazadan yönetilir) · `iyzico` (web —
+    # "Süreyi uzat" + ödeme geçmişi) · `admin` · `null` (Pro değil). Web 6. not #15.5.
+    subscription_source = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -32,6 +35,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_premium",
             "subscription_tier",
             "subscription_expires_at",
+            "subscription_source",
             "age_range",
             "onboarding_status",
             "onboarding_completed_at",
@@ -50,6 +54,13 @@ class UserSerializer(serializers.ModelSerializer):
             "subscription_expires_at",
             "onboarding_completed_at",
         ]
+
+    def get_subscription_source(self, obj):
+        if not obj.is_premium:
+            return None
+        from subscription.services.pro_hak import etkin_hak
+
+        return etkin_hak(obj).source
 
     def update(self, instance, validated_data):
         # Tamamlanma anı sunucuda damgalanır (istemci saati güvenilmez).

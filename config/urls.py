@@ -24,6 +24,7 @@ api_v1 = [
     path("assistant/", include("assistant.urls")),
     path("ekap/", include("ekap.urls")),
     path("subscription/", include("subscription.urls")),
+    path("payments/", include("subscription.urls_odeme")),
     path("blog/", include("blog.urls")),
     path("", include("core.urls")),
 ]

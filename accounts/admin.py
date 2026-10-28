@@ -4,6 +4,8 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
+from subscription.admin import AdminProGrantInline, KaynakProGrantInline
+
 from .models import EpostaGeriBildirim, EpostaKodu, PushDevice, User
 
 
@@ -137,8 +139,10 @@ class UserAdmin(BaseUserAdmin):
                     "subscription_last_event",
                 ),
                 "description": (
-                    "Pro katman tüm premium özellikleri açar. Bitiş boşsa süresiz; "
-                    "doluysa o tarihten sonra otomatik Free'ye düşer.<br>"
+                    "Katman ve bitiş tüm Pro haklarından (mağaza + web + admin) "
+                    "HESAPLANIR, elle yazılmaz. Elle Pro vermek için sayfa sonundaki "
+                    "<b>Elle verilen Pro hakları</b>na satır ekleyin (bitiş boş = "
+                    "süresiz).<br>"
                     "İptal alanları RevenueCat webhook'undan yazılır (salt okunur): "
                     "iptal eden kullanıcı dönem sonuna kadar Pro kalır, bu yüzden "
                     "iptal katmandan değil bu alandan görülür."
@@ -148,8 +152,14 @@ class UserAdmin(BaseUserAdmin):
     )
 
 
+    # ⚠️ Katman + bitiş ETKİN DEĞERDİR (`subscription.services.pro_hak.recompute_pro`
+    # yazar) → elle düzenlenemez; elle Pro aşağıdaki "Elle verilen Pro hakları"ndan.
+    inlines = [AdminProGrantInline, KaynakProGrantInline]
+
     readonly_fields = [
         "email_verified_at",
+        "subscription_tier",
+        "subscription_expires_at",
         "subscription_cancelled_at",
         "subscription_cancel_reason",
         "subscription_period_type",
@@ -173,6 +183,12 @@ class UserAdmin(BaseUserAdmin):
                 return f"✖ İptal ({tur}) · {tarih} → {kalan}'e kadar erişim"
             return f"✖ İptal ({tur}) · {tarih} · erişim sürüyor"
         return f"✖ İptal ({tur}) · {tarih} · süresi doldu"
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        from subscription.services.pro_hak import recompute_pro
+
+        recompute_pro(form.instance)
 
     def get_queryset(self, request):
         # ⚠️ `fcm_token_status` satır başına cihaz okuyor → PREFETCH ŞART.

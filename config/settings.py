@@ -422,6 +422,27 @@ REVENUECAT_PROJECT_ID = env("REVENUECAT_PROJECT_ID", default="")
 REVENUECAT_ENTITLEMENT = env("REVENUECAT_ENTITLEMENT", default="pro")
 REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 
+# ── Web'den Pro satışı — iyzico Checkout Form (web 6. not, subscription/services/odeme.py)
+# "Pro — 1 yıl", tek seferlik ödeme (abonelik / otomatik yenileme / kart saklama YOK).
+# Kill switch varsayılan KAPALI: fiyat + anahtarlar + bu bayrak birlikte gerekli.
+WEB_SATIS_ENABLED = env.bool("WEB_SATIS_ENABLED", default=False)
+IYZICO_API_KEY = env("IYZICO_API_KEY", default="")
+IYZICO_SECRET_KEY = env("IYZICO_SECRET_KEY", default="")
+IYZICO_BASE_URL = env("IYZICO_BASE_URL", default="https://sandbox-api.iyzipay.com")
+IYZICO_CALLBACK_URL = env("IYZICO_CALLBACK_URL", default="https://ihaletakip.com/pro/odeme-donus")
+# Yanıt `signature` alanı biçimi sandbox'ta doğrulanana kadar uyuşmazlık yalnızca
+# loglanır; güven zaten iyzico'ya bizim attığımız TLS sorgusunda.
+IYZICO_YANIT_IMZA_ZORUNLU = env.bool("IYZICO_YANIT_IMZA_ZORUNLU", default=False)
+PRO_YEARLY_PRICE = env("PRO_YEARLY_PRICE", default="")  # KDV dahil TRY, ör. "2400.00"
+PRO_VAT_RATE = env.int("PRO_VAT_RATE", default=20)
+# Ödeme e-postasına eklenen işlem kaydındaki satıcı bilgisi (unvan/adres/iletişim).
+SATICI_BILGI = env.json("SATICI_BILGI", default={
+    "unvan": "", "adres": "", "iletisim": "destek@ihaletakip.com",
+})
+# e-Arşiv / e-Fatura entegratörü (muhasebeci seçecek). Boş → otomatik fatura kesilmez;
+# fatura PDF'i admin'den ödemeye yüklenir ve "Fatura hazır" e-postası oradan gider.
+FATURA_SAGLAYICI = env("FATURA_SAGLAYICI", default="")
+
 # ── Bildirim pacing (kullanıcıyı bombalamamak için) ────
 # Sessiz saatler: bu aralıkta (yerel saat) push atılmaz; uygulama-içi satır yine yazılır.
 # Varsayılan 22:00–07:00. Zamanlanmış görevler 07/09/10'da çalıştığı için normal akışı

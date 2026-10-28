@@ -13,6 +13,8 @@ from .views import (
     ProfileView,
     RegisterView,
 )
+from subscription.views_odeme import BillingProfileView
+
 from .views_eposta import (
     EmailRegisterStartView,
     EmailRegisterVerifyView,
@@ -38,4 +40,6 @@ urlpatterns = [
     path("preferences/", PreferencesView.as_view(), name="preferences"),
     path("fcm-token/", FCMTokenView.as_view(), name="fcm-token"),
     path("deactivate/", DeactivateView.as_view(), name="deactivate"),
+    # Web Pro satışı için fatura profili (web 6. not #16) — model `subscription` app'inde.
+    path("billing-profile/", BillingProfileView.as_view(), name="billing-profile"),
 ]

@@ -52,6 +52,16 @@ app.conf.beat_schedule = {
         "task": "subscription.tasks.send_trial_reminders",
         "schedule": crontab(minute=10),
     },
+    # Web Pro satışı (iyzico): dönüşü gelmeyen ödemelerin mutabakatı (15 dk) +
+    # web süre bitiş hatırlatması (günlük 10:40 — bülten dizisinden sonra).
+    "subscription-odeme-mutabakat": {
+        "task": "subscription.tasks.odeme_mutabakat",
+        "schedule": crontab(minute="*/15"),
+    },
+    "subscription-web-sure-hatirlat": {
+        "task": "subscription.tasks.web_sure_hatirlat",
+        "schedule": crontab(hour=10, minute=40),
+    },
     # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
     # İhale Asistanı: günlük öneri digest'i + push — **09:00, yalnızca Pro**.
     # ⚠️ 08:00 filtre özetinden SONRA koşmalı: adaylar o bildirimin bulduğu ihalelerdir

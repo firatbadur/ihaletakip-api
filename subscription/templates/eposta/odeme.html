@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{ baslik }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f6fa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d2733;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fa;padding:32px 16px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
+      <tr><td style="background:#003ea1;padding:20px 28px;">
+        <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.2px;">İhale Takip</span>
+      </td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 12px;font-size:18px;font-weight:700;">{{ baslik }}</p>
+        <p style="margin:0 0 12px;font-size:15px;">Merhaba {{ ad }},</p>
+        {% for p in paragraflar %}<p style="margin:0 0 14px;font-size:15px;line-height:1.5;">{{ p }}</p>{% endfor %}
+        {% if satirlar %}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;border-radius:10px;background:#eef5fc;">
+          {% for k, v in satirlar %}<tr>
+            <td style="padding:8px 14px;font-size:14px;color:#4a5866;">{{ k }}</td>
+            <td style="padding:8px 14px;font-size:14px;font-weight:600;text-align:right;">{{ v }}</td>
+          </tr>{% endfor %}
+        </table>
+        {% endif %}
+        {% if buton_url %}
+        <p style="margin:0 0 18px;"><a href="{{ buton_url }}" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#0074cb;color:#ffffff;font-weight:600;text-decoration:none;">{{ buton_metin }}</a></p>
+        {% endif %}
+        {% for n in notlar %}<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#4a5866;">{{ n }}</p>{% endfor %}
+      </td></tr>
+      <tr><td style="padding:16px 28px;border-top:1px solid #e6ebf1;font-size:12px;color:#8492a0;">
+        Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayın. · <a href="https://ihaletakip.com" style="color:#0074cb;text-decoration:none;">ihaletakip.com</a>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

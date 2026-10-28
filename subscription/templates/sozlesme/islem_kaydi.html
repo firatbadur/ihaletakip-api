@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="tr">
+<head><meta charset="utf-8"><title>{{ belge_adi }} — işlem kaydı #{{ odeme.pk }}</title></head>
+<body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d2733;max-width:720px;margin:24px auto;padding:0 16px;line-height:1.5;">
+{% comment %}
+⚠️⚠️ TASLAK — HUKUKÇU ONAYLI METİN DEĞİLDİR. Bu belge yalnızca işlemin olgularını
+(taraflar, hizmet, bedel, onayların zamanı ve sürümü) kayda geçirir. Onaylanan tam metin
+`consent_version` ile web'de sürümlenir; hukukçu onayından sonra ilgili sürümün metni bu
+şablona (ya da `sozlesme/<sürüm>/` altına) konmalıdır. Bkz. CLAUDE.md "Web'den Pro satışı".
+{% endcomment %}
+<h1 style="font-size:20px;">{{ belge_adi }}</h1>
+<p>Onaylanan metin sürümü: <strong>{{ odeme.consents.version }}</strong> ·
+onay zamanı: {{ onay_zamani }} · IP: {{ odeme.consents.ip }}</p>
+<h2 style="font-size:16px;">Satıcı</h2>
+<p>{{ satici.unvan }}<br>{{ satici.adres }}<br>{{ satici.iletisim }}</p>
+<h2 style="font-size:16px;">Alıcı</h2>
+<p>{% if fatura.type == "kurumsal" %}{{ fatura.company_name }} (VKN {{ fatura.tax_number }}, {{ fatura.tax_office }})<br>Yetkili: {{ fatura.full_name }}{% else %}{{ fatura.full_name }}{% endif %}<br>
+{{ fatura.address }}{% if fatura.district %}, {{ fatura.district }}{% endif %} / {{ fatura.city }}<br>
+{{ eposta }} · {{ fatura.phone }}</p>
+<h2 style="font-size:16px;">Hizmet ve bedel</h2>
+<p>İhale Takip Pro — {{ odeme.months }} ay, tek seferlik ödeme (otomatik yenileme yoktur).<br>
+Toplam bedel: <strong>{{ tutar }} TL</strong> (KDV %{{ odeme.vat_rate }} dahil).<br>
+Hizmet süresi: {{ donem }}.</p>
+<h2 style="font-size:16px;">Cayma hakkı</h2>
+<p>Hizmet, ödemenin onaylandığı anda ifa edilen dijital içerik/hizmettir. Alıcı, satın
+alma sırasında ayrı bir onayla cayma hakkının bu hizmet için kullanılamayacağını kabul
+etmiştir (Mesafeli Sözleşmeler Yönetmeliği m.15/1-ğ,h).</p>
+</body>
+</html>

@@ -789,6 +789,71 @@
               }
             }
           }
+        },
+        {
+          "name": "Fatura profili",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/billing-profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "billing-profile",
+                ""
+              ]
+            },
+            "description": "Kullanıcının fatura profili (web'den Pro satın alma için zorunlu). Yoksa `data: null`.\n\n`PUT` tam profili yazar (upsert). `type=bireysel` → `full_name` + 11 haneli `identity_number` (TCKN sağlama algoritmasıyla doğrulanır). `type=kurumsal` → `company_name` + `tax_office` + 10 haneli `tax_number`; `full_name` yetkili adıdır ve kurumsal profilde TCKN **tutulmaz**. Telefon `+90…` biçimine normallenir.\n\nDoğrulama hataları **400** + `errors.<alan>` (liste). ⚠️ KVKK: TCKN/VKN maskelenmeden yalnızca sahibine döner, loglara yazılmaz.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Fatura profili",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/billing-profile/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "billing-profile",
+                ""
+              ]
+            },
+            "description": "Kullanıcının fatura profili (web'den Pro satın alma için zorunlu). Yoksa `data: null`.\n\n`PUT` tam profili yazar (upsert). `type=bireysel` → `full_name` + 11 haneli `identity_number` (TCKN sağlama algoritmasıyla doğrulanır). `type=kurumsal` → `company_name` + `tax_office` + 10 haneli `tax_number`; `full_name` yetkili adıdır ve kurumsal profilde TCKN **tutulmaz**. Telefon `+90…` biçimine normallenir.\n\nDoğrulama hataları **400** + `errors.<alan>` (liste). ⚠️ KVKK: TCKN/VKN maskelenmeden yalnızca sahibine döner, loglara yazılmaz.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"kurumsal\",\n  \"full_name\": \"Ayşe Yılmaz\",\n  \"company_name\": \"Örnek İnşaat Ltd. Şti.\",\n  \"tax_office\": \"Kadıköy\",\n  \"tax_number\": \"1234567890\",\n  \"identity_number\": \"\",\n  \"address\": \"Caferağa Mah. Moda Cad. No:1\",\n  \"district\": \"Kadıköy\",\n  \"city\": \"İstanbul\",\n  \"phone\": \"+905321234567\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ],
       "description": "Kayıt, giriş, sosyal giriş, token yenileme ve çıkış.\n\n**Önce `Giriş yap` isteğini çalıştırın** — `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik dolar, diğer tüm klasörler bunları kullanır."
@@ -4736,6 +4801,215 @@
               ]
             },
             "description": "Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "item": [
+        {
+          "name": "Web ödemelerim",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                ""
+              ]
+            },
+            "description": "Kullanıcının web ödemeleri (yeniden eskiye). Yarıda bırakılan (`pending`) denemeler listelenmez. `pro_from`/`pro_until` o ödemenin açtığı dönemdir.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Web Pro planı",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/plan/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "plan",
+                ""
+              ]
+            },
+            "description": "Web'de satılan tek plan: **Pro — 1 yıl**, tek seferlik ödeme (abonelik / otomatik yenileme yok). `amount` KDV dahil TRY (string). `available=false` → satış kapalı (`WEB_SATIS_ENABLED`/fiyat/iyzico anahtarı yok); web satın al düğmesini göstermemeli. Token istemez, web önbelleğe alabilir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Ödemeyi başlat (iyzico Checkout Form)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/checkout/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "checkout",
+                ""
+              ]
+            },
+            "description": "Bekleyen bir ödeme açar ve iyzico ödeme sayfası adresini döner; web kullanıcıyı oraya yönlendirir. Tek çekim, taksitsiz, 3D Secure.\n\nÜç onay da `true` olmalı + `consent_version` (onaylanan metin sürümü) zorunlu → aksi hâlde **400** `consents_required`. Fatura profili yoksa / eksikse **400** `billing_profile_required`. Satış kapalıysa **503** `sales_closed`, iyzico hatasında **502** `payment_provider_error`. `buyer.ip` = `X-IT-Client-IP` (portal anahtarıyla). Kullanıcı başına saatte 10 istek.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"consents\": {\n    \"on_bilgilendirme\": true,\n    \"mesafeli_satis\": true,\n    \"cayma_istisnasi\": true\n  },\n  \"consent_version\": \"2026-10-28\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Ödeme dönüşünü tamamla",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/checkout/complete/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "checkout",
+                "complete",
+                ""
+              ]
+            },
+            "description": "iyzico ödeme sonunda tarayıcıyı web'in `callbackUrl`'ine **çapraz site POST** ile gönderir (oturum çerezi gelmez) → web gelen `token`'ı buraya iletir. **JWT istemez**; yalnızca doğru `X-IT-Portal-Key` ile kabul edilir (yoksa **403**). Güven iyzico'ya bizim yaptığımız sorgudadır: token iyzico'dan sorgulanır, `conversationId`, tutar ve para birimi doğrulanır.\n\n**İdempotent**: aynı token ikinci kez gelirse aynı sonuç döner, ikinci hak açılmaz. Pro'yken alınan ikinci yıl mevcut web süresinin **üstüne eklenir**.\n\n`status`: `success` (+ `pro_until`) · `failure` (`message` kullanıcıya gösterilebilir) · `pending` (iyzico henüz karar vermedi; mutabakat 15 dk içinde kapatır). Bilinmeyen/sahte token → `failure` (404 değil).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"a1b2c3d4-…\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Fatura PDF'i",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/:id/invoice/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                ":id",
+                "invoice",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Ödemenin faturası (`application/pdf`), yalnızca sahibine. Fatura henüz kesilmediyse **404** `invoice_not_ready`. Web bunu kendi vekilinden indirir (API adresi HTML'e yazılmaz).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Fesih talebi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/:id/cancel-request/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                ":id",
+                "cancel-request",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "**İade yoktur** (dijital hizmet anında ifa edilir; satın almada cayma hakkı istisnası onaylanır). Talep kaydedilir, Pro **süre sonuna kadar açık kalır** (otomatik yenileme zaten yok) ve onay e-postası gider. Tekrar çağrı aynı cevabı döner. Yalnızca başarılı ödemede; aksi **400** `not_cancellable`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         }
       ]

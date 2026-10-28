@@ -764,84 +764,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecommendationSeen'
           description: ''
-  /api/v1/auth/billing-profile/:
-    get:
-      operationId: api_v1_auth_billing_profile_retrieve
-      description: 'Kullanıcının fatura profili (web''den Pro satın alma için zorunlu).
-        Yoksa `data: null`.
-
-
-        `PUT` tam profili yazar (upsert). `type=bireysel` → `full_name` + 11 haneli
-        `identity_number` (TCKN sağlama algoritmasıyla doğrulanır). `type=kurumsal`
-        → `company_name` + `tax_office` + 10 haneli `tax_number`; `full_name` yetkili
-        adıdır ve kurumsal profilde TCKN **tutulmaz**. Telefon `+90…` biçimine normallenir.
-
-
-        Doğrulama hataları **400** + `errors.<alan>` (liste). ⚠️ KVKK: TCKN/VKN maskelenmeden
-        yalnızca sahibine döner, loglara yazılmaz.'
-      summary: Fatura profili
-      tags:
-      - payments
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BillingProfile'
-          description: ''
-    put:
-      operationId: api_v1_auth_billing_profile_update
-      description: 'Kullanıcının fatura profili (web''den Pro satın alma için zorunlu).
-        Yoksa `data: null`.
-
-
-        `PUT` tam profili yazar (upsert). `type=bireysel` → `full_name` + 11 haneli
-        `identity_number` (TCKN sağlama algoritmasıyla doğrulanır). `type=kurumsal`
-        → `company_name` + `tax_office` + 10 haneli `tax_number`; `full_name` yetkili
-        adıdır ve kurumsal profilde TCKN **tutulmaz**. Telefon `+90…` biçimine normallenir.
-
-
-        Doğrulama hataları **400** + `errors.<alan>` (liste). ⚠️ KVKK: TCKN/VKN maskelenmeden
-        yalnızca sahibine döner, loglara yazılmaz.'
-      summary: Fatura profili
-      tags:
-      - payments
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BillingProfile'
-            examples:
-              Kurumsal:
-                value:
-                  type: kurumsal
-                  full_name: Ayşe Yılmaz
-                  company_name: Örnek İnşaat Ltd. Şti.
-                  tax_office: Kadıköy
-                  tax_number: '1234567890'
-                  identity_number: ''
-                  address: Caferağa Mah. Moda Cad. No:1
-                  district: Kadıköy
-                  city: İstanbul
-                  phone: '+905321234567'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/BillingProfile'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/BillingProfile'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BillingProfile'
-          description: ''
   /api/v1/auth/deactivate/:
     post:
       operationId: api_v1_auth_deactivate_create
@@ -4124,196 +4046,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/UnreadCount'
           description: ''
-  /api/v1/payments/:
-    get:
-      operationId: api_v1_payments_list
-      description: Kullanıcının web ödemeleri (yeniden eskiye). Yarıda bırakılan (`pending`)
-        denemeler listelenmez. `pro_from`/`pro_until` o ödemenin açtığı dönemdir.
-      summary: Web ödemelerim
-      tags:
-      - payments
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PaymentList'
-          description: ''
-  /api/v1/payments/{id}/cancel-request/:
-    post:
-      operationId: api_v1_payments_cancel_request_create
-      description: '**İade yoktur** (dijital hizmet anında ifa edilir; satın almada
-        cayma hakkı istisnası onaylanır). Talep kaydedilir, Pro **süre sonuna kadar
-        açık kalır** (otomatik yenileme zaten yok) ve onay e-postası gider. Tekrar
-        çağrı aynı cevabı döner. Yalnızca başarılı ödemede; aksi **400** `not_cancellable`.'
-      summary: Fesih talebi
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - payments
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CancelRequested'
-          description: ''
-  /api/v1/payments/{id}/invoice/:
-    get:
-      operationId: api_v1_payments_invoice_retrieve
-      description: Ödemenin faturası (`application/pdf`), yalnızca sahibine. Fatura
-        henüz kesilmediyse **404** `invoice_not_ready`. Web bunu kendi vekilinden
-        indirir (API adresi HTML'e yazılmaz).
-      summary: Fatura PDF'i
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - payments
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/pdf:
-              schema:
-                type: string
-                format: binary
-          description: ''
-  /api/v1/payments/checkout/:
-    post:
-      operationId: api_v1_payments_checkout_create
-      description: 'Bekleyen bir ödeme açar ve iyzico ödeme sayfası adresini döner;
-        web kullanıcıyı oraya yönlendirir. Tek çekim, taksitsiz, 3D Secure.
-
-
-        Üç onay da `true` olmalı + `consent_version` (onaylanan metin sürümü) zorunlu
-        → aksi hâlde **400** `consents_required`. Fatura profili yoksa / eksikse **400**
-        `billing_profile_required`. Satış kapalıysa **503** `sales_closed`, iyzico
-        hatasında **502** `payment_provider_error`. `buyer.ip` = `X-IT-Client-IP`
-        (portal anahtarıyla). Kullanıcı başına saatte 10 istek.'
-      summary: Ödemeyi başlat (iyzico Checkout Form)
-      tags:
-      - payments
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Checkout'
-            examples:
-              Onaylar:
-                value:
-                  consents:
-                    on_bilgilendirme: true
-                    mesafeli_satis: true
-                    cayma_istisnasi: true
-                  consent_version: '2026-10-28'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/Checkout'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/Checkout'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutStarted'
-          description: ''
-  /api/v1/payments/checkout/complete/:
-    post:
-      operationId: api_v1_payments_checkout_complete_create
-      description: 'iyzico ödeme sonunda tarayıcıyı web''in `callbackUrl`''ine **çapraz
-        site POST** ile gönderir (oturum çerezi gelmez) → web gelen `token`''ı buraya
-        iletir. **JWT istemez**; yalnızca doğru `X-IT-Portal-Key` ile kabul edilir
-        (yoksa **403**). Güven iyzico''ya bizim yaptığımız sorgudadır: token iyzico''dan
-        sorgulanır, `conversationId`, tutar ve para birimi doğrulanır.
-
-
-        **İdempotent**: aynı token ikinci kez gelirse aynı sonuç döner, ikinci hak
-        açılmaz. Pro''yken alınan ikinci yıl mevcut web süresinin **üstüne eklenir**.
-
-
-        `status`: `success` (+ `pro_until`) · `failure` (`message` kullanıcıya gösterilebilir)
-        · `pending` (iyzico henüz karar vermedi; mutabakat 15 dk içinde kapatır).
-        Bilinmeyen/sahte token → `failure` (404 değil).'
-      summary: Ödeme dönüşünü tamamla
-      tags:
-      - payments
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CheckoutComplete'
-            examples:
-              Token:
-                value:
-                  token: a1b2c3d4-…
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/CheckoutComplete'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/CheckoutComplete'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutResult'
-              examples:
-                Başarılı:
-                  value:
-                    status: success
-                    message: Ödemeniz alındı. Pro üyeliğiniz 28.10.2027 tarihine kadar
-                      açık.
-                    pro_until: '2027-10-28T12:00:00+03:00'
-          description: ''
-  /api/v1/payments/plan/:
-    get:
-      operationId: api_v1_payments_plan_retrieve
-      description: 'Web''de satılan tek plan: **Pro — 1 yıl**, tek seferlik ödeme
-        (abonelik / otomatik yenileme yok). `amount` KDV dahil TRY (string). `available=false`
-        → satış kapalı (`WEB_SATIS_ENABLED`/fiyat/iyzico anahtarı yok); web satın
-        al düğmesini göstermemeli. Token istemez, web önbelleğe alabilir.'
-      summary: Web Pro planı
-      tags:
-      - payments
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebPlan'
-              examples:
-                Plan:
-                  value:
-                    code: pro_yearly
-                    name: Pro — 1 yıl
-                    amount: '2400.00'
-                    vat_rate: 20
-                    currency: TRY
-                    months: 12
-                    available: true
-          description: ''
   /api/v1/saved-filters/:
     get:
       operationId: api_v1_saved_filters_list
@@ -5156,88 +4888,9 @@ components:
           description: Apple ismi yalnızca ilk girişte gönderir; istemci iletmelidir.
       required:
       - identity_token
-    BillingProfile:
-      type: object
-      properties:
-        type:
-          allOf:
-          - $ref: '#/components/schemas/BillingProfileTypeEnum'
-          title: Tür
-        full_name:
-          type: string
-          title: Ad soyad
-          description: 'Bireysel: ad soyad · kurumsal: yetkili adı.'
-          maxLength: 120
-        company_name:
-          type: string
-          title: Unvan
-          maxLength: 255
-        tax_office:
-          type: string
-          title: Vergi dairesi
-          maxLength: 120
-        tax_number:
-          type: string
-          title: VKN
-          maxLength: 10
-        identity_number:
-          type: string
-          title: TCKN
-          maxLength: 11
-        address:
-          type: string
-          title: Adres
-          maxLength: 500
-        district:
-          type: string
-          title: Ilçe
-          maxLength: 80
-        city:
-          type: string
-          title: Il
-          maxLength: 80
-        phone:
-          type: string
-          title: Telefon
-          maxLength: 16
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - address
-      - city
-      - full_name
-      - phone
-      - type
-      - updated_at
-    BillingProfileTypeEnum:
-      enum:
-      - bireysel
-      - kurumsal
-      type: string
-      description: '* `bireysel` - Bireysel
-
-        * `kurumsal` - Kurumsal'
     BlankEnum:
       enum:
       - ''
-    CancelRequested:
-      type: object
-      properties:
-        cancel_requested_at:
-          type: string
-          format: date-time
-        pro_until:
-          type: string
-          format: date-time
-          nullable: true
-        refund:
-          type: boolean
-      required:
-      - cancel_requested_at
-      - pro_until
-      - refund
     ChatAccepted:
       type: object
       properties:
@@ -5355,71 +5008,6 @@ components:
           nullable: true
       required:
       - message
-    Checkout:
-      type: object
-      properties:
-        consents:
-          $ref: '#/components/schemas/CheckoutConsents'
-        consent_version:
-          type: string
-          maxLength: 64
-      required:
-      - consent_version
-      - consents
-    CheckoutComplete:
-      type: object
-      properties:
-        token:
-          type: string
-          maxLength: 128
-      required:
-      - token
-    CheckoutConsents:
-      type: object
-      properties:
-        on_bilgilendirme:
-          type: boolean
-        mesafeli_satis:
-          type: boolean
-        cayma_istisnasi:
-          type: boolean
-      required:
-      - cayma_istisnasi
-      - mesafeli_satis
-      - on_bilgilendirme
-    CheckoutResult:
-      type: object
-      properties:
-        status:
-          $ref: '#/components/schemas/CheckoutResultStatusEnum'
-        message:
-          type: string
-        pro_until:
-          type: string
-          format: date-time
-          nullable: true
-      required:
-      - message
-      - status
-    CheckoutResultStatusEnum:
-      enum:
-      - success
-      - failure
-      - pending
-      type: string
-      description: '* `success` - success
-
-        * `failure` - failure
-
-        * `pending` - pending'
-    CheckoutStarted:
-      type: object
-      properties:
-        payment_page_url:
-          type: string
-          format: uri
-      required:
-      - payment_page_url
     City:
       type: object
       properties:
@@ -6069,7 +5657,7 @@ components:
           readOnly: true
         type:
           allOf:
-          - $ref: '#/components/schemas/NotificationTypeEnum'
+          - $ref: '#/components/schemas/TypeEnum'
           readOnly: true
         title:
           type: string
@@ -6170,20 +5758,6 @@ components:
       - tender_title
       - title
       - type
-    NotificationTypeEnum:
-      enum:
-      - tender
-      - info
-      - alarm
-      - chat
-      type: string
-      description: '* `tender` - İhale
-
-        * `info` - Bilgi
-
-        * `alarm` - Alarm
-
-        * `chat` - Sohbet'
     OkasCode:
       type: object
       properties:
@@ -6361,9 +5935,6 @@ components:
           nullable: true
           title: Abonelik bitişi
           description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
-        subscription_source:
-          type: string
-          readOnly: true
         age_range:
           title: Yaş aralığı
           oneOf:
@@ -6383,70 +5954,6 @@ components:
           type: boolean
           title: E-posta bildirimleri
           description: Günlük bildirim özetini e-postayla al.
-    PaymentList:
-      type: object
-      properties:
-        id:
-          type: integer
-          readOnly: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        amount:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-          title: Tutar (KDV dahil)
-        currency:
-          type: string
-          title: Para birimi
-          maxLength: 3
-        status:
-          allOf:
-          - $ref: '#/components/schemas/PaymentListStatusEnum'
-          title: Durum
-        pro_from:
-          type: string
-          readOnly: true
-        pro_until:
-          type: string
-          readOnly: true
-        card_last4:
-          type: string
-          title: Kart son 4
-          maxLength: 4
-        invoice_available:
-          type: boolean
-          readOnly: true
-        cancel_requested:
-          type: string
-          readOnly: true
-      required:
-      - amount
-      - cancel_requested
-      - created_at
-      - id
-      - invoice_available
-      - pro_from
-      - pro_until
-    PaymentListStatusEnum:
-      enum:
-      - pending
-      - success
-      - failure
-      - refunded
-      - partially_refunded
-      type: string
-      description: '* `pending` - Bekliyor
-
-        * `success` - Başarılı
-
-        * `failure` - Başarısız
-
-        * `refunded` - İade edildi
-
-        * `partially_refunded` - Kısmi iade'
     Preferences:
       type: object
       description: Tercih güncelleme (serbest JSON).
@@ -6889,6 +6396,20 @@ components:
       required:
       - access
       - refresh
+    TypeEnum:
+      enum:
+      - tender
+      - info
+      - alarm
+      - chat
+      type: string
+      description: '* `tender` - İhale
+
+        * `info` - Bilgi
+
+        * `alarm` - Alarm
+
+        * `chat` - Sohbet'
     UnreadCount:
       type: object
       properties:
@@ -6964,9 +6485,6 @@ components:
           nullable: true
           title: Abonelik bitişi
           description: Boşsa süresiz Pro; doluysa bu tarihten sonra Free'ye düşer.
-        subscription_source:
-          type: string
-          readOnly: true
         age_range:
           title: Yaş aralığı
           oneOf:
@@ -6994,35 +6512,8 @@ components:
       - onboarding_completed_at
       - provider
       - subscription_expires_at
-      - subscription_source
       - subscription_tier
       - username
-    WebPlan:
-      type: object
-      properties:
-        code:
-          type: string
-        name:
-          type: string
-        amount:
-          type: string
-          nullable: true
-        vat_rate:
-          type: integer
-        currency:
-          type: string
-        months:
-          type: integer
-        available:
-          type: boolean
-      required:
-      - amount
-      - available
-      - code
-      - currency
-      - months
-      - name
-      - vat_rate
     WebhookHandled:
       type: object
       properties:

@@ -5,9 +5,8 @@ Sözleşme: `app_user_id = str(django_user.id)`. Backend kullanıcıyı JWT'den 
 webhook event'inden) bilir → RC'yi bu id ile sorgular ve `accounts.User`'ın abonelik
 katmanını (`subscription_tier` / `subscription_expires_at`) senkronlar.
 
-RC v2 `active_entitlements` yalnızca **mağaza** hakkının (`ProGrant(source=store)`)
-doğruluk kaynağıdır; kullanıcının etkin katmanı tüm kaynaklardan (mağaza + web + admin)
-`pro_hak.recompute_pro` ile hesaplanır (bkz. `_apply`). Webhook
+Tek doğruluk kaynağı: RC v2 `active_entitlements`. Katmanı buradan set ederiz; kullanıcının
+premium olup olmadığı `User.is_premium` üzerinden okunur (expiry hesabı orada). Webhook
 event tipiyle elle işlem YAPMAYIZ — event'i yalnızca hangi kullanıcı olduğunu bulmak için
 kullanırız, sonra `active_entitlements`'i tekrar sorgularız (tek kod yolu, her zaman doğru).
 RC API'ye ulaşılamazsa `apply_event_fallback` ile event verisinden kaba senkron yapılır.
@@ -183,17 +182,18 @@ def resolve_pro_status(customer_id: str) -> tuple[bool, datetime | None]:
 
 
 def _apply(user, is_pro: bool, expiry):
-    """RC sonucunu kullanıcının `store` hakkına yazar, etkin katmanı yeniden hesaplar.
+    """Kullanıcının katmanını set eder (yalnızca değiştiyse yazar). Değişiklik döner."""
+    from accounts.models import User
 
-    ⚠️⚠️ Kullanıcı alanlarını (`subscription_tier`/`_expires_at`) DOĞRUDAN YAZMAZ —
-    eskiden yazıyordu ve RC'de hakkı olmayan herkesi (web'den ödeyen, admin'den Pro
-    verilen) mobil her açılışta `verify` ile Free'ye çekiyordu (web 6. not #15).
-    Etkin değer tüm kaynaklardan `pro_hak.recompute_pro` ile hesaplanır.
-    """
-    from .pro_hak import magaza_hakki_yaz, recompute_pro
-
-    magaza_hakki_yaz(user, is_pro, expiry if is_pro else None)
-    return recompute_pro(user)
+    tier = User.Tier.PRO if is_pro else User.Tier.FREE
+    new_expiry = expiry if is_pro else None
+    if user.subscription_tier == tier and user.subscription_expires_at == new_expiry:
+        return False
+    user.subscription_tier = tier
+    user.subscription_expires_at = new_expiry
+    user.save(update_fields=["subscription_tier", "subscription_expires_at"])
+    logger.info("abonelik senkron: uid=%s tier=%s expiry=%s", user.pk, tier, new_expiry)
+    return True
 
 
 def sync_user_subscription(user):

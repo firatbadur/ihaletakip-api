@@ -3125,7 +3125,7 @@ kodu görünce abonelik paketlerini sunar.
 - **Mobil görünürlük**: `UserSerializer` `is_premium` + `subscription_tier` +
   `subscription_expires_at` alanlarını (read-only) döner → login ve `GET /auth/profile`
   yanıtında gelir; mobil Pro özellikleri buna göre gösterir/gizler.
-- **Pro'ya geçiş = RevenueCat** (mobil) **+ web'den iyzico** (bkz. aşağıdaki bölümler). Admin elle Pro'yu `ProGrant(admin)` satırıyla verir.
+- **Pro'ya geçiş = RevenueCat** (bkz. aşağıdaki bölüm). Admin de elle Pro atayabilir.
 
 ### RevenueCat entegrasyonu (`subscription/`)
 
@@ -3219,63 +3219,6 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
 - **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i
   yeniden sorgular → durum her zaman RC ile tutarlı. `verify` ve webhook aynı
   `sync_user_subscription`'ı kullanır.
-
-### ⚠️⚠️ Kaynağa duyarlı Pro hakkı + web'den satış (iyzico) — 2026-10-28
-
-Web 6. not #15–#19, yanıt notu `docs/web-iyzico-odeme.md`. Kod `subscription/`
-(`models.py`, `services/{pro_hak,iyzico,odeme,eposta}.py`, `views_odeme.py`).
-
-- ⚠️⚠️ **`User.subscription_tier`/`_expires_at` artık ETKİN DEĞERDİR** — tek yazarı
-  `pro_hak.recompute_pro(user)`, kaynak `subscription.ProGrant` (`store` | `iyzico` |
-  `admin`). Eskiden `revenuecat._apply` bu iki alanı doğrudan yazıyordu ve RC'de hakkı
-  olmayan herkesi (web'den ödeyen, admin'den Pro verilen) mobil **her açılışta**
-  `verify` ile Free'ye çekiyordu. Şimdi RC yalnızca kullanıcının TEK `store` satırını
-  yazar (aktif değilse `ends_at=şimdi`, satır silinmez). `is_premium`/`pro_q()`/istemciler
-  değişmedi. ⚠️ Yeni bir hak kaynağı eklerken kullanıcı alanına DOKUNMAYIN — satır yazın,
-  `recompute_pro` çağırın.
-- ⚠️ **Zincir**: etkin bitiş, o ana kadar başlamış olacak hakları da ekleyerek ilerler
-  (`etkin_hak`). Yalnız "başlamış satırlar"a bakılsaydı Pro'yken alınan ikinci yıl
-  (`starts_at` = ilk yılın sonu) ilk yılın sonunda görünmez kalırdı ve o an kimse yeniden
-  hesap yapmadığı için kullanıcı ödediği yılın başında Free görünürdü.
-- Admin: katman/bitiş **salt okunur**; elle Pro = kullanıcı ekranındaki "Elle verilen Pro
-  hakları" satırı (kaydedince `save_related` → `recompute_pro`). Mağaza/web satırları
-  salt okunur inline. Satır silinmez, `revoked_at`.
-- Göç `subscription/0002`: RC izi (`subscription_last_event`/`_period_type`) olan Pro →
-  `store`, olmayan → `admin` (not alanında işaretli). Migration RC'ye gidemez; denetim
-  `python manage.py pro_hak_gocu_dogrula [--uygula]`. Bitişler aynı kopyalandığı için
-  göç kimsenin durumunu değiştirmez.
-- `UserSerializer.subscription_source` (salt okunur, etkin bitişi sağlayan kaynak).
-- Deneme hatırlatıcısı artık **mağaza satırının** bitişine bakar (ücret çekimi o an).
-
-**Web satışı** (`/api/v1/payments/…`, `auth/billing-profile/`): "Pro — 1 yıl", tek
-seferlik, iyzico Checkout Form, taksitsiz. Kill switch **`WEB_SATIS_ENABLED`
-(vars. False)** + `PRO_YEARLY_PRICE` + `IYZICO_*` anahtarları birlikte gerekli.
-- ⚠️⚠️ **Hak açmanın tek yolu `odeme._isle`** — `complete/` ve mutabakat (`*/15`) aynı
-  fonksiyonu çağırır. Doğrulama: `paymentStatus=SUCCESS` + `conversationId` = Payment.id +
-  `paidPrice` = tutar + para birimi; tutmazsa hak AÇILMAZ (admin iade eder).
-  İdempotens: `select_for_update` + `ProGrant.payment` **OneToOne**.
-- ⚠️⚠️ **`failure` iyzico'ya karşı terminal DEĞİL**: iyzico sonradan SUCCESS derse hak
-  açılır (aksi "para alındı, Pro açılmadı"). Mutabakat, karar yokken token ömrü (60 dk)
-  dolmadan `failure` yazmaz — kullanıcı hâlâ ödeme sayfasında olabilir.
-- `complete/` **JWT'siz**: iyzico tarayıcıyı callback'e çapraz site POST'lar, çerez gelmez.
-  Yalnız `X-IT-Portal-Key` ile; güven iyzico'ya bizim attığımız sorgudadır.
-- İkinci yıl `web_baslangic` = max(şimdi, en geç **web** bitişi) — mağaza bitişine
-  zincirlenmez (aylık yenilenir, web yılını ileri iterdi).
-- İmza IYZWSv2 (`iyzico.yetkilendirme`). ⚠️ **Sandbox'ta henüz denenmedi**; yanıt
-  `signature` uyuşmazlığı `IYZICO_YANIT_IMZA_ZORUNLU=False` iken yalnız loglanır.
-- İade YOK (ürün kararı); fesih talebi kaydedilir, Pro süre sonuna kadar açık. İstisnai
-  iade admin → Web ödemeleri → **İADE ET** (iyzico `paymentTransactionId`).
-- ⚠️ **e-Arşiv entegratörü seçilmedi** (`FATURA_SAGLAYICI` boş → `fatura_kes_task` no-op;
-  sahte fatura no üretilmez). Fatura admin'den PDF olarak yüklenir → "Fatura hazır"
-  e-postası + `invoice/` ucu.
-- ⚠️ "Ödeme alındı" ekindeki ön bilgilendirme / mesafeli satış belgesi **işlem kaydı
-  taslağıdır**, hukukçu onaylı metin değil (`templates/sozlesme/islem_kaydi.html`).
-- Hatırlatma `web_sure_hatirlat` (10:40): 30/7/1 gün + bitti, `ProGrant.hatirlatmalar`
-  (DB'de, Redis değil); mağaza aktifse ya da etkin bitişi başka kaynak sağlıyorsa gitmez;
-  `email_notifications`'a uyar. İşlem e-postaları (alındı/fatura/fesih/iade) her zaman gider.
-- ⚠️ TCKN/VKN loglanmaz; kurumsal profilde TCKN tutulmaz. `Payment.user` PROTECT.
-- Testler `subscription/tests/test_pro_hak.py` + `test_odeme.py` (dişli: `_apply` eski
-  hâline dönünce 4, tutar kontrolü 1, zincir 1, failure-terminal 1 test kırılıyor).
 
 ## Kimlik Doğrulama Akışı
 

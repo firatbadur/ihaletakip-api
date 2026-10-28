@@ -16,7 +16,6 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from accounts.models import PushDevice, User
-from subscription.models import ProGrant
 from subscription.tasks import send_trial_reminders
 from tenders.services import push
 
@@ -39,10 +38,6 @@ class DenemeHatirlatmaTests(TestCase):
             subscription_cancelled_at=timezone.now() if iptal else None,
         )
         PushDevice.objects.create(user=u, token=f"tok-{self._n}")
-        # Pencere mağaza hakkının bitişine bakar (web 6. not #15.6).
-        ProGrant.objects.create(user=u, source=ProGrant.Source.STORE,
-                                starts_at=timezone.now() - timedelta(days=5),
-                                ends_at=u.subscription_expires_at)
         return u
 
     def _calistir(self, durum=push.SENT):
@@ -78,13 +73,3 @@ class DenemeHatirlatmaTests(TestCase):
         self._calistir(durum=push.ERROR)
         u.refresh_from_db()
         self.assertIsNone(u.trial_reminder_sent_at)
-
-    def test_yalniz_magaza_bitisine_bakar(self):
-        """Etkin bitiş web hakkıyla ileride olsa da mağaza denemesi bitiyorsa hatırlatılır;
-        mağaza hakkı olmayan (yalnız web/admin) kullanıcıya gitmez."""
-        u = self._kullanici(saat_kala=40)
-        User.objects.filter(pk=u.pk).update(
-            subscription_expires_at=timezone.now() + timedelta(days=300))
-        yalniz_web = self._kullanici(saat_kala=40)
-        ProGrant.objects.filter(user=yalniz_web).update(source=ProGrant.Source.IYZICO)
-        self.assertEqual(self._calistir().call_count, 1)

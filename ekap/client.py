@@ -45,10 +45,23 @@ class EkapDogrulamaError(EkapError):
     """
 
 
+class EkapHizSiniriError(EkapError):
+    """EKAP HTTP 429 verdi ve istemci "beklemeden bildir" kipinde (`hiz_siniri_firlat`).
+
+    ⚠️ Toplu işler (v2 tazelemesi) 429'u tekrar denemez: Retry-After ~28 sn × 4 deneme
+    her isteği 2 dakikaya çıkarıyor ve sınırı dürtmeye devam ediyordu (2026-10-28).
+    """
+
+    def __init__(self, mesaj, retry_after=None):
+        super().__init__(mesaj)
+        self.retry_after = retry_after
+
+
 class EkapV2Client:
     """EKAP v2 imzalı POST istemcisi (throttle + retry)."""
 
-    def __init__(self, base_url=None, timeout=None, max_retries=None):
+    def __init__(self, base_url=None, timeout=None, max_retries=None, hiz_siniri_firlat=False):
+        self.hiz_siniri_firlat = hiz_siniri_firlat
         self.base_url = (base_url or settings.EKAP_BASE_URL).rstrip("/")
         self.timeout = timeout or settings.EKAP_TIMEOUT
         self.max_retries = max_retries if max_retries is not None else settings.EKAP_MAX_RETRIES
@@ -137,6 +150,9 @@ class EkapV2Client:
                 continue
 
             # 429 / 5xx → backoff + retry
+            if resp.status_code == 429 and self.hiz_siniri_firlat:
+                raise EkapHizSiniriError(f"EKAP {path} → HTTP 429",
+                                         retry_after=resp.headers.get("Retry-After"))
             if resp.status_code == 429 or resp.status_code >= 500:
                 retry_after = resp.headers.get("Retry-After")
                 last_exc = EkapError(f"HTTP {resp.status_code}")

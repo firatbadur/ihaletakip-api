@@ -47,7 +47,7 @@ from django.db import transaction
 from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, When
 from django.utils import timezone
 
-from .client import EkapDogrulamaError, EkapError, EkapV2Client
+from .client import EkapDogrulamaError, EkapError, EkapHizSiniriError, EkapV2Client
 from .constants import DURUM_IPTAL, DURUM_SONUCLANMIS
 from .mobil.constants import DURUM_ACIKLAMA
 from .mobil.adapt import ILAN_ONEK as MOBIL_ILAN_ONEK
@@ -67,11 +67,19 @@ _ISARET_HATA_TTL = 6 * 3600
 _ISARET_YOK_TTL = 7 * 86400
 _KILIT = "ekap:v2:taz:kilit"
 _SAYAC = "ekap:v2:sayac:"
-SAYAC_ADLARI = ("tazeleme", "sonuc", "kimlik", "bulunamadi", "hata")
+SAYAC_ADLARI = ("tazeleme", "sonuc", "kimlik", "bulunamadi", "hata", "hiz_siniri")
 _ART_ARDA_HATA_TAVANI = 5              # EKAP düştüyse turu boşuna yakma
 
 
 # ── Sayaçlar (günlük, Redis) ────────────────────────────
+# ⚠️⚠️ EKAP v2 HIZ SINIRI (ölçüldü 2026-10-28): ~25 dk boyunca dakikada 20-25 istekten
+# sonra HTTP 429 + Retry-After ~28 sn. Eşik BİLİNMİYOR ve aranmaz (dürtmek sınırı
+# sertleştirebilir — mobil hattın dersi). 429 görülünce: tur durur, MOLA (vars. 30 dk)
+# ve istekler arası bekleme ×1,5 (tavan 30 sn, 24 sa geçerli) — kendiliğinden hızlanmaz.
+_MOLA = "ekap:v2:taz:mola"
+_YAVAS = "ekap:v2:taz:aralik"
+_SON_429 = "ekap:v2:son_429"
+_YAVAS_TAVAN_SN = 30.0
 _SON_IS = "ekap:v2:son_is"
 _SON_HATA = "ekap:v2:son_hata"           # pano: son hatanın kısa metni
 
@@ -85,6 +93,43 @@ def _say(ad, adet=1):
             cache.set(_SON_IS, timezone.now().isoformat(), 2 * 86400)
     except Exception:                                   # noqa: BLE001
         pass
+
+
+def aralik_sn() -> float:
+    """Geçerli istekler arası bekleme: ayar ya da 429 sonrası büyütülmüş değer."""
+    taban = float(getattr(settings, "EKAP_V2_TAZELEME_ARALIK_SN", 10))
+    try:
+        return max(taban, float(cache.get(_YAVAS) or 0))
+    except (TypeError, ValueError):
+        return taban
+
+
+def mola_bitis():
+    """Hız sınırı molası sürüyorsa bitiş zamanı, yoksa None."""
+    from datetime import datetime
+    ham = cache.get(_MOLA)
+    return datetime.fromisoformat(ham) if ham else None
+
+
+def _hiz_siniri(e):
+    sure = int(getattr(settings, "EKAP_V2_TAZELEME_MOLA_SN", 1800))
+    try:
+        sure = max(sure, int(float(e.retry_after or 0)))
+    except (TypeError, ValueError):
+        pass
+    bitis = timezone.now() + timedelta(seconds=sure)
+    cache.set(_MOLA, bitis.isoformat(), sure)
+    yeni = min(aralik_sn() * 1.5, _YAVAS_TAVAN_SN)
+    cache.set(_YAVAS, yeni, 86400)
+    cache.set(_SON_429, timezone.now().isoformat(), 2 * 86400)
+    _say("hiz_siniri")
+    logger.warning("v2 tazeleme: EKAP hız sınırı (429) → %s sn mola, aralık %.1f sn", sure, yeni)
+
+
+def son_429():
+    from datetime import datetime
+    ham = cache.get(_SON_429)
+    return datetime.fromisoformat(ham) if ham else None
 
 
 def son_hata() -> str:
@@ -368,8 +413,8 @@ def isle(tender, sonuc_mu, cli=None, tempo=None, simdi=None):
 def tur(max_sure=None, max_ihale=None):
     """Bir çekmeli tur: süre bütçesi dolana kadar sıradaki ihaleyi işler."""
     max_sure = max_sure or getattr(settings, "EKAP_V2_TAZELEME_SURE", 240)
-    tempo = _Tempo(getattr(settings, "EKAP_V2_TAZELEME_ARALIK_SN", 3))
-    cli = EkapV2Client()
+    tempo = _Tempo(aralik_sn())
+    cli = EkapV2Client(hiz_siniri_firlat=True)
     bas, sonuclar, art_arda_hata = time.monotonic(), {}, 0
     while time.monotonic() - bas < max_sure:
         if max_ihale is not None and sum(sonuclar.values()) >= max_ihale:
@@ -385,6 +430,11 @@ def tur(max_sure=None, max_ihale=None):
         except EkapDogrulamaError:
             # Doğrulama geri açıldı / düştü → kapı bir sonraki turda durumu yeniden sorar.
             sonuclar["dogrulama"] = 1
+            break
+        except EkapHizSiniriError as e:
+            # İhale İŞARETLENMEZ (onun kusuru değil); tur biter, mola başlar.
+            _hiz_siniri(e)
+            sonuclar["hiz_siniri"] = 1
             break
         except Exception as e:                          # noqa: BLE001
             logger.warning("v2 tazeleme hata %s: %s", tender.ikn, e)
@@ -402,6 +452,8 @@ def tur(max_sure=None, max_ihale=None):
 
 
 def kilitli_tur(**kw):
+    if mola_bitis():
+        return {"atlandi": "hiz_siniri_molasi"}
     if not cache.add(_KILIT, "1", timeout=getattr(settings, "EKAP_V2_TAZELEME_SURE", 240) + 60):
         return {"atlandi": "kilit"}
     try:

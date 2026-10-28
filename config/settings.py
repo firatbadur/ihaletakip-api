@@ -536,7 +536,10 @@ EKAP_TAZELEME_KAYNAK = env.str("EKAP_TAZELEME_KAYNAK", default="mobil")
 # Tur süre bütçesi (CELERY_TASK_TIME_LIMIT=300'ün altında) ve istekler arası asgari süre.
 # ⚠️ Aralık global v2 throttle'ından (EKAP_MIN_INTERVAL_MS) AYRI: o web istekleriyle ortak.
 EKAP_V2_TAZELEME_SURE = env.int("EKAP_V2_TAZELEME_SURE", default=240)
-EKAP_V2_TAZELEME_ARALIK_SN = env.float("EKAP_V2_TAZELEME_ARALIK_SN", default=3.0)
+# ⚠️ 3 sn'de ~25 dk sonra EKAP 429 verdi (2026-10-28) → 10 sn; 429'da kod kendisi
+# yavaşlar ve mola verir (`v2_tazeleme._hiz_siniri`).
+EKAP_V2_TAZELEME_ARALIK_SN = env.float("EKAP_V2_TAZELEME_ARALIK_SN", default=10.0)
+EKAP_V2_TAZELEME_MOLA_SN = env.int("EKAP_V2_TAZELEME_MOLA_SN", default=1800)
 # Mobil sonuç ilanı sırasının geriye bakış penceresi (gün) — arşiv v2'den toplandı.
 EKAP_MOBIL_SONUC_GERI_GUN = env.int("EKAP_MOBIL_SONUC_GERI_GUN", default=180)
 # Toplu durum taraması (`ekap/mobil/durum.py`): yakın bölge günlük, uzak bölge haftalık.

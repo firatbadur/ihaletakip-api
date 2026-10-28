@@ -16,7 +16,6 @@ import json
 import time
 from decimal import Decimal
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
@@ -91,7 +90,7 @@ class Command(BaseCommand):
         self.stdout.write(f"seçilen: {len(secim)} ihale ({n_sonuc} sonuç toplama)")
 
         captcha_once = mobil_sayaclar().get("captcha", 0)
-        tempo = v2._Tempo(getattr(settings, "EKAP_V2_TAZELEME_ARALIK_SN", 3))
+        tempo = v2._Tempo(v2.aralik_sn())
         cli = v2.EkapV2Client()
         satirlar, ozet, durum_gecis = [], {}, {}
         bas = time.monotonic()

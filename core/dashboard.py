@@ -590,8 +590,11 @@ def _hesapla_hatlar() -> dict:
         gerekli, _ = ekap_session.son_bilinen_gerekli()
     kapi = ("doğrulama istemiyor" if gerekli is False else
             "doğrulama İSTİYOR — köprü çerezi gerekir" if gerekli else "doğrulama durumu bilinmiyor")
+    mola = v2_tazeleme.mola_bitis()
     if not acik:
         sv = "kapali"
+    elif mola:
+        sv = "uyari"
     elif v2["hata"] >= 5 and v2["hata"] > v2["tazeleme"] + v2["sonuc"]:
         sv = "hata"
     elif _yasli(son_v2, timedelta(minutes=30), simdi):
@@ -601,8 +604,12 @@ def _hesapla_hatlar() -> dict:
     hatlar.append(_hat(
         "İhale tazeleme (durum + sonuç)", KAYNAK_V2, sv,
         f"durum {v2['tazeleme']} · sonuç {v2['sonuc']} · v2'de yok {v2['bulunamadi']} · "
-        f"hata {v2['hata']} — bekleyen: tazeleme {kuyruk['v2_tazeleme']}, sonuç {kuyruk['v2_sonuc']}",
-        son_v2, "EKAP_V2_TAZELEME_ENABLED kapalı" if not acik else f"{kapi}. {v2_tazeleme.son_hata()}"))
+        f"hata {v2['hata']} · hız sınırı {v2['hiz_siniri']} — bekleyen: tazeleme "
+        f"{kuyruk['v2_tazeleme']}, sonuç {kuyruk['v2_sonuc']} · aralık {v2_tazeleme.aralik_sn():.0f} sn",
+        son_v2,
+        "EKAP_V2_TAZELEME_ENABLED kapalı" if not acik else
+        f"EKAP hız sınırı (429) — {timezone.localtime(mola):%H:%M}'e kadar mola. {kapi}." if mola else
+        f"{kapi}. {v2_tazeleme.son_hata()}"))
     for k in katalog_durumu(simdi):
         if k["donduruldu"]:
             hatlar.append(_hat(k["ad"], KAYNAK_V2, "kapali", "donduruldu (EKAP anonimleştirdi)",

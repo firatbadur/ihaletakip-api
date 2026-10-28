@@ -699,6 +699,13 @@ ilanı olan 5'inde — sonuç kuyruğunun 10.945/11.322'si durum 15, yani YM ço
 görmüştü) → `_durum_alanlari` durumu 3/4'ten 2'ye GERİ yazmaz.
 ⚠️ Kritik olmayan bir alanı v2'den yazmak gerekirse önce numaralandırmasının bizimkiyle
 aynı olduğunu ölçün; deneme komutu artık BEKLENEN dışındaki her değişikliği şüpheli sayar.
+⚠️⚠️ **EKAP v2 HIZ SINIRI (ölçüldü 2026-10-28, açılıştan ~15 dk sonra):** 3 sn aralıkla
+(~20-25 istek/dk) ~25 dk sonra **HTTP 429 + `Retry-After` ~28 sn**. İstemcinin genel 429
+yolu (4 deneme × 28 sn) her isteği ~2 dk'ya çıkardı: tur başına 5 ihale. Eşik bilinmiyor
+ve ARANMAZ. → v2 tazelemesi `EkapV2Client(hiz_siniri_firlat=True)`: 429 → `EkapHizSiniriError`
+(beklemeden), tur durur, **mola** `EKAP_V2_TAZELEME_MOLA_SN` (1800) ve istekler arası
+bekleme ×1,5 (tavan 30 sn, 24 sa; kendiliğinden hızlanmaz). Varsayılan aralık 3 → **10 sn**.
+Pano: mola, aralık, günün 429 sayısı (`hiz_siniri` sayacı).
 **Açmadan önce kontrollü deneme (ürün kararı):** `manage.py v2_tazeleme_deneme --adet 100`
 — seçilen ihaleleri GERÇEKTEN tazeler, önce/sonra alan alan karşılaştırır (beklenen /
 dikkat / şüpheli: dolu→boş, kimlik/idare değişimi, çocuk sayısı düşüşü), mobil captcha

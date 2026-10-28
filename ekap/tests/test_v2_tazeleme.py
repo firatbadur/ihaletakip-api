@@ -278,3 +278,41 @@ class DenemeKomutuTest(TestCase):
         self.assertEqual(rapor["sonuclar"], {"tazeleme": 1})
         self.assertEqual(rapor["durum_gecisleri"], {"2→3": 1})
         self.assertEqual(rapor["supheli_alanlari"], {})
+
+
+class HizSiniriTest(TestCase):
+    """EKAP v2 429 (2026-10-28): tekrar deneme yok, mola + yavaşlama."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_istemci_429da_BEKLEMEDEN_hata_verir(self):
+        from unittest.mock import patch
+        from ekap.client import EkapHizSiniriError, EkapV2Client
+        cli = EkapV2Client(hiz_siniri_firlat=True)
+        yanit = MagicMock(status_code=429, headers={"Retry-After": "28"}, text="")
+        with patch.object(cli.session, "post", return_value=yanit), \
+                patch("ekap.client.time.sleep"), patch.object(cli, "_backoff") as geri_cekil:
+            with self.assertRaises(EkapHizSiniriError) as h:
+                cli.search({})
+        self.assertEqual(h.exception.retry_after, "28")
+        geri_cekil.assert_not_called()                      # Retry-After kadar BEKLEMEZ
+
+    @override_settings(EKAP_V2_TAZELEME_ARALIK_SN=10, EKAP_V2_TAZELEME_MOLA_SN=1800)
+    def test_tur_429da_DURUR_mola_verir_ve_YAVASLAR(self):
+        from unittest.mock import patch
+        from ekap.client import EkapHizSiniriError
+        t = _mobil_ihale("2026/5", 3, ihale_tarihi=timezone.now() - timedelta(days=2))
+        with patch.object(v2, "EkapV2Client"), \
+                patch.object(v2, "isle", side_effect=EkapHizSiniriError("429", "28")) as isle:
+            sonuc = v2.kilitli_tur(max_sure=60)
+        self.assertEqual(sonuc, {"hiz_siniri": 1})
+        self.assertEqual(isle.call_count, 1)
+        self.assertFalse(v2._isaretli(t.ikn))                   # ihalenin kusuru değil
+        self.assertIsNotNone(v2.mola_bitis())
+        self.assertEqual(v2.aralik_sn(), 15)
+        self.assertEqual(v2.kilitli_tur(), {"atlandi": "hiz_siniri_molasi"})
+        # Tavan: art arda 429 beklemeyi sonsuza büyütmez.
+        for _ in range(10):
+            v2._hiz_siniri(EkapHizSiniriError("429"))
+        self.assertEqual(v2.aralik_sn(), 30)

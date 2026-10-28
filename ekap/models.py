@@ -176,6 +176,10 @@ class Tender(models.Model):
     # Sonuçlanmış ihalenin sözleşme/sonuç ilanı verisi v2'den bir kez çekildi mi —
     # "bir kez" kuralının kalıcı işareti (sonuç ne olursa olsun yeniden denenmez).
     sonuc_denendi_at = models.DateTimeField(null=True, blank=True)
+    # v2 tazelemesinin son baktığı an. ⚠️ `detail_synced_at` KULLANILMAZ: v2 yalnızca
+    # durum + sonuç yazar, detayın geri kalanı mobilindir; o damgayı oynatmak mobilin
+    # "detayı hiç gelmemiş" seçimini ve yüklenici artımlı taramasını bozardı.
+    v2_tazelendi_at = models.DateTimeField(null=True, blank=True)
 
     # Yüklenici/sonuç çözümlemesi (bkz. ekap/contractors.py, ekap/sonuc_ilani.py)
     contractors_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)

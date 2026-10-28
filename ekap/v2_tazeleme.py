@@ -13,13 +13,19 @@ Kural (ürün kararı):
   • Sonuçlanmış (5/15/20) ihalenin sözleşme + sonuç ilanı verisi BİR KEZ çekilir
     (`Tender.sonuc_denendi_at`), sonra bir daha dokunulmaz.
 
+⚠️⚠️ v2 YALNIZCA KRİTİK ALANLARI YAZAR (ürün kararı, 2026-10-27 denemesinden sonra):
+durum (+ açıklama, iptal bilgisi) ve sonuçlanmışsa sözleşme + sonuç ilanı. Detayın geri
+kalanı (il, idare, ad, OKAS, tarihler, `detail_raw`, `detail_synced_at`) mobilindir ve
+ELLENMEZ. İlk deneme tam detayı koruyucu modda yazıyordu: 100 ihalenin 47'sinde il
+yanlış yazıldı (v2 il numaralarını değiştirmiş: MUŞ 303→304), idare adı/OKAS ana kodu
+kaydı. Kritik olmayan alanı yazmanın ürüne faydası yok, riski var.
+
 ⚠️⚠️ v2 yanıtı 2026-10-27'de ölçüldüğü hâliyle (fixture: `ekap/tests/fixtures/v2_detay_*`):
   • İhale `id`'si 64 hex ve HER ÇAĞRIDA DEĞİŞİYOR (eskisi bir süre çalışıyor) →
     `Tender.v2_id` = son görülen; detay olmazsa İKN aramasıyla tazelenip BİR KEZ tekrar.
   • `idareId` 64 hex KARMA → yazılmaz (sayısal `idare_id` = DETSIS/favori idare anahtarı).
   • `idare.enUstIdareKod`, `islemlerKuralSeti`, `tebligatAlanIstekliList`,
-    `ihaleIlansizMi` YOK → **koruyucu yazma** (`upsert_tender_detail(koruyucu=True)`):
-    olmayan anahtar dolu alanı silmez.
+    `ihaleIlansizMi` YOK; il numaraları bizim `City.ekap_il_id` ile UYUŞMUYOR.
   • İlanlarda `id` / `sozlesmeId`, sözleşmelerde `id` YOK → kimliksiz ilanlar tek
     anahtara düşüp birbirini eziyor ve sonuç ilanı sözleşmeye bağlanamıyordu (yaklaşık
     maliyet/indirim boş kalıyordu) → içerikten kararlı anahtar + bağlama (`uyarla`).
@@ -42,10 +48,11 @@ from django.db.models import Case, Count, Exists, F, IntegerField, OuterRef, Q, 
 from django.utils import timezone
 
 from .client import EkapDogrulamaError, EkapError, EkapV2Client
-from .constants import DURUM_SONUCLANMIS
+from .constants import DURUM_IPTAL, DURUM_SONUCLANMIS
+from .mobil.constants import DURUM_ACIKLAMA
 from .mobil.adapt import ILAN_ONEK as MOBIL_ILAN_ONEK
 from .models import Contract, Tender
-from .sync import _as_int, detay_govdesi, extract_list, upsert_tender_detail
+from .sync import _as_int, detay_govdesi, extract_list, sync_contracts_from_raw
 from .utils import normalize_tr
 
 logger = logging.getLogger("ihaletakip")
@@ -98,14 +105,13 @@ def _ilan_anahtari(i, idx):
 def uyarla(detail) -> dict:
     """2026-10 v2 detay yanıtını `sync`'in beklediği şekle getirir (yeni sözlük döner)."""
     item = copy.deepcopy(detay_govdesi(detail))
-    # 1) Karma kimlikler: `idareId` sayısal değilse yok sayılır → `upsert_tender_detail`
-    #    mevcut `idare_id`'yi korur. İhale `id`'si de karma ve çağrıdan çağrıya değişiyor.
+    # 1) Karma kimlikler (64 hex, çağrıdan çağrıya değişiyor) atılır.
     item.pop("id", None)
     for kap in (item, item.get("ihaleBilgi") or {}):
         if _karma_mi(kap.get("idareId")):
             kap.pop("idareId", None)
-    # 2) Sözleşmeler: içerikten kararlı anahtar. Boş liste → anahtar hiç verilmez:
-    #    koruyucu modda sözleşme tablosuna DOKUNULMAZ (boş liste satır silerdi).
+    # 2) Sözleşmeler: içerikten kararlı anahtar. Boş liste → anahtar hiç verilmez
+    #    (`sync_contracts_from_raw`'un boş liste dalı satır siler, para özetini sıfırlar).
     sozlesmeler = item.get("sozlesmeBilgiList") or []
     for idx, s in enumerate(sozlesmeler):
         s["id"] = _sozlesme_anahtari(s, idx)
@@ -144,10 +150,10 @@ def tazeleme_adaylari(simdi=None, takip=None):
     takip = _takip_edilen_iknler() if takip is None else takip
     gun30, gun120 = simdi - timedelta(days=30), simdi - timedelta(days=120)
     taze = simdi - timedelta(hours=20)
-    vade = (Q(detail_synced_at__isnull=True)
-            | Q(ihale_tarihi__gte=gun30, detail_synced_at__lt=taze)
-            | Q(detail_synced_at__lt=simdi - timedelta(days=7))
-            | Q(ikn__in=takip, detail_synced_at__lt=taze))
+    vade = (Q(v2_tazelendi_at__isnull=True)
+            | Q(ihale_tarihi__gte=gun30, v2_tazelendi_at__lt=taze)
+            | Q(v2_tazelendi_at__lt=simdi - timedelta(days=7))
+            | Q(ikn__in=takip, v2_tazelendi_at__lt=taze))
     return (
         Tender.objects.filter(ihale_tarihi__lte=simdi, ihale_tarihi__gte=gun120)
         # ⚠️ `exclude(__in)` NULL'u KORUR (durumu bilinmeyen ihale tazelenir) — istenen.
@@ -160,7 +166,7 @@ def tazeleme_adaylari(simdi=None, takip=None):
             When(Q(ihale_durum__isnull=True) | Q(ihale_durum__in=(1, 2)), then=1),
             When(ihale_durum=3, then=2),
             default=3, output_field=IntegerField()))
-        .order_by("oncelik", F("detail_synced_at").asc(nulls_first=True), "pk")
+        .order_by("oncelik", F("v2_tazelendi_at").asc(nulls_first=True), "pk")
     )
 
 
@@ -176,7 +182,7 @@ def sonuc_adaylari(simdi=None):
     )
 
 
-_ALANLAR = ("pk", "ikn", "ekap_id", "v2_id", "ihale_durum", "detail_synced_at")
+_ALANLAR = ("pk", "ikn", "ekap_id", "v2_id", "ihale_durum", "ihale_tarihi", "v2_tazelendi_at")
 
 
 def _sonraki(simdi):
@@ -239,8 +245,50 @@ def _detay_al(cli, tempo, tender):
     raise EkapError(f"v2 kimliği İKN ile eşleşmedi: {tender.ikn}")
 
 
+def _durum_alanlari(tender, item, simdi) -> dict:
+    """v2'nin durumundan yazılacak alanlar (yalnızca durum ailesi)."""
+    bilgi = item.get("ihaleBilgi") or {}
+    yeni = _as_int(item.get("ihaleDurum") or bilgi.get("ihaleDurum"))
+    if not yeni:
+        return {}
+    # v2 detay bazen teklif tarihi geçmiş ihaleyi hâlâ "Katılıma Açık" (2) veriyor, mobil
+    # durum taraması aynı ihaleyi 3/4 görmüştü (deneme: 1/100) → durum GERİYE yazılmaz.
+    if (yeni == 2 and tender.ihale_durum in (3, 4) and tender.ihale_tarihi
+            and tender.ihale_tarihi <= simdi):
+        return {}
+    # Açıklama mobil adaptörüyle AYNI kaynaktan (kod → metin): iki kaynak aynı kolona
+    # farklı metin yazmasın.
+    alanlar = {"ihale_durum": yeni,
+               "ihale_durum_aciklama": DURUM_ACIKLAMA.get(yeni) or bilgi.get("ihaleDurumAciklama") or ""}
+    if yeni in DURUM_IPTAL:
+        for alan, anahtar in (("iptal_tarihi", "iptalTarihi"), ("iptal_nedeni", "iptalNedeni"),
+                              ("iptal_madde", "iptalMadde")):
+            if bilgi.get(anahtar):
+                alanlar[alan] = str(bilgi[anahtar])[:Tender._meta.get_field(alan).max_length]
+    return alanlar
+
+
+def _sonuc_yaz(tender, item) -> int:
+    """Sözleşme + sonuç ilanı (yalnızca bunlar). Döner: yazılan sözleşme sayısı."""
+    sozlesmeler = item.get("sozlesmeBilgiList") or []
+    if not sozlesmeler:
+        return 0
+    sonuc_ilanlari = [i for i in item.get("ilanList") or [] if _as_int(i.get("ilanTip")) == 4]
+    if sonuc_ilanlari:
+        # Mobilin sonuç ilanı v2'ninkine yer bırakır (iki kez görünmesin).
+        tender.ilanlar.filter(ekap_ilan_id__startswith=MOBIL_ILAN_ONEK, ilan_tip=4).delete()
+    # ⚠️ Mobil sonuç adımıyla aynı yol (`buda=False`): yalnızca verilen ilan/sözleşme
+    # yazılır, mobilin İhale İlanı ve diğer satırlar silinmez.
+    ozet = sync_contracts_from_raw(
+        tender, detail={"item": {"sozlesmeBilgiList": sozlesmeler, "ilanList": sonuc_ilanlari}},
+        recompute=True, buda=False)
+    return ozet.get("contracts", 0)
+
+
 def isle(tender, sonuc_mu, cli=None, tempo=None, simdi=None):
-    """Tek ihaleyi v2'den tazeler. Döner: "tazeleme" | "sonuc" | "bulunamadi"."""
+    """Tek ihaleyi v2'den tazeler. Döner: "tazeleme" | "sonuc" | "bulunamadi".
+
+    ⚠️ YALNIZCA durum + (sonuçlanmışsa) sözleşme/sonuç ilanı yazılır — bkz. modül notu."""
     cli = cli or EkapV2Client()
     tempo = tempo or _Tempo(0)
     simdi = simdi or timezone.now()
@@ -248,23 +296,22 @@ def isle(tender, sonuc_mu, cli=None, tempo=None, simdi=None):
     if detail is None:
         cache.set(f"{_ISARET}{tender.ikn}", "yok", _ISARET_YOK_TTL)
         _say("bulunamadi")
-        if sonuc_mu:
-            Tender.objects.filter(pk=tender.pk).update(sonuc_denendi_at=simdi)
-        return "bulunamadi"
-
-    govde = uyarla(detail)
-    ilan_tipleri = {_as_int(i.get("ilanTip")) for i in govde["item"].get("ilanList") or []}
-    with transaction.atomic():
-        t = upsert_tender_detail(tender.ekap_id, govde, koruyucu=True)
-        # v2 tam ilan listesini veriyor → mobilin aynı türden ilanı yerini v2'ninkine bırakır
-        # (bırakmazsa koruyucu mod budamadığı için İhale İlanı iki kez görünürdü).
-        if ilan_tipleri:
-            t.ilanlar.filter(ekap_ilan_id__startswith=MOBIL_ILAN_ONEK,
-                             ilan_tip__in=ilan_tipleri).delete()
-        guncel = {"detay_kaynak": "v2", "v2_id": kimlik}
+        guncel = {"v2_tazelendi_at": simdi}
         if sonuc_mu:
             guncel["sonuc_denendi_at"] = simdi
-        Tender.objects.filter(pk=t.pk).update(**guncel)
+        Tender.objects.filter(pk=tender.pk).update(**guncel)
+        return "bulunamadi"
+
+    item = uyarla(detail)["item"]
+    guncel = {"v2_id": kimlik, "v2_tazelendi_at": simdi, **_durum_alanlari(tender, item, simdi)}
+    # Tazeleme sırasında sonuçlandıysa sonuç verisi de şimdi alınır (aynı yanıt, ek istek yok).
+    sonuc_al = sonuc_mu or guncel.get("ihale_durum") in SONUC_DURUMLARI
+    if sonuc_al:
+        guncel["sonuc_denendi_at"] = simdi
+    with transaction.atomic():
+        Tender.objects.filter(pk=tender.pk).update(**guncel)
+        if sonuc_al:
+            _sonuc_yaz(Tender.objects.defer("detail_raw", "list_raw").get(pk=tender.pk), item)
     sonuc = "sonuc" if sonuc_mu else "tazeleme"
     _say(sonuc)
     return sonuc
@@ -329,6 +376,6 @@ def durum_ozeti(simdi=None) -> dict:
                      "degerlendirme": kademe.get(2, 0), "tamamlanmis": kademe.get(3, 0)},
         "sonuc_kuyrugu": sonuc_adaylari(simdi).count(),
         "yakin_toplam": yakin.count(),
-        "yakin_24sa_taze": yakin.filter(detail_synced_at__gte=simdi - timedelta(hours=24)).count(),
+        "yakin_24sa_taze": yakin.filter(v2_tazelendi_at__gte=simdi - timedelta(hours=24)).count(),
         "bugun": sayaclar(),
     }

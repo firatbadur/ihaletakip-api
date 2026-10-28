@@ -58,8 +58,10 @@ class IsleTest(TestCase):
         self.assertEqual(t.ekap_id, "mobil:2026-1852675")
         self.assertEqual((t.idare_id, t.en_ust_idare_kod), ("12345", "999"))
         self.assertEqual((t.fiyat_disi_unsur_var, t.istekli_sayisi), (True, 7))
-        self.assertEqual(t.detay_kaynak, "v2")
+        # Detay mobilin kalır: kaynak etiketi değişmez.
+        self.assertEqual(t.detay_kaynak, "")
         self.assertTrue(t.v2_id)
+        self.assertIsNotNone(t.v2_tazelendi_at)
         self.assertIsNotNone(t.sonuc_denendi_at)
         # Sözleşme + sonuç ilanı bağı → ihale yaklaşık maliyeti okundu.
         self.assertEqual(str(t.yaklasik_maliyet_num), "812073.33")
@@ -67,9 +69,40 @@ class IsleTest(TestCase):
         self.assertTrue(s.ekap_sozlesme_id.startswith(v2.SOZLESME_ONEK))
         self.assertEqual(str(s.sozlesme_bedeli_num), "818440.00")
         self.assertTrue(s.ekap_ilan_id.startswith(v2.ILAN_ONEK))
-        # İki ilan ayrı satırda; mobilin İhale İlanı v2'ninkine yer bıraktı (çift yok).
-        ilanlar = sorted(Announcement.objects.filter(tender=t).values_list("ilan_tip", flat=True))
-        self.assertEqual(ilanlar, [1, 4])
+        # Mobilin İhale İlanı DURUR, v2'den yalnızca sonuç ilanı eklenir.
+        ilanlar = sorted(Announcement.objects.filter(tender=t).values_list("ilan_tip", "baslik"))
+        self.assertEqual([i[0] for i in ilanlar], [1, 4])
+        self.assertEqual(ilanlar[0][1], "mobil")
+
+    def test_KRITIK_OLMAYAN_alanlar_ELLENMEZ(self):
+        # Üretim denemesi (2026-10-27): v2 il numaralarını değiştirmiş (MUŞ'a 304 veriyor,
+        # bizde 304 = NEVŞEHİR) ve tam detay yazımı 100 ihalenin 47'sinde ili bozdu.
+        veri = _fixture("v2_detay_degerlendirme.json")
+        veri["detay"]["item"]["idare"]["il"] = {"id": "304", "adi": "MUŞ"}
+        veri["detay"]["item"]["ihaleAdi"] = "v2 adı"
+        veri["detay"]["item"]["idareAdi"] = "v2 idaresi"
+        senk = timezone.now() - timedelta(days=3)
+        ham = {"item": {"ikn": "2026/1865935"}, "_kaynak": "mobil"}
+        t = _mobil_ihale("2026/1865935", 2, il_id=303, ihale_il_adi="MUŞ", ihale_adi="mobil adı",
+                         idare_adi="mobil idaresi", okas_ana_kod="11111111",
+                         detail_synced_at=senk, detail_raw=ham, detay_kaynak="mobil")
+        self.assertEqual(v2.isle(t, False, cli=_istemci(veri)), "tazeleme")
+        t.refresh_from_db()
+        self.assertEqual(t.ihale_durum, 3)
+        self.assertEqual((t.il_id, t.ihale_adi, t.idare_adi, t.okas_ana_kod),
+                         (303, "mobil adı", "mobil idaresi", "11111111"))
+        self.assertEqual((t.detail_synced_at, t.detail_raw, t.detay_kaynak), (senk, ham, "mobil"))
+        self.assertFalse(t.tarihler.exists() or t.okas_kalemleri.exists() or t.ilanlar.exists())
+
+    def test_tazelemede_SONUCLANAN_ihalenin_sonucu_ayni_yanittan_alinir(self):
+        veri = _fixture("v2_detay_sonuclanmis.json")       # v2 durumu 15
+        t = _mobil_ihale("2026/1852675", 4)
+        self.assertEqual(v2.isle(t, False, cli=_istemci(veri)), "tazeleme")
+        t.refresh_from_db()
+        self.assertEqual(t.ihale_durum, 15)
+        self.assertEqual(t.ihale_durum_aciklama, "Sonuç İlanı Yayımlanmış")
+        self.assertIsNotNone(t.sonuc_denendi_at)
+        self.assertEqual(Contract.objects.filter(tender=t).count(), 1)
 
     def test_tazeleme_sozlesme_tablosuna_DOKUNMAZ(self):
         veri = _fixture("v2_detay_degerlendirme.json")
@@ -120,6 +153,16 @@ class UyarlaTest(TestCase):
     def test_bos_sozlesme_listesi_anahtariyla_birlikte_atilir(self):
         self.assertNotIn("sozlesmeBilgiList", v2.uyarla({"item": {"sozlesmeBilgiList": []}})["item"])
 
+    def test_durum_teklif_tarihi_gecmisse_GERIYE_yazilmaz(self):
+        simdi = timezone.now()
+        t = Tender(ihale_durum=3, ihale_tarihi=simdi - timedelta(days=5))
+        geri = {"ihaleDurum": 2, "ihaleBilgi": {"ihaleDurum": 2}}
+        self.assertEqual(v2._durum_alanlari(t, geri, simdi), {})
+        # İleri geçiş ve teklif tarihi ileride olan ihale olduğu gibi yazılır.
+        self.assertEqual(v2._durum_alanlari(t, {"ihaleDurum": 4}, simdi)["ihale_durum"], 4)
+        t.ihale_tarihi = simdi + timedelta(days=2)
+        self.assertEqual(v2._durum_alanlari(t, geri, simdi)["ihale_durum"], 2)
+
 
 class AdaySecimiTest(TestCase):
     def setUp(self):
@@ -127,10 +170,11 @@ class AdaySecimiTest(TestCase):
         self.simdi = timezone.now()
 
     def _t(self, ikn, durum, gun_once, senk_saat_once=None):
+        # Vade v2'nin KENDİ damgasına göre (`detail_synced_at` mobilindir).
         senk = None if senk_saat_once is None else self.simdi - timedelta(hours=senk_saat_once)
         return Tender.objects.create(ikn=ikn, ekap_id=ikn, ihale_durum=durum,
                                      ihale_tarihi=self.simdi - timedelta(days=gun_once),
-                                     detail_synced_at=senk)
+                                     v2_tazelendi_at=senk, detail_synced_at=self.simdi)
 
     def _sira(self):
         return list(v2.tazeleme_adaylari(self.simdi).values_list("ikn", flat=True))

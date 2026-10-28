@@ -683,6 +683,22 @@ kez tazelenir. ⚠️ Sözleşme düzeyinde yaklaşık maliyet yalnızca "Sözle
 Yaklaşık Maliyeti" satırından okunur — kısımsız ihalelerin ilanında yok; mobilde de aynı
 (611 mobil sözleşmenin 215'inde indirim var), v2'ye özgü değil.
 Testler `ekap/tests/test_v2_tazeleme.py` (dişli: 8/8).
+⚠️⚠️ **v2 YALNIZCA KRİTİK ALANLARI YAZAR (ürün kararı, 2026-10-27 denemesinden sonra)**:
+durum (+ açıklama — `mobil.constants.DURUM_ACIKLAMA`'dan, iptal bilgisi) ve sonuçlanmışsa
+sözleşme + sonuç ilanı (`sync_contracts_from_raw(..., buda=False)`, mobil sonuç adımıyla
+aynı yol). İl, idare, ad, OKAS, tarihler, `detail_raw`, `detail_synced_at`, `detay_kaynak`
+ELLENMEZ; vade v2'nin kendi damgasına bakar (`Tender.v2_tazelendi_at`, `0034`).
+Yukarıdaki "koruyucu yazma / `uyarla`" anlatımı ilk sürüme aittir; `uyarla` artık yalnızca
+sözleşme/ilan anahtarlarını üretir.
+**Sebep — ilk deneme (100 ihale, tam detay koruyucu yazımı):** v2 **il numaralarını
+değiştirmiş** (MUŞ 303→304, KOCAELİ 294→296; alfabenin başı aynı) → 48 ihalenin ili komşu
+ile kaydı (+13 sözleşmenin `il_id` kopyası), 1 idare adı kısaldı. Durum kayması yoktu,
+captcha 7→7, hata 0, bulunamadı 0; sonuç toplama 20/20 sözleşme + bedel (YM yalnızca sonuç
+ilanı olan 5'inde — sonuç kuyruğunun 10.945/11.322'si durum 15, yani YM çoğunda gelir).
+⚠️ v2 detay bazen teklif tarihi geçmiş ihaleyi "Katılıma Açık" veriyor (1/100, mobil 3
+görmüştü) → `_durum_alanlari` durumu 3/4'ten 2'ye GERİ yazmaz.
+⚠️ Kritik olmayan bir alanı v2'den yazmak gerekirse önce numaralandırmasının bizimkiyle
+aynı olduğunu ölçün; deneme komutu artık BEKLENEN dışındaki her değişikliği şüpheli sayar.
 **Açmadan önce kontrollü deneme (ürün kararı):** `manage.py v2_tazeleme_deneme --adet 100`
 — seçilen ihaleleri GERÇEKTEN tazeler, önce/sonra alan alan karşılaştırır (beklenen /
 dikkat / şüpheli: dolu→boş, kimlik/idare değişimi, çocuk sayısı düşüşü), mobil captcha

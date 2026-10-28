@@ -4,9 +4,9 @@ v2 tazelemesinin KONTROLLÜ denemesi — açmadan önce (ürün kararı 2026-10-
 Seçilen ihaleler gerçekten v2'den tazelenir (yazar!) ve her birinin önceki/sonraki hâli
 alan alan karşılaştırılır:
 
-  • beklenen — tazelemenin işi olan alanlar (durum, ilan tarihi, kaynak, v2 kimliği…)
-  • dikkat   — değer değişti, meşru olabilir (ihale tarihi zeyilnameyle, ad yazımı…)
-  • şüpheli  — dolu alan boşaldı, kimlik/idare değişti, çocuk satır sayısı düştü
+  • beklenen — v2'nin yazdığı kritik alanlar: durum, v2 kimliği, sonuç (sözleşme/bedel)
+  • şüpheli  — BAŞKA herhangi bir alanın değişmesi (v2 yalnızca kritik alanları yazar),
+               dolu alanın boşalması, çocuk satır sayısının düşmesi
 
 Mobil hattın captcha sayacı önce/sonra raporlanır (aynı IP). Rapor JSON olarak yazılır.
 
@@ -30,14 +30,15 @@ ALANLAR = (
     "kalip_hash", "seri_anahtar", "fiyat_disi_unsur_var", "e_eksiltme_yapilacak",
     "istekli_sayisi", "ilansiz_mi", "dokuman_sayisi", "yaklasik_maliyet_num",
     "sozlesme_sayisi", "toplam_sozlesme_bedeli", "detay_kaynak", "v2_id",
+    "ihale_durum_aciklama", "iptal_nedeni", "ihale_il_adi", "ilce_adi", "ust_idare",
+    "detail_synced_at",
 )
 COCUKLAR = (("ilan", "ilanlar"), ("sozlesme", "sozlesmeler"), ("okas", "okas_kalemleri"),
             ("tarih", "tarihler"))
-BEKLENEN = {"ihale_durum", "ilan_tarihi", "detay_kaynak", "v2_id", "dokuman_sayisi",
-            "yaklasik_maliyet_num", "sozlesme_sayisi", "toplam_sozlesme_bedeli", "okas_ana_kod",
-            "kalip_hash", "seri_anahtar", "ihale_usul", "ihale_tip", "yasa_kapsami", "sektor"}
-# Değişirse her zaman şüpheli: istemcilerin anahtarı ve sayısal idare eşlemesi.
-KIMLIK = {"ikn", "ekap_id", "idare_id", "en_ust_idare_kod"}
+# v2'nin yazmaya yetkili olduğu alanlar; gerisinin değişmesi şüphelidir.
+BEKLENEN = {"ihale_durum", "ihale_durum_aciklama", "iptal_nedeni", "v2_id",
+            "yaklasik_maliyet_num", "sozlesme_sayisi", "toplam_sozlesme_bedeli",
+            "#sozlesme", "#ilan"}
 
 
 def _bos(v):
@@ -61,22 +62,14 @@ def _anlik(pk):
 
 
 def _karsilastir(once, sonra):
-    beklenen, dikkat, supheli = {}, {}, {}
+    beklenen, supheli = {}, {}
     for alan in once:
         a, b = once[alan], sonra[alan]
         if a == b:
             continue
-        fark = [a, b]
-        if alan.startswith("#"):
-            (supheli if b < a else beklenen)[alan] = fark
-        elif alan in KIMLIK or (not _bos(a) and _bos(b)):
-            supheli[alan] = fark
-        elif alan in BEKLENEN:
-            beklenen[alan] = fark
-        else:
-            dikkat[alan] = fark
-    return beklenen, dikkat, supheli
-
+        dusus = (b < a) if alan.startswith("#") else (not _bos(a) and _bos(b))
+        (beklenen if alan in BEKLENEN and not dusus else supheli)[alan] = [a, b]
+    return beklenen, supheli
 
 class Command(BaseCommand):
     help = "v2 tazelemesini sınırlı sayıda ihalede dener ve alan alan karşılaştırır (YAZAR)."
@@ -114,28 +107,26 @@ class Command(BaseCommand):
             except Exception as e:                       # noqa: BLE001
                 ne, hata = "hata", str(e)[:300]
             sonra = _anlik(pk)
-            beklenen, dikkat, supheli = _karsilastir(once, sonra)
+            beklenen, supheli = _karsilastir(once, sonra)
             ozet[ne] = ozet.get(ne, 0) + 1
             gecis = f"{once['ihale_durum']}→{sonra['ihale_durum']}"
             durum_gecis[gecis] = durum_gecis.get(gecis, 0) + 1
             satirlar.append({"ikn": once["ikn"], "sonuc_mu": sonuc_mu, "ne": ne, "hata": hata,
                              "sure_sn": round(time.monotonic() - t0, 1), "beklenen": beklenen,
-                             "dikkat": dikkat, "supheli": supheli})
+                             "supheli": supheli})
             if supheli:
                 self.stdout.write(self.style.WARNING(f"  ŞÜPHELİ {once['ikn']}: {supheli}"))
             if i % 10 == 0:
                 self.stdout.write(f"  {i}/{len(secim)} · {ozet}")
 
-        dikkat_alan, supheli_alan = {}, {}
+        supheli_alan = {}
         for s in satirlar:
-            for alan in s["dikkat"]:
-                dikkat_alan[alan] = dikkat_alan.get(alan, 0) + 1
             for alan in s["supheli"]:
                 supheli_alan[alan] = supheli_alan.get(alan, 0) + 1
         rapor = {
             "zaman": simdi.isoformat(), "islenen": len(satirlar), "sonuclar": ozet,
             "sure_sn": round(time.monotonic() - bas), "durum_gecisleri": durum_gecis,
-            "dikkat_alanlari": dikkat_alan, "supheli_alanlari": supheli_alan,
+            "supheli_alanlari": supheli_alan,
             "mobil_captcha": [captcha_once, mobil_sayaclar().get("captcha", 0)],
             "v2_sayaclari": v2.sayaclar(), "satirlar": satirlar,
         }

@@ -195,14 +195,14 @@ class AdaySecimiTest(TestCase):
         return list(v2.tazeleme_adaylari(self.simdi).values_list("ikn", flat=True))
 
     def test_kapsam_ve_SIRA(self):
-        self._t("d4", 4, 5, 96)                         # durum 4: 3 günde bir
-        self._t("d3", 3, 5, 48)
-        self._t("d2", 2, 5, 48)
-        self._t("bilinmiyor", None, 5, 48)
-        self._t("takipli4", 4, 5, 48)
+        self._t("d4", 4, 10, 96)                         # durum 4: 3 günde bir
+        self._t("d3", 3, 10, 48)
+        self._t("d2", 2, 10, 48)
+        self._t("bilinmiyor", None, 10, 48)
+        self._t("takipli4", 4, 10, 48)
         SavedTender.objects.create(user=self._kullanici(), tender_ikn="takipli4", tender_id="takipli4")
-        self._t("sonuclanmis", 15, 5, 48)
-        self._t("iptal", 6, 5, 48)
+        self._t("sonuclanmis", 15, 10, 48)
+        self._t("iptal", 6, 10, 48)
         self._t("acik", 2, -3, 48)                      # teklif tarihi ileride
         self._t("cok_eski", 2, 130, 24 * 30)
         sira = self._sira()
@@ -213,16 +213,26 @@ class AdaySecimiTest(TestCase):
         self.assertEqual(sira[3:], ["d3", "d4"])
 
     def test_VADE_kurallari(self):
-        self._t("yakin_taze", 3, 5, 10)                  # ≤30 g, 10 sa önce → daha değil
-        self._t("yakin_bayat", 3, 5, 21)                 # ≤30 g, 21 sa önce → evet
-        self._t("uzak_taze", 3, 60, 24 * 3)              # 30–120 g, 3 gün önce → daha değil
-        self._t("uzak_bayat", 3, 60, 24 * 8)             # 30–120 g, 8 gün önce → evet
+        self._t("yakin_taze", 3, 10, 10)                # ≤30 g, 10 sa önce → daha değil
+        self._t("yakin_bayat", 3, 10, 21)               # ≤30 g, 21 sa önce → evet
+        self._t("uzak_taze", 3, 60, 24 * 3)             # 30–120 g, 3 gün önce → daha değil
+        self._t("uzak_bayat", 3, 60, 24 * 8)            # 30–120 g, 8 gün önce → evet
         # Durum 4: ≤30 günde de 3 günde bir (EKAP hız sınırı, ürün kararı 2026-10-28).
-        self._t("d4_2gun", 4, 5, 24 * 2)                 # → daha değil
-        self._t("d4_4gun", 4, 5, 24 * 4)                 # → evet
-        self._t("bilinmiyor_21sa", None, 5, 21)          # durum NULL günlük kalır → evet
+        self._t("d4_2gun", 4, 10, 24 * 2)               # → daha değil
+        self._t("d4_4gun", 4, 10, 24 * 4)               # → evet
+        self._t("bilinmiyor_21sa", None, 10, 21)        # durum NULL günlük kalır → evet
+        # İlk 7 gün EKAP'a sorulmaz (ürün kararı 2026-10-28) — hiç bakılmamış olsa bile.
+        self._t("ilk_hafta_hic", 2, 3)
+        self._t("ilk_hafta_bayat", 3, 6, 24 * 5)
         self.assertEqual(set(self._sira()),
                          {"yakin_bayat", "uzak_bayat", "d4_4gun", "bilinmiyor_21sa"})
+
+    def test_ilk_haftada_yalnizca_TAKIPLI_sorulur(self):
+        self._t("takipli_yeni", 3, 2)
+        self._t("takipsiz_yeni", 3, 2)
+        SavedTender.objects.create(user=self._kullanici(), tender_ikn="takipli_yeni",
+                                   tender_id="takipli_yeni")
+        self.assertEqual(self._sira(), ["takipli_yeni"])
 
     def test_sozlesmesi_olan_tazelenmez(self):
         t = self._t("sozlesmeli", 4, 5, 48)
@@ -242,6 +252,23 @@ class AdaySecimiTest(TestCase):
     def _kullanici(self):
         from django.contrib.auth import get_user_model
         return get_user_model().objects.create_user(username="u", email="u@x.com", password="p")
+
+
+class YerelDurumGecisiTest(TestCase):
+    def test_teklif_tarihi_gecmis_2_EKAPa_sormadan_3_olur(self):
+        simdi = timezone.now()
+        gecmis = Tender.objects.create(ikn="g", ekap_id="g", ihale_durum=2,
+                                       ihale_tarihi=simdi - timedelta(hours=2))
+        acik = Tender.objects.create(ikn="a", ekap_id="a", ihale_durum=2,
+                                     ihale_tarihi=simdi + timedelta(days=1))
+        bilinmiyor = Tender.objects.create(ikn="b", ekap_id="b", ihale_durum=None,
+                                           ihale_tarihi=simdi - timedelta(days=2))
+        self.assertEqual(v2.yerel_durum_gecisi(simdi), 1)
+        gecmis.refresh_from_db(); acik.refresh_from_db(); bilinmiyor.refresh_from_db()
+        self.assertEqual((gecmis.ihale_durum, gecmis.ihale_durum_aciklama),
+                         (3, "İhale Tekliflere Kapalı, Teklifler Değerlendiriliyor"))
+        self.assertEqual(acik.ihale_durum, 2)
+        self.assertIsNone(bilinmiyor.ihale_durum)        # sonuçlanmış olabilir → dokunulmaz
 
 
 class AnahtarlarTest(TestCase):
@@ -271,7 +298,7 @@ class DenemeKomutuTest(TestCase):
         from django.core.management import call_command
         cache.clear()
         veri = _fixture("v2_detay_degerlendirme.json")
-        _mobil_ihale("2026/1865935", 2, ihale_tarihi=timezone.now() - timedelta(days=4),
+        _mobil_ihale("2026/1865935", 2, ihale_tarihi=timezone.now() - timedelta(days=10),
                      detail_synced_at=timezone.now() - timedelta(days=2))
         with tempfile.NamedTemporaryFile(suffix=".json") as f, \
                 patch("ekap.tasks._dogrulama_kapisi", return_value=True), \
@@ -307,7 +334,7 @@ class HizSiniriTest(TestCase):
     def test_tur_429da_DURUR_mola_verir_ve_YAVASLAR(self):
         from unittest.mock import patch
         from ekap.client import EkapHizSiniriError
-        t = _mobil_ihale("2026/5", 3, ihale_tarihi=timezone.now() - timedelta(days=2))
+        t = _mobil_ihale("2026/5", 3, ihale_tarihi=timezone.now() - timedelta(days=10))
         with patch.object(v2, "EkapV2Client"), \
                 patch.object(v2, "isle", side_effect=EkapHizSiniriError("429", "28")) as isle:
             sonuc = v2.kilitli_tur(max_sure=60)

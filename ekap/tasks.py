@@ -443,9 +443,11 @@ def v2_tazeleme():
     """
     if not getattr(settings, "EKAP_V2_TAZELEME_ENABLED", False):
         return {"atlandi": "kapali"}
+    from . import v2_tazeleme as v2
+    # EKAP'a gitmez → doğrulama kapısından ve hız sınırı molasından bağımsız koşar.
+    v2.yerel_durum_gecisi()
     if not _dogrulama_kapisi("v2_tazeleme"):
         return {"atlandi": "dogrulama_yok"}
-    from . import v2_tazeleme as v2
     return v2.kilitli_tur()
 
 

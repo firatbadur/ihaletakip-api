@@ -663,7 +663,7 @@ Testler `ekap/tests/test_v2_korumalari.py` — dişleri doğrulandı (5 koruman�
 - ✅ **OKAS elle güncellendi** (2026-10-27, 40 sn, 9.590 kod — Eylül'den beri yeni kod yok).
 
 ✅ **Faz 3 — `ekap/v2_tazeleme.py` (kodda, KAPALI).** Seçim: teklif tarihi geçmiş +
-sonuçlanmamış + sözleşmesiz, ≤120 gün; sıra takipli → 2/NULL → 3 → 4; vade ≤30 gün 20 sa (durum 4: **3 gün**, 2026-10-28 ürün kararı — hız sınırı),
+sonuçlanmamış + sözleşmesiz, ≤120 gün; sıra takipli → 2/NULL → 3 → 4; vade ≤30 gün 20 sa (durum 4: **3 gün**, 2026-10-28 ürün kararı — hız sınırı; teklif tarihinden sonraki **ilk 7 gün EKAP'a sorulmaz**, takipli hariç),
 30–120 gün 7 gün, takipli 20 sa. Sonuç toplama (5/15/20, ≤180 gün, sözleşmesiz,
 `sonuc_denendi_at` boş) tazelemeden SONRA, **bir kez**. Çekmeli görev `ekap.tasks.v2_tazeleme`
 (beat `*/5`, `ekap_oncelik`, Redis kilidi, 240 sn, istekler arası
@@ -706,6 +706,12 @@ ve ARANMAZ. → v2 tazelemesi `EkapV2Client(hiz_siniri_firlat=True)`: 429 → `E
 (beklemeden), tur durur, **mola** `EKAP_V2_TAZELEME_MOLA_SN` (1800) ve istekler arası
 bekleme ×1,5 (tavan 30 sn, 24 sa; kendiliğinden hızlanmaz). Varsayılan aralık 3 → **10 sn**.
 Pano: mola, aralık, günün 429 sayısı (`hiz_siniri` sayacı).
+⚠️ **"2 → 3" EKAP'a sorulmadan yapılır** (`v2_tazeleme.yerel_durum_gecisi`, görev her turda,
+kapı/moladan bağımsız; ≤120 gün, NULL'a dokunmaz). Ölçüm (2026-10-28, bugün bakılan 830
+ihale): EKAP teklif tarihinden sonra 1 gün içinde 3'e çeviriyor (0–3 gün: 34'ün 33'ü);
+eski ihalelerin 194'ünde EKAP'ın kendisi aylarca 2'de kalmış. İlk 7 günde bakılan 44
+ihalenin HİÇBİRİ sonuçlanmamış/iptal olmamıştı (7–30 günde 108'in 19'u) → ilk hafta
+sorulmaz. Tazelemenin asıl getirisi sonucu yakalamak: bakılanların %58'i 15/6/5'e geçmişti.
 **Açmadan önce kontrollü deneme (ürün kararı):** `manage.py v2_tazeleme_deneme --adet 100`
 — seçilen ihaleleri GERÇEKTEN tazeler, önce/sonra alan alan karşılaştırır (beklenen /
 dikkat / şüpheli: dolu→boş, kimlik/idare değişimi, çocuk sayısı düşüşü), mobil captcha

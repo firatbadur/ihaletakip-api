@@ -8,7 +8,8 @@ kararı: tazeleme YALNIZCA v2'de, mobile otomatik dönüş YOK (`EKAP_TAZELEME_K
 Kural (ürün kararı):
   • Tazelenen = teklif tarihi GEÇMİŞ ve SONUÇLANMAMIŞ ihale; sıra: takipli (kayıtlı +
     alarm) → hâlâ "Katılıma Açık" (2/NULL) → "Teklif Değerlendirme" (3) → "Değerlendirme
-    Tamamlanmış" (4). Teklif tarihinden ≤30 gün → günlük (durum 4: 3 günde bir),
+    Tamamlanmış" (4). Teklif tarihinden sonraki İLK 7 GÜN EKAP'a sorulmaz (2 → 3
+    yerel yapılır, `yerel_durum_gecisi`), 7–30 gün → günlük (durum 4: 3 günde bir),
     30–120 gün → haftalık, takipli → günlük. Açık ihale, sonuçlanmış/iptal ve >120 gün HİÇ tazelenmez.
   • Sonuçlanmış (5/15/20) ihalenin sözleşme + sonuç ilanı verisi BİR KEZ çekilir
     (`Tender.sonuc_denendi_at`), sonra bir daha dokunulmaz.
@@ -247,11 +248,18 @@ def tazeleme_adaylari(simdi=None, takip=None):
     # 0–30 gün kümesinin ~%55'i durum 4; sonuç ilanını beklerken her gün bakmak kuyruğu
     # eritmeye yer bırakmıyordu. `~Q(ihale_durum=4)` NULL'u KORUR (bilinmeyen günlük).
     uc_gun = simdi - timedelta(days=3)
-    vade = (Q(v2_tazelendi_at__isnull=True)
-            | (Q(ihale_tarihi__gte=gun30, v2_tazelendi_at__lt=taze) & ~Q(ihale_durum=4))
-            | Q(ihale_tarihi__gte=gun30, ihale_durum=4, v2_tazelendi_at__lt=uc_gun)
-            | Q(v2_tazelendi_at__lt=simdi - timedelta(days=7))
-            | Q(ikn__in=takip, v2_tazelendi_at__lt=taze))
+    # ⚠️⚠️ İLK 7 GÜN EKAP'A SORULMAZ (ürün kararı 2026-10-28, ölçüme dayalı): teklif
+    # tarihinden sonraki ilk hafta bakılan 44 ihalenin HİÇBİRİ sonuçlanmamış/iptal
+    # olmamıştı (hepsi 3/4); 7–30 günde 108'in 19'u. "2 → 3" geçişini EKAP'a sormadan
+    # `yerel_durum_gecisi` yapar. Takipli ihale ("İhale Sonuçlandı" alarmı) yine günlük.
+    yedi_gun = simdi - timedelta(days=7)
+    vade = ((Q(ihale_tarihi__lte=yedi_gun)
+             & (Q(v2_tazelendi_at__isnull=True)
+                | (Q(ihale_tarihi__gte=gun30, v2_tazelendi_at__lt=taze) & ~Q(ihale_durum=4))
+                | Q(ihale_tarihi__gte=gun30, ihale_durum=4, v2_tazelendi_at__lt=uc_gun)
+                | Q(v2_tazelendi_at__lt=simdi - timedelta(days=7))))
+            | (Q(ikn__in=takip)
+               & (Q(v2_tazelendi_at__isnull=True) | Q(v2_tazelendi_at__lt=taze))))
     return (
         Tender.objects.filter(ihale_tarihi__lte=simdi, ihale_tarihi__gte=gun120)
         # ⚠️ `exclude(__in)` NULL'u KORUR (durumu bilinmeyen ihale tazelenir) — istenen.
@@ -266,6 +274,21 @@ def tazeleme_adaylari(simdi=None, takip=None):
             default=3, output_field=IntegerField()))
         .order_by("oncelik", F("v2_tazelendi_at").asc(nulls_first=True), "pk")
     )
+
+
+def yerel_durum_gecisi(simdi=None) -> int:
+    """Teklif tarihi geçmiş "Katılıma Açık" (2) ihaleyi EKAP'a sormadan 3'e çevirir.
+
+    Ölçüm (2026-10-28): EKAP teklif tarihinden sonraki 1 gün içinde 2 → 3 yapıyor (0–3 gün:
+    34'ün 33'ü); eski ihalelerin bir kısmında ise EKAP'ın KENDİSİ aylarca 2'de kalıyor
+    (194 örnek, Haziran-Temmuz) → orada 3 göstermek EKAP'tan daha doğru. Sonraki geçişler
+    (4 / sonuç / iptal) yalnızca EKAP'tan öğrenilir. Pencere 120 gün: `ihale_tarihi`
+    indeksli aralık, her turda ucuz. NULL ("bilinmiyor") DOKUNULMAZ — sonuçlanmış olabilir.
+    """
+    simdi = simdi or timezone.now()
+    return Tender.objects.filter(
+        ihale_durum=2, ihale_tarihi__lte=simdi, ihale_tarihi__gte=simdi - timedelta(days=120),
+    ).update(ihale_durum=3, ihale_durum_aciklama=DURUM_ACIKLAMA[3])
 
 
 def sonuc_adaylari(simdi=None):

@@ -71,6 +71,11 @@ DOGRULAMA_YOLU = "/b_han/api/human-verification/status"
 _GEREKLI_CACHE = "ekap:dogrulama:gerekli"
 _GEREKLI_TTL = 300
 _GEREKLI_HATA_TTL = 60
+# Son KESİN cevap + zamanı, uzun ömürlü — yalnızca pano okur. Kapı önbelleği 5 dk'da
+# düşüyor ve görev de 5 dk'da bir koşuyor → pano çoğu zaman boş önbelleğe bakıp eski
+# "DÜŞTÜ" kaydını gösteriyordu (2026-10-28, v2 sorunsuz çalışırken).
+_GEREKLI_SON = "ekap:dogrulama:gerekli:son"
+_GEREKLI_SON_TTL = 2 * 86400
 
 # Analitik/izleme çerezleri: doğrulamayla ilgisi yok, üstelik kaydeden kişinin
 # kimliğini taşır → saklamayız.
@@ -175,7 +180,19 @@ def dogrulama_gerekli(canli: bool = True):
             deger = "?"
         cache.set(_GEREKLI_CACHE, deger,
                   _GEREKLI_HATA_TTL if deger == "?" else _GEREKLI_TTL)
+        if deger != "?":
+            cache.set(_GEREKLI_SON, f"{deger}|{timezone.now().isoformat()}", _GEREKLI_SON_TTL)
     return {"0": False, "1": True}.get(deger)
+
+
+def son_bilinen_gerekli():
+    """`(gerekli, zaman)` — son kesin cevap; hiç yoksa `(None, None)`. EKAP'a sormaz."""
+    from datetime import datetime
+    ham = cache.get(_GEREKLI_SON) or ""
+    deger, _, zaman = ham.partition("|")
+    if deger not in ("0", "1") or not zaman:
+        return None, None
+    return deger == "1", datetime.fromisoformat(zaman)
 
 
 def istek_cerezi() -> str:

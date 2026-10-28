@@ -447,11 +447,19 @@ def ekap_dogrulama_durumu() -> dict:
     var = bool(ekap_session.cerez())
     # ⚠️ Yalnızca önbellek okunur (canli=False) — pano EKAP'a istek atmaz.
     gerekli = ekap_session.dogrulama_gerekli(canli=False)
+    son_kontrol = None
+    if gerekli is None:
+        # Kapı önbelleği kısa ömürlü; görevin son kesin cevabı 2 saate kadar geçerli sayılır.
+        son, zaman = ekap_session.son_bilinen_gerekli()
+        if zaman and timezone.now() - zaman <= timedelta(hours=2):
+            gerekli, son_kontrol = son, zaman
     if dustu:
         seviye = "hata"
     elif gerekli is False:
         # 2026-10-27'den beri EKAP doğrulama istemiyor; eski "DÜŞTÜ" kaydı geçmiştir.
         seviye, metin = "ok", "EKAP şu an doğrulama istemiyor (çerezsiz çalışılıyor)"
+        if son_kontrol:
+            metin += f" · son kontrol {timezone.localtime(son_kontrol):%H:%M}"
     elif metin.startswith("DÜŞTÜ"):
         seviye = "hata"
     elif var:
@@ -517,6 +525,179 @@ def ekap_mobil_durumu() -> dict:
     }
 
 
+# ── İş hatları (günlük durum) ──────────────────────────
+_K_HAT = f"dash:{CACHE_VERSION}:hatlar"
+TTL_HAT = 60
+
+
+KAYNAK_V2, KAYNAK_MOBIL, KAYNAK_IC = "v2 (eski EKAP)", "mobil API", "iç iş (EKAP'a gitmez)"
+
+
+def _hat(ad, kaynak, seviye, bugun, son=None, notu=""):
+    return {"ad": ad, "kaynak": kaynak, "seviye": seviye, "bugun": bugun,
+            "son": timezone.localtime(son) if son else None, "not": notu}
+
+
+def _syncrun_ozet(gorev, bas):
+    """Bugünkü turlar + son başarılı tur (SyncRun yazan görevler için)."""
+    from django.db.models import Max, Sum
+    from ekap.models import SyncRun
+    bugun = SyncRun.objects.filter(task=gorev, started_at__gte=bas).aggregate(
+        tur=Count("pk"), kayit=Sum("items"), hata=Sum("errors"))
+    son_ok = (SyncRun.objects.filter(task=gorev, status="ok")
+              .aggregate(m=Max("finished_at"))["m"])
+    return bugun, son_ok
+
+
+def _yasli(son, esik, simdi):
+    return not son or simdi - son > esik
+
+
+def _hesapla_hatlar() -> dict:
+    """
+    Veri toplama + önemli arka plan iş hatlarının BUGÜNKÜ durumu (kullanıcı isteği
+    2026-10-28: "hangisi v2'den hangisi mobilden, hangisinde sıkıntı var").
+
+    ⚠️ EKAP'a istek ATILMAZ: Redis sayaçları + küçük indeksli sorgular (60 sn önbellek).
+    Ağır kuyruk sayımları ayrı ve 10 dk önbellekli (`_hesapla_kuyruklar`). Eşikler
+    görevlerin kendi aralıklarından türetildi (ör. yüklenici artımlı turu 5 dk'da bir).
+    """
+    from django.conf import settings
+    from django.db.models import Max
+
+    from core.models import AppSetting
+    from ekap import session as ekap_session
+    from ekap import v2_tazeleme
+    from ekap.mobil import captcha as mobil_captcha
+    from ekap.mobil import tasks as mobil_tasks
+    from ekap.mobil import throttle as mobil_throttle
+    from ekap.models import DogrudanTemin, KurulKarari, SyncRun, Tender
+    from ekap.tasks import katalog_durumu
+    from tenders.models import Notification
+
+    simdi, bas = timezone.now(), bugun_basi()
+    m = mobil_tasks.sayaclar()
+    butce = mobil_throttle.butce_ozet()
+    kuyruk = cache.get_or_set(_K_KUYRUK, _hesapla_kuyruklar, TTL_KUYRUK)
+    hatlar = []
+
+    # ── v2 (eski EKAP) ──
+    v2 = v2_tazeleme.sayaclar()
+    acik = getattr(settings, "EKAP_V2_TAZELEME_ENABLED", False)
+    son_v2 = v2_tazeleme.son_is()
+    gerekli = ekap_session.dogrulama_gerekli(canli=False)
+    if gerekli is None:
+        gerekli, _ = ekap_session.son_bilinen_gerekli()
+    kapi = ("doğrulama istemiyor" if gerekli is False else
+            "doğrulama İSTİYOR — köprü çerezi gerekir" if gerekli else "doğrulama durumu bilinmiyor")
+    if not acik:
+        sv = "kapali"
+    elif v2["hata"] >= 5 and v2["hata"] > v2["tazeleme"] + v2["sonuc"]:
+        sv = "hata"
+    elif _yasli(son_v2, timedelta(minutes=30), simdi):
+        sv = "uyari"
+    else:
+        sv = "ok"
+    hatlar.append(_hat(
+        "İhale tazeleme (durum + sonuç)", KAYNAK_V2, sv,
+        f"durum {v2['tazeleme']} · sonuç {v2['sonuc']} · v2'de yok {v2['bulunamadi']} · "
+        f"hata {v2['hata']} — bekleyen: tazeleme {kuyruk['v2_tazeleme']}, sonuç {kuyruk['v2_sonuc']}",
+        son_v2, "EKAP_V2_TAZELEME_ENABLED kapalı" if not acik else f"{kapi}. {v2_tazeleme.son_hata()}"))
+    for k in katalog_durumu(simdi):
+        if k["donduruldu"]:
+            hatlar.append(_hat(k["ad"], KAYNAK_V2, "kapali", "donduruldu (EKAP anonimleştirdi)",
+                               k["son_basarili"]))
+        else:
+            hatlar.append(_hat(k["ad"], KAYNAK_V2, "uyari" if k["eski"] else "ok",
+                               f"{k['kayit'] or 0} kayıt (son başarılı tur, haftalık)", k["son_basarili"]))
+
+    # ── mobil API ──
+    mobil_acik = getattr(settings, "EKAP_MOBIL_ENABLED", False)
+    captcha = mobil_captcha.bekliyor_mu()
+    ab = butce.get("arka_plan") or {}
+    kes, son_kes = _syncrun_ozet("mobil_kesif", bas)
+    son_kes_hata = (SyncRun.objects.filter(task="mobil_kesif", status="error", started_at__gte=bas)
+                    .order_by("-started_at").values_list("note", flat=True).first() or "")
+    sv = ("kapali" if not mobil_acik else "hata" if captcha else
+          "uyari" if _yasli(son_kes, timedelta(hours=5), simdi) else "ok")
+    hatlar.append(_hat(
+        "Yeni ihale keşfi", KAYNAK_MOBIL, sv,
+        f"{kes['tur']} tur · {m.get('kesif', 0)} istek · bütçe {ab.get('kullanilan', 0)}/{ab.get('tavan', 0)}",
+        son_kes, mobil_captcha.bekleyen_durum() if captcha else son_kes_hata[:160]))
+    son_detay = Tender.objects.filter(detay_kaynak="mobil").aggregate(m=Max("detail_synced_at"))["m"]
+    borc = kuyruk["detay_borcu"]
+    sv = ("kapali" if not mobil_acik else "hata" if captcha else
+          "uyari" if _yasli(son_detay, timedelta(hours=2), simdi) or borc > 300 else "ok")
+    hatlar.append(_hat(
+        "İhale detayı (ilan tarihi → bildirimler)", KAYNAK_MOBIL, sv,
+        f"{m.get('detay', 0)} detay · bekleyen {borc} · captcha {m.get('captcha', 0)} · hata {m.get('hata', 0)}",
+        son_detay, "detay borcu yüksek — bildirimler gecikir" if borc > 300 else ""))
+    dt_acik = getattr(settings, "EKAP_MOBIL_DT_ENABLED", False)
+    dt_yeni = DogrudanTemin.objects.filter(created_at__gte=bas).count()
+    son_dt = DogrudanTemin.objects.aggregate(m=Max("son_gorulme"))["m"]
+    dtb = butce.get("dt") or {}
+    sv = ("kapali" if not dt_acik else
+          "uyari" if _yasli(son_dt, timedelta(hours=3), simdi) else "ok")
+    hatlar.append(_hat("Doğrudan temin", KAYNAK_MOBIL, sv,
+                       f"{dt_yeni} yeni alım · {m.get('dt', 0)} istek · bütçe {dtb.get('kullanilan', 0)}/{dtb.get('tavan', 0)}",
+                       son_dt))
+    kurul_acik = getattr(settings, "EKAP_MOBIL_KURUL_ENABLED", False)
+    k_yeni = KurulKarari.objects.filter(ilk_gorulme__gte=bas).count()
+    son_k = KurulKarari.objects.aggregate(m=Max("updated_at"))["m"]
+    sv = ("kapali" if not kurul_acik else
+          "uyari" if _yasli(son_k, timedelta(hours=30), simdi) else "ok")
+    hatlar.append(_hat("KİK kurul kararları", KAYNAK_MOBIL, sv,
+                       f"{k_yeni} yeni karar · {m.get('kurul', 0)} istek (günde bir tur, 06:40)", son_k))
+
+    # ── iç işler (EKAP'a gitmez) ──
+    for gorev, ad, esik in (("sync_contractors", "Yüklenici bağlantısı", timedelta(hours=1)),
+                            ("refresh_market_stats", "Pazar panosu istatistikleri", timedelta(hours=26)),
+                            ("detect_recurring_series", "Tekrar eden ihaleler", timedelta(hours=26))):
+        o, son_ok = _syncrun_ozet(gorev, bas)
+        sv = ("hata" if _yasli(son_ok, esik, simdi) else "uyari" if (o["hata"] or 0) else "ok")
+        hatlar.append(_hat(ad, KAYNAK_IC, sv,
+                           f"{o['tur']} tur · {o['kayit'] or 0} kayıt · hata {o['hata'] or 0}", son_ok))
+    bild = Notification.objects.filter(created_at__gte=bas)
+    son_b = Notification.objects.aggregate(m=Max("created_at"))["m"]
+    hatlar.append(_hat("Bildirimler", KAYNAK_IC, "ok",
+                       f"{bild.count()} bildirim · {bild.values('user').distinct().count()} kullanıcı", son_b))
+    y = AppSetting.objects.filter(key="yedek_durumu").first()
+    if y is None:
+        sv, metin = "uyari", "kayıt yok"
+    else:
+        metin = y.value[:120]
+        sv = ("hata" if not y.value.startswith("TAMAM") else
+              "uyari" if simdi - y.updated_at > timedelta(hours=30) else "ok")
+    hatlar.append(_hat("Gecelik yedek (FTP)", "sunucu", sv, metin, y.updated_at if y else None))
+
+    # Son 24 saatin hataları (SyncRun yazan görevler) — sebebi `note`'ta
+    hatalar = [
+        {"gorev": r["task"], "zaman": timezone.localtime(r["started_at"]), "not": (r["note"] or "")[:200]}
+        for r in SyncRun.objects.filter(status="error", started_at__gte=simdi - timedelta(hours=24))
+        .order_by("-started_at").values("task", "started_at", "note")[:10]
+    ]
+    return {"hatlar": hatlar, "hatalar": hatalar,
+            "sorun": sum(h["seviye"] in ("hata", "uyari") for h in hatlar)}
+
+
+_K_KUYRUK = f"dash:{CACHE_VERSION}:kuyruk"
+TTL_KUYRUK = 600
+
+
+def _hesapla_kuyruklar() -> dict:
+    """Ağır sayımlar (10 dk önbellek): v2 bekleyenleri + detayı gelmemiş yeni ihaleler."""
+    from ekap import v2_tazeleme
+    from ekap.models import Tender
+    simdi = timezone.now()
+    return {
+        "v2_tazeleme": v2_tazeleme.tazeleme_adaylari(simdi).order_by().count(),
+        "v2_sonuc": v2_tazeleme.sonuc_adaylari(simdi).order_by().count(),
+        # Kısmi indeks (0009) `detail_synced_at IS NULL`; pencere `created_at` indeksli.
+        "detay_borcu": Tender.objects.filter(detail_synced_at__isnull=True,
+                                             created_at__gte=simdi - timedelta(days=7)).count(),
+    }
+
+
 # ── Giriş noktası ───────────────────────────────────────
 def panel_metrikleri(*, force_refresh: bool = False) -> dict:
     """
@@ -527,7 +708,7 @@ def panel_metrikleri(*, force_refresh: bool = False) -> dict:
     diğerinin yeniden hesaplanmasına gerek kalmasın.
     """
     if force_refresh:
-        cache.delete_many([_K_OZET, _K_SERI, _K_EKAP])
+        cache.delete_many([_K_OZET, _K_SERI, _K_EKAP, _K_HAT])
 
     ozet = cache.get_or_set(_K_OZET, _hesapla_ozet, TTL_HIZLI)
     seriler = cache.get_or_set(_K_SERI, _hesapla_seriler, TTL_SERI)
@@ -541,6 +722,7 @@ def panel_metrikleri(*, force_refresh: bool = False) -> dict:
         # "toplama duruyor mu" sorusunda kabul edilemez.
         "dogrulama": ekap_dogrulama_durumu(),
         "mobil": ekap_mobil_durumu(),
+        "hatlar": cache.get_or_set(_K_HAT, _hesapla_hatlar, TTL_HAT),
         "uretildi": timezone.localtime(),
         # Grafiklere gidecek dilim (json_script ile şablondan JS'e aktarılır).
         "grafik": {

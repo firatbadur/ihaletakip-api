@@ -72,13 +72,30 @@ _ART_ARDA_HATA_TAVANI = 5              # EKAP düştüyse turu boşuna yakma
 
 
 # ── Sayaçlar (günlük, Redis) ────────────────────────────
+_SON_IS = "ekap:v2:son_is"
+_SON_HATA = "ekap:v2:son_hata"           # pano: son hatanın kısa metni
+
+
 def _say(ad, adet=1):
     anahtar = f"{_SAYAC}{ad}:{timezone.localdate():%Y%m%d}"
     try:
         if not cache.add(anahtar, adet, timeout=2 * 86400):
             cache.incr(anahtar, adet)
+        if ad in ("tazeleme", "sonuc"):
+            cache.set(_SON_IS, timezone.now().isoformat(), 2 * 86400)
     except Exception:                                   # noqa: BLE001
         pass
+
+
+def son_hata() -> str:
+    return cache.get(_SON_HATA) or ""
+
+
+def son_is():
+    """Son başarılı işin zamanı (pano). `v2_tazelendi_at` indekssiz → MAX taraması yapılmaz."""
+    from datetime import datetime
+    ham = cache.get(_SON_IS)
+    return datetime.fromisoformat(ham) if ham else None
 
 
 def sayaclar() -> dict:
@@ -371,6 +388,8 @@ def tur(max_sure=None, max_ihale=None):
             break
         except Exception as e:                          # noqa: BLE001
             logger.warning("v2 tazeleme hata %s: %s", tender.ikn, e)
+            cache.set(_SON_HATA, f"{timezone.localtime():%d.%m %H:%M} {tender.ikn}: {e}"[:200],
+                      2 * 86400)
             cache.set(f"{_ISARET}{tender.ikn}", "hata", _ISARET_HATA_TTL)
             _say("hata")
             ne = "hata"

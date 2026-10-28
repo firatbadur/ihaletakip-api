@@ -103,6 +103,58 @@
       </div>
     {% endif %}
 
+    {% comment %}
+      İş hatları — veri toplamanın ve önemli arka plan işlerinin BUGÜNKÜ durumu
+      (kullanıcı isteği 2026-10-28). Kaynak sütunu hangi hattın v2'ye, hangisinin mobil
+      API'ye bağlı olduğunu gösterir; sorun çıkınca önce o kaynağa bakılır.
+    {% endcomment %}
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong><i class="fas fa-diagram-project me-1"></i> Veri toplama ve iş hatları — bugün</strong>
+        {% if pano.hatlar.sorun %}
+          <span class="badge text-bg-warning">{{ pano.hatlar.sorun }} hatta dikkat</span>
+        {% else %}
+          <span class="badge text-bg-success">hepsi çalışıyor</span>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr><th>Hat</th><th>Kaynak</th><th>Bugün</th><th>Son iş</th><th>Durum</th></tr>
+          </thead>
+          <tbody>
+          {% for h in pano.hatlar.hatlar %}
+            <tr>
+              <td>
+                <strong>{{ h.ad }}</strong>
+                {% if h.not %}<div class="small text-body-secondary">{{ h.not }}</div>{% endif %}
+              </td>
+              <td><span class="badge text-bg-light border">{{ h.kaynak }}</span></td>
+              <td class="small">{{ h.bugun }}</td>
+              <td class="small text-nowrap">{% if h.son %}{{ h.son|date:"d.m H:i" }}{% else %}—{% endif %}</td>
+              <td>
+                {% if h.seviye == "ok" %}<span class="badge text-bg-success">çalışıyor</span>
+                {% elif h.seviye == "uyari" %}<span class="badge text-bg-warning">dikkat</span>
+                {% elif h.seviye == "hata" %}<span class="badge text-bg-danger">sorun</span>
+                {% else %}<span class="badge text-bg-secondary">kapalı</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if pano.hatlar.hatalar %}
+        <div class="card-footer small">
+          <strong>Son 24 saatin hataları</strong>
+          <ul class="mb-0 ps-3">
+            {% for e in pano.hatlar.hatalar %}
+              <li><code>{{ e.gorev }}</code> · {{ e.zaman|date:"d.m H:i" }} — {{ e.not|default:"(not yok)" }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+
     {# ── 1. Kullanıcı KPI şeridi ───────────────────────────── #}
     <div class="it-section-title">
       <h5>Kullanıcılar</h5>

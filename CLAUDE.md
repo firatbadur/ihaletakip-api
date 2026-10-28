@@ -3421,6 +3421,16 @@ bildirim türleri).
 - **Responsive**: KPI kartları `col-6 col-md-4 col-xl-3` (mobilde 2 sütun), grafikler dar
   ekranda tek sütun; `admin.css` `@media` blokları sayı/ikon boyutlarını küçültür.
   375 px'te yatay taşma yoktur (ölçüldü: `scrollWidth == clientWidth`).
+- **"Veri toplama ve iş hatları — bugün" kartı** (`core.dashboard._hesapla_hatlar`, 60 sn
+  önbellek; ağır kuyruk sayımları `_hesapla_kuyruklar` 10 dk). Her satır: hat · **kaynak**
+  (`v2 (eski EKAP)` / `mobil API` / `iç iş` / `sunucu`) · bugünkü iş · son iş · durum ·
+  son hata. Altında son 24 saatin `SyncRun` hataları. ⚠️ EKAP'a istek atmaz; v2'nin son iş
+  zamanı ve son hatası Redis'ten (`v2_tazeleme.son_is/son_hata`) — `v2_tazelendi_at`
+  indekssiz, MAX taraması yapılmaz. Eşikleri değiştirirken görevin aralığına bakın.
+- ⚠️ v2 doğrulama şeridi eskiden yalnızca 5 dk'lık kapı önbelleğine bakıyordu; görev de 5
+  dk'da bir koştuğu için önbellek çoğu zaman boştu ve pano dünkü "DÜŞTÜ … 428" kaydını
+  gösteriyordu. Artık son KESİN cevap 2 gün saklanır (`session.son_bilinen_gerekli`),
+  pano 2 saate kadar ona güvenir.
 - **MAU/DAU = `User.last_seen_at`** (bkz. Kimlik Doğrulama Akışı). ⚠️ Ölçüm alanın
   eklendiği tarihten itibaren birikir; ilk haftalarda düşük görünmesi normaldir.
 

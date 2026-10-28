@@ -117,3 +117,36 @@ class PanelMetrikleriTests(TestCase):
         pano = panel_metrikleri(force_refresh=True)
         self.assertEqual(pano["ozet"]["kullanici"]["mau"], 1)
         self.assertEqual(pano["ozet"]["kullanici"]["dau"], 1)
+
+
+@IZOLE_CACHE
+class IsHatlariTests(TestCase):
+    """Veri toplama / iş hatları kartı (2026-10-28)."""
+
+    def test_bos_veritabaninda_her_hat_KAYNAGIYLA_doner(self):
+        from core.dashboard import KAYNAK_IC, KAYNAK_MOBIL, KAYNAK_V2
+        hatlar = panel_metrikleri(force_refresh=True)["hatlar"]
+        kaynaklar = {h["ad"]: h["kaynak"] for h in hatlar["hatlar"]}
+        self.assertEqual(kaynaklar["İhale tazeleme (durum + sonuç)"], KAYNAK_V2)
+        self.assertEqual(kaynaklar["Yeni ihale keşfi"], KAYNAK_MOBIL)
+        self.assertEqual(kaynaklar["Yüklenici bağlantısı"], KAYNAK_IC)
+        for h in hatlar["hatlar"]:
+            self.assertIn(h["seviye"], ("ok", "uyari", "hata", "kapali"))
+
+    def test_bayat_yuklenici_turu_SORUN_ve_son_hata_listelenir(self):
+        from datetime import timedelta
+        from ekap.models import SyncRun
+        r = SyncRun.objects.create(task="sync_contractors", status="ok")
+        SyncRun.objects.filter(pk=r.pk).update(finished_at=timezone.now() - timedelta(hours=3))
+        SyncRun.objects.create(task="sync_okas", status="error", note="HTTP 500")
+        hatlar = panel_metrikleri(force_refresh=True)["hatlar"]
+        yk = next(h for h in hatlar["hatlar"] if h["ad"] == "Yüklenici bağlantısı")
+        self.assertEqual(yk["seviye"], "hata")
+        self.assertEqual([(e["gorev"], e["not"]) for e in hatlar["hatalar"]], [("sync_okas", "HTTP 500")])
+
+    def test_admin_anasayfa_karti_gosterir(self):
+        u = User.objects.create_superuser(username="s", email="s@ornek.com", password="x")
+        self.client.force_login(u)
+        yanit = self.client.get("/admin/")
+        self.assertContains(yanit, "Veri toplama ve iş hatları")
+        self.assertContains(yanit, "mobil API")

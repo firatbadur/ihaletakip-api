@@ -63,3 +63,20 @@ class DogrulamaKapisiTest(TestCase):
     def test_pano_EKAPa_istek_ATMAZ(self, durum):
         self.assertIsNone(session.dogrulama_gerekli(canli=False))
         durum.assert_not_called()
+
+    @patch("ekap.session.durum", return_value=KAPALI)
+    def test_pano_kapi_onbellegi_DUSUNCE_eski_DUSTU_kaydini_gostermez(self, _):
+        # 2026-10-28: v2 çalışırken pano dünkü "DÜŞTÜ … 428" kaydını gösteriyordu.
+        from datetime import timedelta
+        from django.utils import timezone
+        from core.dashboard import ekap_dogrulama_durumu
+        AppSetting.objects.create(key=session.ANAHTAR_DURUM, value="DÜŞTÜ 2026-10-27 11:34 — HTTP 428")
+        self.assertFalse(session.dogrulama_gerekli())          # görev sordu
+        cache.delete(session._GEREKLI_CACHE)                    # 5 dk sonra kapı önbelleği düştü
+        d = ekap_dogrulama_durumu()
+        self.assertEqual(d["seviye"], "ok")
+        self.assertIn("son kontrol", d["metin"])
+        # Son cevap 2 saatten eskiyse güvenilmez → eski kayda düşer.
+        eski = (timezone.now() - timedelta(hours=3)).isoformat()
+        cache.set(session._GEREKLI_SON, f"0|{eski}", 3600)
+        self.assertEqual(ekap_dogrulama_durumu()["seviye"], "hata")

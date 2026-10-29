@@ -3338,6 +3338,16 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   gibi" yazmak bilinçli olarak yapılmadı).
   ⚠️ **Sandbox**: üretim erişimi onaylanana kadar SES yalnızca doğrulanmış adreslere
   ve günde 200 e-posta gönderir.
+- ⚠️⚠️ **SAĞLAYICI ADMIN'DEN SEÇİLİR — `core/eposta.py` (2026-10-29).** SES üretim onayı
+  günlerce gelmedi; sandbox'ta yalnızca doğrulanmış adreslere gidildiği için web açılınca
+  yeni kullanıcı kod alamazdı → geçici **Resend** (SMTP `smtp.resend.com:587`, kullanıcı
+  `resend`, şifre `RESEND_API_KEY`; alan adı Resend'de doğrulandı). Seçim: admin →
+  Uygulama Ayarları → **`eposta_saglayici`** = `ses` | `resend` (satır yoksa
+  `EMAIL_SAGLAYICI`, vars. `ses`); her bağlantı açılışında okunur, deploy gerekmez.
+  Geçersiz değer / kimliksiz sağlayıcı → SES'e düşer + log. ⚠️ Resend'deyken geri dönen
+  e-posta / şikâyet bildirimleri TOPLANMAZ (SNS ucu yalnız SES) → bülten SES onayı gelmeden
+  açılmamalı. Google Workspace kapatıldı (kullanıcı, 2026-10-29) — yedek yol değil.
+  SES onaylanınca: `eposta_saglayici=ses`. Testler `core/tests/test_eposta_saglayici.py` (6).
 - **Bounce/şikâyet** (`accounts/services/ses_sns.py`): SES → SNS → `POST
   /eposta/ses-bildirim/` (DRF değil; SNS `text/plain` yollar). Kimlik = izinli topic
   (`SES_SNS_TOPIC_ARNS`, **boşsa uç kapalı**) + SNS imzası (sertifika YALNIZCA

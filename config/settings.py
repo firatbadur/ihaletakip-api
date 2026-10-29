@@ -319,8 +319,14 @@ EMAIL_BACKEND = env(
     "EMAIL_BACKEND",
     default=("django.core.mail.backends.console.EmailBackend"
              if DEBUG and not EMAIL_HOST_PASSWORD
-             else "django.core.mail.backends.smtp.EmailBackend"),
+             else "core.eposta.SaglayiciBackend"),
 )
+# Sağlayıcı admin'den seçilir (Uygulama Ayarları → `eposta_saglayici`: ses | resend),
+# satır yoksa bu varsayılan. Resend = SES sandbox'tayken geçici yol (bkz. core/eposta.py).
+EMAIL_SAGLAYICI = env("EMAIL_SAGLAYICI", default="ses")
+RESEND_API_KEY = env("RESEND_API_KEY", default="").strip()
+RESEND_SMTP_HOST = env("RESEND_SMTP_HOST", default="smtp.resend.com")
+RESEND_SMTP_PORT = env.int("RESEND_SMTP_PORT", default=587)
 EMAIL_HOST = env("EMAIL_HOST", default="email-smtp.eu-north-1.amazonaws.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)

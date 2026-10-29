@@ -3223,10 +3223,13 @@ Mantık `subscription/services/magaza_fiyat.py`, görev `subscription.tasks.maga
   ikisinde de **1 hafta ücretsiz deneme** (ASC intro offer: aylık 2026-11-30'a, yıllık
   2027-03-31'e kadar — bitince `deneme` kendiliğinden `null` olur). RC anahtarının
   offerings/apps okuma izni VAR (doğrulandı).
-  ⚠️ **Play `null`**: mobil projedeki tek servis hesabı Firebase admin SDK'sı
-  (`ihale-53fbf`) ve o GCP projesinde *Google Play Android Developer API* kapalı
-  (HTTP 403). ⚠️ Yapılandırılmış ama hata veren mağaza TÜM turu düşürür → Play kimliği
-  çalıştığı doğrulanmadan `.env.prod`'a YAZILMAZ (önce `--kuru`).
+  ✅ **Play de açık (2026-10-29)**: RevenueCat'in servis hesabı
+  (`revenuecat-service-account@ihaletakip`, `credentials/play-service-account.json`,
+  yedek `.env.prod.bak-20261029-play`). Play fiyatları App Store ile aynı; deneme
+  **aylıkta 2 hafta**, yıllıkta 1 hafta (teklif adı `deneme-1ay` ama faz süresi P2W/P1W —
+  ad yanıltıcı, süre fazdan okunur). ⚠️ Firebase admin SA (`ihale-53fbf`) KULLANILAMAZ:
+  o projede Android Publisher API kapalı (403). ⚠️ Yapılandırılmış ama hata veren mağaza
+  TÜM turu düşürür → yeni kimlik önce `--kuru` ile doğrulanır.
 
 #### Deneme bitiş hatırlatması (2026-10-14)
 

@@ -3217,6 +3217,16 @@ Mantık `subscription/services/magaza_fiyat.py`, görev `subscription.tasks.maga
   ⚠️ RC anahtarının **offerings + apps okuma** izni olmalı (yalnız müşteri okuma izni
   verilmişse görev `RevenueCat: HTTP 403` ile düşer — `--durum` gösterir).
 - Testler `subscription/tests/test_magaza_fiyat.py` (15; dişli: 5 korumanın 5'i).
+- ✅ **ÜRETİMDE (2026-10-29, `54598c9`)**: ASC anahtarı `credentials/asc-api-key.p8`
+  (key `TX3B25YNFW`, 1000:1000 / 600), `ASC_*` `.env.prod`'da (yedek
+  `.env.prod.bak-20261029-magaza`). İlk tur: aylık **249,99 TL**, yıllık **2.499,99 TL**,
+  ikisinde de **1 hafta ücretsiz deneme** (ASC intro offer: aylık 2026-11-30'a, yıllık
+  2027-03-31'e kadar — bitince `deneme` kendiliğinden `null` olur). RC anahtarının
+  offerings/apps okuma izni VAR (doğrulandı).
+  ⚠️ **Play `null`**: mobil projedeki tek servis hesabı Firebase admin SDK'sı
+  (`ihale-53fbf`) ve o GCP projesinde *Google Play Android Developer API* kapalı
+  (HTTP 403). ⚠️ Yapılandırılmış ama hata veren mağaza TÜM turu düşürür → Play kimliği
+  çalıştığı doğrulanmadan `.env.prod`'a YAZILMAZ (önce `--kuru`).
 
 #### Deneme bitiş hatırlatması (2026-10-14)
 

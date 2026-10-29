@@ -528,6 +528,8 @@ Uçlar mitm kaydından (EKAP iOS 2.2.0) alındı; harita `docs/ekap-mobil-api.md
 sözleşme `docs/mobil-dogrudan-temin.md`. Tablo `ekap.DogrudanTemin` (**`Tender`'a
 konmadı**: anahtar dtn, yaşam döngüsü farklı). Liste = **şu an açık olanların hepsi**
 (ürün kararı). Kayıtlı filtre `tenders.DtKayitliFiltre` — kaydetmek Free+Pro, **alarm Pro**.
+Kayıtlı alım `tenders.SavedDogrudanTemin` (2026-10-29) — Free+Pro sınırsız, ihalelerle
+**aynı klasörlerde**; bkz. "Kayıtlı İhale Klasörleri".
 
 - ⚠️⚠️ **DT tik dönüşümüne SOKULMADI**: tik kapasitesi dolu (yukarıda) ve DT oraya
   girseydi sözleşme verisinin tek kaynağı olan sonuç/tazeleme aç kalırdı. Ayrı görev
@@ -4156,6 +4158,22 @@ Kullanıcı kayıtlı ihalelerini klasörlere ayırabilir (`/tender-groups/` uç
 - Sınırlar: kullanıcı başına `MAX_TENDER_GROUPS` (20) klasör, ad benzersiz.
   Benzersizlik karşılaştırması `_tr_fold` ile (İ/I → i/ı): `casefold()`/`iexact`
   Türkçe İ'de yanılır ("İşleri" ≠ "işleri"). Sınır yok (Free + Pro).
+- **Doğrudan temin alımları da bu klasörlere kaydedilir** (2026-10-29,
+  `tenders.SavedDogrudanTemin`, migration `0017`): `GET/POST /dogrudan-temin/kayitli/`,
+  `GET/PATCH/DELETE /dogrudan-temin/kayitli/<dtn>/`. Mobil sözleşme
+  `docs/mobil-dogrudan-temin.md` §4b. Free + Pro, sınırsız.
+  - ⚠️ **`SavedTender`'a KONMADI**: o İKN anahtarlı ve alarm / asistan eylemleri / web
+    "Kaydedilenler" tarafından tüketiliyor; DT anahtarı `dtn` ve o akışlara karışmamalı.
+  - ⚠️ **`DogrudanTemin`'e FK YOK**: DT satırları son tekliften 30 gün sonra siliniyor
+    (`dt_temizle`), kayıt kalmalı → kart alanları kaydetme anında DT satırından
+    **kopyalanır**. `POST` yalnızca `dtn` + `group` okur (istemci kart verisi gönderemez);
+    alım yoksa 404. Listede satır hâlâ duruyorsa güncel `son_teklif` kullanılır,
+    yoksa `acik: false` ("süresi doldu").
+  - `group` gönderilmeyen `POST` mevcut klasörü korur (upsert, 201/200).
+  - Klasör yanıtına **`dt_count`** eklendi; ⚠️ **`tender_count` DEĞİŞMEDİ** (web yalnızca
+    ihaleleri listeliyor, mobil ikisini toplar). İki `Count` tek sorguda iki JOIN üretir →
+    `distinct=True` şart, yoksa sayılar çarpılır.
+  - Testler: `tenders/tests/test_dt_kayit.py` (10).
 
 ## İş Akışı Kuralları (ÖNEMLİ)
 

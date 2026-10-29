@@ -5257,6 +5257,35 @@
       "name": "subscription",
       "item": [
         {
+          "name": "Pro paketlerinin mağaza fiyatları (Türkiye)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/fiyatlar/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "fiyatlar",
+                ""
+              ]
+            },
+            "description": "Web Pro sihirbazının aylık/yıllık fiyat kartları için. Paketler RevenueCat'in current offering'inden (mobilin ödeme ekranıyla aynı), fiyatlar App Store Connect (TUR) ve Google Play (TR) API'lerinden okunur — KDV dahil müşteri fiyatı.\n\nUç mağazaya **istek anında gitmez**: günlük görevin sakladığı kaydı döner. `guncellenme` kaydın en son **başarıyla** okunduğu andır.\n\nKurallar: `fiyat` ondalık metindir; okunamayan mağaza `null` (asla tahmin ya da 0); hiç kayıt yoksa `paketler: []`; `deneme` ISO 8601 süre ya da `null`.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "RevenueCat webhook",
           "request": {
             "method": "POST",

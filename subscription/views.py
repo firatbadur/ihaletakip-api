@@ -159,3 +159,87 @@ class RevenueCatWebhookView(APIView):
         for kaybeden in transfer_kaybedenleri(event, kazanan=user):
             sync_subscription_task.delay(kaybeden.id)
         return api_response(data={"handled": True}, message="Alındı.")
+
+
+_MAGAZA_FIYAT = inline_serializer(
+    name="MagazaFiyat",
+    fields={
+        "fiyat": serializers.CharField(help_text="KDV dahil müşteri fiyatı, ondalık metin"),
+        "para_birimi": serializers.CharField(),
+        "deneme": serializers.CharField(allow_null=True, help_text="ISO 8601 süre ya da null"),
+    },
+)
+
+
+@extend_schema(
+    tags=["subscription"],
+    summary="Pro paketlerinin mağaza fiyatları (Türkiye)",
+    auth=[],
+    description=(
+        "Web Pro sihirbazının aylık/yıllık fiyat kartları için. Paketler RevenueCat'in "
+        "current offering'inden (mobilin ödeme ekranıyla aynı), fiyatlar App Store Connect "
+        "(TUR) ve Google Play (TR) API'lerinden okunur — KDV dahil müşteri fiyatı.\n\n"
+        "Uç mağazaya **istek anında gitmez**: günlük görevin sakladığı kaydı döner. "
+        "`guncellenme` kaydın en son **başarıyla** okunduğu andır.\n\n"
+        "Kurallar: `fiyat` ondalık metindir; okunamayan mağaza `null` (asla tahmin ya da 0); "
+        "hiç kayıt yoksa `paketler: []`; `deneme` ISO 8601 süre ya da `null`."
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="MagazaFiyatlari",
+            fields={
+                "ulke": serializers.CharField(),
+                "guncellenme": serializers.DateTimeField(allow_null=True),
+                "paketler": inline_serializer(
+                    name="MagazaFiyatPaketi",
+                    many=True,
+                    fields={
+                        "kod": serializers.CharField(help_text="aylik | yillik | haftalik …"),
+                        "rc_paket": serializers.CharField(),
+                        "sure": serializers.CharField(allow_null=True),
+                        "magazalar": inline_serializer(
+                            name="MagazaFiyatMagazalar",
+                            fields={"app_store": _MAGAZA_FIYAT, "play_store": _MAGAZA_FIYAT},
+                        ),
+                    },
+                ),
+            },
+        )
+    },
+    examples=[
+        OpenApiExample(
+            "Fiyatlar",
+            response_only=True,
+            value={
+                "ulke": "TR",
+                "guncellenme": "2026-10-29T04:20:12+03:00",
+                "paketler": [
+                    {"kod": "aylik", "rc_paket": "$rc_monthly", "sure": "P1M", "magazalar": {
+                        "app_store": {"fiyat": "249.99", "para_birimi": "TRY", "deneme": None},
+                        "play_store": {"fiyat": "249.99", "para_birimi": "TRY", "deneme": None},
+                    }},
+                    {"kod": "yillik", "rc_paket": "$rc_annual", "sure": "P1Y", "magazalar": {
+                        "app_store": {"fiyat": "1999.99", "para_birimi": "TRY", "deneme": None},
+                        "play_store": None,
+                    }},
+                ],
+            },
+        )
+    ],
+)
+class MagazaFiyatlariView(APIView):
+    """GET /subscription/fiyatlar/ — saklanan mağaza fiyatı kaydı (token'sız)."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []  # web token'sız çağırır; bayat token 401'e düşmesin
+
+    def get(self, request):
+        from .services.magaza_fiyat import ULKE, oku
+
+        kayit = oku() or {}
+        return api_response(data={
+            "ulke": kayit.get("ulke") or ULKE,
+            "guncellenme": kayit.get("guncellenme"),
+            "paketler": kayit.get("paketler") or [],
+        })

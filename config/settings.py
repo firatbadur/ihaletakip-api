@@ -435,6 +435,17 @@ REVENUECAT_PROJECT_ID = env("REVENUECAT_PROJECT_ID", default="")
 REVENUECAT_ENTITLEMENT = env("REVENUECAT_ENTITLEMENT", default="pro")
 REVENUECAT_WEBHOOK_AUTH = env("REVENUECAT_WEBHOOK_AUTH", default="")
 
+# ── Mağaza fiyatları (web Pro sihirbazı, `GET /subscription/fiyatlar/`) ──
+# Türkiye fiyatı yalnızca mağazalardan okunur (RC REST'te yok). Kimlik boşsa o mağaza
+# `null` döner. ASC_PRIVATE_KEY: .p8 içeriği (`\n` kaçışlı olabilir) ya da dosya yolu;
+# PLAY_SERVICE_ACCOUNT_JSON: servis hesabı JSON içeriği ya da dosya yolu.
+ASC_ISSUER_ID = env("ASC_ISSUER_ID", default="")
+ASC_KEY_ID = env("ASC_KEY_ID", default="")
+ASC_PRIVATE_KEY = env("ASC_PRIVATE_KEY", default="")
+ASC_APP_ID = env("ASC_APP_ID", default="6761832614")
+PLAY_SERVICE_ACCOUNT_JSON = env("PLAY_SERVICE_ACCOUNT_JSON", default="")
+PLAY_PACKAGE_NAME = env("PLAY_PACKAGE_NAME", default="com.envisoft.ihaletakip")
+
 # ── Bildirim pacing (kullanıcıyı bombalamamak için) ────
 # Sessiz saatler: bu aralıkta (yerel saat) push atılmaz; uygulama-içi satır yine yazılır.
 # Varsayılan 22:00–07:00. Zamanlanmış görevler 07/09/10'da çalıştığı için normal akışı

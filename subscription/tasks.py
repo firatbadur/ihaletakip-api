@@ -102,3 +102,11 @@ def send_trial_reminders():
             gonderilen += 1
     logger.info("deneme hatırlatması: %s kullanıcıya gönderildi", gonderilen)
     return {"sent": gonderilen}
+
+
+@shared_task(name="subscription.tasks.magaza_fiyatlarini_guncelle")
+def magaza_fiyatlarini_guncelle():
+    """Pro paketlerinin mağaza fiyatlarını tazeler (bkz. services/magaza_fiyat.py)."""
+    from .services.magaza_fiyat import guncelle
+
+    return guncelle()

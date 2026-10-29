@@ -4782,6 +4782,58 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/subscription/fiyatlar/:
+    get:
+      operationId: api_v1_subscription_fiyatlar_retrieve
+      description: 'Web Pro sihirbazının aylık/yıllık fiyat kartları için. Paketler
+        RevenueCat''in current offering''inden (mobilin ödeme ekranıyla aynı), fiyatlar
+        App Store Connect (TUR) ve Google Play (TR) API''lerinden okunur — KDV dahil
+        müşteri fiyatı.
+
+
+        Uç mağazaya **istek anında gitmez**: günlük görevin sakladığı kaydı döner.
+        `guncellenme` kaydın en son **başarıyla** okunduğu andır.
+
+
+        Kurallar: `fiyat` ondalık metindir; okunamayan mağaza `null` (asla tahmin
+        ya da 0); hiç kayıt yoksa `paketler: []`; `deneme` ISO 8601 süre ya da `null`.'
+      summary: Pro paketlerinin mağaza fiyatları (Türkiye)
+      tags:
+      - subscription
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MagazaFiyatlari'
+              examples:
+                Fiyatlar:
+                  value:
+                    ulke: TR
+                    guncellenme: '2026-10-29T04:20:12+03:00'
+                    paketler:
+                    - kod: aylik
+                      rc_paket: $rc_monthly
+                      sure: P1M
+                      magazalar:
+                        app_store:
+                          fiyat: '249.99'
+                          para_birimi: TRY
+                          deneme: null
+                        play_store:
+                          fiyat: '249.99'
+                          para_birimi: TRY
+                          deneme: null
+                    - kod: yillik
+                      rc_paket: $rc_annual
+                      sure: P1Y
+                      magazalar:
+                        app_store:
+                          fiyat: '1999.99'
+                          para_birimi: TRY
+                          deneme: null
+                        play_store: null
+          description: ''
   /api/v1/subscription/revenuecat-webhook/:
     post:
       operationId: api_v1_subscription_revenuecat_webhook_create
@@ -6280,6 +6332,66 @@ components:
           maxLength: 500
       required:
       - refresh
+    MagazaFiyat:
+      type: object
+      properties:
+        fiyat:
+          type: string
+          description: KDV dahil müşteri fiyatı, ondalık metin
+        para_birimi:
+          type: string
+        deneme:
+          type: string
+          nullable: true
+          description: ISO 8601 süre ya da null
+      required:
+      - deneme
+      - fiyat
+      - para_birimi
+    MagazaFiyatMagazalar:
+      type: object
+      properties:
+        play_store:
+          allOf:
+          - $ref: '#/components/schemas/MagazaFiyat'
+          title: App store
+      required:
+      - play_store
+    MagazaFiyatPaketi:
+      type: object
+      properties:
+        kod:
+          type: string
+          description: aylik | yillik | haftalik …
+        rc_paket:
+          type: string
+        sure:
+          type: string
+          nullable: true
+        magazalar:
+          $ref: '#/components/schemas/MagazaFiyatMagazalar'
+      required:
+      - kod
+      - magazalar
+      - rc_paket
+      - sure
+    MagazaFiyatlari:
+      type: object
+      properties:
+        ulke:
+          type: string
+        guncellenme:
+          type: string
+          format: date-time
+          nullable: true
+        paketler:
+          type: array
+          items:
+            $ref: '#/components/schemas/MagazaFiyatPaketi'
+      required:
+      - guncellenme
+      - paketler
+      - ulke
     Notification:
       type: object
       properties:

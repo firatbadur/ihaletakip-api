@@ -3199,6 +3199,25 @@ katmanını senkronlar. Sözleşme: **`app_user_id = str(user.id)`**.
     senkron **Celery'ye atılır** (`sync_subscription_task`, event yedeğiyle) ve **hızlıca
     200** döner. Kullanıcı eşleşmezse (anonim id) yine 200 `handled:false`. Test Store
     da webhook fırlatır → sandbox'ta test edilebilir.
+#### Mağaza fiyatları — `GET /subscription/fiyatlar/` (2026-10-29, portal #18)
+
+Web Pro sihirbazının fiyat kartları. Sözleşme + kurulum: `docs/magaza-fiyatlari.md`.
+Mantık `subscription/services/magaza_fiyat.py`, görev `subscription.tasks.magaza_fiyatlarini_guncelle`
+(beat `subscription-magaza-fiyatlari` 04:20), elle `manage.py magaza_fiyatlarini_guncelle [--kuru|--durum]`.
+- ⚠️ **RC REST'te Türkiye fiyatı YOK** (yalnızca USD `indicative_price`) → RC yalnızca
+  **hangi ürünlerin** satıldığını söyler (current offering → paket → App Store / Play kimliği),
+  fiyat App Store Connect (TUR `customerPrice`) ve Play (`regionalConfigs` TR) API'lerinden.
+- Kayıt `core.AppSetting("magaza_fiyatlari")` (JSON); son deneme/hata `magaza_fiyatlari_durum`.
+  Uç mağazaya istek anında gitmez.
+- Hata sınıfları: kimlik yok → o mağaza `null`; ürün/TR fiyatı yok → o hücre `null`;
+  ağ/yetki/5xx → tur başarısız, **önceki kayıt + `guncellenme` korunur**; hiç fiyat yoksa yazılmaz.
+- ⚠️ ASC'de `preserved=True` (mevcut abonelere korunan eski fiyat) ve ileri tarihli fiyat
+  atlanır; Play'de `"<abonelik>:<temel plan>"` dışındaki kimlikte plan **tahmin edilmez**.
+- Kimlikler: `ASC_ISSUER_ID` / `ASC_KEY_ID` / `ASC_PRIVATE_KEY`, `PLAY_SERVICE_ACCOUNT_JSON`.
+  ⚠️ RC anahtarının **offerings + apps okuma** izni olmalı (yalnız müşteri okuma izni
+  verilmişse görev `RevenueCat: HTTP 403` ile düşer — `--durum` gösterir).
+- Testler `subscription/tests/test_magaza_fiyat.py` (15; dişli: 5 korumanın 5'i).
+
 #### Deneme bitiş hatırlatması (2026-10-14)
 
 ⚠️⚠️ **Bu bir VAADİN karşılığıdır.** Mobil paywall deneme çizelgesinde "5. gün — deneme

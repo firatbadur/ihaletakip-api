@@ -52,6 +52,12 @@ app.conf.beat_schedule = {
         "task": "subscription.tasks.send_trial_reminders",
         "schedule": crontab(minute=10),
     },
+    # Pro paketlerinin mağaza fiyatları (web sihirbazı). Hata olursa önceki kayıt kalır;
+    # fiyat değişince hemen yansıtmak için: `manage.py magaza_fiyatlarini_guncelle`.
+    "subscription-magaza-fiyatlari": {
+        "task": "subscription.tasks.magaza_fiyatlarini_guncelle",
+        "schedule": crontab(hour=4, minute=20),
+    },
     # ── Bildirim servisi (kademeli düzen, kullanıcı başına tek özet push) ──
     # İhale Asistanı: günlük öneri digest'i + push — **09:00, yalnızca Pro**.
     # ⚠️ 08:00 filtre özetinden SONRA koşmalı: adaylar o bildirimin bulduğu ihalelerdir

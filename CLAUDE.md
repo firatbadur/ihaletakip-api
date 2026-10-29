@@ -3225,9 +3225,9 @@ Mantık `subscription/services/magaza_fiyat.py`, görev `subscription.tasks.maga
   offerings/apps okuma izni VAR (doğrulandı).
   ✅ **Play de açık (2026-10-29)**: RevenueCat'in servis hesabı
   (`revenuecat-service-account@ihaletakip`, `credentials/play-service-account.json`,
-  yedek `.env.prod.bak-20261029-play`). Play fiyatları App Store ile aynı; deneme
-  **aylıkta 2 hafta**, yıllıkta 1 hafta (teklif adı `deneme-1ay` ama faz süresi P2W/P1W —
-  ad yanıltıcı, süre fazdan okunur). ⚠️ Firebase admin SA (`ihale-53fbf`) KULLANILAMAZ:
+  yedek `.env.prod.bak-20261029-play`). Play fiyatları ve denemeleri App Store ile aynı
+  (1 hafta; aylık Play denemesi 2 haftaydı, kullanıcı 2026-10-29'da 1 haftaya çekti).
+  ⚠️ Play teklif adı `deneme-1ay` yanıltıcıdır — süre fazdan okunur. ⚠️ Firebase admin SA (`ihale-53fbf`) KULLANILAMAZ:
   o projede Android Publisher API kapalı (403). ⚠️ Yapılandırılmış ama hata veren mağaza
   TÜM turu düşürür → yeni kimlik önce `--kuru` ile doğrulanır.
 

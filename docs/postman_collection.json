@@ -2250,7 +2250,7 @@
                 }
               ]
             },
-            "description": "Liste alanları + EKAP'tan **talep üzerine** alınan ayrıntı (`detay`): idare hiyerarşisi, duyuru metni (HTML; teklif verilecek yer, iletişim, son tarih), kısmi teklif, iptal bilgisi, sözleşmeler.\n\nAyrıntı 30 dk önbelleklenir. EKAP o an yanıt vermezse `detay: null` + `mesaj` döner — liste alanları yine gelir.\n\n`birim_fiyat_cetveli_url`: EKAP'ın kendi adresi; mobil tarayıcıda açar (dosya sunucumuzdan geçmez). `dokuman_url`: `dokuman_var=true` ise doküman indirme ucu.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "description": "Liste alanları + EKAP'tan **talep üzerine** alınan ayrıntı (`detay`): idare hiyerarşisi, duyuru metni (HTML; teklif verilecek yer, iletişim, son tarih), kısmi teklif, iptal bilgisi, sözleşmeler.\n\nAyrıntı ilk açılışta EKAP'tan bir kez alınıp kalıcı saklanır; sonraki açılışlar kayıttan döner. EKAP o an yanıt vermezse `detay: null` + `mesaj` döner — liste alanları yine gelir.\n\n`birim_fiyat_cetveli_url`: EKAP'ın kendi adresi; mobil tarayıcıda açar (dosya sunucumuzdan geçmez). `dokuman_url`: `dokuman_var=true` ise doküman indirme ucu.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
             "auth": {
               "type": "noauth"
             }

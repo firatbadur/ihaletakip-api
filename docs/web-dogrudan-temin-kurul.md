@@ -14,7 +14,7 @@ noktaları anlatır.
 |---|---|---|
 | Açık DT listesi | `GET ekap/dogrudan-temin/` | ❌ (veritabanından) |
 | DT filtre seçenekleri | `GET ekap/dogrudan-temin/filtreler/` | ❌ (sabit) |
-| DT detayı | `GET ekap/dogrudan-temin/{dtn}/` | ⚠️ **ilk açılışta EVET** (30 dk önbellek) |
+| DT detayı | `GET ekap/dogrudan-temin/{dtn}/` | ⚠️ **alımın ilk açılışında EVET**, sonra hep kayıttan (kalıcı) |
 | DT dokümanı | `GET ekap/dogrudan-temin/{dtn}/dokuman/` | ⚠️ **her indirmede EVET** |
 | DT kayıtlı filtreler (giriş) | `GET/POST dogrudan-temin/kayitli-filtreler/` (+`{id}/`) | ❌ |
 | Kurul kararları | `GET ekap/kurul-kararlari/`, `…/toplantilar/` | ❌ |
@@ -32,8 +32,8 @@ bütçe tükenir ve mobil kullanıcı "kota doldu" mesajı görür.
 Backend iki koruma uygular — **ama web tarafının da aynı ilkeye uyması gerekir**:
 
 - **Doğrulanmış bot** (`X-IT-Verified-Bot: 1`, portal anahtarıyla) detayda **canlı
-  istek tetiklemez**: yanıt liste alanlarıyla gelir, `detay` yalnızca önbellekte varsa
-  dolu, yoksa `null`. Doküman ucu bota **403** döner.
+  istek tetiklemez**: yanıt liste alanlarıyla gelir, `detay` yalnızca daha önce bir insan
+  açıp kaydedildiyse dolu, yoksa `null`. Doküman ucu bota **403** döner.
 - Bu iki uç `belge` hız sınırı kapsamındadır (portal modu `uygula`): anonim IP başına
   dakikada 20, günde 200.
 

@@ -99,6 +99,17 @@ class DetayTest(TestCase):
         self.c.get(URL + "26DT1/")
         self.assertEqual(Cli.return_value.dt_detay.call_count, 1)
 
+    def test_ayrinti_KAYITTAN_doner_onbellek_bossa_bile_EKAPa_gitmez(self, Cli):
+        """Ürün kararı: DT ayrıntısı değişmiyor → bir kez alınır, hep kayıttan döner."""
+        _dt("26DT1")
+        Cli.return_value.dt_detay.return_value = _DETAY
+        self.c.get(URL + "26DT1/")
+        cache.clear()                                     # önbellek süresi dolmuş gibi
+        d = self.c.get(URL + "26DT1/").json()["data"]
+        self.assertEqual(Cli.return_value.dt_detay.call_count, 1)
+        self.assertEqual(d["detay"]["idare"]["en_ust"], "SAĞLIK BAKANLIĞI")
+        self.assertEqual(d["mesaj"], "")
+
     def test_detay_daha_taze_durumu_tabloya_yazar(self, Cli):
         _dt("26DT1")
         iptal = dict(_DETAY, dogrudanTeminBilgileri=dict(
@@ -114,7 +125,7 @@ class DetayTest(TestCase):
         self.assertIsNone(d["detay"])
         self.assertTrue(d["mesaj"])
         self.assertEqual(d["dtn"], "26DT1")
-        self.assertIsNone(cache.get("dt:detay:26DT1"))
+        self.assertIsNone(DogrudanTemin.objects.get().detail_raw)
 
     def test_bayat_encid_tazesiyle_BIR_KEZ_tekrar_denenir(self, Cli):
         _dt("26DT1")
@@ -191,7 +202,7 @@ class BotKorumasiTest(TestCase):
         self.assertIsNone(d["detay"])
         self.assertEqual(d["dtn"], "26DT1")
 
-    def test_bot_onbellekteki_ayrintiyi_alir(self, Cli):
+    def test_bot_kayitli_ayrintiyi_alir(self, Cli):
         _dt("26DT1")
         Cli.return_value.dt_detay.return_value = _DETAY
         self.c.get(URL + "26DT1/")                       # insan: doldurur

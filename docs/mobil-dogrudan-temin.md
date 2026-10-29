@@ -78,9 +78,10 @@ Yanıt:
 
 ## 2. Detay — `GET /ekap/dogrudan-temin/{dtn}/`
 
-⚠️⚠️ **Bu uç ilk açılışta EKAP'a gider** (ihale detayından farklı: ihale detayı önceden
-toplanmış veriden anında döner). Aynı alım 30 dk içinde tekrar açılırsa — başka bir
-kullanıcı açmış olsa bile — önbellekten anında döner. İlk açılış tipik olarak birkaç
+⚠️⚠️ **Bu uç bir alımın İLK açılışında EKAP'a gider** (ihale detayından farklı: ihale
+detayı önceden toplanmış veriden anında döner). Gelen ayrıntı **kalıcı kaydedilir**
+(2026-10-29): aynı alım daha sonra kim açarsa açsın — ne kadar zaman geçerse geçsin —
+kayıttan anında döner, EKAP'a bir daha gidilmez. Yalnızca ilk açılış tipik olarak birkaç
 saniye, kötü durumda (EKAP doğrulama istediğinde) 15–20 saniye sürebilir.
 **Önerilen ekran akışı:**
 1. Listedeki satırda zaten olan alanlarla (`ad`, `idare_adi`, `il_adi`, `son_teklif`,
@@ -118,7 +119,7 @@ Liste alanları **+**:
 }
 ```
 
-- `detay` EKAP'tan **o an** alınır (30 dk önbellek). EKAP yanıt vermezse `detay: null` ve
+- `detay` ilk açılışta EKAP'tan alınır, sonra **kayıttan** döner. EKAP yanıt vermezse `detay: null` ve
   `mesaj` dolu gelir; liste alanları yine gelir → ekran açılmalı, ayrıntı bölümünde
   `mesaj` gösterilmeli. Hata ekranına düşmeyin.
 - `ilanlar[].html` duyuru metnidir (idare adresi, telefon, e-posta, teklifin verileceği

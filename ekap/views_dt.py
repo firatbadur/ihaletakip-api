@@ -11,8 +11,11 @@ Mobil entegrasyon notu: `docs/mobil-dogrudan-temin.md` · web: `docs/web-dogruda
 (`core.throttling`: 429 Google'ın tarama bütçesini düşürür). Detay ve doküman ise ilk
 istekte EKAP'a gider ve mobilin belge indirmesiyle paylaşılan günlük kullanıcı
 bütçesini harcar → web portalının DT sayfalarını tarayan bir bot o bütçeyi tüketip
-mobil kullanıcıya "kota doldu" dedirtirdi. Bota yalnızca önbellekte olan ayrıntı
+mobil kullanıcıya "kota doldu" dedirtirdi. Bota yalnızca kayıtlı ayrıntı
 verilir (içerik aynı, yalnızca canlı istek yok); doküman bota kapalıdır.
+
+DT ayrıntısı ilk açılışta bir kez alınır ve `DogrudanTemin.detail_raw`'da kalıcı durur;
+sonraki açılışlar (bot dahil) kayıttan döner.
 """
 import logging
 import mimetypes
@@ -40,7 +43,6 @@ from .serializers import DogrudanTeminSerializer
 
 logger = logging.getLogger("ihaletakip")
 
-_DETAY_TTL = 30 * 60
 _DOK_YOK_TTL = 24 * 3600
 _DTN_PARAM = OpenApiParameter(
     name="dtn", location=OpenApiParameter.PATH, type=str, required=True,
@@ -249,8 +251,9 @@ def _detay_ozeti(ham: dict) -> dict:
         "Liste alanları + EKAP'tan **talep üzerine** alınan ayrıntı (`detay`): idare "
         "hiyerarşisi, duyuru metni (HTML; teklif verilecek yer, iletişim, son tarih), "
         "kısmi teklif, iptal bilgisi, sözleşmeler.\n\n"
-        "Ayrıntı 30 dk önbelleklenir. EKAP o an yanıt vermezse `detay: null` + `mesaj` "
-        "döner — liste alanları yine gelir.\n\n"
+        "Ayrıntı ilk açılışta EKAP'tan bir kez alınıp kalıcı saklanır; sonraki açılışlar "
+        "kayıttan döner. EKAP o an yanıt vermezse `detay: null` + `mesaj` döner — liste "
+        "alanları yine gelir.\n\n"
         "`birim_fiyat_cetveli_url`: EKAP'ın kendi adresi; mobil tarayıcıda açar (dosya "
         "sunucumuzdan geçmez). `dokuman_url`: `dokuman_var=true` ise doküman indirme ucu."
     ),
@@ -270,22 +273,23 @@ class DogrudanTeminDetailView(APIView):
         if obj is None:
             return api_response(message="Doğrudan temin bulunamadı.", success=False, status=404)
 
-        anahtar = f"dt:detay:{obj.dtn}"
-        detay = cache.get(anahtar)
+        # ⚠️ Ayrıntı bir kez alınır ve `detail_raw`'da KALICI saklanır; sonraki her açılış
+        # kayıttan döner, EKAP'a gidilmez (ürün kararı 2026-10-29: DT ayrıntısı yayımdan
+        # sonra değişmiyor, 30 dk'lık önbellek her açılışta kullanıcı bütçesini yakıyordu).
+        # Durum değişimi (iptal/sonuç) tam taramanın doğrulama adımıyla `detail_raw`'a yazılır.
+        detay = _detay_ozeti(obj.detail_raw) if isinstance(obj.detail_raw, dict) else None
         mesaj = ""
-        if not isinstance(detay, dict):    # ⚠️ şekil doğrulaması (eski biçim → ıska)
-            detay = None
+        if detay is None:
             if istemci(request).bot:
                 # Bot canlı istek tetiklemez (modül notu). İçerik farkı değil, bütçe koruması.
-                mesaj = "Ayrıntı şu an önbellekte değil."
+                mesaj = "Ayrıntı henüz alınmadı."
             elif obj.enc_id:
                 cli = EkapMobilClient(butce="kullanici")
                 try:
                     ham = _enc_ile(cli, obj, cli.dt_detay)
                     detay = _detay_ozeti(ham)
+                    # ⚠️ Yalnızca KESİN cevap kaydedilir ("bilmiyorum" ≠ "yok").
                     detaydan_guncelle(obj, ham)
-                    # ⚠️ Yalnızca KESİN cevap önbelleğe yazılır ("bilmiyorum" ≠ "yok").
-                    cache.set(anahtar, detay, timeout=_DETAY_TTL)
                 except MobilError as e:
                     logger.warning("DT detayı alınamadı (%s): %s", obj.dtn, str(e)[:150])
                     mesaj = "EKAP'tan ayrıntı şu an alınamadı; lütfen birazdan tekrar deneyin."

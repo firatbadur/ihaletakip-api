@@ -565,13 +565,19 @@ Kayıtlı alım `tenders.SavedDogrudanTemin` (2026-10-29) — Free+Pro sınırs�
 - ⚠️⚠️ **Doğrulanmış bot EKAP'ı TETİKLEYEMEZ** (`views_dt`): bot hız sınırından muaf
   (`core.throttling`), DT detay/doküman ise mobilin belge bütçesini (günlük kullanıcı
   rezervi) harcar → web'i tarayan bir bot mobil kullanıcıya "kota doldu" dedirtirdi.
-  Bota detayda yalnızca önbellekteki ayrıntı verilir, doküman 403. DT/kurul uçları
+  Bota detayda yalnızca kayıtlı ayrıntı verilir, doküman 403. DT/kurul uçları
   `throttle_kapsam`'a katıldı: liste `ihale_arama`, detay/doküman `belge`, ihale kurul
   kararları `detay`. Web notu: `docs/web-dogrudan-temin-kurul.md`.
 - **Ölçülen hacim (Salı 2026-10-27 12:52)**: o gün yayımlanmış açık DT **864**, son 30 günün
   açıkları **≥ 1.500** (6+ sayfa); Pazartesi ilanlarının ~%1'inin son teklifi aynı gün.
   Bütçe tahmini: yoklama ~160 + tam tarama 12 × ~8 sayfa ≈ 96 + doğrulama ~20 ≈ **~280/gün**
   (`dt` tavanı 400). Bu sayılar ölçülmeden önce yazılan "~200/gün" tahmininin yerine geçer.
+- ⚠️⚠️ **DT ayrıntısı KALICI saklanır** (2026-10-29, ürün kararı): detay ucu ilk açılışta
+  EKAP'tan bir kez alır, `DogrudanTemin.detail_raw`'a yazar; sonraki her açılış (bot dahil)
+  kayıttan döner. Eskiden 30 dk Redis önbelleği vardı ve süre dolunca her açılış kullanıcı
+  bütçesini yakıyordu (o an 4.958 kaydın yalnızca 96'sında ayrıntı vardı). Durum değişimi
+  (iptal/sonuç) tam taramanın doğrulama adımıyla aynı alana yazılır (`detaydan_guncelle`).
+  Hata kaydedilmez ("bilmiyorum" ≠ "yok"). Test: `test_dt_uclar.DetayTest` (dişli).
 - ⚠️ DT dokümanı **tek dosya, tek istek** (`TeknikSartnameIndir`), biçim serbest (RAR!) —
   ihale dokümanının Liste+İndir zinciri yok. `dokuman_var=false` → EKAP'a gitmeden 404.
 - ⚠️ DT alarmı **anlık** (`tenders.tasks.check_dt_alarms`, DT turu yeni kayıt yazınca

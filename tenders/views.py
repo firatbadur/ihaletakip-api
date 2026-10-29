@@ -20,6 +20,7 @@ from .models import (
     FavoriteAuthority,
     FavoriteContractor,
     Notification,
+    SavedDogrudanTemin,
     SavedFilter,
     SavedTender,
     TenderAlarm,
@@ -31,6 +32,7 @@ from .serializers import (
     FavoriteContractorSerializer,
     FavoriteSerializer,
     NotificationSerializer,
+    SavedDogrudanTeminSerializer,
     SavedFilterSerializer,
     SavedTenderSerializer,
     TenderAlarmSerializer,
@@ -501,7 +503,11 @@ class TenderGroupListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
     queryset_model = TenderGroup
 
     def get_queryset(self):
-        return super().get_queryset().annotate(tender_count=Count("tenders"))
+        # ⚠️ İki Count tek sorguda iki JOIN üretir → distinct şart, yoksa sayılar çarpılır.
+        return super().get_queryset().annotate(
+            tender_count=Count("tenders", distinct=True),
+            dt_count=Count("dogrudan_teminler", distinct=True),
+        )
 
 
 @extend_schema_view(
@@ -659,6 +665,152 @@ class SavedTenderDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+# ── Kayıtlı Doğrudan Teminler ──────────────────────────
+# İhalelerle AYNI klasörler (`TenderGroup`); `group: null` → varsayılan "Genel".
+_DTN_PARAM = OpenApiParameter(
+    name="dtn",
+    location=OpenApiParameter.PATH,
+    type=str,
+    required=True,
+    description="Doğrudan temin numarası (ör. `26DT2133894`).",
+    examples=[OpenApiExample("DTN", value="26DT2133894")],
+)
+
+
+def _dt_canli(dtnler):
+    """{dtn: DogrudanTemin} — kayıtlı kartları güncel değerle göstermek için tek sorgu."""
+    from ekap.models import DogrudanTemin
+
+    return {d.dtn: d for d in DogrudanTemin.objects.filter(dtn__in=list(dtnler))}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["saved-dogrudan-temin"],
+        summary="Kayıtlı doğrudan teminleri listele",
+        description=(
+            "Kullanıcının kaydettiği doğrudan temin alımları (yeni kaydedilen önce). "
+            "`acik: false` → alımın süresi dolmuş ya da kaynakta artık yok; kart kaydetme "
+            "anındaki bilgiyle gösterilir."
+        ),
+    ),
+    post=extend_schema(
+        tags=["saved-dogrudan-temin"],
+        summary="Doğrudan temini kaydet",
+        description=(
+            "Alımı kayıtlılara ekler (upsert). Gövde yalnızca `dtn` ve isteğe bağlı "
+            "`group`; kart bilgileri sunucudaki alımdan kopyalanır. Alım bulunamazsa `404`. "
+            "`group` gönderilmezse mevcut klasör korunur (yeni kayıtta Genel). "
+            "Sınır yoktur (Free + Pro)."
+        ),
+        examples=[
+            OpenApiExample("Kaydet", request_only=True, value={"dtn": "26DT2133894", "group": 3})
+        ],
+    ),
+)
+class SavedDogrudanTeminListCreateView(OwnerQuerysetMixin, generics.ListCreateAPIView):
+    serializer_class = SavedDogrudanTeminSerializer
+    queryset_model = SavedDogrudanTemin
+    pagination_class = None
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("group")
+
+    def list(self, request, *args, **kwargs):
+        rows = list(self.get_queryset())
+        ctx = {**self.get_serializer_context(), "canli": _dt_canli(r.dtn for r in rows)}
+        return Response(self.get_serializer_class()(rows, many=True, context=ctx).data)
+
+    def create(self, request, *args, **kwargs):
+        from ekap.models import DogrudanTemin
+
+        dtn = str(request.data.get("dtn") or "").strip().upper()
+        dt = DogrudanTemin.objects.filter(dtn=dtn).first() if dtn else None
+        if dt is None:
+            raise NotFound("Doğrudan temin alımı bulunamadı.")
+        serializer = self.get_serializer(data={"dtn": dtn, **(
+            {"group": request.data.get("group")} if "group" in request.data else {}
+        )})
+        serializer.is_valid(raise_exception=True)
+        alanlar = dict(
+            ad=dt.ad, idare_adi=dt.idare_adi, il_adi=dt.il_adi, tur=dt.tur,
+            madde=dt.madde, son_teklif=dt.son_teklif, dokuman_var=dt.dokuman_var,
+        )
+        if "group" in serializer.validated_data:
+            alanlar["group"] = serializer.validated_data["group"]
+        row, olustu = SavedDogrudanTemin.objects.update_or_create(
+            user=request.user, dtn=dtn, defaults=alanlar
+        )
+        data = self.get_serializer_class()(
+            row, context={**self.get_serializer_context(), "canli": {dtn: dt}}
+        ).data
+        return Response(data, status=status.HTTP_201_CREATED if olustu else status.HTTP_200_OK)
+
+
+@extend_schema(tags=["saved-dogrudan-temin"], parameters=[_DTN_PARAM])
+class SavedDogrudanTeminDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _row(self, request, dtn):
+        return (
+            SavedDogrudanTemin.objects.filter(user=request.user, dtn=dtn.upper())
+            .select_related("group")
+            .first()
+        )
+
+    @extend_schema(
+        summary="Kayıtlı mı? (hangi klasörde?)",
+        responses={
+            200: inline_serializer(
+                name="DtIsSaved",
+                fields={
+                    "is_saved": serializers.BooleanField(),
+                    "group": serializers.IntegerField(allow_null=True),
+                    "group_name": serializers.CharField(allow_null=True),
+                },
+            )
+        },
+    )
+    def get(self, request, dtn):
+        row = self._row(request, dtn)
+        return Response(
+            {
+                "is_saved": row is not None,
+                "group": row.group_id if row else None,
+                "group_name": row.group.name if row and row.group else None,
+            }
+        )
+
+    @extend_schema(
+        summary="Kaydı klasöre taşı",
+        description="`group`: klasör kimliği ya da `null` (Genel). Kayıt yoksa `404`.",
+        request=inline_serializer(
+            name="SavedDtMove", fields={"group": serializers.IntegerField(allow_null=True)}
+        ),
+        responses={200: SavedDogrudanTeminSerializer},
+    )
+    def patch(self, request, dtn):
+        row = self._row(request, dtn)
+        if row is None:
+            raise NotFound("Kayıtlı alım bulunamadı.")
+        serializer = SavedDogrudanTeminSerializer(
+            row, data={"group": request.data.get("group")}, partial=True,
+            context={"request": request, "canli": _dt_canli([row.dtn])},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Kaydı sil",
+        description="Kayıt yoksa da `204` döner (idempotent).",
+        responses={204: None},
+    )
+    def delete(self, request, dtn):
+        SavedDogrudanTemin.objects.filter(user=request.user, dtn=dtn.upper()).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ── Alarmlar ───────────────────────────────────────────

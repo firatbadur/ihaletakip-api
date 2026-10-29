@@ -217,6 +217,52 @@ class SavedTender(models.Model):
         return f"{self.tender_title or self.tender_ikn}"
 
 
+class SavedDogrudanTemin(models.Model):
+    """
+    Kaydedilmiş doğrudan temin (DT) alımı — ihalelerle AYNI klasörlerde (`TenderGroup`).
+
+    ⚠️ `SavedTender`'a konmadı, ayrı model bilinçli: `SavedTender` İKN anahtarlı ve
+    ihale akışlarında (alarm, asistan eylemleri, web "Kaydedilenler") tüketiliyor; DT
+    anahtarı **dtn**'dir ve o akışlara karışmamalı (bkz. `ekap.models.DogrudanTemin`).
+    ⚠️ `DogrudanTemin`'e FK KURULMAZ: DT satırları son tekliften `EKAP_DT_SAKLA_GUN`
+    sonra SİLİNİYOR (`ekap.mobil.dt.temizle`); kayıt kullanıcının listesinde kalmalı.
+    Bu yüzden kart alanları kaydetme anında DT satırından KOPYALANIR (istemci
+    göndermez → uydurma/eski veri yazılamaz).
+    """
+
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="saved_dogrudan_teminler"
+    )
+    # Boş (null) = varsayılan "Genel" klasörü (SavedTender ile aynı sözleşme).
+    group = models.ForeignKey(
+        "TenderGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dogrudan_teminler",
+    )
+    dtn = models.CharField(max_length=32, db_index=True)
+    ad = models.TextField(blank=True)
+    idare_adi = models.CharField(max_length=500, blank=True)
+    il_adi = models.CharField(max_length=100, blank=True)
+    tur = models.SmallIntegerField(null=True, blank=True)
+    madde = models.CharField(max_length=100, blank=True)
+    son_teklif = models.DateTimeField(null=True, blank=True)
+    dokuman_var = models.BooleanField(default=False)
+    saved_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Kayıtlı Doğrudan Temin"
+        verbose_name_plural = "Kayıtlı Doğrudan Teminler"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "dtn"], name="uniq_user_saved_dt")
+        ]
+        ordering = ["-saved_at"]
+
+    def __str__(self):
+        return f"{self.dtn} — {self.ad[:60]}"
+
+
 class TenderAlarm(TimeStampedModel):
     """İhale alarmı (hatırlatma / doküman değişikliği)."""
 

@@ -9,6 +9,7 @@ from .models import (
     FavoriteAuthority,
     FavoriteContractor,
     Notification,
+    SavedDogrudanTemin,
     SavedFilter,
     SavedTender,
     TenderAlarm,
@@ -121,19 +122,27 @@ class TenderGroupSerializer(serializers.ModelSerializer):
     """
 
     tender_count = serializers.SerializerMethodField()
+    # Klasördeki kayıtlı doğrudan teminler. ⚠️ `tender_count`'a EKLENMEDİ: web
+    # "Kaydedilenler" yalnızca ihaleleri listeliyor, toplam orada tutmazdı.
+    # Mobil ikisini toplayıp gösterir.
+    dt_count = serializers.SerializerMethodField()
     # `allow_blank` → boş ad hatasını DRF'in alan doğrulaması yerine aşağıdaki
     # `validate()` üretir; böylece mobile "name: ..." öneksiz Türkçe mesaj gider.
     name = serializers.CharField(max_length=60, allow_blank=True)
 
     class Meta:
         model = TenderGroup
-        fields = ["id", "name", "tender_count", "created_at"]
+        fields = ["id", "name", "tender_count", "dt_count", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def get_tender_count(self, obj):
         # Liste ucunda `annotate(tender_count=...)` ile gelir; tekil kayıtta sayılır.
         count = getattr(obj, "tender_count", None)
         return count if count is not None else obj.tenders.count()
+
+    def get_dt_count(self, obj):
+        count = getattr(obj, "dt_count", None)
+        return count if count is not None else obj.dogrudan_teminler.count()
 
     def validate(self, attrs):
         # Mesajlar mobilde doğrudan kullanıcıya gösterilir → alan öneki olmasın diye
@@ -193,6 +202,91 @@ class SavedTenderSerializer(serializers.ModelSerializer):
         if value is not None and value.user_id != self.context["request"].user.id:
             raise serializers.ValidationError("Klasör bulunamadı.")
         return value
+
+
+class SavedDogrudanTeminSerializer(serializers.ModelSerializer):
+    """
+    Kayıtlı doğrudan temin. Kart alanları kaydetme anındaki kopyadır; DT satırı hâlâ
+    duruyorsa (`context["canli"]` = {dtn: DogrudanTemin}) güncel değer kullanılır —
+    düzeltme ilanıyla son teklif değişebilir. `kalan_dakika` SUNUCU saatinden
+    (istemci saatine güvenilmez, DT listesiyle aynı sözleşme). `acik`: alım hâlâ
+    teklif verilebilir mi (satır silinmişse ya da süresi geçmişse false).
+    """
+
+    group = serializers.PrimaryKeyRelatedField(
+        queryset=TenderGroup.objects.all(), required=False, allow_null=True
+    )
+    group_name = serializers.CharField(source="group.name", read_only=True, default=None)
+    tur_adi = serializers.SerializerMethodField()
+    kalan_dakika = serializers.SerializerMethodField()
+    acik = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SavedDogrudanTemin
+        fields = [
+            "id",
+            "dtn",
+            "ad",
+            "idare_adi",
+            "il_adi",
+            "tur",
+            "tur_adi",
+            "madde",
+            "son_teklif",
+            "kalan_dakika",
+            "acik",
+            "dokuman_var",
+            "group",
+            "group_name",
+            "saved_at",
+        ]
+        read_only_fields = [
+            "id", "ad", "idare_adi", "il_adi", "tur", "madde", "son_teklif",
+            "dokuman_var", "saved_at",
+        ]
+
+    def validate_group(self, value):
+        # Başka kullanıcının klasörüne kayıt atanamaz.
+        if value is not None and value.user_id != self.context["request"].user.id:
+            raise serializers.ValidationError("Klasör bulunamadı.")
+        return value
+
+    def _canli(self, obj):
+        return (self.context.get("canli") or {}).get(obj.dtn)
+
+    def _son_teklif(self, obj):
+        dt = self._canli(obj)
+        return dt.son_teklif if dt is not None else obj.son_teklif
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        dt = self._canli(obj)
+        if dt is not None:
+            data["son_teklif"] = serializers.DateTimeField().to_representation(dt.son_teklif) \
+                if dt.son_teklif else None
+            data["dokuman_var"] = dt.dokuman_var
+        return data
+
+    def get_tur_adi(self, obj):
+        from ekap.mobil.constants import DT_TUR
+
+        return DT_TUR.get(obj.tur, "")
+
+    def get_kalan_dakika(self, obj):
+        from django.utils import timezone
+
+        son = self._son_teklif(obj)
+        if son is None:
+            return None
+        return max(0, int((son - timezone.now()).total_seconds() // 60))
+
+    def get_acik(self, obj):
+        from django.utils import timezone
+
+        dt = self._canli(obj)
+        if dt is None:
+            return False
+        return dt.son_teklif is None or dt.son_teklif > timezone.now()
 
 
 class TenderAlarmSerializer(serializers.ModelSerializer):

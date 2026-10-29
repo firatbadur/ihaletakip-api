@@ -6,6 +6,7 @@ from .models import (
     Favorite,
     FavoriteAuthority,
     Notification,
+    SavedDogrudanTemin,
     SavedFilter,
     SavedTender,
     TenderAlarm,
@@ -64,6 +65,15 @@ class SavedTenderAdmin(admin.ModelAdmin):
     list_display = ["tender_title", "tender_ikn", "user", "group", "tender_status", "saved_at"]
     list_filter = ["tender_status", "saved_at"]
     search_fields = ["tender_title", "tender_ikn", "user__username"]
+    raw_id_fields = ["user", "group"]
+
+
+@admin.register(SavedDogrudanTemin)
+class SavedDogrudanTeminAdmin(admin.ModelAdmin):
+    # `group` boş → varsayılan "Genel" klasörü (ihalelerle aynı klasörler)
+    list_display = ["dtn", "ad", "user", "group", "son_teklif", "saved_at"]
+    list_filter = ["saved_at"]
+    search_fields = ["dtn", "ad", "idare_adi", "user__username"]
     raw_id_fields = ["user", "group"]
 
 

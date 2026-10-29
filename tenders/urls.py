@@ -14,6 +14,8 @@ from .views import (
     NotificationReadAllView,
     NotificationReadView,
     NotificationUnreadCountView,
+    SavedDogrudanTeminDetailView,
+    SavedDogrudanTeminListCreateView,
     SavedFilterDetailView,
     SavedFilterListCreateView,
     SavedTenderDetailView,
@@ -41,6 +43,11 @@ urlpatterns = [
          name="dt-filtreler"),
     path("dogrudan-temin/kayitli-filtreler/<int:pk>/", DtKayitliFiltreDetailView.as_view(),
          name="dt-filtre-detail"),
+    # Kayıtlı doğrudan teminler — ihalelerle AYNI klasörler (group null = Genel)
+    path("dogrudan-temin/kayitli/", SavedDogrudanTeminListCreateView.as_view(),
+         name="dt-kayitli"),
+    path("dogrudan-temin/kayitli/<str:dtn>/", SavedDogrudanTeminDetailView.as_view(),
+         name="dt-kayitli-detail"),
     # Kayıtlı ihale klasörleri (varsayılan "Genel" klasörü bu uçlarda dönmez;
     # `SavedTender.group` boş olan kayıtlar oraya aittir)
     path("tender-groups/", TenderGroupListCreateView.as_view(), name="tender-groups"),

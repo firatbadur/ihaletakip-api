@@ -177,6 +177,31 @@ Yalnızca `dokuman_var: true` iken düğme gösterin; URL listede `dokuman_url` 
 403'te `errors.code == "premium_required"` → mevcut paywall akışı. Pro'dan düşen üyenin
 alarmlı filtresi silinmez ama bildirim üretmez.
 
+## 4b. Kayıtlı doğrudan teminler — `/dogrudan-temin/kayitli/` (2026-10-29)
+
+Alım kaydetme **Free + Pro, sınırsız**. Kayıtlar **ihalelerle AYNI klasörlerde**
+(`/tender-groups/`; `group: null` = varsayılan "Genel"). Ayrı model
+(`tenders.SavedDogrudanTemin`) — `SavedTender`'a konmadı (İKN anahtarlı, asistan/web
+akışlarına karışmasın).
+
+| Uç | Gövde / yanıt |
+|---|---|
+| `GET /dogrudan-temin/kayitli/` | Dizi, yeni kaydedilen önce. Alanlar: `dtn, ad, idare_adi, il_adi, tur, tur_adi, madde, son_teklif, kalan_dakika, acik, dokuman_var, group, group_name, saved_at` |
+| `POST /dogrudan-temin/kayitli/` | `{"dtn": "26DT…", "group": 3}` → 201 (yeni) / 200 (güncellendi). Alım yoksa **404**. `group` gönderilmezse mevcut klasör korunur. |
+| `GET /dogrudan-temin/kayitli/{dtn}/` | `{is_saved, group, group_name}` |
+| `PATCH /dogrudan-temin/kayitli/{dtn}/` | `{"group": 3 \| null}` → klasöre taşı; kayıt yoksa 404 |
+| `DELETE /dogrudan-temin/kayitli/{dtn}/` | 204 (idempotent) |
+
+- ⚠️ **Kart alanları istemciden ALINMAZ**: `POST` yalnızca `dtn` + `group` okur, ad/idare/
+  son teklif sunucudaki alımdan kopyalanır.
+- ⚠️ DT satırları son tekliften 30 gün sonra silinir; kayıt KALIR, kopyadan gösterilir.
+  `acik: false` = süresi dolmuş ya da kaynakta yok → mobil "Süresi doldu" gösterir;
+  detay ucu bu durumda 404 verebilir.
+- `kalan_dakika` sunucu saatinden (liste ucuyla aynı sözleşme); satır duruyorsa güncel
+  `son_teklif` kullanılır (düzeltme ilanı).
+- Klasör yanıtına **`dt_count`** eklendi. ⚠️ `tender_count` DEĞİŞMEDİ (web yalnızca
+  ihaleleri listeliyor); mobil ikisini toplar.
+
 ## 5. Bildirim (Pro alarmı)
 
 Filtreye uyan **yeni** bir DT yayımlanınca — yeni ilanlar mesai içinde 5 dk'da bir

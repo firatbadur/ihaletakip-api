@@ -1594,6 +1594,61 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/dogrudan-temin/kayitli/:
+    get:
+      operationId: api_v1_dogrudan_temin_kayitli_list
+      description: 'Kullanıcının kaydettiği doğrudan temin alımları (yeni kaydedilen
+        önce). `acik: false` → alımın süresi dolmuş ya da kaynakta artık yok; kart
+        kaydetme anındaki bilgiyle gösterilir.'
+      summary: Kayıtlı doğrudan teminleri listele
+      tags:
+      - saved-dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedDogrudanTemin'
+          description: ''
+    post:
+      operationId: api_v1_dogrudan_temin_kayitli_create
+      description: Alımı kayıtlılara ekler (upsert). Gövde yalnızca `dtn` ve isteğe
+        bağlı `group`; kart bilgileri sunucudaki alımdan kopyalanır. Alım bulunamazsa
+        `404`. `group` gönderilmezse mevcut klasör korunur (yeni kayıtta Genel). Sınır
+        yoktur (Free + Pro).
+      summary: Doğrudan temini kaydet
+      tags:
+      - saved-dogrudan-temin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedDogrudanTemin'
+            examples:
+              Kaydet:
+                value:
+                  dtn: 26DT2133894
+                  group: 3
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SavedDogrudanTemin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SavedDogrudanTemin'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedDogrudanTemin'
+          description: ''
   /api/v1/dogrudan-temin/kayitli-filtreler/:
     get:
       operationId: api_v1_dogrudan_temin_kayitli_filtreler_list
@@ -1799,6 +1854,88 @@ paths:
         required: true
       tags:
       - dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/dogrudan-temin/kayitli/{dtn}/:
+    get:
+      operationId: api_v1_dogrudan_temin_kayitli_retrieve
+      summary: Kayıtlı mı? (hangi klasörde?)
+      parameters:
+      - in: path
+        name: dtn
+        schema:
+          type: string
+        description: Doğrudan temin numarası (ör. `26DT2133894`).
+        required: true
+        examples:
+          DTN:
+            value: 26DT2133894
+      tags:
+      - saved-dogrudan-temin
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtIsSaved'
+          description: ''
+    patch:
+      operationId: api_v1_dogrudan_temin_kayitli_partial_update
+      description: '`group`: klasör kimliği ya da `null` (Genel). Kayıt yoksa `404`.'
+      summary: Kaydı klasöre taşı
+      parameters:
+      - in: path
+        name: dtn
+        schema:
+          type: string
+        description: Doğrudan temin numarası (ör. `26DT2133894`).
+        required: true
+        examples:
+          DTN:
+            value: 26DT2133894
+      tags:
+      - saved-dogrudan-temin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedDtMove'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedDtMove'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSavedDtMove'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedDogrudanTemin'
+          description: ''
+    delete:
+      operationId: api_v1_dogrudan_temin_kayitli_destroy
+      description: Kayıt yoksa da `204` döner (idempotent).
+      summary: Kaydı sil
+      parameters:
+      - in: path
+        name: dtn
+        schema:
+          type: string
+        description: Doğrudan temin numarası (ör. `26DT2133894`).
+        required: true
+        examples:
+          DTN:
+            value: 26DT2133894
+      tags:
+      - saved-dogrudan-temin
       security:
       - cookieAuth: []
       responses:
@@ -5292,6 +5429,21 @@ components:
           description: ekapv2.kik.gov.tr için `Cookie` başlığı
       required:
       - cookie
+    DtIsSaved:
+      type: object
+      properties:
+        is_saved:
+          type: boolean
+        group:
+          type: integer
+          nullable: true
+        group_name:
+          type: string
+          nullable: true
+      required:
+      - group
+      - group_name
+      - is_saved
     DtKayitliFiltre:
       type: object
       description: 'Doğrudan temin kayıtlı filtresi.
@@ -5831,6 +5983,12 @@ components:
       description: Tercih güncelleme (serbest JSON).
       properties:
         preferences: {}
+    PatchedSavedDtMove:
+      type: object
+      properties:
+        group:
+          type: integer
+          nullable: true
     PatchedSavedFilter:
       type: object
       properties:
@@ -5868,6 +6026,9 @@ components:
           type: string
           maxLength: 60
         tender_count:
+          type: string
+          readOnly: true
+        dt_count:
           type: string
           readOnly: true
         created_at:
@@ -6048,6 +6209,84 @@ components:
       description: '* `user` - Kullanıcı
 
         * `assistant` - Asistan'
+    SavedDogrudanTemin:
+      type: object
+      description: 'Kayıtlı doğrudan temin. Kart alanları kaydetme anındaki kopyadır;
+        DT satırı hâlâ
+
+        duruyorsa (`context["canli"]` = {dtn: DogrudanTemin}) güncel değer kullanılır
+        —
+
+        düzeltme ilanıyla son teklif değişebilir. `kalan_dakika` SUNUCU saatinden
+
+        (istemci saatine güvenilmez, DT listesiyle aynı sözleşme). `acik`: alım hâlâ
+
+        teklif verilebilir mi (satır silinmişse ya da süresi geçmişse false).'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        dtn:
+          type: string
+          maxLength: 32
+        ad:
+          type: string
+          readOnly: true
+        idare_adi:
+          type: string
+          readOnly: true
+        il_adi:
+          type: string
+          readOnly: true
+        tur:
+          type: integer
+          readOnly: true
+          nullable: true
+        tur_adi:
+          type: string
+          readOnly: true
+        madde:
+          type: string
+          readOnly: true
+        son_teklif:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        kalan_dakika:
+          type: string
+          readOnly: true
+        acik:
+          type: string
+          readOnly: true
+        dokuman_var:
+          type: boolean
+          readOnly: true
+        group:
+          type: integer
+          nullable: true
+        group_name:
+          type: string
+          readOnly: true
+        saved_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - acik
+      - ad
+      - dokuman_var
+      - dtn
+      - group_name
+      - id
+      - idare_adi
+      - il_adi
+      - kalan_dakika
+      - madde
+      - saved_at
+      - son_teklif
+      - tur
+      - tur_adi
     SavedFilter:
       type: object
       properties:
@@ -6301,12 +6540,16 @@ components:
         tender_count:
           type: string
           readOnly: true
+        dt_count:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
           readOnly: true
       required:
       - created_at
+      - dt_count
       - id
       - name
       - tender_count

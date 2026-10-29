@@ -1,6 +1,7 @@
 """Core modeller — ortak taban, uygulama ayarları, destek, DETSIS."""
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class TimeStampedModel(models.Model):
@@ -139,13 +140,32 @@ class AppConfig(TimeStampedModel):
 
 
 class SupportTicket(TimeStampedModel):
-    """Destek talebi (Firestore `supportTickets` koleksiyonu)."""
+    """
+    Destek talebi — bir YAZIŞMADIR (`SupportMessage` dizisi), tek soru-tek yanıt değil.
+
+    Akış: kullanıcı açar (Bekliyor) → admin yanıtlar (Yanıtlandı + push) → kullanıcı
+    yanıtlar (Bekliyor) → … → bir taraf kapatır (Kapandı; kullanıcı yazarsa yeniden açılır).
+
+    ⚠️ `message` ilk mesajın KOPYASIDIR (liste önizlemesi, admin araması ve eski
+    istemcilerin `POST {message}` sözleşmesi için). Yazışmanın asıl kaynağı `messages`.
+    ⚠️ `reply` ESKİDİR: tek yanıtlı dönemden kalır, 0004'te `SupportMessage`'a
+    taşındı. Yeni kod YAZMAZ (eski worker'lar kolonu tanıdığı için silinmedi).
+    """
 
     STATUS_CHOICES = [
         ("Bekliyor", "Bekliyor"),
         ("İşlemde", "İşlemde"),
         ("Yanıtlandı", "Yanıtlandı"),
         ("Kapandı", "Kapandı"),
+    ]
+    CATEGORY_CHOICES = [
+        ("hesap", "Hesap & giriş"),
+        ("abonelik", "Abonelik & ödeme"),
+        ("bildirim", "Bildirimler"),
+        ("veri", "İhale verisi"),
+        ("hata", "Hata bildirimi"),
+        ("oneri", "Öneri"),
+        ("diger", "Diğer"),
     ]
 
     user = models.ForeignKey(
@@ -157,16 +177,56 @@ class SupportTicket(TimeStampedModel):
     )
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=30, blank=True)
+    category = models.CharField(
+        max_length=20, choices=CATEGORY_CHOICES, default="diger", db_default="diger",
+        verbose_name="Konu",
+    )
     message = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Bekliyor")
     reply = models.TextField(null=True, blank=True)
+    # Son mesajın zamanı — liste sıralaması (admin + mobil) buna göre.
+    last_message_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Kullanıcının henüz görmediği bir destek yanıtı var mı? Detay GET'i sıfırlar.
+    user_unread = models.BooleanField(default=False, db_default=False)
+    # Cihaz bağlamı (uygulama sürümü, platform, OS, model) — "hangi sürümde?" sorusunu
+    # kullanıcıya sordurmamak için açılışta istemci gönderir. İzinli anahtarlar serializer'da.
+    # ⚠️ null=True: deploy sırasında eski worker'lar kolonu tanımadan INSERT eder
+    # (NOT NULL + eski kod = her INSERT düşer; ekap 0023 dersi).
+    meta = models.JSONField(default=dict, blank=True, null=True)
 
     class Meta:
         verbose_name = "Destek Talebi"
         verbose_name_plural = "Destek Talepleri"
-        ordering = ["-created_at"]
+        ordering = ["-last_message_at", "-created_at"]
 
     def __str__(self):
-        return f"{self.email or 'Anonim'} — {self.status}"
+        return f"#{self.pk} {self.email or 'Anonim'} — {self.status}"
+
+
+class SupportMessage(models.Model):
+    """Destek yazışmasındaki tek mesaj (kullanıcı ya da destek ekibi)."""
+
+    SENDER_USER = "user"
+    SENDER_STAFF = "staff"
+    SENDER_CHOICES = [(SENDER_USER, "Kullanıcı"), (SENDER_STAFF, "Destek ekibi")]
+
+    ticket = models.ForeignKey(SupportTicket, on_delete=models.CASCADE, related_name="messages")
+    sender = models.CharField(max_length=10, choices=SENDER_CHOICES)
+    # Yanıtlayan yönetici (sender=staff). Kullanıcı mesajında boş — sahibi ticket.user.
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    body = models.TextField()
+    # ⚠️ auto_now_add DEĞİL: 0004 taşıması eski yanıtları geçmiş tarihleriyle yazar.
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Destek Mesajı"
+        verbose_name_plural = "Destek Mesajları"
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"#{self.ticket_id} {self.sender}: {self.body[:40]}"
 
 # Not: DETSIS/kurum kaydı artık ekap.Authority modelinde (EKAP'tan senkronlanır).

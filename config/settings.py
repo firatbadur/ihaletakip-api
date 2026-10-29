@@ -326,6 +326,9 @@ EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="İhale Takip <noreply@ihaletakip.com>")
+# Yeni destek talebi / kullanıcı yanıtı gelince haber verilecek adresler (virgülle).
+# Boşsa kapalı — talepler admin panosundaki "Açık Destek Talebi" kartında görünür.
+SUPPORT_NOTIFY_EMAILS = env.list("SUPPORT_NOTIFY_EMAILS", default=[])
 # Doğrulama kodu kuralları (bkz. accounts/services/eposta_kod.py).
 EPOSTA_KOD_SURE_DK = env.int("EPOSTA_KOD_SURE_DK", default=10)
 EPOSTA_KOD_TEKRAR_SN = env.int("EPOSTA_KOD_TEKRAR_SN", default=60)

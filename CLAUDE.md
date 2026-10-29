@@ -108,7 +108,8 @@ blog/              # Web portalı "Blog" sekmesi (yalnız admin'den yazılır, w
 └── tasks.py       # zamanlanmış yazı yayın anında revalidate (beat */10)
 
 core/              # Ortak altyapı
-├── models.py      # TimeStampedModel, AppSetting, SupportTicket
+├── models.py      # TimeStampedModel, AppSetting, SupportTicket + SupportMessage
+├── support.py     # destek yazışması iş mantığı (API + admin ortak; bildirim/push)
 ├── renderers.py   # EnvelopeJSONRenderer (global {success,message,data})
 ├── throttling.py  # kapsam bazlı hız sınırı + sayfa derinliği (portal/gözlem modları)
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
@@ -3039,6 +3040,34 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   ⚠️ Blok **iki personada da** geçerli (`PERSONA_PROMPT` + `AGENT_PERSONA_PROMPT` aynı
   `_BICIM`'i kullanıyor) → araç döngüsü kapatılsa bile kural düşmez.
 
+## Destek Yazışması (`core.SupportTicket` + `SupportMessage`, 2026-10-29)
+
+Eskiden admin `reply` alanına yazıyordu; ne bildirim gidiyordu ne de mobil gösteriyordu →
+kullanıcı yanıtı ÖĞRENEMİYORDU. Talep artık bir yazışmadır. Mobil sözleşme: mobil
+CLAUDE.md "Yardim & Destek — yazisma".
+
+- İş mantığı TEK yerde: `core/support.py` (`talep_ac`, `kullanici_yaniti`, `destek_yaniti`,
+  `kapat`, `kullaniciya_bildir`). API ve admin aynı fonksiyonları çağırır.
+- Uçlar: `GET/POST /support/` · `GET /support/<id>/` (⚠️ `user_unread`'ı sıfırlar) ·
+  `POST /support/<id>/messages/` · `POST /support/<id>/close/` · `GET /support/unread-count/`.
+- Admin: talep sayfasında yazışma balonları + **"Yanıtınız"** kutusu (model alanı değil).
+  Kaydedince `destek_yaniti` → durum "Yanıtlandı" (admin "İşlemde"/"Kapandı" seçtiyse o),
+  `user_unread=True`, `on_commit`'te `Notification(type="support", support_ticket_id)` +
+  push `{type:"support", supportTicketId}`. Yanıt kutusu boşsa yalnızca durum kaydedilir.
+- ⚠️ Push `push_to_user(..., transactional=True)`: sessiz saat, günlük limit ve min. aralık
+  ATLANIR, sayaçlara yazılmaz (kuyruk yok; düşen push = kaybolan yanıt). Cihaz/aktiflik/
+  tercih/idempotency (`support_reply:<mesaj_id>`) yine uygulanır.
+- Kullanıcı yazınca durum "Bekliyor" olur (kapalı talep yeniden açılır).
+  `SUPPORT_NOTIFY_EMAILS` (env, virgüllü) doluysa yeni talep / kullanıcı yanıtı Celery
+  (`core.tasks.destek_ekibine_eposta`) ile ekibe e-postalanır; boşsa kapalı.
+- ⚠️ `message` ilk mesajın KOPYASIDIR (liste/arama/eski istemci). `reply` ESKİ, yazılmaz;
+  0005 taşıması eski yanıtları `SupportMessage`'a aktardı ve o talepleri `user_unread=True`
+  yaptı (yanıtlar hiç ulaşmamıştı). `meta` null'able, `category`/`user_unread` `db_default`'lu
+  (deploy sırasında eski worker INSERT'i düşmesin).
+- `category` anahtarları mobil `SUPPORT_CATEGORIES` ile AYNI tutulmalı.
+
+Testler: `core/tests/test_support.py` (13). Dişi doğrulandı: `transactional` kaldırılınca 1 test kırılıyor.
+
 ## URL'de İKN (dikkat)
 
 İKN `2025/1234567` biçimindedir, yani **`/` içerir**. Django'nun `<str:...>`
@@ -3134,8 +3163,8 @@ kodu görünce abonelik paketlerini sunar.
     indirim/şikâyet/kategori filtreleri kilitli (bkz. "Pro arama filtreleri").
   - **İhale Asistanı bildirimleri** → `match_recommendations` Free üyeyi **atlar**
     (öneri/digest/push üretilmez; `.select_related("user")` + `is_premium` kontrolü).
-  - **Destek talebi oluşturma** (`SupportTicketView.perform_create`) → 403; talep
-    **listeleme** (GET) her üyeye açık.
+  - **Destek talebi oluşturma** (`SupportTicketView.create`) → 403; listeleme, okuma
+    ve mevcut talebe **yanıt** (`/support/<id>/messages/`) her üyeye açık.
 - **Mobil görünürlük**: `UserSerializer` `is_premium` + `subscription_tier` +
   `subscription_expires_at` alanlarını (read-only) döner → login ve `GET /auth/profile`
   yanıtında gelir; mobil Pro özellikleri buna göre gösterir/gizler.

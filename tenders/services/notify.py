@@ -58,6 +58,7 @@ def record_notification(
     idare_detsis_liste="",
     dtn_liste="",
     karar_no="",
+    support_ticket_id: int | None = None,
 ):
     """Uygulama-içi bildirim satırı oluşturur (push göndermez). Notification döner."""
     from tenders.models import Notification
@@ -83,6 +84,7 @@ def record_notification(
         idare_detsis_liste=(idare_detsis_liste or "")[:500],
         dtn_liste=(dtn_liste or "")[:2000],
         karar_no=(karar_no or "")[:64],
+        support_ticket_id=support_ticket_id,
     )
 
 
@@ -118,10 +120,17 @@ def push_to_user(
     body: str = "",
     data: dict[str, Any] | None = None,
     idem_key: str | None = None,
+    transactional: bool = False,
 ) -> bool:
     """
     Pacing kapılarından geçerse kullanıcının KAYITLI TÜM CİHAZLARINA push atar.
     En az biri gönderildiyse True döner. Ölü token → o cihazın kaydı silinir.
+
+    `transactional=True` → kullanıcının KENDİ başlattığı bir sürecin yanıtı (destek
+    yanıtı). Sessiz saat, günlük limit ve minimum aralık UYGULANMAZ, sayaçlara da
+    yazılmaz: bu kapılar toplu/pazarlama push'larını seyreltmek içindir; burada
+    düşen push bir daha gönderilmez (kuyruk yok) ve kullanıcı yanıtı hiç öğrenmez.
+    Cihaz, aktiflik, push tercihi ve idempotency yine uygulanır.
     """
     from . import push as push_mod
 
@@ -135,7 +144,7 @@ def push_to_user(
     if not _push_pref_enabled(user):
         logger.debug("push atlandı (tercih kapalı) uid=%s", user.pk)
         return False
-    if _in_quiet_hours():
+    if not transactional and _in_quiet_hours():
         logger.info("push atlandı (sessiz saat) uid=%s", user.pk)
         return False
 
@@ -150,13 +159,13 @@ def push_to_user(
     cap = int(getattr(settings, "NOTIF_DAILY_CAP", 50))
     cap_key = f"{_CAP_PREFIX}{user.pk}:{today}"
     sent_today = cache.get(cap_key, 0)
-    if cap > 0 and sent_today >= cap:
+    if not transactional and cap > 0 and sent_today >= cap:
         logger.info("push atlandı (günlük limit %s) uid=%s", cap, user.pk)
         return False
 
     # Minimum aralık
     gap_min = int(getattr(settings, "NOTIF_MIN_GAP_MINUTES", 30))
-    if gap_min > 0:
+    if not transactional and gap_min > 0:
         last_ts = cache.get(f"{_LAST_PREFIX}{user.pk}")
         now_ts = timezone.now().timestamp()
         if last_ts and (now_ts - float(last_ts)) < gap_min * 60:
@@ -201,6 +210,9 @@ def push_to_user(
         return False
 
     # Başarılı → sayaç ve son-zaman güncelle (idem zaten rezerve edildi).
+    # İşlemsel push sayılmaz: destek yanıtı akşamki ihale özetini yutmasın.
+    if transactional:
+        return True
     cache.set(f"{_LAST_PREFIX}{user.pk}", timezone.now().timestamp(), _LAST_TTL)
     cache.set(cap_key, int(sent_today) + 1, _CAP_TTL)
     return True

@@ -345,6 +345,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             "dtn_liste",
             # Kurul kararı alarmında: bildirilen kararın numarası.
             "karar_no",
+            # Destek yanıtında: açılacak destek talebinin id'si.
+            "support_ticket_id",
             "read",
             "created_at",
         ]

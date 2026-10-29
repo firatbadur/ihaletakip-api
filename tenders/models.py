@@ -342,6 +342,7 @@ class Notification(models.Model):
         INFO = "info", "Bilgi"
         ALARM = "alarm", "Alarm"
         CHAT = "chat", "Sohbet"
+        SUPPORT = "support", "Destek"
 
     user = models.ForeignKey(
         USER, on_delete=models.CASCADE, related_name="notifications"
@@ -417,6 +418,9 @@ class Notification(models.Model):
     # Kurul kararı alarmı (type=ALARM): bildirilen kararın numarası. Derin bağlantı
     # yine ihale detayıdır (`tender_id`); mobil bu alanla ilgili kararı vurgular.
     karar_no = models.CharField(max_length=64, blank=True, default="", db_default="")
+    # Destek yanıtı (type=SUPPORT): tıklanınca o destek yazışması açılır
+    # (mobil `SupportThread`). Zincirde EN ÖNDE — diğer alanların hiçbiri dolu olmaz.
+    support_ticket_id = models.BigIntegerField(null=True, blank=True)
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

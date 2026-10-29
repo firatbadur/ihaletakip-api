@@ -4661,7 +4661,9 @@ paths:
   /api/v1/support/:
     get:
       operationId: api_v1_support_list
-      description: Kullanıcının açtığı destek taleplerini ve varsa yanıtlarını döner.
+      description: Kullanıcının destek talepleri, son mesaja göre yeniden eskiye.
+        Her satırda `unread` (görülmemiş destek yanıtı var mı) ve `last_message` önizlemesi
+        bulunur.
       summary: Destek taleplerini listele
       tags:
       - support
@@ -4678,12 +4680,12 @@ paths:
           description: ''
     post:
       operationId: api_v1_support_create
-      description: 'Yeni bir destek talebi oluşturur.
+      description: 'Yeni bir destek yazışması başlatır; `message` ilk mesajdır.
 
 
-        **Pro özellik:** Destek talebi oluşturma yalnızca Pro üyelere açıktır. Free
-        üye talep gönderirse **403** alır (`errors.code = premium_required`). Mevcut
-        talepleri listeleme (GET) her üyeye açıktır.'
+        **Pro özellik:** Destek talebi OLUŞTURMA yalnızca Pro üyelere açıktır. Free
+        üye **403** alır (`errors.code = premium_required`). Listeleme, okuma ve mevcut
+        talebe YANIT her üyeye açıktır (süresi biten Pro yazışmasını sürdürebilsin).'
       summary: Destek talebi aç
       tags:
       - support
@@ -4695,12 +4697,18 @@ paths:
             examples:
               DestekTalebiAç:
                 value:
-                  email: test@ihaletakip.com
+                  category: bildirim
                   phone: '05551234567'
-                  message: Analiz sonucu gelmiyor, yardımcı olabilir misiniz?
+                  message: Kayıtlı aramamın bildirimi gelmiyor, yardımcı olabilir
+                    misiniz?
+                  meta:
+                    app_version: 2.4.0
+                    platform: ios
+                    os_version: '26.0'
                 summary: Destek talebi aç
-                description: '`email` gönderilmezse kullanıcının hesap e-postası kullanılır.
-                  `status` ve `reply` alanları yalnızca yönetici tarafından doldurulur.'
+                description: '`email` gönderilmezse hesap e-postası kullanılır. `category`
+                  isteğe bağlıdır (vars. `diger`); `meta` yalnızca izinli anahtarları
+                  saklar (`app_version`, `build`, `platform`, `os_version`, `device_model`).'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/SupportTicket'
@@ -4715,7 +4723,106 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SupportTicket'
+                $ref: '#/components/schemas/SupportTicketDetail'
+          description: ''
+  /api/v1/support/{id}/:
+    get:
+      operationId: api_v1_support_retrieve
+      description: 'Talep + tüm mesajlar (eskiden yeniye). `messages[].sender`: `user`
+        | `staff`.
+
+
+        ⚠️ Bu çağrı talebi **okundu** sayar (`unread=false`).'
+      summary: Destek yazışmasını getir
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - support
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketDetail'
+          description: ''
+  /api/v1/support/{id}/close/:
+    post:
+      operationId: api_v1_support_close_create
+      description: Talebi **Kapandı** yapar. Kullanıcı sonradan yazarsa yeniden açılır.
+      summary: Destek talebini kapat
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - support
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketDetail'
+          description: ''
+  /api/v1/support/{id}/messages/:
+    post:
+      operationId: api_v1_support_messages_create
+      description: Kullanıcı mesajı ekler; talep **Bekliyor**'a döner (kapalıysa yeniden
+        açılır). Pro şartı YOKTUR. Yanıt olarak güncel yazışma döner.
+      summary: Destek talebine yanıt yaz
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - support
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupportReply'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SupportReply'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SupportReply'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketDetail'
+          description: ''
+  /api/v1/support/unread-count/:
+    get:
+      operationId: api_v1_support_unread_count_retrieve
+      description: Görülmemiş destek yanıtı olan talep sayısı (menü rozeti için).
+      summary: Okunmamış destek yanıtı sayısı
+      tags:
+      - support
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportUnread'
           description: ''
   /api/v1/tender-groups/:
     get:
@@ -5029,6 +5136,29 @@ components:
     BlankEnum:
       enum:
       - ''
+    CategoryEnum:
+      enum:
+      - hesap
+      - abonelik
+      - bildirim
+      - veri
+      - hata
+      - oneri
+      - diger
+      type: string
+      description: '* `hesap` - Hesap & giriş
+
+        * `abonelik` - Abonelik & ödeme
+
+        * `bildirim` - Bildirimler
+
+        * `veri` - İhale verisi
+
+        * `hata` - Hata bildirimi
+
+        * `oneri` - Öneri
+
+        * `diger` - Diğer'
     ChatAccepted:
       type: object
       properties:
@@ -5884,6 +6014,10 @@ components:
         karar_no:
           type: string
           readOnly: true
+        support_ticket_id:
+          type: integer
+          readOnly: true
+          nullable: true
         read:
           type: boolean
           readOnly: true
@@ -5909,6 +6043,7 @@ components:
       - pencere_bas
       - pencere_bit
       - read
+      - support_ticket_id
       - tender_id
       - tender_ikn
       - tender_title
@@ -6362,6 +6497,28 @@ components:
       - id
       - saved_at
       - tender_ikn
+    SenderEnum:
+      enum:
+      - user
+      - staff
+      type: string
+      description: '* `user` - Kullanıcı
+
+        * `staff` - Destek ekibi'
+    StatusA0eEnum:
+      enum:
+      - Bekliyor
+      - İşlemde
+      - Yanıtlandı
+      - Kapandı
+      type: string
+      description: '* `Bekliyor` - Bekliyor
+
+        * `İşlemde` - İşlemde
+
+        * `Yanıtlandı` - Yanıtlandı
+
+        * `Kapandı` - Kapandı'
     SubscriptionTierEnum:
       enum:
       - free
@@ -6416,11 +6573,55 @@ components:
         * `market` - market
 
         * `benchmark` - benchmark'
-    SupportTicket:
+    SupportMessage:
       type: object
       properties:
         id:
           type: integer
+          readOnly: true
+        sender:
+          allOf:
+          - $ref: '#/components/schemas/SenderEnum'
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - body
+      - created_at
+      - id
+      - sender
+    SupportReply:
+      type: object
+      properties:
+        body:
+          type: string
+          maxLength: 4000
+      required:
+      - body
+    SupportTicket:
+      type: object
+      description: 'Liste satırı + oluşturma.
+
+
+        ⚠️ Eski istemci sözleşmesi korunur: `POST {email, phone, message}` çalışmaya
+        devam
+
+        eder (`category` ve `meta` isteğe bağlı). `reply` artık son destek yanıtıdır.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          default: diger
+        category_label:
+          type: string
           readOnly: true
         email:
           type: string
@@ -6431,38 +6632,122 @@ components:
           maxLength: 30
         message:
           type: string
+          maxLength: 4000
+        meta:
+          type: object
+          additionalProperties: {}
+          writeOnly: true
         status:
           allOf:
-          - $ref: '#/components/schemas/SupportTicketStatusEnum'
+          - $ref: '#/components/schemas/StatusA0eEnum'
           readOnly: true
+        unread:
+          type: boolean
+          readOnly: true
+        last_message:
+          type: string
+          readOnly: true
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
         reply:
           type: string
           readOnly: true
-          nullable: true
         created_at:
           type: string
           format: date-time
           readOnly: true
       required:
+      - category_label
       - created_at
       - id
+      - last_message
+      - last_message_at
       - message
       - reply
       - status
-    SupportTicketStatusEnum:
-      enum:
-      - Bekliyor
-      - İşlemde
-      - Yanıtlandı
-      - Kapandı
-      type: string
-      description: '* `Bekliyor` - Bekliyor
+      - unread
+    SupportTicketDetail:
+      type: object
+      description: 'Liste satırı + oluşturma.
 
-        * `İşlemde` - İşlemde
 
-        * `Yanıtlandı` - Yanıtlandı
+        ⚠️ Eski istemci sözleşmesi korunur: `POST {email, phone, message}` çalışmaya
+        devam
 
-        * `Kapandı` - Kapandı'
+        eder (`category` ve `meta` isteğe bağlı). `reply` artık son destek yanıtıdır.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          default: diger
+        category_label:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          maxLength: 30
+        message:
+          type: string
+          maxLength: 4000
+        meta:
+          type: object
+          additionalProperties: {}
+          writeOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusA0eEnum'
+          readOnly: true
+        unread:
+          type: boolean
+          readOnly: true
+        last_message:
+          type: string
+          readOnly: true
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reply:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportMessage'
+          readOnly: true
+      required:
+      - category_label
+      - created_at
+      - id
+      - last_message
+      - last_message_at
+      - message
+      - messages
+      - reply
+      - status
+      - unread
+    SupportUnread:
+      type: object
+      properties:
+        unread:
+          type: integer
+      required:
+      - unread
     TTSRequest:
       type: object
       properties:
@@ -6649,6 +6934,7 @@ components:
       - info
       - alarm
       - chat
+      - support
       type: string
       description: '* `tender` - İhale
 
@@ -6656,7 +6942,9 @@ components:
 
         * `alarm` - Alarm
 
-        * `chat` - Sohbet'
+        * `chat` - Sohbet
+
+        * `support` - Destek'
     UnreadCount:
       type: object
       properties:

@@ -5,7 +5,8 @@ from drf_spectacular.utils import (
     extend_schema_view,
     inline_serializer,
 )
-from rest_framework import generics, permissions, serializers
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -15,8 +16,13 @@ from rest_framework.response import Response
 
 from accounts.premium import MSG_SUPPORT, require_premium
 
+from . import support
 from .models import AppConfig, SupportTicket
-from .serializers import SupportTicketSerializer
+from .serializers import (
+    SupportReplySerializer,
+    SupportTicketDetailSerializer,
+    SupportTicketSerializer,
+)
 
 
 @extend_schema(
@@ -113,32 +119,39 @@ def app_status(request):
     get=extend_schema(
         tags=["support"],
         summary="Destek taleplerini listele",
-        description="Kullanıcının açtığı destek taleplerini ve varsa yanıtlarını döner.",
+        description=(
+            "Kullanıcının destek talepleri, son mesaja göre yeniden eskiye. Her satırda "
+            "`unread` (görülmemiş destek yanıtı var mı) ve `last_message` önizlemesi bulunur."
+        ),
     ),
     post=extend_schema(
         tags=["support"],
         summary="Destek talebi aç",
         description=(
-            "Yeni bir destek talebi oluşturur.\n\n"
-            "**Pro özellik:** Destek talebi oluşturma yalnızca Pro üyelere açıktır. "
-            "Free üye talep gönderirse **403** alır (`errors.code = premium_required`). "
-            "Mevcut talepleri listeleme (GET) her üyeye açıktır."
+            "Yeni bir destek yazışması başlatır; `message` ilk mesajdır.\n\n"
+            "**Pro özellik:** Destek talebi OLUŞTURMA yalnızca Pro üyelere açıktır. "
+            "Free üye **403** alır (`errors.code = premium_required`). Listeleme, "
+            "okuma ve mevcut talebe YANIT her üyeye açıktır (süresi biten Pro "
+            "yazışmasını sürdürebilsin)."
         ),
         examples=[
             OpenApiExample(
                 "Destek talebi aç",
                 request_only=True,
                 description=(
-                    "`email` gönderilmezse kullanıcının hesap e-postası kullanılır. "
-                    "`status` ve `reply` alanları yalnızca yönetici tarafından doldurulur."
+                    "`email` gönderilmezse hesap e-postası kullanılır. `category` "
+                    "isteğe bağlıdır (vars. `diger`); `meta` yalnızca izinli anahtarları "
+                    "saklar (`app_version`, `build`, `platform`, `os_version`, `device_model`)."
                 ),
                 value={
-                    "email": "test@ihaletakip.com",
+                    "category": "bildirim",
                     "phone": "05551234567",
-                    "message": "Analiz sonucu gelmiyor, yardımcı olabilir misiniz?",
+                    "message": "Kayıtlı aramamın bildirimi gelmiyor, yardımcı olabilir misiniz?",
+                    "meta": {"app_version": "2.4.0", "platform": "ios", "os_version": "26.0"},
                 },
             )
         ],
+        responses={201: SupportTicketDetailSerializer},
     ),
 )
 class SupportTicketView(generics.ListCreateAPIView):
@@ -148,12 +161,92 @@ class SupportTicketView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return SupportTicket.objects.filter(user=self.request.user)
+        return SupportTicket.objects.filter(user=self.request.user).prefetch_related("messages")
 
-    def perform_create(self, serializer):
-        # Destek talebi oluşturma Pro'ya özeldir (listeleme herkese açık).
-        require_premium(self.request.user, MSG_SUPPORT)
-        serializer.save(
-            user=self.request.user,
-            email=self.request.data.get("email") or self.request.user.email,
+    def create(self, request, *args, **kwargs):
+        # Destek talebi oluşturma Pro'ya özeldir (listeleme / yanıt herkese açık).
+        require_premium(request.user, MSG_SUPPORT)
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        v = ser.validated_data
+        ticket = support.talep_ac(
+            request.user,
+            message=v["message"],
+            category=v.get("category") or "diger",
+            email=v.get("email") or "",
+            phone=v.get("phone") or "",
+            meta=v.get("meta") or {},
         )
+        return Response(
+            SupportTicketDetailSerializer(ticket).data, status=status.HTTP_201_CREATED
+        )
+
+
+def _kendi_talebi(request, pk):
+    return get_object_or_404(
+        SupportTicket.objects.prefetch_related("messages"), pk=pk, user=request.user
+    )
+
+
+@extend_schema(
+    tags=["support"],
+    summary="Destek yazışmasını getir",
+    description=(
+        "Talep + tüm mesajlar (eskiden yeniye). `messages[].sender`: `user` | `staff`.\n\n"
+        "⚠️ Bu çağrı talebi **okundu** sayar (`unread=false`)."
+    ),
+    responses={200: SupportTicketDetailSerializer},
+)
+@api_view(["GET"])
+def support_ticket_detail(request, pk):
+    ticket = _kendi_talebi(request, pk)
+    if ticket.user_unread:
+        SupportTicket.objects.filter(pk=ticket.pk).update(user_unread=False)
+        ticket.user_unread = False
+    return Response(SupportTicketDetailSerializer(ticket).data)
+
+
+@extend_schema(
+    tags=["support"],
+    summary="Destek talebine yanıt yaz",
+    description=(
+        "Kullanıcı mesajı ekler; talep **Bekliyor**'a döner (kapalıysa yeniden açılır). "
+        "Pro şartı YOKTUR. Yanıt olarak güncel yazışma döner."
+    ),
+    request=SupportReplySerializer,
+    responses={201: SupportTicketDetailSerializer},
+)
+@api_view(["POST"])
+def support_ticket_reply(request, pk):
+    ticket = _kendi_talebi(request, pk)
+    ser = SupportReplySerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    support.kullanici_yaniti(ticket, ser.validated_data["body"])
+    ticket = _kendi_talebi(request, pk)
+    return Response(SupportTicketDetailSerializer(ticket).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    tags=["support"],
+    summary="Destek talebini kapat",
+    description="Talebi **Kapandı** yapar. Kullanıcı sonradan yazarsa yeniden açılır.",
+    request=None,
+    responses={200: SupportTicketDetailSerializer},
+)
+@api_view(["POST"])
+def support_ticket_close(request, pk):
+    ticket = _kendi_talebi(request, pk)
+    support.kapat(ticket)
+    return Response(SupportTicketDetailSerializer(_kendi_talebi(request, pk)).data)
+
+
+@extend_schema(
+    tags=["support"],
+    summary="Okunmamış destek yanıtı sayısı",
+    description="Görülmemiş destek yanıtı olan talep sayısı (menü rozeti için).",
+    responses={200: inline_serializer(name="SupportUnread", fields={"unread": serializers.IntegerField()})},
+)
+@api_view(["GET"])
+def support_unread_count(request):
+    n = SupportTicket.objects.filter(user=request.user, user_unread=True).count()
+    return Response({"unread": n})

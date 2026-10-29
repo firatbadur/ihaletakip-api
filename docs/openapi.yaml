@@ -5683,7 +5683,10 @@ components:
       properties:
         is_favorite:
           type: boolean
+        alarm:
+          type: boolean
       required:
+      - alarm
       - is_favorite
     IsSaved:
       type: object

@@ -276,15 +276,22 @@ class FavoriteContractorDetailView(APIView):
         responses={
             200: inline_serializer(
                 name="IsFavoriteContractor",
-                fields={"is_favorite": serializers.BooleanField()},
+                fields={
+                    "is_favorite": serializers.BooleanField(),
+                    "alarm": serializers.BooleanField(),
+                },
             )
         },
     )
     def get(self, request, contractor_id):
-        exists = FavoriteContractor.objects.filter(
-            user=request.user, contractor_id=contractor_id
-        ).exists()
-        return Response({"is_favorite": exists})
+        # `alarm` de döner: mobil firma detayı "yeni iş aldığında bildir" anahtarının
+        # başlangıç durumunu buradan okur (yalnız is_favorite dönerken hep kapalı görünüyordu).
+        row = (
+            FavoriteContractor.objects.filter(user=request.user, contractor_id=contractor_id)
+            .only("alarm")
+            .first()
+        )
+        return Response({"is_favorite": row is not None, "alarm": bool(row and row.alarm)})
 
 
 @extend_schema(tags=["favorites"], parameters=[_DETSIS_NO_PARAM])

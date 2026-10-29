@@ -789,6 +789,199 @@
               }
             }
           }
+        },
+        {
+          "name": "Web → mobil geçiş kodu oluştur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/handoff/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "handoff",
+                ""
+              ]
+            },
+            "description": "Web'de **girişli** kullanıcı Pro'ya tıklayınca çağrılır. Dönen `kod` QR'a gömülür (`https://ihaletakip.com/q/<kod>`), `kisa_kod` QR'ın altında gösterilir (uygulama yüklendikten sonra derin bağlantı eşleşmezse elle yazılır).\n\nKod **tek kullanımlık**, `gecerlilik_sn` (15 dk) geçerli ve uygulamada bozdurulunca **bu hesabın oturumunu açar** — kişiye özel bir giriş anahtarıdır, önbelleğe alınmamalı ve loglanmamalı. Süre dolunca web yeni kod ister; sayfa kapanınca `DELETE` ile iptal eder. Kullanıcı başına aynı anda en çok 5 canlı kod tutulur, fazlası (en eskiler) iptal edilir.\n\nHız sınırı: kullanıcı başına 10 dk'da 30, günde 300 (aşılırsa 429).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baglam\": \"market\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Geçiş kodu okutuldu (web /q yönlendirmesi)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/handoff/okutuldu/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "handoff",
+                "okutuldu",
+                ""
+              ]
+            },
+            "description": "**Yalnızca web portalı** (`X-IT-Portal-Key` zorunlu, yoksa 403 `portal_required`). `https://ihaletakip.com/q/<kod>` açılınca web bunu çağırır, sonra OneLink'e yönlendirir. Kod `bekliyor` ise `okutuldu` yapılır (web QR ekranı \"Telefonunuzda açılıyor…\" der).\n\nHer zaman 200: `gecerli=false` (yok / süresi dolmuş / kullanılmış / iptal) ise web kodu OneLink'e **eklemez**, genel bağlantıya yönlendirir; `baglam` kayıt bulunduysa yine döner ki ödeme ekranı doğru özellikle açılsın.\n\n⚠️ Kimlik `id` ile değil **`kod`** ile: `/q/<kod>` rotası yalnızca kodu bilir.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kod\": \"Zr3m…\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Geçiş kodunu bozdur (mobil — web hesabıyla oturum aç)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/handoff/redeem/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "handoff",
+                "redeem",
+                ""
+              ]
+            },
+            "description": "Mobil uygulama derin bağlantıdan (`deep_link_value=web_pro`, `deep_link_sub2=<kod>`) gelen `kod`u ya da kullanıcının yazdığı `kisa_kod`u gönderir. Başarıda `login` ile aynı yanıt (`access`, `refresh`, `user`, `created:false`) + `baglam` (ödeme ekranı bağlamı) + `maskeli_eposta` döner. Uygulama ardından `Purchases.logIn(user.id)` çağırıp ödeme ekranını `baglam` ile açar.\n\nKod tek kullanımlıktır. Yanlış / süresi dolmuş / kullanılmış kod → 400 `handoff_invalid`.\n\nHız sınırı IP başına 10 dk'da 20, günde 100 (429, `Retry-After`). Kısa kod için ayrıca küresel sigorta var: çok sayıda hatalı deneme olursa kısa kod geçici olarak kapanır → 429 `handoff_busy` (QR yolu çalışmaya devam eder).\n\n⚠️ Uç kimlik doğrulaması YAPMAZ: istekte eski/geçersiz bir `Authorization` başlığı olsa da 401 dönmez (aksi hâlde mobil oturumu kapatma akışına düşerdi).\n\n---\n\n### Alternatif gövde örnekleri\n\n**KısaKod**\n\n```json\n{\n  \"kisa_kod\": \"K7M-4QXA\"\n}\n```\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kod\": \"Zr3m…\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Geçiş kodu durumu (web yoklaması)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/handoff/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "handoff",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Web QR ekranı bunu birkaç saniyede bir yoklar. `durum`: `bekliyor` → `okutuldu` (telefon QR'ı açtı) → `kullanildi` (uygulamada oturum açıldı); ayrıca `iptal`, `suresi_doldu`. `is_premium` satın alma tamamlanınca `true` olur (mobil `subscription/verify/` çağırdığında ya da RevenueCat webhook'u geldiğinde) → web sayfayı yeniler.\n\nYalnızca kodun sahibi görebilir (aksi 404).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Geçiş kodunu iptal et",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/handoff/:id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "handoff",
+                ":id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Web sayfası kapanınca/QR yenilenince çağrılır. İdempotent (204); kullanılmış kod etkilenmez.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
         }
       ],
       "description": "Kayıt, giriş, sosyal giriş, token yenileme ve çıkış.\n\n**Önce `Giriş yap` isteğini çalıştırın** — `access_token` ve `refresh_token` koleksiyon değişkenleri otomatik dolar, diğer tüm klasörler bunları kullanır."

@@ -368,6 +368,16 @@ PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="https://ihale-takip.envisoft.c
 WEB_REVALIDATE_URL = env("WEB_REVALIDATE_URL", default="https://ihaletakip.com/api/revalidate")
 WEB_REVALIDATE_SECRET = env("WEB_REVALIDATE_SECRET", default="")
 
+# Web → mobil geçiş kodu (accounts/services/web_handoff.py). Kod kısa süreli bir giriş
+# anahtarıdır: tek kullanımlık, bu süre kadar geçerli; kullanıcı başına aynı anda en çok
+# AKTIF_AZAMI canlı kod. KISA_KURESEL_HATA: 10 dk'da tüm IP'lerden gelen hatalı kısa kod
+# denemesi bu eşiğe ulaşırsa kısa kodla giriş 10 dk kapanır (QR yolu açık kalır).
+WEB_HANDOFF_SURE_DK = env.int("WEB_HANDOFF_SURE_DK", default=15)
+WEB_HANDOFF_AKTIF_AZAMI = env.int("WEB_HANDOFF_AKTIF_AZAMI", default=5)
+WEB_HANDOFF_KISA_KURESEL_HATA = env.int("WEB_HANDOFF_KISA_KURESEL_HATA", default=300)
+# IP/kullanıcı sınırı ezme: {"handoff_olustur": [[600, 30]], "handoff_bozdur": [[600, 20]]}
+WEB_HANDOFF_IP_ORANLARI = env.json("WEB_HANDOFF_IP_ORANLARI", default={})
+
 # Portal ↔ API ortak sırrı (`X-IT-Portal-Key`). Doğruysa throttle kimliği
 # `X-IT-Client-IP` olur; boşsa portal yolu kapalıdır ve o başlıklar yok sayılır.
 PORTAL_KEY = env("PORTAL_KEY", default="")

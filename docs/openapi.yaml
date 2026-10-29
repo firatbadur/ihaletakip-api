@@ -922,6 +922,219 @@ paths:
               schema:
                 $ref: '#/components/schemas/Detail'
           description: ''
+  /api/v1/auth/handoff/:
+    post:
+      operationId: api_v1_auth_handoff_create
+      description: 'Web''de **girişli** kullanıcı Pro''ya tıklayınca çağrılır. Dönen
+        `kod` QR''a gömülür (`https://ihaletakip.com/q/<kod>`), `kisa_kod` QR''ın
+        altında gösterilir (uygulama yüklendikten sonra derin bağlantı eşleşmezse
+        elle yazılır).
+
+
+        Kod **tek kullanımlık**, `gecerlilik_sn` (15 dk) geçerli ve uygulamada bozdurulunca
+        **bu hesabın oturumunu açar** — kişiye özel bir giriş anahtarıdır, önbelleğe
+        alınmamalı ve loglanmamalı. Süre dolunca web yeni kod ister; sayfa kapanınca
+        `DELETE` ile iptal eder. Kullanıcı başına aynı anda en çok 5 canlı kod tutulur,
+        fazlası (en eskiler) iptal edilir.
+
+
+        Hız sınırı: kullanıcı başına 10 dk''da 30, günde 300 (aşılırsa 429).'
+      summary: Web → mobil geçiş kodu oluştur
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandoffCreate'
+            examples:
+              İstek:
+                value:
+                  baglam: market
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HandoffCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HandoffCreate'
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffCreated'
+              examples:
+                Yanıt:
+                  value:
+                    success: true
+                    message: ''
+                    data:
+                      id: 812
+                      kod: Zr3m…(43 karakter)
+                      kisa_kod: K7M4QXA
+                      baglam: market
+                      gecerlilik: '2026-10-29T12:15:00+03:00'
+                      gecerlilik_sn: 900
+          description: ''
+  /api/v1/auth/handoff/{id}/:
+    get:
+      operationId: api_v1_auth_handoff_retrieve
+      description: 'Web QR ekranı bunu birkaç saniyede bir yoklar. `durum`: `bekliyor`
+        → `okutuldu` (telefon QR''ı açtı) → `kullanildi` (uygulamada oturum açıldı);
+        ayrıca `iptal`, `suresi_doldu`. `is_premium` satın alma tamamlanınca `true`
+        olur (mobil `subscription/verify/` çağırdığında ya da RevenueCat webhook''u
+        geldiğinde) → web sayfayı yeniler.
+
+
+        Yalnızca kodun sahibi görebilir (aksi 404).'
+      summary: Geçiş kodu durumu (web yoklaması)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffStatus'
+              examples:
+                Yanıt:
+                  value:
+                    success: true
+                    message: ''
+                    data:
+                      id: 812
+                      durum: kullanildi
+                      baglam: market
+                      gecerlilik: '2026-10-29T12:15:00+03:00'
+                      is_premium: false
+          description: ''
+    delete:
+      operationId: api_v1_auth_handoff_destroy
+      description: Web sayfası kapanınca/QR yenilenince çağrılır. İdempotent (204);
+        kullanılmış kod etkilenmez.
+      summary: Geçiş kodunu iptal et
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/handoff/okutuldu/:
+    post:
+      operationId: api_v1_auth_handoff_okutuldu_create
+      description: '**Yalnızca web portalı** (`X-IT-Portal-Key` zorunlu, yoksa 403
+        `portal_required`). `https://ihaletakip.com/q/<kod>` açılınca web bunu çağırır,
+        sonra OneLink''e yönlendirir. Kod `bekliyor` ise `okutuldu` yapılır (web QR
+        ekranı "Telefonunuzda açılıyor…" der).
+
+
+        Her zaman 200: `gecerli=false` (yok / süresi dolmuş / kullanılmış / iptal)
+        ise web kodu OneLink''e **eklemez**, genel bağlantıya yönlendirir; `baglam`
+        kayıt bulunduysa yine döner ki ödeme ekranı doğru özellikle açılsın.
+
+
+        ⚠️ Kimlik `id` ile değil **`kod`** ile: `/q/<kod>` rotası yalnızca kodu bilir.'
+      summary: Geçiş kodu okutuldu (web /q yönlendirmesi)
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandoffKod'
+            examples:
+              İstek:
+                value:
+                  kod: Zr3m…
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HandoffKod'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HandoffKod'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffScanned'
+              examples:
+                Yanıt:
+                  value:
+                    success: true
+                    message: ''
+                    data:
+                      gecerli: true
+                      baglam: market
+          description: ''
+  /api/v1/auth/handoff/redeem/:
+    post:
+      operationId: api_v1_auth_handoff_redeem_create
+      description: 'Mobil uygulama derin bağlantıdan (`deep_link_value=web_pro`, `deep_link_sub2=<kod>`)
+        gelen `kod`u ya da kullanıcının yazdığı `kisa_kod`u gönderir. Başarıda `login`
+        ile aynı yanıt (`access`, `refresh`, `user`, `created:false`) + `baglam` (ödeme
+        ekranı bağlamı) + `maskeli_eposta` döner. Uygulama ardından `Purchases.logIn(user.id)`
+        çağırıp ödeme ekranını `baglam` ile açar.
+
+
+        Kod tek kullanımlıktır. Yanlış / süresi dolmuş / kullanılmış kod → 400 `handoff_invalid`.
+
+
+        Hız sınırı IP başına 10 dk''da 20, günde 100 (429, `Retry-After`). Kısa kod
+        için ayrıca küresel sigorta var: çok sayıda hatalı deneme olursa kısa kod
+        geçici olarak kapanır → 429 `handoff_busy` (QR yolu çalışmaya devam eder).
+
+
+        ⚠️ Uç kimlik doğrulaması YAPMAZ: istekte eski/geçersiz bir `Authorization`
+        başlığı olsa da 401 dönmez (aksi hâlde mobil oturumu kapatma akışına düşerdi).'
+      summary: Geçiş kodunu bozdur (mobil — web hesabıyla oturum aç)
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandoffRedeem'
+            examples:
+              QRKodu:
+                value:
+                  kod: Zr3m…
+                summary: QR kodu
+              KısaKod:
+                value:
+                  kisa_kod: K7M-4QXA
+                summary: Kısa kod
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HandoffRedeem'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HandoffRedeem'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffRedeemed'
+          description: ''
   /api/v1/auth/login/:
     post:
       operationId: api_v1_auth_login_create
@@ -5609,6 +5822,23 @@ components:
       - created_at
       - id
       - updated_at
+    DurumEnum:
+      enum:
+      - bekliyor
+      - okutuldu
+      - kullanildi
+      - iptal
+      - suresi_doldu
+      type: string
+      description: '* `bekliyor` - bekliyor
+
+        * `okutuldu` - okutuldu
+
+        * `kullanildi` - kullanildi
+
+        * `iptal` - iptal
+
+        * `suresi_doldu` - suresi_doldu'
     EmailCode:
       type: object
       description: E-posta + 6 haneli kod (kayıt ve şifre sıfırlama doğrulaması).
@@ -5773,6 +6003,121 @@ components:
           description: Google Sign-In'den dönen ID token.
       required:
       - id_token
+    HandoffCreate:
+      type: object
+      properties:
+        baglam:
+          type: string
+          description: Web'de tıklanan Pro özelliği (`PRO_CONTEXTS` anahtarı, ör.
+            `market`). Biçim `[a-z0-9_-]`, değilse boş sayılır.
+          maxLength: 40
+    HandoffCreated:
+      type: object
+      properties:
+        id:
+          type: integer
+        kod:
+          type: string
+          description: QR'a gömülen uzun kod (43 karakter, URL güvenli).
+        kisa_kod:
+          type: string
+          description: Elle yazılan 7 karakterlik kod. Web gösterirken bölebilir (`K7M-4QXA`);
+            bozdurma ucu tire/boşluk/küçük harfi kabul eder.
+        baglam:
+          type: string
+        gecerlilik:
+          type: string
+          format: date-time
+        gecerlilik_sn:
+          type: integer
+      required:
+      - baglam
+      - gecerlilik
+      - gecerlilik_sn
+      - id
+      - kisa_kod
+      - kod
+    HandoffKod:
+      type: object
+      properties:
+        kod:
+          type: string
+          maxLength: 100
+      required:
+      - kod
+    HandoffRedeem:
+      type: object
+      properties:
+        kod:
+          type: string
+          description: QR/derin bağlantıdan gelen uzun kod.
+          maxLength: 100
+        kisa_kod:
+          type: string
+          description: Elle yazılan 7 karakterlik kod.
+          maxLength: 20
+    HandoffRedeemed:
+      type: object
+      description: register / login / social yanıtı.
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        created:
+          type: boolean
+          description: Bu istekte yeni bir hesap açıldıysa `true`, mevcut hesaba giriş
+            yapıldıysa `false`. Sosyal girişte (Google/Apple) tek uç hem kayıt hem
+            giriş yaptığı için analitik olayını (kayıt vs. giriş) ayırmak isteyen
+            istemciler bu bayrağa bakmalıdır.
+        baglam:
+          type: string
+          description: Ödeme ekranında açılacak Pro özelliği.
+        maskeli_eposta:
+          type: string
+          description: '`a***@gmail.com` — "bu hesapla devam ediliyor" satırı için.'
+      required:
+      - access
+      - baglam
+      - created
+      - maskeli_eposta
+      - refresh
+      - user
+    HandoffScanned:
+      type: object
+      properties:
+        gecerli:
+          type: boolean
+          description: Kod hâlâ bozdurulabilir mi? `false` → web genel OneLink'e yönlendirir.
+        baglam:
+          type: string
+          description: Kayıt bulunduysa bağlam (süresi dolmuş olsa da).
+      required:
+      - baglam
+      - gecerli
+    HandoffStatus:
+      type: object
+      properties:
+        id:
+          type: integer
+        durum:
+          $ref: '#/components/schemas/DurumEnum'
+        baglam:
+          type: string
+        gecerlilik:
+          type: string
+          format: date-time
+        is_premium:
+          type: boolean
+          description: Kodun sahibi şu an Pro mu?
+      required:
+      - baglam
+      - durum
+      - gecerlilik
+      - id
+      - is_premium
     Health:
       type: object
       properties:

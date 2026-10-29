@@ -118,7 +118,11 @@ class RevenueCatWebhookView(APIView):
     authentication_classes = []  # RC JWT göndermez; Authorization = paylaşılan sır
 
     def post(self, request):
-        from .services.revenuecat import record_event_state, resolve_user_from_event
+        from .services.revenuecat import (
+            record_event_state,
+            resolve_user_from_event,
+            transfer_kaybedenleri,
+        )
         from .tasks import sync_subscription_task
 
         expected = getattr(settings, "REVENUECAT_WEBHOOK_AUTH", "")
@@ -130,6 +134,9 @@ class RevenueCatWebhookView(APIView):
         event = (request.data or {}).get("event") or {}
         user = resolve_user_from_event(event)
         if user is None:
+            # TRANSFER'de kazanan anonim olabilir; kaybeden bizim hesabımızsa yine senkronlanır.
+            for kaybeden in transfer_kaybedenleri(event):
+                sync_subscription_task.delay(kaybeden.id)
             logger.info(
                 "revenuecat webhook: kullanıcı eşleşmedi app_user_id=%s type=%s",
                 event.get("app_user_id"), event.get("type"),
@@ -146,4 +153,9 @@ class RevenueCatWebhookView(APIView):
 
         # Senkronu arka plana at → hızlıca 200 dön. RC ulaşılamazsa görev event'e düşer.
         sync_subscription_task.delay(user.id, event=event)
+        # TRANSFER: satın almayı kaybeden hesap(lar) da RC'den yeniden senkronlanır.
+        # ⚠️ Event YEDEĞİ VERİLMEZ: TRANSFER bir grant olayıdır, RC'ye ulaşılamazsa yedek
+        # yol kaybedene Pro yazardı. Ulaşılamazsa katmanı olduğu gibi kalır.
+        for kaybeden in transfer_kaybedenleri(event, kazanan=user):
+            sync_subscription_task.delay(kaybeden.id)
         return api_response(data={"handled": True}, message="Alındı.")

@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import EpostaGeriBildirim, EpostaKodu, PushDevice, User
+from .models import EpostaGeriBildirim, EpostaKodu, PushDevice, User, WebHandoff
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -260,3 +260,31 @@ class EpostaGeriBildirimAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(WebHandoff)
+class WebHandoffAdmin(admin.ModelAdmin):
+    """Web → mobil geçiş kodları — "QR'ı okuttum ama uygulama açılmadı" sorusunun ekranı.
+
+    ⚠️ Kodlar görünmez (yalnızca özetleri saklanır). Salt okunur; satır makine üretimi.
+    """
+
+    list_display = ["user", "durum_gosterim", "baglam", "created_at", "okutuldu_at",
+                    "kullanildi_at", "gecerlilik"]
+    list_select_related = ["user"]
+    list_filter = ["durum", "baglam"]
+    search_fields = ["user__email", "user__username"]
+    ordering = ["-created_at"]
+    fields = ["user", "durum", "baglam", "gecerlilik", "created_at", "olusturan_ip",
+              "okutuldu_at", "kullanildi_at", "kullanan_ip", "iptal_at"]
+    readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Durum", ordering="durum")
+    def durum_gosterim(self, obj):
+        return "Süresi doldu" if obj.etkin_durum == WebHandoff.SURESI_DOLDU else obj.get_durum_display()

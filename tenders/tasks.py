@@ -891,8 +891,9 @@ def check_favorite_contractor_matches():
 
 @shared_task(name="tenders.tasks.cleanup_old_notifications")
 def cleanup_old_notifications(days: int = 30, cihaz_gun: int = 180):
-    """Eski OKUNMUŞ bildirimleri ve uzun süredir sessiz push cihazlarını siler."""
-    from accounts.models import PushDevice
+    """Eski OKUNMUŞ bildirimleri, uzun süredir sessiz push cihazlarını ve eski web→mobil
+    geçiş kodlarını siler."""
+    from accounts.models import PushDevice, WebHandoff
 
     from .models import Notification
 
@@ -914,11 +915,15 @@ def cleanup_old_notifications(days: int = 30, cihaz_gun: int = 180):
         last_registered_at__lt=cihaz_cutoff
     ).delete()
 
+    # Geçiş kodları 15 dk yaşar; satır yalnızca destek/teşhis için `days` gün tutulur.
+    handoff_silinen, _ = WebHandoff.objects.filter(created_at__lt=cutoff).delete()
+
     logger.info(
-        "cleanup_old_notifications: %s bildirim, %s push cihazı silindi",
-        deleted, cihaz_silinen,
+        "cleanup_old_notifications: %s bildirim, %s push cihazı, %s geçiş kodu silindi",
+        deleted, cihaz_silinen, handoff_silinen,
     )
-    return {"deleted": deleted, "cihaz_silinen": cihaz_silinen}
+    return {"deleted": deleted, "cihaz_silinen": cihaz_silinen,
+            "handoff_silinen": handoff_silinen}
 
 
 # ══ Doğrudan temin alarmı ══════════════════════════════

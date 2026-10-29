@@ -211,6 +211,9 @@ class EpostaIpThrottle(BaseThrottle):
     def __init__(self):
         self._bekle = None
 
+    def oran_tablosu(self) -> dict:
+        return {**VARSAYILAN_IP_ORANLARI, **(settings.EPOSTA_IP_ORANLARI or {})}
+
     def allow_request(self, request, view):
         kapsam = getattr(view, "eposta_kapsam", None)
         if not kapsam:
@@ -218,7 +221,7 @@ class EpostaIpThrottle(BaseThrottle):
         try:
             from core.throttling import _say, istemci
 
-            tablo = {**VARSAYILAN_IP_ORANLARI, **(settings.EPOSTA_IP_ORANLARI or {})}
+            tablo = self.oran_tablosu()
             kimlik = istemci(request).kimlik
             simdi = timezone.now().timestamp()
             for pencere, sinir in tablo.get(kapsam, []):

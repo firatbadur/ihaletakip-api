@@ -225,6 +225,9 @@ def apply_event_fallback(user, event: dict) -> None:
 
     if etype == "EXPIRATION" or (exp is not None and exp <= now):
         _apply(user, False, None)
+    elif etype == "TRANSFER" and exp is None:
+        # TRANSFER olayı bitiş tarihi taşımaz; tarihsiz grant SÜRESİZ Pro yazardı.
+        logger.info("apply_event_fallback: tarihsiz TRANSFER uid=%s → dokunulmadı", user.pk)
     elif etype in _GRANT_EVENTS or etype == "CANCELLATION":
         _apply(user, True, exp)
     else:
@@ -314,25 +317,53 @@ def record_event_state(user, event: dict) -> bool:
     return True
 
 
-def resolve_user_from_event(event: dict):
-    """
-    Webhook event'inden Django kullanıcısını bulur. `app_user_id` ve `aliases` içinden
-    sayısal olan ilk id (= str(user.id)) eşleşir. RC anonim id'leri ($RCAnonymousID:...)
-    sayısal olmadığı için atlanır.
-    """
+def _sayisal_kullanicilar(adaylar):
+    """Aday id listesindeki SAYISAL id'lere (= `str(user.id)`) karşılık gelen kullanıcılar,
+    sırası korunarak. RC anonim id'leri (`$RCAnonymousID:...`) sayısal olmadığı için atlanır."""
     from accounts.models import User
 
-    candidates = []
-    if event.get("app_user_id"):
-        candidates.append(event["app_user_id"])
-    candidates.extend(event.get("aliases") or [])
-
-    for cand in candidates:
+    sonuc, gorulen = [], set()
+    for cand in adaylar:
         try:
             uid = int(str(cand))
         except (TypeError, ValueError):
             continue
+        if uid in gorulen:
+            continue
+        gorulen.add(uid)
         user = User.objects.filter(pk=uid).first()
         if user:
-            return user
-    return None
+            sonuc.append(user)
+    return sonuc
+
+
+def resolve_user_from_event(event: dict):
+    """
+    Webhook event'inden Django kullanıcısını bulur: `app_user_id`, `aliases` ve (TRANSFER
+    olayında) `transferred_to` içinden sayısal olan ilk id (= str(user.id)) eşleşir.
+
+    ⚠️ TRANSFER olayı `app_user_id` TAŞIMAYABİLİR — satın alma bir kimlikten diğerine
+    (ör. girişten önce yapılmış anonim satın alma → giriş yapan hesaba, ya da aynı mağaza
+    hesabıyla başka bir uygulama hesabına) aktarıldığında kimlikler yalnızca
+    `transferred_from` / `transferred_to` dizilerinde gelir. Bakılmasaydı olay "kullanıcı
+    eşleşmedi" diye düşer, Pro ancak mobil `verify` çağırırsa açılırdı.
+    """
+    adaylar = []
+    if event.get("app_user_id"):
+        adaylar.append(event["app_user_id"])
+    adaylar.extend(event.get("aliases") or [])
+    adaylar.extend(event.get("transferred_to") or [])
+    bulunan = _sayisal_kullanicilar(adaylar)
+    return bulunan[0] if bulunan else None
+
+
+def transfer_kaybedenleri(event: dict, kazanan=None):
+    """TRANSFER olayında satın almayı KAYBEDEN (sayısal kimlikli) kullanıcılar.
+
+    Onların Pro'su RevenueCat'te bitmiştir ama bizim katmanımız güncellenmezse süresi
+    dolana kadar Pro görünmeye devam ederdi → çağıran bunları RC'den yeniden senkronlar.
+    """
+    if (event.get("type") or "").upper() != "TRANSFER":
+        return []
+    return [u for u in _sayisal_kullanicilar(event.get("transferred_from") or [])
+            if kazanan is None or u.pk != kazanan.pk]

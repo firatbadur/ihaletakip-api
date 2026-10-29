@@ -321,3 +321,66 @@ class EpostaGeriBildirim(models.Model):
 
     def __str__(self):
         return f"{self.email} · {self.get_tur_display()}"
+
+
+class WebHandoff(models.Model):
+    """
+    Web → mobil geçiş kodu: web'de girişli kullanıcının telefonda AYNI hesapla,
+    giriş ekranı görmeden ödeme ekranına düşmesi (`accounts/services/web_handoff.py`).
+
+    Kod kısa süreli bir GİRİŞ ANAHTARIDIR: bozdurulunca hesabın token çifti döner.
+    Bu yüzden:
+    ⚠️ Kodların kendisi SAKLANMAZ, yalnızca HMAC özetleri (`kod_hash`, `kisa_hash`).
+    ⚠️ Tek kullanımlık + kısa ömürlü (`WEB_HANDOFF_SURE_DK`, vars. 15). Kod AppsFlyer
+    derin bağlantısından (`deep_link_sub2`) geçtiği için üçüncü tarafın loglarına düşer;
+    ömrün kısa olması bunun bedelini sınırlar.
+    ⚠️ "Süresi doldu" bir DURUM değildir, `gecerlilik`ten hesaplanır (`etkin_durum`):
+    süresi dolan satırı güncelleyecek bir görev yok, olmasına da gerek yok.
+    """
+
+    class Durum(models.TextChoices):
+        BEKLIYOR = "bekliyor", "Bekliyor"
+        OKUTULDU = "okutuldu", "Okutuldu"
+        KULLANILDI = "kullanildi", "Kullanıldı"
+        IPTAL = "iptal", "İptal"
+
+    AKTIF = (Durum.BEKLIYOR, Durum.OKUTULDU)
+    SURESI_DOLDU = "suresi_doldu"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="web_handoffs",
+        verbose_name="kullanıcı",
+    )
+    kod_hash = models.CharField(max_length=64, unique=True)
+    kisa_hash = models.CharField(max_length=64, db_index=True)
+    baglam = models.CharField(
+        "bağlam", max_length=40, blank=True,
+        help_text="Web'de tıklanan Pro özelliği (`PRO_CONTEXTS` anahtarı) — ödeme ekranına taşınır.",
+    )
+    durum = models.CharField("durum", max_length=12, choices=Durum.choices,
+                             default=Durum.BEKLIYOR)
+    gecerlilik = models.DateTimeField("geçerlilik sonu")
+    olusturan_ip = models.GenericIPAddressField("oluşturan IP", null=True, blank=True)
+    okutuldu_at = models.DateTimeField("okutuldu", null=True, blank=True)
+    kullanildi_at = models.DateTimeField("kullanıldı", null=True, blank=True)
+    kullanan_ip = models.GenericIPAddressField("kullanan IP", null=True, blank=True)
+    iptal_at = models.DateTimeField("iptal", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Web → Mobil Geçiş"
+        verbose_name_plural = "Web → Mobil Geçişler"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user_id} · {self.etkin_durum}"
+
+    @property
+    def etkin_durum(self) -> str:
+        from django.utils import timezone
+
+        if self.durum in self.AKTIF and self.gecerlilik <= timezone.now():
+            return self.SURESI_DOLDU
+        return self.durum

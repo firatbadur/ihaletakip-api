@@ -3259,6 +3259,15 @@ deneme iptali, NORMAL, INTRO), `subscription_last_event`.
   diye yazmak yanıltıcı olurdu.
   Varsayılan olarak yalnızca boş izi doldurur (webhook'tan geleni ezmez).
 
+- ⚠️ **`TRANSFER` olayı `app_user_id` taşımayabilir** (2026-10-29): kimlikler
+  `transferred_from` / `transferred_to`'dadır. `resolve_user_from_event` artık
+  `transferred_to`'ya da bakar (girişten önce anonim yapılmış satın alma hesaba aktarılınca
+  eşleşsin) ve webhook satın almayı **kaybeden** sayısal hesapları da RC'den yeniden
+  senkronlar — **event yedeği olmadan** (TRANSFER grant olayıdır, yedek yol kaybedene Pro
+  yazardı). Tarihsiz TRANSFER yedek yolda süresiz Pro yazmaz. Testler
+  `subscription/tests/test_transfer.py` (4, dişli).
+  ⚠️ Açık kalan (plan #17): RC senkronu admin'in elle verdiği Pro'yu siliyor; kaynağa
+  duyarlı çözüm (`ProGrant`) `0394be1`'de yazılıp `acfc55d` ile geri alındı.
 - **Tek kod yolu**: webhook event tipiyle elle uğraşmaz; her zaman `active_entitlements`'i
   yeniden sorgular → durum her zaman RC ile tutarlı. `verify` ve webhook aynı
   `sync_user_subscription`'ı kullanır.
@@ -3340,6 +3349,31 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   açılacak). SES sandbox onayı bekleniyor.
   ⚠️ Test için yalnızca SES simülatör adreslerini kullanın — gerçek bir adrese bounce
   ürettirmek hesabın bounce oranını bozar. `.env.prod` yedeği: `.env.prod.bak-20261027-eposta`.
+
+### Web → mobil geçiş kodu (handoff, 2026-10-29)
+
+Web'de girişli kullanıcı Pro'ya tıklar → QR (`https://ihaletakip.com/q/<kod>`) + 7 karakterlik
+kısa kod → uygulama **aynı hesapla, girişsiz**, tıklanan özelliğin ödeme ekranında açılır.
+Model `accounts.WebHandoff`, mantık `accounts/services/web_handoff.py`, uçlar
+`accounts/views_handoff.py`, sözleşme `docs/web-mobil-gecis.md`. Web + mobil tarafı henüz
+yazılmadı (plan: `~/Desktop/ihaletakip-web/docs/plan-qr-gecis.md`).
+- `POST auth/handoff/` (JWT) · `GET/DELETE auth/handoff/<id>/` (sahibi; web yoklaması
+  `durum` + `is_premium`) · `POST auth/handoff/okutuldu/` (**portal anahtarı**, gövde `{kod}`
+  — `/q/<kod>` yalnızca kodu bilir) · `POST auth/handoff/redeem/` (mobil, `{kod}`|`{kisa_kod}`
+  → `login` yanıtı + `baglam` + `maskeli_eposta`).
+- ⚠️ Kod bir **giriş anahtarıdır**: yalnız HMAC özetleri saklanır, tek kullanımlık,
+  `WEB_HANDOFF_SURE_DK` (15) geçerli, kullanıcı başına en çok `WEB_HANDOFF_AKTIF_AZAMI` (5)
+  canlı kod. Kodlar asla loglanmaz. "Süresi doldu" durum değil, `etkin_durum`'dan hesaplanır.
+- ⚠️ Kısa kod (31⁷) tahminine karşı iki katman: IP sınırı (`HandoffThrottle` =
+  `EpostaIpThrottle` deseni, her zaman uygulanır) + **küresel sigorta**
+  (`WEB_HANDOFF_KISA_KURESEL_HATA`, 10 dk'da 300 hatalı deneme → kısa kod 10 dk kapalı,
+  429 `handoff_busy`; QR yolu etkilenmez).
+- ⚠️ `redeem` ve `okutuldu` `authentication_classes = []`: mobil eski hesabın bayat
+  token'ını taşıyabilir; JWT doğrulaması 401 verseydi mobil `http.js` oturumu kapatırdı.
+- Hata transaction DIŞINDA fırlatılır (`eposta_kod.dogrula` kuralı). Eski satırlar
+  `cleanup_old_notifications`'ta 30 günde silinir. Admin → *Web → Mobil Geçişler* (salt okunur).
+- Testler `accounts/tests/test_web_handoff.py` (20) — dişli: tek kullanım, küresel sigorta,
+  portal anahtarı, redeem auth muafiyeti kaldırılınca kırılıyor.
 
 ### Günlük e-posta bülteni + `email_notifications` (2026-10-27)
 

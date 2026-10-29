@@ -20,6 +20,12 @@ from .views_eposta import (
     PasswordResetStartView,
     PasswordResetVerifyView,
 )
+from .views_handoff import (
+    HandoffCreateView,
+    HandoffDetailView,
+    HandoffRedeemView,
+    HandoffScanView,
+)
 
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
@@ -30,6 +36,11 @@ urlpatterns = [
     path("password/reset/start/", PasswordResetStartView.as_view(), name="password-reset-start"),
     path("password/reset/verify/", PasswordResetVerifyView.as_view(), name="password-reset-verify"),
     path("password/reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+    # Web → mobil geçiş kodu (QR ile uygulamada aynı hesapla ödeme ekranı) — views_handoff.py
+    path("handoff/", HandoffCreateView.as_view(), name="handoff-create"),
+    path("handoff/okutuldu/", HandoffScanView.as_view(), name="handoff-scan"),
+    path("handoff/redeem/", HandoffRedeemView.as_view(), name="handoff-redeem"),
+    path("handoff/<int:pk>/", HandoffDetailView.as_view(), name="handoff-detail"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("token/refresh/", DocumentedTokenRefreshView.as_view(), name="token-refresh"),
     path("social/google/", GoogleLoginView.as_view(), name="google-login"),

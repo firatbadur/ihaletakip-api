@@ -8,7 +8,7 @@ import hashlib
 import time
 import logging
 import re
-from datetime import timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -1572,6 +1572,76 @@ def _aciklamalari_duzelt(data, tender):
     return data
 
 
+def _ilan_anahtari(ilan):
+    """(tür, gün) — aynı ilanın ham detaydaki ve tablodaki kopyasını eşler.
+
+    ⚠️ `id` tek başına yetmez: v2'nin yazdığı ilanların anahtarı içerikten türetilir
+    (`v2:i:…`). ⚠️ Gün ingest'in ayrıştırıcısıyla okunur: mobil ham detay tarihi
+    `30.10.2026 00:00:00`, tablo ISO verir — metin kırpmak 10.540 ihale ilanını
+    (ölçüldü) "eksik" sanıp ekranda iki kez gösterirdi.
+    """
+    gun = parse_ekap_datetime(ilan.get("ilanTarihi"))
+    gun = gun.astimezone(dt_timezone.utc).date().isoformat() if gun else ""
+    return (str(ilan.get("ilanTip") or ""), gun)
+
+
+def _guncel_hali_yaz(data, tender):
+    """
+    Ham detayın **sonradan değişen** alanlarını veritabanındaki güncel hâliyle ezer.
+
+    ⚠️⚠️ `detail_raw` yalnızca detay senkronunda yazılır; durumu ise sonradan üç ayrı
+    yol günceller — v2 tazelemesi, mobil toplu durum taraması (`mobil/durum.py`) ve
+    yerel 2→3 geçişi — ve üçü de yalnızca KOLONA yazar. Detay ucu ham veriyi
+    döndürdüğü için ekran aylarca eski durumu gösteriyordu: liste "Sonuç İlanı
+    Yayımlanmış" derken detay "Katılıma Açık" (ölçüldü 2026-10-30: son 400 günün
+    96.081 detaylı ihalesinin 19.944'ünde durum farklıydı, ~14.800'ü bitmiş ihaleyi
+    açık gösteriyordu). Aynı sebeple v2'nin getirdiği sonuç ilanları da İlan
+    sekmesine hiç düşmüyordu (1.091 ihale).
+    ⚠️ Kolon esastır — liste ucu da onu gösterir; iki ekran aynı ihaleye farklı
+    durum demesin. `detail_raw` DEĞİŞTİRİLMEZ (ham veri kanıttır).
+    ⚠️ Sözleşmeler burada birleştirilmez: mobil onları zaten tablodan
+    (`/contracts/`) okuyor.
+    """
+    if not isinstance(data, dict) or tender is None:
+        return data
+
+    if tender.ihale_durum is not None:
+        kod = str(tender.ihale_durum)
+        aciklama = (tender.ihale_durum_aciklama or "").strip()
+        data["ihaleDurum"] = kod
+        if aciklama and "ihaleDurumAciklama" in data:
+            data["ihaleDurumAciklama"] = aciklama
+        bilgi = data.get("ihaleBilgi")
+        if isinstance(bilgi, dict):
+            bilgi["ihaleDurum"] = kod
+            if aciklama:
+                bilgi["ihaleDurumAciklama"] = aciklama
+
+    ham = data.get("ilanList") if isinstance(data.get("ilanList"), list) else []
+    gorulen = {_ilan_anahtari(i) for i in ham if isinstance(i, dict)}
+    gorulen_id = {str(i.get("id")) for i in ham if isinstance(i, dict) and i.get("id")}
+    eksik = [
+        i for i in EkapAnnouncementSerializer(
+            Announcement.objects.filter(tender=tender).order_by("ilan_tarihi", "pk"),
+            many=True,
+        ).data
+        if str(i.get("id")) not in gorulen_id and _ilan_anahtari(i) not in gorulen
+    ]
+    if eksik:
+        # Ham ve tablo farklı tarih biçimi taşır → sıralama ayrıştırılmış tarihe göre.
+        enaz = datetime.min.replace(tzinfo=dt_timezone.utc)
+        data["ilanList"] = sorted(
+            [*ham, *eksik],
+            key=lambda i: parse_ekap_datetime((i or {}).get("ilanTarihi")) or enaz)
+    return data
+
+
+def _detay_yaniti(data, tender):
+    """Detay ucunun her yanıt yolu aynı düzeltmelerden geçer."""
+    return _kurul_ekle(_guncel_hali_yaz(
+        _aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender), tender), tender)
+
+
 @extend_schema(
     tags=["ekap"],
     summary="İhale detayı",
@@ -1687,9 +1757,7 @@ class TenderDetailView(APIView):
         # görüntülemesine bağlı tazeleme, en çok bakılan ihaleye bütçe yakar ve
         # durum odaklı önceliği (bkz. CLAUDE.md "v2 tazeleme") bozardı.
         if tender and tender.detail_synced_at and tender.detail_raw:
-            data = _unwrap_item(tender.detail_raw)
-            return api_response(data=_kurul_ekle(
-                _aciklamalari_duzelt(_attach_idare_kimlik(data, tender), tender), tender))
+            return api_response(data=_detay_yaniti(_unwrap_item(tender.detail_raw), tender))
 
         from .mobil.adapt import sentetik_mi
 
@@ -1705,16 +1773,11 @@ class TenderDetailView(APIView):
                 client = EkapV2Client()
                 detail = client.get_detail(ekap_id)
                 taze = sync_mod.upsert_tender_detail(ekap_id, detail)
-                return api_response(data=_kurul_ekle(_aciklamalari_duzelt(
-                    _attach_idare_kimlik(_unwrap_item(detail), taze), taze), taze))
+                return api_response(data=_detay_yaniti(_unwrap_item(detail), taze))
             except Exception as e:
                 logger.warning("Canlı detay çekilemedi (%s): %s", key, e)
         if tender:
-            data = _aciklamalari_duzelt(
-                _attach_idare_kimlik(_unwrap_item(tender.detail_raw or {}), tender),
-                tender,
-            )
-            return api_response(data=_kurul_ekle(data, tender),
+            return api_response(data=_detay_yaniti(_unwrap_item(tender.detail_raw or {}), tender),
                                 message="Detay güncel değil.")
         return api_response(message="İhale bulunamadı.", success=False, status=404)
 
@@ -3373,6 +3436,15 @@ class ContractorContractsView(APIView):
             ),
             examples=[OpenApiExample("EKAP iç kimliği", value="e8c865a28be0b142")],
         ),
+        OpenApiParameter(
+            name="yuklenici_id", location=OpenApiParameter.QUERY, type=int, required=False,
+            description=(
+                "Verilirse bu firmanın sözleşme(ler)i — ortak girişim üyesi olduğu "
+                "sözleşmeler dahil — listenin BAŞINA gelir. Firma ekranından ihaleye "
+                "geçerken gönderin: kısımlı ihalede kullanıcı geldiği firmayı ilk kartta "
+                "görsün. Liste daraltılmaz, yalnızca sıralanır."
+            ),
+        ),
     ],
     operation_id="ekap_tender_contracts",
     summary="İhalenin sözleşmeleri ve yüklenicileri",
@@ -3397,4 +3469,18 @@ class TenderContractsView(APIView):
               .defer(*_TENDER_BLOB_FIELDS)
               .prefetch_related("kisimlar", "yuklenici__uyelikler__uye")
               .order_by("-sozlesme_bedeli_num"))
-        return api_response(data={"list": TenderContractSerializer(qs, many=True).data})
+        satirlar = list(qs)
+        # ⚠️ Kullanıcı bildirdi (2026-10-30): Medtronic'in "yeni iş aldı" bildiriminden
+        # gelinen kısımlı ihalede ilk kart başka firmanın (Disamed) sözleşmesiydi.
+        # Daraltma DEĞİL sıralama: diğer kısımların yüklenicileri de bilgi.
+        try:
+            firma = int(request.query_params.get("yuklenici_id") or 0)
+        except (TypeError, ValueError):
+            firma = 0
+        if firma:
+            def _firmanin(c):
+                y = c.yuklenici
+                return bool(y) and (y.pk == firma or any(
+                    u.uye_id == firma for u in y.uyelikler.all()))
+            satirlar.sort(key=lambda c: not _firmanin(c))  # kararlı: bedel sırası korunur
+        return api_response(data={"list": TenderContractSerializer(satirlar, many=True).data})

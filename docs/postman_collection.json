@@ -1410,6 +1410,14 @@
                 "contracts",
                 ""
               ],
+              "query": [
+                {
+                  "key": "yuklenici_id",
+                  "value": "1",
+                  "description": "Verilirse bu firmanın sözleşme(ler)i — ortak girişim üyesi olduğu sözleşmeler dahil — listenin BAŞINA gelir. Firma ekranından ihaleye geçerken gönderin: kısımlı ihalede kullanıcı geldiği firmayı ilk kartta görsün. Liste daraltılmaz, yalnızca sıralanır.",
+                  "disabled": true
+                }
+              ],
               "variable": [
                 {
                   "key": "key",

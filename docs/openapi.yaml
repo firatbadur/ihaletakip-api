@@ -3788,6 +3788,14 @@ paths:
           EKAPIçKimliği:
             value: e8c865a28be0b142
             summary: EKAP iç kimliği
+      - in: query
+        name: yuklenici_id
+        schema:
+          type: integer
+        description: 'Verilirse bu firmanın sözleşme(ler)i — ortak girişim üyesi olduğu
+          sözleşmeler dahil — listenin BAŞINA gelir. Firma ekranından ihaleye geçerken
+          gönderin: kısımlı ihalede kullanıcı geldiği firmayı ilk kartta görsün. Liste
+          daraltılmaz, yalnızca sıralanır.'
       tags:
       - ekap
       responses:

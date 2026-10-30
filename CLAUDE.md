@@ -706,6 +706,25 @@ captcha 7→7, hata 0, bulunamadı 0; sonuç toplama 20/20 sözleşme + bedel (Y
 ilanı olan 5'inde — sonuç kuyruğunun 10.945/11.322'si durum 15, yani YM çoğunda gelir).
 ⚠️ v2 detay bazen teklif tarihi geçmiş ihaleyi "Katılıma Açık" veriyor (1/100, mobil 3
 görmüştü) → `_durum_alanlari` durumu 3/4'ten 2'ye GERİ yazmaz.
+⚠️⚠️ **DETAY EKRANI DURUMU HAM DETAYDAN GÖSTERİYORDU (2026-10-30, kullanıcı bildirdi).**
+Detay ucu `detail_raw`'ı döndürüyor; durumu ise sonradan v2 tazelemesi, mobil toplu
+durum taraması ve 2→3 geçişi güncelliyor — üçü de yalnızca **kolona** yazıyor. Liste
+"Sonuç İlanı Yayımlanmış" derken detay "Katılıma Açık" diyordu. Ölçüm: son 400 günün
+96.081 detaylı ihalesinin **19.944**'ünde durum farklıydı; sözleşmesi olan **1.086**
+ihale detayda "Katılıma Açık" görünüyordu. v2 / mobil sonuç ilanları İlan sekmesine hiç
+düşmüyordu (1.092 ihale). → `views._guncel_hali_yaz`: yanıtın kopyasına kolondaki durumu
+ve tablodaki eksik ilanları yazar (`detail_raw` DEĞİŞMEZ). ⚠️ İlan eşlemesi (tür, UTC
+günü) + id: mobil ham tarih `30.10.2026 00:00:00`, tablo ISO. Metin kırpmak 10.540 ihale
+ilanını iki kez gösterirdi (ölçüldü). Yeni bir alanı "sonradan güncellenen" yaparken
+buraya da ekleyin.
+⚠️⚠️ **Sözleşmesi olan ihale 2/3/4/boş kalamaz → 5** (`sync.sozlesme_durumunu_duzelt`,
+`sync_contracts_from_raw` + `upsert_tender_detail` sonunda). Mobil sonuç adımı sözleşme
+yazıp durumu 3/4'te bırakıyordu, eski v2 arşivinde EKAP da öyle vermiş (2.938 ihale).
+Yalnızca ileri yazar (6/10/15/20'ye dokunmaz). Geçmiş: `manage.py fix_sozlesme_durum
+[--dry-run]` (14 günden eski ihalelerin "Sonuçlandı" alarmını sessize alır).
+Kısımlı ihalede firma ekranından gelinen firmanın sözleşmesi önce:
+`/contracts/?yuklenici_id=` (mobil notu `docs/mobil-firma-sozlesme-sirasi.md`).
+Testler `test_detay_guncel_hal.py`, `test_sozlesme_durum.py` (dişli).
 ⚠️ Kritik olmayan bir alanı v2'den yazmak gerekirse önce numaralandırmasının bizimkiyle
 aynı olduğunu ölçün; deneme komutu artık BEKLENEN dışındaki her değişikliği şüpheli sayar.
 ⚠️⚠️ **EKAP v2 HIZ SINIRI (ölçüldü 2026-10-28, açılıştan ~15 dk sonra):** 3 sn aralıkla

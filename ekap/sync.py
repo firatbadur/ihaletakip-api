@@ -502,7 +502,42 @@ def upsert_tender_detail(ekap_id, detail, announcements=None, *,
 
     # ── Çocuk tablolar (tam yenile) ────────────────────
     _sync_children(tender, bilgi, data, announcements, koruyucu=koruyucu)
+    # Ham detayın eski durumu, sözleşmesi zaten bilinen ihaleyi geri açmasın.
+    sozlesme_durumunu_duzelt(tender)
     return tender
+
+
+# Sözleşme imzalanmışsa ihale "Katılıma Açık" / "Değerlendirmede" olamaz.
+SOZLESME_ONCESI_DURUMLAR = (2, 3, 4)
+DURUM_SOZLESME_IMZALANMIS = 5
+
+
+def sozlesme_durumunu_duzelt(tender) -> bool:
+    """
+    Sözleşmesi olan ihalenin durumu boş ya da 2/3/4 ise 5 (Sözleşme İmzalanmış) yapar.
+
+    ⚠️⚠️ Kullanıcı bildirdi (2026-10-30): sözleşmesi görünen ihale "Katılıma Açık"
+    görünüyordu. Kaynaklar: mobil sonuç adımı sözleşmeyi yazıp durumu 3/4'te
+    bırakıyordu; eski v2 arşivinde EKAP'ın kendisi 3/4 + sözleşme vermiş (ölçüldü:
+    2.938 ihale). Sözleşmenin varlığı durumdan daha güçlü bir kanıttır.
+    ⚠️ Yalnızca İLERİ yazar: 6/10 (iptal), 15/20 (sonuçlanmış) ve 5'e dokunmaz.
+    ⚠️ Koşul DB'de değerlendirilir — bellekteki nesne bayat olabilir.
+    """
+    from .mobil.constants import DURUM_ACIKLAMA
+
+    n = Tender.objects.filter(
+        dj_models.Q(ihale_durum__isnull=True) | dj_models.Q(ihale_durum__in=SOZLESME_ONCESI_DURUMLAR),
+        dj_models.Exists(Contract.objects.filter(tender_id=dj_models.OuterRef("pk"))),
+        pk=tender.pk,
+    ).update(
+        ihale_durum=DURUM_SOZLESME_IMZALANMIS,
+        ihale_durum_aciklama=DURUM_ACIKLAMA[DURUM_SOZLESME_IMZALANMIS],
+        updated_at=timezone.now(),
+    )
+    if n:
+        tender.ihale_durum = DURUM_SOZLESME_IMZALANMIS
+        tender.ihale_durum_aciklama = DURUM_ACIKLAMA[DURUM_SOZLESME_IMZALANMIS]
+    return bool(n)
 
 
 def _sync_children(tender, bilgi, data, announcements, koruyucu: bool = False):
@@ -964,6 +999,8 @@ def sync_contracts_from_raw(
         # hiç bedel yoksa toplam da NULL kalır, 0 yazılmaz.
         toplam_sozlesme_bedeli=sum(bedeller) if bedeller else None,
     )
+    if seen_keys:
+        sozlesme_durumunu_duzelt(tender)
     if recompute and touched_contractors:
         contractors_mod.recompute_aggregates(touched_contractors)
     return {

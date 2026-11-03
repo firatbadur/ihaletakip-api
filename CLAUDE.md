@@ -101,9 +101,11 @@ ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
 ├── tools/         # genel amaçlı yardımcılar → ocr.py (base64 resim → metin)
 └── management/    # seed_cities, ekap_probe, run_ingest, rebuild_contractors
 
-blog/              # Web portalı "Blog" sekmesi (yalnız admin'den yazılır, web salt okur)
+blog/              # Web portalı "Blog" sekmesi (admin + blog botu yazar, web salt okur)
 ├── models.py      # BlogCategory, BlogPost (yayinda() = tek "yayımlanmış" tanımı)
-├── views.py       # /blog/posts/, posts/<slug>/, categories/ + /media/blog/ kapak sunumu
+├── views.py       # /blog/posts/, posts/<slug>/, categories/, bot/posts/ + /media/blog/
+├── permissions.py # BlogBotAnahtari (X-Blog-Bot-Key ↔ BLOG_BOT_KEY)
+├── serializers.py # BotYaziSerializer (botun gönderdiği gövde)
 ├── signals.py     # kayıt/silme → web revalidate (on_commit, hata yutulur)
 └── tasks.py       # zamanlanmış yazı yayın anında revalidate (beat */10)
 
@@ -5041,6 +5043,20 @@ mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak
   Revalidate: `WEB_REVALIDATE_URL` + `WEB_REVALIDATE_SECRET` (boşsa istek yok), hata
   yutulur, yazı kaydı asla düşmez. Arama kelime bazlı VE (`arama_norm`), etiket
   `etiketler_norm` (`|a|b|`, SQLite'ta da çalışsın diye JSON contains değil).
+- **Blog botu yazma ucu** (`POST /blog/bot/posts/`, üretici `ihaletakip-social`):
+  `X-Blog-Bot-Key` ↔ `BLOG_BOT_KEY`, anahtar boşsa uç kapalı (403). `PORTAL_KEY`
+  kullanılmaz: o yetki vermez, yazma anahtarı ayrı iptal edilebilmeli. Gövde multipart
+  (`payload` JSON + `cover`), yazı hemen yayımlanır, ileri tarih yok. Revalidate mevcut
+  sinyalden gelir.
+  ⚠️ `BlogPost.save()` `clean()` çağırmaz; yasak HTML ve kapak denetimi yalnız
+  `full_clean()` ile çalışır, admin dışı yazan kod bunu atlamamalı. Tekillik
+  `validate_unique=False` + `IntegrityError` ile çözülür ki yarışan yeniden deneme 400
+  değil mevcut kaydı alsın.
+  ⚠️ `external_id` tekrar güvenliğidir: aynı kimlik 200 ile mevcut kaydı döner, yazıya
+  dokunmaz. Başka yazının slug'ı **409**: `_benzersiz_slug` `-2` ekleseydi aynı konuda
+  ikinci adres açılır, kanibalizasyon sessizce oluşurdu.
+  ⚠️ Kapak dosyası `web` sürecinde yazılır: `media_volume` worker'lara bağlı değil, bu
+  iş Celery'ye taşınırsa dosya kaybolur.
 - ⚠️⚠️ **Önbellek dolumu kovası (2. not #8)**: web portal anahtarını artık HER istekte
   gönderiyor; paylaşılan önbelleği dolduran istekler `X-IT-Cache-Fill: 1` taşır ve
   `X-IT-Client-IP` taşıyamaz (Next.js önbellekli fonksiyonda başlık yok). Bunlar tek bir

@@ -1673,6 +1673,88 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefresh'
           description: ''
+  /api/v1/blog/bot/posts/:
+    post:
+      operationId: blog_bot_post_create
+      description: 'Yalnızca blog botu içindir; `X-Blog-Bot-Key` başlığı `BLOG_BOT_KEY`
+        ile eşleşmelidir, anahtar tanımlı değilse uç kapalıdır (403).
+
+
+        Gövde `multipart/form-data`: `payload` (JSON metni) ve `cover` (kapak görseli,
+        zorunlu). Yazı hemen yayımlanır; ileri tarih kabul edilmez.
+
+
+        **Tekrar güvenli:** aynı `external_id` ikinci kez gelirse yazıya dokunulmaz,
+        mevcut kayıt **200** ile döner. Başka yazının slug''ı gelirse **409**: `-2`
+        eklenip aynı konuda ikinci adres açılmaz. Bot 4xx yanıtını kalıcı ret sayar,
+        yalnız 5xx ve zaman aşımında aynı `external_id` ile yeniden dener.'
+      summary: 'Blog botu: yazı yayımla'
+      parameters:
+      - in: header
+        name: X-Blog-Bot-Key
+        schema:
+          type: string
+        description: Blog botu servis anahtarı.
+        required: true
+      tags:
+      - blog
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: string
+                  description: BotYaziSerializer alanları (JSON).
+                cover:
+                  type: string
+                  format: binary
+              required:
+              - payload
+              - cover
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Oluşturuldu:
+                  value:
+                    id: 7
+                    slug: 2026-ankara-yapim-ihaleleri
+                    published_at: '2026-11-02T09:30:00+03:00'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/blog/categories/:
     get:
       operationId: blog_categories

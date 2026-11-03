@@ -1,7 +1,13 @@
-"""Blog okuma uçları — /api/v1/blog/... (herkese açık, yalnız yayımlanmış yazılar).
+"""Blog uçları — /api/v1/blog/...
 
-Yazma yalnızca Django admin'dendir. "Yayımlanmış" tanımı `BlogPost.objects.yayinda()`.
+Okuma uçları herkese açıktır, yalnız yayımlanmış yazıları döner. Yazma Django
+admin'den ya da `BLOG_BOT_KEY` taşıyan blog botundandır (`BlogBotPostView`).
+"Yayımlanmış" tanımı `BlogPost.objects.yayinda()`.
 """
+import json
+
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.views.static import serve
@@ -12,12 +18,15 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import permissions
+from rest_framework.parsers import MultiPartParser
 from rest_framework.views import APIView
 
 from core.response import api_response
 from ekap.utils import normalize_tr
 
 from .models import BlogCategory, BlogPost, mutlak_medya_url
+from .permissions import BlogBotAnahtari
+from .serializers import BotYaziSerializer
 
 VARSAYILAN_BOYUT = 12
 AZAMI_BOYUT = 50
@@ -185,6 +194,126 @@ class BlogCategoryListView(APIView):
         return api_response(data=[
             {"name": c.name, "slug": c.slug, "post_count": c.post_count} for c in qs
         ])
+
+
+_BOT_PAYLOAD_ORNEK = {
+    "external_id": "6f1c2d9e4b7a4c0e9d3a1f5b8c7e2a10",
+    "title": "2026'da Ankara'da Yapım İhaleleri",
+    "slug": "2026-ankara-yapim-ihaleleri",
+    "summary": "Ankara'daki yapım ihalelerinin son 12 aydaki seyri.",
+    "content": "## Ankara'da kaç yapım ihalesi yapıldı?\n\nMarkdown metin…",
+    "cover_alt": "Ankara'da bir inşaat alanı",
+    "category_slug": "analiz",
+    "tags": ["yapım ihalesi", "ankara"],
+    "seo_title": "Ankara Yapım İhaleleri 2026",
+    "seo_description": "Ankara yapım ihalelerinin son 12 aydaki sayıları.",
+}
+
+
+def _bot_yaniti(p: BlogPost) -> dict:
+    return {"id": p.pk, "slug": p.slug, "published_at": _iso(p.published_at)}
+
+
+@extend_schema(
+    tags=["blog"],
+    operation_id="blog_bot_post_create",
+    summary="Blog botu: yazı yayımla",
+    description=(
+        "Yalnızca blog botu içindir; `X-Blog-Bot-Key` başlığı `BLOG_BOT_KEY` ile "
+        "eşleşmelidir, anahtar tanımlı değilse uç kapalıdır (403).\n\n"
+        "Gövde `multipart/form-data`: `payload` (JSON metni) ve `cover` (kapak "
+        "görseli, zorunlu). Yazı hemen yayımlanır; ileri tarih kabul edilmez.\n\n"
+        "**Tekrar güvenli:** aynı `external_id` ikinci kez gelirse yazıya dokunulmaz, "
+        "mevcut kayıt **200** ile döner. Başka yazının slug'ı gelirse **409**: "
+        "`-2` eklenip aynı konuda ikinci adres açılmaz. Bot 4xx yanıtını kalıcı "
+        "ret sayar, yalnız 5xx ve zaman aşımında aynı `external_id` ile yeniden dener."
+    ),
+    parameters=[OpenApiParameter(
+        "X-Blog-Bot-Key", str, location=OpenApiParameter.HEADER, required=True,
+        description="Blog botu servis anahtarı.",
+    )],
+    request={"multipart/form-data": {
+        "type": "object",
+        "properties": {
+            "payload": {"type": "string", "description": "BotYaziSerializer alanları (JSON)."},
+            "cover": {"type": "string", "format": "binary"},
+        },
+        "required": ["payload", "cover"],
+    }},
+    responses={200: OpenApiTypes.OBJECT, 201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT,
+               403: OpenApiTypes.OBJECT, 409: OpenApiTypes.OBJECT},
+    examples=[
+        OpenApiExample("payload", value=_BOT_PAYLOAD_ORNEK, request_only=True),
+        OpenApiExample(
+            "Oluşturuldu", response_only=True, status_codes=["201"],
+            value={"id": 7, "slug": "2026-ankara-yapim-ihaleleri",
+                   "published_at": "2026-11-02T09:30:00+03:00"},
+        ),
+    ],
+)
+class BlogBotPostView(APIView):
+    # Kimlik yalnızca başlıktaki anahtardır; JWT ve oturum burada anlamsız.
+    authentication_classes = []
+    permission_classes = [BlogBotAnahtari]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        try:
+            ham = json.loads(request.data.get("payload") or "")
+        except (TypeError, ValueError):
+            return api_response(message="payload geçerli bir JSON değil.", success=False,
+                                status=400)
+        s = BotYaziSerializer(data=ham)
+        if not s.is_valid():
+            return api_response(data=s.errors, message="Yazı alanları geçersiz.",
+                                success=False, status=400)
+        v = s.validated_data
+
+        # ⚠️ Slug'dan ÖNCE bakılır: yeniden denenen istekte slug zaten bu yazınındır.
+        mevcut = BlogPost.objects.filter(external_id=v["external_id"]).first()
+        if mevcut:
+            return api_response(data=_bot_yaniti(mevcut))
+        if BlogPost.objects.filter(slug=v["slug"]).exists():
+            return api_response(message="Bu slug başka bir yazıda kullanılıyor.",
+                                success=False, status=409)
+
+        kapak = request.FILES.get("cover")
+        if kapak is None:
+            return api_response(message="Kapak görseli zorunludur.", success=False, status=400)
+
+        kategori = None
+        if v.get("category_slug"):
+            kategori = BlogCategory.objects.filter(slug=v["category_slug"]).first()
+            if kategori is None:
+                return api_response(message="Kategori bulunamadı.", success=False, status=400)
+
+        p = BlogPost(
+            external_id=v["external_id"], title=v["title"], slug=v["slug"],
+            summary=v["summary"], content=v["content"], cover_image=kapak,
+            cover_alt=v["cover_alt"], category=kategori, tags=v.get("tags") or [],
+            seo_title=v.get("seo_title", ""), seo_description=v.get("seo_description", ""),
+            status=BlogPost.Status.PUBLISHED, published_at=timezone.now(),
+        )
+        if v.get("author_name"):
+            p.author_name = v["author_name"]
+        # ⚠️ `save()` `clean()` çağırmaz: yasak HTML ve kapak denetimi ancak burada
+        # çalışır. Tekillik IntegrityError'a bırakılır, yarışan yeniden deneme 400
+        # değil mevcut kaydı alsın.
+        try:
+            p.full_clean(validate_unique=False)
+        except ValidationError as e:
+            return api_response(data=e.message_dict, message="Yazı doğrulanamadı.",
+                                success=False, status=400)
+        try:
+            with transaction.atomic():
+                p.save()
+        except IntegrityError:
+            mevcut = BlogPost.objects.filter(external_id=v["external_id"]).first()
+            if mevcut:
+                return api_response(data=_bot_yaniti(mevcut))
+            return api_response(message="Bu slug başka bir yazıda kullanılıyor.",
+                                success=False, status=409)
+        return api_response(data=_bot_yaniti(p), status=201)
 
 
 # Hash'li dosya adı (bkz. `models.kapak_yolu`) → içerik adla birlikte değişir.

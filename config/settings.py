@@ -373,6 +373,8 @@ PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="https://ihale-takip.envisoft.c
 # atılmaz (yerel geliştirme/test) — yazı kaydı bundan hiçbir zaman etkilenmez.
 WEB_REVALIDATE_URL = env("WEB_REVALIDATE_URL", default="https://ihaletakip.com/api/revalidate")
 WEB_REVALIDATE_SECRET = env("WEB_REVALIDATE_SECRET", default="")
+# Blog botunun yazma anahtarı (ihaletakip-social). ⚠️ Boşsa `blog/bot/posts/` kapalı.
+BLOG_BOT_KEY = env("BLOG_BOT_KEY", default="")
 
 # Web → mobil geçiş kodu (accounts/services/web_handoff.py). Kod kısa süreli bir giriş
 # anahtarıdır: tek kullanımlık, bu süre kadar geçerli; kullanıcı başına aynı anda en çok

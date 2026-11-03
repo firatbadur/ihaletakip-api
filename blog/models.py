@@ -1,8 +1,9 @@
 """
 Blog — web portalının (ihaletakip.com) "Blog" sekmesi.
 
-Yazılar **yalnızca Django admin'den** yazılır; web portalı salt okur
-(`/api/v1/blog/...`). Mobil uygulama bu tablolara hiç dokunmaz.
+Yazılar Django admin'den ya da `BLOG_BOT_KEY` taşıyan blog botundan
+(`POST /api/v1/blog/bot/posts/`) gelir; web portalı salt okur (`/api/v1/blog/...`).
+Mobil uygulama bu tablolara hiç dokunmaz.
 
 ⚠️ **"Yayımlanmış" tanımının tek kaynağı `BlogPost.objects.yayinda()`**:
 `status == published` **ve** `published_at <= now()`. İleri tarihli yazı
@@ -30,7 +31,7 @@ DAKIKADA_KELIME = 200
 
 # ⚠️ Web, Markdown'ı HTML'e çevirip AYRICA temizliyor; bu doğrulama ikinci kat.
 # Hedef kaza/kopyala-yapıştır (bir siteden gömme kodu yapıştırmak), kararlı bir
-# saldırgan değil — yazma yetkisi zaten yalnızca admin'de.
+# saldırgan değil — yazma yetkisi yalnızca admin'de ve blog botunda.
 _YASAK_HTML = re.compile(
     r"<\s*/?\s*(script|iframe|object|embed|form|style)\b"   # yasak etiketler
     r"|<[^>]*\son[a-z]+\s*="                                # on* öznitelikleri
@@ -192,6 +193,10 @@ class BlogPost(models.Model):
     # normalizasyonu") — `icontains` İ/ı'da yanılır.
     arama_norm = models.TextField(blank=True, editable=False)
     etiketler_norm = models.CharField(max_length=600, blank=True, editable=False)
+    # Blog botunun tekrar güvenliği: istek yanıtsız kalırsa aynı kimlikle yeniden
+    # denenir, ikinci yazı oluşmaz. Admin'den yazılanlarda boştur.
+    external_id = models.CharField("dış kimlik", max_length=64, null=True, blank=True,
+                                   unique=True, editable=False)
 
     objects = BlogPostQuerySet.as_manager()
 

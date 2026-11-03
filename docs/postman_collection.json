@@ -4543,6 +4543,49 @@
           }
         },
         {
+          "name": "Blog botu: yazı yayımla",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/blog/bot/posts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "bot",
+                "posts",
+                ""
+              ]
+            },
+            "description": "Yalnızca blog botu içindir; `X-Blog-Bot-Key` başlığı `BLOG_BOT_KEY` ile eşleşmelidir, anahtar tanımlı değilse uç kapalıdır (403).\n\nGövde `multipart/form-data`: `payload` (JSON metni) ve `cover` (kapak görseli, zorunlu). Yazı hemen yayımlanır; ileri tarih kabul edilmez.\n\n**Tekrar güvenli:** aynı `external_id` ikinci kez gelirse yazıya dokunulmaz, mevcut kayıt **200** ile döner. Başka yazının slug'ı gelirse **409**: `-2` eklenip aynı konuda ikinci adres açılmaz. Bot 4xx yanıtını kalıcı ret sayar, yalnız 5xx ve zaman aşımında aynı `external_id` ile yeniden dener.\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"ornek\",\n  \"cover\": \"ornek\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
           "name": "Blog yazısı detayı",
           "request": {
             "method": "GET",

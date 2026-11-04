@@ -4379,6 +4379,54 @@
           }
         },
         {
+          "name": "Asistan cevabına geri bildirim (👍/👎)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/messages/:id/feedback/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "messages",
+                ":id",
+                "feedback",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Kullanıcının bir asistan cevabını puanlaması. `deger`: 1 (işe yaradı), -1 (işe yaramadı), 0 (puanı geri al). `aciklama` isteğe bağlı kısa not. Yalnızca kullanıcının KENDİ asistan mesajına verilebilir; başka mesaj 404 döner. Tekrar çağrı son değeri yazar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deger\": -1,\n  \"aciklama\": \"Kazanan firmayı bulamadı\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Öneriyi görüldü işaretle",
           "request": {
             "method": "POST",

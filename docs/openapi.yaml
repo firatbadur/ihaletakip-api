@@ -628,6 +628,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/ChatMessagePage'
           description: ''
+  /api/v1/assistant/messages/{id}/feedback/:
+    post:
+      operationId: api_v1_assistant_messages_feedback_create
+      description: 'Kullanıcının bir asistan cevabını puanlaması. `deger`: 1 (işe
+        yaradı), -1 (işe yaramadı), 0 (puanı geri al). `aciklama` isteğe bağlı kısa
+        not. Yalnızca kullanıcının KENDİ asistan mesajına verilebilir; başka mesaj
+        404 döner. Tekrar çağrı son değeri yazar.'
+      summary: Asistan cevabına geri bildirim (👍/👎)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - assistant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/_GeriBildirimGovde'
+            examples:
+              Olumsuz:
+                value:
+                  deger: -1
+                  aciklama: Kazanan firmayı bulamadı
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/_GeriBildirimGovde'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/_GeriBildirimGovde'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SohbetGeriBildirim'
+          description: ''
   /api/v1/assistant/profile/:
     get:
       operationId: api_v1_assistant_profile_retrieve
@@ -5591,6 +5633,10 @@ components:
         payload:
           readOnly: true
           nullable: true
+        geri_bildirim:
+          type: integer
+          readOnly: true
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -5599,6 +5645,7 @@ components:
       - content
       - conversation
       - created_at
+      - geri_bildirim
       - id
       - payload
       - role
@@ -5807,6 +5854,17 @@ components:
       - list
       - page
       - totalCount
+    DegerEnum:
+      enum:
+      - 1
+      - -1
+      - 0
+      type: integer
+      description: '* `1` - 1
+
+        * `-1` - -1
+
+        * `0` - 0'
     Detail:
       type: object
       description: Tek mesajlık yanıt gövdesi.
@@ -7052,6 +7110,17 @@ components:
       description: '* `user` - Kullanıcı
 
         * `staff` - Destek ekibi'
+    SohbetGeriBildirim:
+      type: object
+      properties:
+        id:
+          type: integer
+        geri_bildirim:
+          type: integer
+          nullable: true
+      required:
+      - geri_bildirim
+      - id
     StatusA0eEnum:
       enum:
       - Bekliyor
@@ -7610,6 +7679,26 @@ components:
           type: string
       required:
       - detail
+    _GeriBildirimGovde:
+      type: object
+      properties:
+        deger:
+          allOf:
+          - $ref: '#/components/schemas/DegerEnum'
+          description: '1 👍 · -1 👎 · 0 geri al
+
+
+            * `1` - 1
+
+            * `-1` - -1
+
+            * `0` - 0'
+        aciklama:
+          type: string
+          description: 'İsteğe bağlı: neyin yanlış olduğu.'
+          maxLength: 500
+      required:
+      - deger
   securitySchemes:
     cookieAuth:
       type: apiKey

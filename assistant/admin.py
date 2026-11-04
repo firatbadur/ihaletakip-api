@@ -58,10 +58,38 @@ class ChatConversationAdmin(admin.ModelAdmin):
     search_fields = ("user__email", "title")
 
 
+class SohbetSorunuFilter(admin.SimpleListFilter):
+    """
+    Okunması gereken mesajlar (sohbet analizi 2026-11-04 bu ayrımı elle yapmak zorundaydı).
+
+    - cevapsız: kullanıcı mesajı, görev hata işareti koymuş (`payload.hata`)
+    - tavan: asistan cevabı araç hakkı dolunca yazılmış (`usage.tur_sayisi` > tavan)
+    """
+
+    title = "sorun"
+    parameter_name = "sorun"
+
+    def lookups(self, request, model_admin):
+        return [("cevapsiz", "Cevapsız (hata)"), ("tavan", "Araç hakkı doldu"),
+                ("olumsuz", "👎 olumsuz geri bildirim")]
+
+    def queryset(self, request, queryset):
+        from django.conf import settings
+
+        if self.value() == "cevapsiz":
+            return queryset.filter(role="user", payload__has_key="hata")
+        if self.value() == "tavan":
+            return queryset.filter(usage__tur_sayisi__gt=settings.ASSISTANT_MAX_TURNS)
+        if self.value() == "olumsuz":
+            return queryset.filter(geri_bildirim=-1)
+        return queryset
+
+
 @admin.register(ChatMessage)
 class ChatMessageAdmin(admin.ModelAdmin):
-    list_display = ("user", "conversation", "role", "short_content", "token_ozet", "created_at")
-    list_filter = ("role",)
+    list_display = ("user", "conversation", "role", "short_content", "token_ozet",
+                    "geri_bildirim", "created_at")
+    list_filter = ("role", "geri_bildirim", SohbetSorunuFilter)
     search_fields = ("user__email", "content")
     # `user` de raw_id: bu tablo en hızlı büyüyen tablolardan; varsayılan <select>
     # tüm kullanıcıları sayfaya basar (bkz. CompanyProfileAdmin aynı gerekçe).

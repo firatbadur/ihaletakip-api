@@ -431,6 +431,47 @@ class RecommendationSeenView(APIView):
         return Response({"updated": updated})
 
 
+class _GeriBildirimGovde(serializers.Serializer):
+    deger = serializers.ChoiceField(choices=[1, -1, 0], help_text="1 👍 · -1 👎 · 0 geri al")
+    aciklama = serializers.CharField(required=False, allow_blank=True, max_length=500,
+                                     help_text="İsteğe bağlı: neyin yanlış olduğu.")
+
+
+@extend_schema(
+    tags=["assistant"],
+    summary="Asistan cevabına geri bildirim (👍/👎)",
+    description=(
+        "Kullanıcının bir asistan cevabını puanlaması. `deger`: 1 (işe yaradı), -1 (işe "
+        "yaramadı), 0 (puanı geri al). `aciklama` isteğe bağlı kısa not. Yalnızca "
+        "kullanıcının KENDİ asistan mesajına verilebilir; başka mesaj 404 döner. "
+        "Tekrar çağrı son değeri yazar."
+    ),
+    request=_GeriBildirimGovde,
+    responses={200: inline_serializer(
+        name="SohbetGeriBildirim",
+        fields={"id": serializers.IntegerField(), "geri_bildirim": serializers.IntegerField(allow_null=True)},
+    )},
+    examples=[OpenApiExample("Olumsuz", value={"deger": -1, "aciklama": "Kazanan firmayı bulamadı"},
+                             request_only=True)],
+)
+class ChatMessageFeedbackView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        govde = _GeriBildirimGovde(data=request.data)
+        govde.is_valid(raise_exception=True)
+        mesaj = ChatMessage.objects.filter(
+            pk=pk, user=request.user, role=ChatMessage.Role.ASSISTANT
+        ).first()
+        if mesaj is None:
+            raise NotFound("Mesaj bulunamadı.")
+        deger = govde.validated_data["deger"]
+        mesaj.geri_bildirim = deger or None
+        mesaj.geri_bildirim_notu = (govde.validated_data.get("aciklama") or "").strip()[:500] if deger else ""
+        mesaj.save(update_fields=["geri_bildirim", "geri_bildirim_notu"])
+        return Response({"id": mesaj.pk, "geri_bildirim": mesaj.geri_bildirim})
+
+
 # ── Asistan Eylemleri (onay kartı) ─────────────────────
 def _eylem_karti(eylem):
     """Mobilin `payload.blocks` içinde beklediği kart sözlüğü."""

@@ -138,6 +138,15 @@ class Command(BaseCommand):
             for ad, n in arac_say.most_common():
                 w(f"  {ad:<15}{n:>6}{arac_bos[ad]:>6}{arac_hata[ad]:>7}")
 
+        puan = Counter(ChatMessage.objects.filter(created_at__gte=bas, geri_bildirim__isnull=False)
+                       .exclude(user_id__in=haric).values_list("geri_bildirim", flat=True))
+        if puan:
+            w(f"\nGeri bildirim: 👍 {puan.get(1, 0)} · 👎 {puan.get(-1, 0)}")
+            for m in (ChatMessage.objects.filter(created_at__gte=bas, geri_bildirim=-1)
+                      .exclude(user_id__in=haric).order_by("-created_at")[:opts["ornek"]]):
+                w(f"  👎 uid={m.user_id} {(m.geri_bildirim_notu or '-')[:80]} | C: {(m.content or '')[:100]}"
+                  .replace("\n", " "))
+
         eylem = Counter(AssistantAction.objects.filter(created_at__gte=bas)
                         .exclude(user_id__in=haric).values_list("tur", "durum"))
         if eylem:

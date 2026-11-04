@@ -200,6 +200,13 @@ class ChatMessage(models.Model):
     # (her araç turu tüm geçmişi yeniden gönderir). Bu alan İLK GÜNDEN toplanmalı — sonradan
     # eklenirse geriye dönük veri olmaz ve tavan/kademe kararı tahminle verilir.
     usage = models.JSONField(null=True, blank=True)
+    # Kullanıcının cevaba verdiği puan: 1 (👍), -1 (👎), boş = verilmedi. Yalnızca
+    # asistan mesajlarında. Sohbet analizi (2026-11-04) 445 mesajı elle okumak zorunda
+    # kaldı; "hangi cevap işe yaramadı" sorusunun doğrudan kaynağı budur.
+    geri_bildirim = models.SmallIntegerField(null=True, blank=True, verbose_name="Geri bildirim")
+    # ⚠️ `db_default` şart: eski worker'lar bu kolonu tanımadan mesaj yazmaya devam eder
+    # (CLAUDE.md, 2026-08-28 / ekap 0023 dersi).
+    geri_bildirim_notu = models.CharField(max_length=500, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

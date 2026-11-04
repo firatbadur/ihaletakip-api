@@ -4,6 +4,7 @@ from django.urls import path
 from .views import (
     AssistantActionDismissView,
     AssistantActionExecuteView,
+    ChatMessageFeedbackView,
     ChatMessageListView,
     ChatSendView,
     ConversationDetailView,
@@ -16,6 +17,11 @@ from .views import (
 urlpatterns = [
     path("profile/", ProfileView.as_view(), name="assistant-profile"),
     path("messages/", ChatMessageListView.as_view(), name="assistant-messages"),
+    path(
+        "messages/<int:pk>/feedback/",
+        ChatMessageFeedbackView.as_view(),
+        name="assistant-message-feedback",
+    ),
     path("conversations/", ConversationListView.as_view(), name="assistant-conversations"),
     path(
         "conversations/<int:pk>/",

@@ -87,7 +87,8 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
-        fields = ["id", "conversation", "role", "content", "payload", "created_at"]
+        # `geri_bildirim` additive: mobil seçili 👍/👎'yi geri yüklerken okur.
+        fields = ["id", "conversation", "role", "content", "payload", "geri_bildirim", "created_at"]
         read_only_fields = fields
 
 

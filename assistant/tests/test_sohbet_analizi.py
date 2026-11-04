@@ -409,3 +409,54 @@ class KullaniciVerisiTests(TestCase):
         sonuc = TOOL_IMPL["kullanicinin_verisi"](_ctx(user=self.user), tur="yaklasan")
         self.assertTrue(sonuc["ok"], sonuc)
         self.assertIn("2026/333001", str(sonuc))
+
+
+class GeriBildirimTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from assistant.models import ChatConversation, ChatMessage
+
+        cls.user = get_user_model().objects.create(email="gb@test.local", username="gb")
+        cls.baska = get_user_model().objects.create(email="gb2@test.local", username="gb2")
+        konu = ChatConversation.objects.create(user=cls.user)
+        cls.soru = ChatMessage.objects.create(user=cls.user, conversation=konu, role="user", content="?")
+        cls.cevap = ChatMessage.objects.create(user=cls.user, conversation=konu, role="assistant",
+                                               content="Bulamadım")
+
+    def _post(self, user, mesaj, govde):
+        from rest_framework.test import APIClient
+
+        c = APIClient()
+        c.force_authenticate(user)
+        return c.post(f"/api/v1/assistant/messages/{mesaj.pk}/feedback/", govde, format="json")
+
+    def test_olumsuz_puan_ve_not_yazilir_geri_alinabilir(self):
+        r = self._post(self.user, self.cevap, {"deger": -1, "aciklama": "Kazananı bulamadı"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.cevap.refresh_from_db()
+        self.assertEqual((self.cevap.geri_bildirim, self.cevap.geri_bildirim_notu), (-1, "Kazananı bulamadı"))
+        self._post(self.user, self.cevap, {"deger": 0})
+        self.cevap.refresh_from_db()
+        self.assertEqual((self.cevap.geri_bildirim, self.cevap.geri_bildirim_notu), (None, ""))
+
+    def test_baskasinin_ve_kullanici_mesaji_404(self):
+        self.assertEqual(self._post(self.baska, self.cevap, {"deger": 1}).status_code, 404)
+        self.assertEqual(self._post(self.user, self.soru, {"deger": 1}).status_code, 404)
+
+    def test_gecersiz_deger_400(self):
+        self.assertEqual(self._post(self.user, self.cevap, {"deger": 5}).status_code, 400)
+
+    def test_admin_sorun_filtresi(self):
+        from django.contrib import admin as dj_admin
+
+        from assistant.admin import ChatMessageAdmin, SohbetSorunuFilter
+        from assistant.models import ChatMessage
+
+        self.cevap.geri_bildirim = -1
+        self.cevap.save()
+        self.soru.payload = {"hata": "cokme"}
+        self.soru.save()
+        ma = ChatMessageAdmin(ChatMessage, dj_admin.site)
+        for deger, beklenen in (("olumsuz", self.cevap), ("cevapsiz", self.soru)):
+            f = SohbetSorunuFilter(None, {"sorun": [deger]}, ChatMessage, ma)
+            self.assertEqual(list(f.queryset(None, ChatMessage.objects.all())), [beklenen])

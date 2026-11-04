@@ -75,9 +75,15 @@ def ihale_ara(ctx, **params):
     params.setdefault("page_size", 10)
     params["page_size"] = min(int(params["page_size"] or 10), AZAMI_IHALE)
 
+    kelime_eslesmesi = None
     try:
         qs = apply_tender_filters(Tender.objects.all(), params)
         toplam = _cached_count(qs, params)
+        if not toplam:
+            yedek = _kelime_kelime(params)
+            if yedek is not None:
+                qs, kelime_eslesmesi = yedek
+                toplam = _cached_count(qs, {**params, "_kelimeler": ",".join(kelime_eslesmesi)})
         items, sayfa, _b = sirala_sayfala(qs, params, azami_boyut=AZAMI_IHALE)
         liste = []
         for t in items:
@@ -92,12 +98,48 @@ def ihale_ara(ctx, **params):
     uyari = kismi_kapsam_uyarisi(params)
     if uyari:
         sonuc["uyari"] = uyari
+    if kelime_eslesmesi and liste:
+        sonuc["kelime_eslesmesi"] = kelime_eslesmesi
+        sonuc["not"] = (
+            "Tam ifade sonuç vermedi; kelimeler AYRI AYRI (sıra fark etmeksizin) arandı. "
+            "Sonuçların istenen işle gerçekten aynı olup olmadığını adından kontrol et."
+        )
     if not liste:
         sonuc["not"] = (
             "Bu filtrelerle sonuç yok. Terimi genelleştirmeyi ya da il/tarih "
-            "kısıtını gevşetmeyi öner."
+            "kısıtını gevşetmeyi öner. Eşanlamlıyı da dene: ihale adları resmî dildedir "
+            "(dükkan → işyeri, sokak düzenleme → cadde ve sokak yapım, kepçe → iş makinesi)."
         )
     return butceye_sigdir(sonuc)
+
+
+def _kelime_kelime(params):
+    """
+    Tam ifade boş döndüyse `q`/`ihale_adi`yı kelimelere bölüp her kelimeyi ayrı arar.
+
+    Vaka (sohbet analizi 2026-11-04): "Afyonkarahisar Emirdağ 104 dükkan" ve "Emirdağ
+    Afyonkarahisar 104 dükkan" farklı sonuç veriyordu — `contains` tam diziyi arıyor,
+    kullanıcı ise kelimeleri rastgele sırayla yazıyor (çoğu sesle yazım). Her kelime
+    trigram indeksli kolonlarda aranır. Dönen: `(qs, kelimeler)` ya da None.
+    """
+    from django.db.models import Q
+
+    from ekap.models import Tender
+    from ekap.utils import normalize_tr
+    from ekap.views import apply_tender_filters
+
+    alan = "q" if params.get("q") else ("ihale_adi" if params.get("ihale_adi") else None)
+    if alan is None:
+        return None
+    kelimeler = [k for k in normalize_tr(str(params[alan])).split()
+                 if len(k) >= 3][:6]   # trigram indeksi 3 karakterden kısasında çalışmaz
+    if len(kelimeler) < 2:
+        return None
+    qs = apply_tender_filters(Tender.objects.all(), {k: v for k, v in params.items() if k != alan})
+    for k in kelimeler:
+        qs = qs.filter(Q(ihale_adi_norm__contains=k) | Q(idare_adi_norm__contains=k)
+                       if alan == "q" else Q(ihale_adi_norm__contains=k))
+    return qs, kelimeler
 
 
 # ── 2. İhale detayı ────────────────────────────────────

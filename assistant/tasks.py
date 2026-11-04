@@ -304,6 +304,17 @@ def _agent_yaniti(profile, user_msg, conversation, today):
         # genel bir cevap verirse 5 kartı tekrar basmayalım.
         ctx.son_grup = [i for i in ctx.son_grup if i not in ikn_listesi]
 
+    # Önceki oturumlarda konuşulan ihaleler (hafif hafıza).
+    onceki = _onceki_oturum_baglami(profile.user, conversation)
+    if onceki:
+        metin, onceki_ihaleler = onceki
+        baglam.append(metin)
+        for t in onceki_ihaleler:
+            ctx.kart_ekle(t)
+        # Model araç çağırmadan genel cevap verirse bu kartları yeniden basmayalım.
+        anahtarlar = {t.ikn for t in onceki_ihaleler}
+        ctx.son_grup = [i for i in ctx.son_grup if i not in anahtarlar]
+
     # Mesajda geçen İKN'ler: modele ipucu olarak verilir, araç çağrısını o yapar.
     gecen = [i for i in dict.fromkeys(IKN_RE.findall(user_msg.content or ""))][:5]
     if gecen:
@@ -386,6 +397,65 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     usage = dict(sonuc.get("usage") or {})
     usage["araclar"] = _iz_ozeti(sonuc.get("arac_izi"))
     return reply, kartlar, usage, bloklar
+
+
+ONCEKI_OTURUM_SAAT = 48
+ONCEKI_OTURUM_IHALE = 5
+
+
+def _onceki_oturum_baglami(user, conversation):
+    """
+    Kullanıcının SON 48 SAATTE başka oturumlarda konuştuğu ihaleler + son sorusu.
+
+    Mobil her açılışta yeni sohbet başlatıyor; kullanıcı "az önceki konuya dönemiyor
+    musun", "ambar işi var yazmıştın" diyordu ve asistan "hiç mesajlaşmadık" cevabı
+    veriyordu (sohbet analizi 2026-11-04). Bir kullanıcı aynı ihaleyi günlerce ~15
+    kez yeniden sordu. İhaleler kart havuzuna da girer → "onu kaydet" çalışır.
+
+    ⚠️ Değişken bağlamdır (cache'li sistem bloğuna konmaz). Dönen: `(metin, [Tender])`
+    ya da None. Hata sohbeti asla düşürmez.
+    """
+    from datetime import timedelta
+
+    from assistant.models import ChatMessage
+    from ekap.models import Tender
+
+    try:
+        qs = ChatMessage.objects.filter(
+            user=user, created_at__gte=timezone.now() - timedelta(hours=ONCEKI_OTURUM_SAAT),
+        )
+        if conversation is not None:
+            qs = qs.exclude(conversation=conversation)
+        iknler, son_soru = [], None
+        for m in qs.order_by("-created_at").only("role", "content", "payload")[:40]:
+            if m.role == ChatMessage.Role.USER and son_soru is None:
+                son_soru = (m.content or "").strip()[:150]
+            # Günlük öneri mesajı "konuşulan" değildir (her gün 5 kart) — gürültü olurdu.
+            if (m.payload or {}).get("kind") == "digest":
+                continue
+            for k in (m.payload or {}).get("tender_cards") or []:
+                ikn = k.get("ikn") if isinstance(k, dict) else None
+                if ikn and ikn not in iknler:
+                    iknler.append(ikn)
+        iknler = iknler[:ONCEKI_OTURUM_IHALE]
+        if not iknler and not son_soru:
+            return None
+        sozluk = {t.ikn: t for t in Tender.objects.filter(ikn__in=iknler).defer(
+            "detail_raw", "list_raw")}
+        ihaleler = [sozluk[i] for i in iknler if i in sozluk]
+        satirlar = ["## ÖNCEKİ OTURUMLAR (son 48 saat, başka sohbet pencereleri)"]
+        if son_soru:
+            satirlar.append(f"- Kullanıcının son sorusu: “{son_soru}”")
+        for t in ihaleler:
+            satirlar.append(f"- {t.ikn} · {(t.ihale_adi or '')[:90]} · {(t.idare_adi or '')[:60]}")
+        satirlar.append(
+            "Kullanıcı \"az önceki\", \"daha önce yazmıştın\", \"o ihale\" derse bunlara bak. "
+            "Konu bunlarla ilgili değilse bu bölümü YOK SAY ve kendiliğinden anma."
+        )
+        return "\n".join(satirlar), ihaleler
+    except Exception:
+        logger.exception("önceki oturum bağlamı kurulamadı (user=%s)", getattr(user, "pk", None))
+        return None
 
 
 def _hatayi_isaretle(user_msg, kod):

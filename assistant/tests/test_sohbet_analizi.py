@@ -283,3 +283,72 @@ class IdareYuklenicileriTests(TestCase):
 
     def test_idare_verilmezse_duzgun_hata(self):
         self.assertFalse(TOOL_IMPL["idare_yuklenicileri"](_ctx())["ok"])
+
+
+class OncekiOturumTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from assistant.models import ChatConversation, ChatMessage
+
+        cls.user = get_user_model().objects.create(email="hf@test.local", username="hf")
+        cls.tender = Tender.objects.create(ekap_id="hf-1", ikn="2026/444001",
+                                           ihale_adi="Ambar Binası Yapım İşi", idare_adi="MARDİN")
+        Tender.objects.create(ekap_id="hf-2", ikn="2026/444002", ihale_adi="Öneri İhalesi")
+        eski = ChatConversation.objects.create(user=cls.user)
+        ChatMessage.objects.create(user=cls.user, conversation=eski, role="user",
+                                   content="Ambar yapım işi var mı")
+        ChatMessage.objects.create(user=cls.user, conversation=eski, role="assistant",
+                                   content="2026/444001 ...",
+                                   payload={"kind": "text", "tender_cards": [{"ikn": "2026/444001"}]})
+        ozet = ChatConversation.objects.create(user=cls.user, kind="digest")
+        ChatMessage.objects.create(user=cls.user, conversation=ozet, role="assistant", content="Günaydın",
+                                   payload={"kind": "digest", "tender_cards": [{"ikn": "2026/444002"}]})
+        cls.yeni = ChatConversation.objects.create(user=cls.user)
+
+    def test_baska_oturumdaki_ihale_ve_soru_baglama_girer_oneri_GIRMEZ(self):
+        from assistant.tasks import _onceki_oturum_baglami
+
+        metin, ihaleler = _onceki_oturum_baglami(self.user, self.yeni)
+        self.assertIn("2026/444001", metin)
+        self.assertIn("Ambar yapım işi var mı", metin)
+        self.assertNotIn("2026/444002", metin)
+        self.assertEqual([t.ikn for t in ihaleler], ["2026/444001"])
+
+    def test_bos_gecmiste_none(self):
+        from assistant.tasks import _onceki_oturum_baglami
+
+        kisi = get_user_model().objects.create(email="bos@test.local", username="bos")
+        self.assertIsNone(_onceki_oturum_baglami(kisi, None))
+
+
+class KelimeKelimeAramaTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()   # `_cached_count` sayısı süreç içinde testler arası sızar
+
+    @classmethod
+    def setUpTestData(cls):
+        Tender.objects.create(
+            ekap_id="kk-1", ikn="2026/1752648",
+            ihale_adi="Afyonkarahisar İli Emirdağ İlçesi 104 Adet İşyeri İnşaatı",
+            ihale_adi_norm="afyonkarahisar ili emirdag ilcesi 104 adet isyeri insaati",
+            idare_adi="TOKİ", idare_adi_norm="toki",
+        )
+
+    def test_kelime_sirasi_fark_etmez(self):
+        ctx = _ctx()
+        sonuc = TOOL_IMPL["ihale_ara"](ctx, q="Emirdağ Afyonkarahisar 104 işyeri")
+        self.assertEqual(sonuc["toplam"], 1)
+        self.assertEqual(sonuc["kelime_eslesmesi"], ["emirdag", "afyonkarahisar", "104", "isyeri"])
+        self.assertIn("2026/1752648", ctx.card_pool)
+
+    def test_tam_ifade_tutarsa_yedek_devreye_GIRMEZ(self):
+        sonuc = TOOL_IMPL["ihale_ara"](_ctx(), q="emirdağ ilçesi")
+        self.assertEqual(sonuc["toplam"], 1)
+        self.assertNotIn("kelime_eslesmesi", sonuc)
+
+    def test_eksik_kelimede_sonuc_yok_ve_esanlam_onerilir(self):
+        sonuc = TOOL_IMPL["ihale_ara"](_ctx(), q="Emirdağ 104 dükkan")
+        self.assertEqual(sonuc["toplam"], 0)
+        self.assertIn("dükkan → işyeri", sonuc["not"])

@@ -137,3 +137,54 @@ class PromptEnvanteriTests(TestCase):
             self.assertIn(ifade, AGENT_PERSONA_PROMPT, ifade)
         self.assertIn("Doküman sayısı", VERI_TUZAKLARI)
         self.assertIn("sozlesmeler", VERI_TUZAKLARI)
+
+
+class OlcumTests(TestCase):
+    """Faz 0: araç izi + cevapsız işareti + rapor komutu."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from assistant.models import ChatConversation, ChatMessage
+
+        cls.user = get_user_model().objects.create(email="olc@test.local", username="olc")
+        konu = ChatConversation.objects.create(user=cls.user)
+        cls.soru = ChatMessage.objects.create(user=cls.user, conversation=konu, role="user",
+                                              content="Rize POMEM yemek işini kim yapıyor")
+        ChatMessage.objects.create(
+            user=cls.user, conversation=konu, role="assistant",
+            content="Yüklenici adını bulamadım.",
+            usage={"tur_sayisi": 7, "araclar": [{"arac": "ihale_ara", "ok": True, "n": 0}]},
+        )
+        ChatMessage.objects.create(user=cls.user, conversation=konu, role="user",
+                                   content="Bilgisayardan nasıl giriş yaparım")
+
+    def test_iz_ozeti_uzun_metni_keser_buyuk_yapilari_atar(self):
+        from assistant.tasks import _iz_ozeti
+
+        iz = _iz_ozeti([{"arac": "ihale_ara", "ok": True, "n": 0,
+                         "param": {"q": "x" * 300, "filtreler": {"a": "y" * 400}, "il_id": [251]}}])
+        self.assertEqual(len(iz[0]["param"]["q"]), 80)
+        self.assertNotIn("filtreler", iz[0]["param"])
+        self.assertEqual(iz[0]["param"]["il_id"], [251])
+        self.assertEqual(iz[0]["n"], 0)
+
+    def test_hata_isareti_payloada_yazilir(self):
+        from assistant.tasks import _hatayi_isaretle
+
+        _hatayi_isaretle(self.soru, "cokme")
+        self.soru.refresh_from_db()
+        self.assertEqual(self.soru.payload["hata"], "cokme")
+
+    def test_rapor_cevapsiz_bilgisiz_ve_tavani_sayar(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("asistan_rapor", gun=7, stdout=out)
+        metin = out.getvalue()
+        self.assertIn("2 kullanıcı mesajı", metin)
+        self.assertIn("cevapsız: 1", metin)
+        self.assertIn("'bilgi yok' kalıplı cevap: 1", metin)
+        self.assertIn("tur tavanı: 1", metin)
+        self.assertIn("kim_aldi", metin)

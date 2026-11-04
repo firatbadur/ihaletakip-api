@@ -209,10 +209,13 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
                 icerik = _guvenli_calistir(ctx, blok.name, blok.input)
                 # `param` de kaydedilir: `assistant/tasks.py` son başarılı aramayı
                 # konuşmaya yazıp bir sonraki turda bağlama koyuyor (takip soruları).
+                liste = icerik.get("liste")
                 arac_izi.append({
                     "arac": blok.name,
                     "ok": bool(icerik.get("ok", True)),
                     "param": dict(blok.input or {}),
+                    # Boş sonuç ≠ hata; "bulamadım" cevaplarının kaynağını ayırt eder.
+                    "n": len(liste) if isinstance(liste, list) else None,
                 })
             blok_json = _tool_result(blok.id, icerik)
             harcanan += len(blok_json["content"]) // 3

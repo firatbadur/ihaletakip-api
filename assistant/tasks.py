@@ -381,7 +381,40 @@ def _agent_yaniti(profile, user_msg, conversation, today):
             conversation.son_arama = aramalar[-1].get("param") or None
             conversation.save(update_fields=["son_arama"])
 
-    return reply, kartlar, sonuc.get("usage"), bloklar
+    # Araç izi usage'a yazılır (iç veri, serializer'da YOK) → hangi soruda hangi
+    # aracın boş/başarısız döndüğü sonradan ölçülebilsin (`manage.py asistan_rapor`).
+    usage = dict(sonuc.get("usage") or {})
+    usage["araclar"] = _iz_ozeti(sonuc.get("arac_izi"))
+    return reply, kartlar, usage, bloklar
+
+
+def _hatayi_isaretle(user_msg, kod):
+    """
+    Cevapsız kalan kullanıcı mesajını işaretler (`payload.hata`).
+
+    Hata dalı asistan mesajı YAZMADIĞI için, işaret olmadan bu mesajlar "cevap
+    üretilmedi" diye ayırt edilemiyordu (2026-11-04 sohbet analizi elle yapıldı).
+    Defter tutmadır — kendi hatası görevi asla düşürmez.
+    """
+    try:
+        user_msg.payload = {**(user_msg.payload or {}), "hata": kod}
+        user_msg.save(update_fields=["payload"])
+    except Exception:
+        logger.exception("hata işareti yazılamadı (mesaj=%s)", getattr(user_msg, "pk", None))
+
+
+def _iz_ozeti(arac_izi):
+    """Araç izini usage'a sığacak hâle getirir (uzun metin parametreleri kesilir)."""
+    ozet = []
+    for a in arac_izi or []:
+        param = {
+            k: (v[:80] if isinstance(v, str) else v)
+            for k, v in (a.get("param") or {}).items()
+            if not isinstance(v, (dict, list)) or len(str(v)) <= 200
+        }
+        ozet.append({"arac": a.get("arac"), "ok": a.get("ok"), "param": param,
+                     **({"n": a["n"]} if a.get("n") is not None else {})})
+    return ozet
 
 
 # ⚠️ soft_time_limit ŞART: hard limit (CELERY_TASK_TIME_LIMIT=300) SIGKILL demek →
@@ -473,15 +506,18 @@ def assistant_chat_task(user_id, message_id):
             )
         except SoftTimeLimitExceeded:
             logger.warning("assistant_chat_task süre aşımı (user=%s)", user_id)
+            _hatayi_isaretle(user_msg, "sure_asimi")
             return _save(
                 "Bu soruyu yanıtlamak beklenenden uzun sürdü. Biraz daha dar bir "
                 "soruyla tekrar dener misiniz?",
                 [],
             )
         except AnalysisError as e:
+            _hatayi_isaretle(user_msg, f"ai_{e.status or 'hata'}")
             return {"success": False, "error": e.message}
         except Exception:
             logger.exception("assistant_chat_task araç yolu çöktü (user=%s)", user_id)
+            _hatayi_isaretle(user_msg, "cokme")
             return {"success": False, "error": "Asistan şu an yanıt veremiyor."}
         if reply is None:
             return {"success": False, "error": "Sohbet mesajı bulunamadı."}

@@ -380,3 +380,32 @@ class TekrarEdenTekIhaleTests(TestCase):
         self.assertEqual(g["sozlesme_bedeli"], "3850000.00")
         self.assertEqual(g["kazanan"], ["İKRAM GIDA LTD"])
         self.assertIn("2025/1668453", ctx.card_pool)
+
+
+class KullaniciVerisiTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from tenders.models import FavoriteAuthority, TenderAlarm
+
+        cls.user = get_user_model().objects.create(email="kv@test.local", username="kv")
+        FavoriteAuthority.objects.create(user=cls.user, detsis_no="90566341", ad="AVCILAR BELEDİYE BAŞKANLIĞI")
+        Tender.objects.create(ekap_id="kv-1", ikn="2026/333001", ihale_adi="Parke Taşı",
+                              ihale_tarihi=timezone.now() + timedelta(days=5))
+        # Asistanın kurduğu alarm: sonuç aboneliği AÇIK.
+        TenderAlarm.objects.create(user=cls.user, tender_id="kv-1", tender_ikn="2026/333001",
+                                   reminder_day=True, completed=True)
+
+    def test_favori_idareler_cokmez(self):
+        """`FavoriteAuthority.name` yok (alan `ad`) — asistan "teknik hata" diyordu."""
+        sonuc = TOOL_IMPL["kullanicinin_verisi"](_ctx(user=self.user), tur="favori_idareler")
+        self.assertTrue(sonuc["ok"], sonuc)
+        self.assertEqual(sonuc["liste"][0]["ad"], "AVCILAR BELEDİYE BAŞKANLIĞI")
+
+    def test_sonuc_abonelikli_alarm_yaklasanlarda_gorunur(self):
+        sonuc = TOOL_IMPL["kullanicinin_verisi"](_ctx(user=self.user), tur="yaklasan")
+        self.assertTrue(sonuc["ok"], sonuc)
+        self.assertIn("2026/333001", str(sonuc))

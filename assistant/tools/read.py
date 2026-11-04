@@ -471,7 +471,7 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
         if tur == "favori_idareler":
             rows = FavoriteAuthority.objects.filter(user=u)[:n]
             return {"ok": True, "liste": [
-                {"detsis_no": r.detsis_no, "ad": kes(r.name, 120), "alarm": getattr(r, "alarm", None)}
+                {"detsis_no": r.detsis_no, "ad": kes(r.ad, 120), "alarm": getattr(r, "alarm", None)}
                 for r in rows]}
         if tur == "favori_firmalar":
             rows = FavoriteContractor.objects.filter(user=u).select_related("contractor")[:n]
@@ -492,8 +492,12 @@ def kullanicinin_verisi(ctx, tur=None, limit=None, **_):
             iknler = set(
                 SavedTender.objects.filter(user=u).values_list("tender_ikn", flat=True)
             )
+            # ⚠️ `completed` "sonuçlanınca bildir" ABONELİĞİDİR, "tamamlandı" değil
+            # (bkz. tenders.tasks._detect_alarm_events). Eskiden `completed=False`
+            # yazıyordu → sonuç aboneliği olan alarmlar "yaklaşan"dan düşüyordu.
+            # "Henüz sonuçlanmadı" = sonuç bildirimi gitmemiş.
             iknler |= set(
-                TenderAlarm.objects.filter(user=u, completed=False)
+                TenderAlarm.objects.filter(user=u, completed_notified=False)
                 .exclude(tender_ikn__isnull=True).exclude(tender_ikn="")
                 .values_list("tender_ikn", flat=True)
             )

@@ -358,8 +358,11 @@ geçmişini kapsar — ikisini karıştırma.
 geldiğinde ilgili değer `null`'dır — "0" ya da "—" DEĞİL, "veri yetersiz" yaz.
 - **`ornek.yeterli_veri: false`** ise dağılımı rakamla verme; kümenin küçük olduğunu \
 söyle ve kapsamı genişletmeyi öner.
-- **`beklenen_ilan_tarihi` bir TAHMİNDİR**, takvim kaydı değil. `guven: dusuk` olan \
-seride tarihi kesin söyleme, "≈" ile yaklaşık ver.
+- **`beklenen_ilan_tarihi` bir TAHMİNDİR**, takvim kaydı değil — cümlede "tahmini" \
+kelimesini kullan. `guven: dusuk` olan seride tarihi kesin söyleme, "≈" ile yaklaşık ver.
+- **`gecikme_gun` doluysa tahmin tarihi GEÇMİŞTİR**: "bekleniyor" DEME. "Normalde \
+<tarih> civarı çıkardı, N gündür gecikmiş; her an çıkabilir ya da seri bitmiş olabilir" \
+de. Bugünden önceki bir tarihi "sıradaki" diye sunmak kullanıcıyı yanıltır.
 - **Tekrar eden seride ihale adı `ornek_ihale_adi` alanındadır**; ihaleye geçiş için \
 `son_ekap_id` kullanılır.
 - **`okas_bucket: ''` gerçek veridir** ("Sınıflandırılmamış", sözleşmelerin ~%15'i). \

@@ -129,7 +129,9 @@ def ihale_detay(ctx, key=None, **_):
         "yasa_kapsami": t.yasa_kapsami,
         "isin_yapilacagi_yer": kes(t.isin_yapilacagi_yer, 200),
         "ihale_yeri": kes(t.ihale_yeri, 200),
-        "dokuman_sayisi": t.dokuman_sayisi,
+        # ⚠️ `dokuman_sayisi` BİLİNÇLİ OLARAK YOK: mobil hat bu sayıyı hiç doldurmuyor
+        # (2026 ihalelerinin ~%91'inde 0). Model 0'ı görüp "idare henüz dokümanı
+        # yüklememiş" diyordu — çoğu ihalede yanlış (ölçüldü 2026-11-04).
         "sozlesme_sayisi": t.sozlesme_sayisi,
         # ⚠️ null olabilir → model "Veri yok" demeli, 0 dememeli.
         "yaklasik_maliyet": para(t.yaklasik_maliyet_num),
@@ -139,7 +141,44 @@ def ihale_detay(ctx, key=None, **_):
     }
     if t.iptal_nedeni:
         sonuc["iptal_nedeni"] = kes(t.iptal_nedeni, 200)
+    # ⚠️ Kazanan firma burada OLMALI. Eskiden yoktu ve model "kim aldı" sorusuna
+    # "yüklenici adını bu kayıtta göremiyorum" diyordu — oysa sözleşme DB'deydi
+    # (üretimde ölçüldü 2026-11-04: Rize POMEM, Hazine-Maliye yemek, Erzurum stad).
+    # Aynı veri `GET /ekap/tenders/<key>/contracts/` ucunda herkese açık.
+    sonuc["sozlesmeler"] = _ihale_sozlesmeleri(t)
     return butceye_sigdir(sonuc, "okas_kalemleri")
+
+
+AZAMI_IHALE_SOZLESME = 5
+
+
+def _ihale_sozlesmeleri(t):
+    """İhalenin imzalanmış sözleşmeleri (kazanan firma + bedel), en büyük bedel başta."""
+    from ekap.models import Contract
+
+    try:
+        qs = (Contract.objects.filter(tender_id=t.pk)
+              .select_related("yuklenici")
+              .only("yuklenici_adi", "yuklenici__id", "yuklenici__kanonik_ad",
+                    "sozlesme_tarihi", "sozlesme_bedeli_num", "indirim_orani",
+                    "teklif_sayisi")
+              .order_by("-sozlesme_bedeli_num")[:AZAMI_IHALE_SOZLESME])
+        return [
+            {
+                "yuklenici": kes((s.yuklenici.kanonik_ad if s.yuklenici else "")
+                                 or s.yuklenici_adi, 160),
+                "yuklenici_id": s.yuklenici_id,   # firma_profili / firma_isleri için
+                "sozlesme_tarihi": (s.sozlesme_tarihi.strftime("%d.%m.%Y")
+                                    if s.sozlesme_tarihi else None),
+                "sozlesme_bedeli": para(s.sozlesme_bedeli_num),
+                "indirim_orani": para(s.indirim_orani),   # ORAN, yüzde değil
+                "teklif_sayisi": s.teklif_sayisi,
+            }
+            for s in qs
+        ]
+    except Exception:
+        logger.exception("ihale_detay sözleşmeleri okunamadı: %s", t.pk)
+        return []
 
 
 # ── 3. OKAS arama (konu → kod köprüsü) ─────────────────
@@ -506,16 +545,59 @@ def idare_ara(ctx, q=None, take=None, **_):
             }
             for a in nodes
         ]
+        ek = _ihale_kayitlarindaki_idareler(q, {x["idare_id"] for x in liste if x["idare_id"]})
+        liste.extend(ek)
     except Exception:
         logger.exception("idare_ara başarısız: %s", q)
         return _hata("İdare araması sırasında bir sorun oldu.")
     if not liste:
         return {"ok": True, "liste": [], "not": "Bu adla idare bulunamadı. Adın bir parçasını dene."}
-    return butceye_sigdir({
+    sonuc = {
         "ok": True,
         "liste": liste,
         "not": "idare_profili için: yaprak birim ise idare_id, üst kurum ise detsis_no kullan.",
-    })
+    }
+    if ek:
+        sonuc["not_ihale_kayitlari"] = (
+            "`kaynak: ihale_kayitlari` satırları DETSIS ağacında yok ama bu adla ihale "
+            "açmış idarelerdir (ağaç 2026-09-07'den beri güncellenmiyor). detsis_no "
+            "olmadığı için favoriye EKLENEMEZ; takip için idare_id ile ihale_ara / "
+            "filtre_kaydet_oner(filtreler={idare_id: [...]}, alarm=true) kullan, rapor "
+            "için idare_profili(idare_id=...)."
+        )
+    return butceye_sigdir(sonuc)
+
+
+AZAMI_IHALE_IDARE = 8
+
+
+def _ihale_kayitlarindaki_idareler(q, bilinen_idare_idleri):
+    """
+    DETSIS'te bulunamayan ama ihale kayıtlarında adı geçen idareler.
+
+    Üretim vakası (2026-10-30): "Avcılar Belediye Başkanlığı Fen İşleri Müdürlüğü"
+    `Authority`'de yok, ihaleleri `idare_id=575` ile duruyor → araç dört kez "kayıt
+    yok" dedi. `idare_adi_norm` trigram indeksli; DISTINCT yerine ilk N eşleşme
+    Python'da tekilleştirilir (genel bir sorguda DISTINCT tüm eşleşmeleri tarardı).
+    """
+    from ekap.models import Tender
+    from ekap.utils import normalize_tr
+
+    n = normalize_tr(str(q))
+    satirlar = (Tender.objects.filter(idare_adi_norm__contains=n)
+                .exclude(idare_id="")
+                .order_by()
+                .values_list("idare_id", "idare_adi")[:400])
+    gorulen, ek = set(bilinen_idare_idleri), []
+    for idare_id, ad in satirlar:
+        if idare_id in gorulen:
+            continue
+        gorulen.add(idare_id)
+        ek.append({"ad": kes(ad, 120), "idare_id": idare_id, "detsis_no": None,
+                   "kaynak": "ihale_kayitlari"})
+        if len(ek) >= AZAMI_IHALE_IDARE:
+            break
+    return ek
 
 
 # ── 10. Fiyat analizi (benchmark) ──────────────────────

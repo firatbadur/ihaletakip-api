@@ -163,16 +163,30 @@ def _selected_tender_context(tender, today) -> str:
         f"- Kapsam: {tender.ihale_kapsam_aciklama or '-'}",
         f"- İşin/malın yapılacağı yer: {tender.isin_yapilacagi_yer or tender.ihale_yeri or '-'}",
         f"- İtirazen şikayet başvuru bedeli: {tender.itirazen_sikayet_basvuru_bedeli or '-'}",
-        f"- e-İhale: {'Evet' if tender.e_ihale else 'Hayır'} | Doküman sayısı: {tender.dokuman_sayisi}",
+        f"- e-İhale: {'Evet' if tender.e_ihale else 'Hayır'}",
     ]
     if okas:
         lines.append(f"- OKAS ihtiyaç kalemleri: {okas}")
+    # Kazanan firma: "kim aldı / kim yapıyor" ihale odaklı sohbetin en sık sorusu.
+    from assistant.tools.read import _ihale_sozlesmeleri
+
+    sozlesmeler = _ihale_sozlesmeleri(tender)
+    if sozlesmeler:
+        lines.append("- İmzalanmış sözleşmeler (kazanan firma):")
+        for s in sozlesmeler:
+            lines.append(
+                f"  • {s['yuklenici'] or '-'} | bedel {s['sozlesme_bedeli'] or 'veri yok'} ₺"
+                f" | tarih {s['sozlesme_tarihi'] or '-'}"
+            )
+    else:
+        lines.append("- İmzalanmış sözleşme: henüz yok (ihale sonuçlanmamış ya da sonuç ilanı gelmemiş)")
     lines.append(
         "\nKullanıcı bu ihale hakkında soru soruyor (uygunluk, maliyet/keşif yaklaşımı, "
         "yeterlilik, teklif stratejisi vb.). Yukarıdaki bilgilere ve firmanın profiline "
         "göre yanıtla. Kesin rakam TAAHHÜT ETME; maliyet için genel yaklaşım ver ve "
         "detaylı hesap için uygulamanın 'Maliyet Analizi' özelliğine yönlendir. İhale "
-        "metninde OLMAYAN bilgiyi uydurma; eksikse EKAP dokümanlarına yönlendir. "
+        "metninde OLMAYAN bilgiyi uydurma; eksikse uygulamadaki Dokümanlar ekranına "
+        "yönlendir (EKAP'a DEĞİL). "
         "card_iknler'e yalnızca bu ihalenin İKN'sini koyabilirsin."
     )
     return "\n".join(lines)
@@ -344,7 +358,9 @@ def _agent_yaniti(profile, user_msg, conversation, today):
 
     # Sıra ÖNEMLİ: önce görsel bloklar (grafik), sonra onay kartları — kullanıcı
     # önce veriyi görüp sonra kararı verir.
-    bloklar = ctx.gorsel_bloklar[:2] + [_eylem_karti(e) for e in ctx.oneriler[:3]]
+    from assistant.tools.write import AZAMI_KART
+
+    bloklar = ctx.gorsel_bloklar[:2] + [_eylem_karti(e) for e in ctx.oneriler[:AZAMI_KART]]
 
     # Soru önerileri EN SONA: kullanıcı önce cevabı ve kartları görsün, "sıradaki adım"
     # en altta dursun. Deterministik üretilir (assistant/tools/oneri.py) — model

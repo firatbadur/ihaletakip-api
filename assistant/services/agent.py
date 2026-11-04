@@ -199,7 +199,11 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
             if butce_doldu:
                 icerik = {
                     "ok": False,
-                    "hata": "Bütçe doldu. Yeni araç çağırma; elindeki bilgiyle cevabını tamamla.",
+                    "hata": (
+                        "Bu soru için ayrılan arama hakkı doldu. Yeni araç çağırma; "
+                        "elindeki bilgiyle cevabını tamamla. Kullanıcıya 'bütçe' ya da "
+                        "'araç' deme — doğrulayamadığın kısmı 'şunu doğrulayamadım' diye söyle."
+                    ),
                 }
             else:
                 icerik = _guvenli_calistir(ctx, blok.name, blok.input)

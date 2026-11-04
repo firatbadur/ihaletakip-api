@@ -24,6 +24,13 @@ VARSAYILAN_OMUR = timedelta(days=7)
 # Tek kartla kaydedilebilecek azami ihale — `ihale_ara`nın sayfa tavanıyla aynı.
 AZAMI_TOPLU = 20
 
+# Bir cevapta gösterilebilecek azami onay kartı (`assistant/tasks.py` aynı sabiti okur).
+# ⚠️ Sınır ARAÇTA uygulanır, gösterim anında değil: eskiden araç her çağrıda satır açıp
+# "kart çıktı" diyordu, gösterimde ilk 3'ü kesiliyordu → model "11 belediye için kart
+# çıkardım" derken kullanıcı 3 kart görüyordu, 12 satır sonsuza dek "bekliyor" kaldı
+# (üretimde ölçüldü 2026-11-04).
+AZAMI_KART = 3
+
 
 def _hata(mesaj, **ek):
     return {"ok": False, "hata": mesaj, **ek}
@@ -34,6 +41,14 @@ def _oneri_olustur(ctx, tur, params, ozet, expires_at=None):
 
     if ctx.user is None:
         return _hata("Kullanıcı bağlamı yok.")
+    if len(ctx.oneriler) >= AZAMI_KART:
+        return _hata(
+            f"Bu cevapta en çok {AZAMI_KART} onay kartı gösterilebiliyor ve sınır doldu; "
+            "bu öneri için kart ÇIKMADI. Kullanıcıya hangilerinin kartının çıktığını "
+            "söyle, kalanlar için bir sonraki mesajında devam edeceğini belirt. "
+            "Çıkmayan kart için 'kart çıkardım' DEME.",
+            kart_siniri_doldu=True,
+        )
     eylem = AssistantAction.objects.create(
         user=ctx.user,
         tur=tur,

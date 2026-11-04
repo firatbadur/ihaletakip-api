@@ -34,7 +34,10 @@ _IHALE_ARA = {
             "ihale_tip": {"type": "array", "items": {"type": "integer", "enum": [1, 2, 3, 4]},
                           "description": "1 Mal Alımı, 2 Yapım, 3 Hizmet, 4 Danışmanlık."},
             "ihale_usul": {"type": "array", "items": {"type": "integer"},
-                           "description": "1 Açık, 2 Belli İstekliler, 3 Pazarlık, 4 Doğrudan Temin."},
+                           "description": ("1 Açık, 2 Belli İstekliler, 3 Pazarlık, 4 Doğrudan Temin. "
+                                           "⚠️ Doğrudan temin ALIMLARI bu aramada değil, "
+                                           "uygulamanın Doğrudan sekmesindedir; 4 ile "
+                                           "boş sonuç 'DT yok' demek DEĞİLDİR.")},
             "ihale_durum": {"type": "array", "items": {"type": "integer"},
                             "description": "2 Katılıma Açık, 3 Teklif Değerlendirme, 5/20 Sözleşme İmzalanmış, 6/10 İptal, 15 Sonuç İlanı."},
             "idare_id": {"type": "array", "items": {"type": "string"}},
@@ -70,7 +73,11 @@ _IHALE_ARA = {
 
 _IHALE_DETAY = {
     "name": "ihale_detay",
-    "description": "Tek bir ihalenin ayrıntısı: usul, durum, yer, doküman sayısı, OKAS kalemleri, yaklaşık maliyet.",
+    "description": (
+        "Tek bir ihalenin ayrıntısı: usul, durum, yer, OKAS kalemleri, yaklaşık maliyet "
+        "ve imzalanmış sözleşmeler (KAZANAN FİRMA, bedel, indirim). \"Bu işi kim aldı\" "
+        "sorusunun cevabı `sozlesmeler` listesindedir."
+    ),
     "input_schema": {
         "type": "object",
         "properties": {"key": {"type": "string", "description": "İKN (2026/1473120) veya ekap_id."}},

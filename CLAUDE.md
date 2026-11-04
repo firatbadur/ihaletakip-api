@@ -3104,6 +3104,12 @@ Düzeltilenler (hepsi `assistant/tests/test_sohbet_analizi.py`, dişli):
   `POST /assistant/messages/<id>/feedback/` (👍/👎 — **mobil düğmeler henüz yok**),
   admin ChatMessage "sorun" filtresi.
 
+✅ **ÜRETİMDE (2026-11-04, `fc14b9b`)**: migration `assistant/0012` uygulandı; altın set
+(`asistan_altin_set`, 19 soru) üretimde geçti; uçtan uca HTTP testi (sohbet → kazanan
+firma TAŞHAN + `usage.araclar` + feedback 200/400/404) temiz. Mobil sözleşme:
+`docs/mobil-asistan-geri-bildirim.md`. ⚠️ Gecikmiş seri: `gecikme_gun` doluysa
+model "bekleniyor" DEMEZ (altın set yakaladı: "≈16 Haziran 2026 bekleniyor", bugün Kasım).
+
 Açık kalanlar: doküman içeriği soruları (~20, kalem/miktar/ödeme/süre) — analiz ucu
 dosyayı istemciden bekliyor; asistandan analiz başlatmak mobil kart türü ister,
 sunucu tarafı indirme kullanıcı belge bütçesi kararı ister (ölçülmeden açılmamalı).

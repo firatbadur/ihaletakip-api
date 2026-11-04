@@ -13,12 +13,17 @@ PROMPTS = {
 - Kısa ve net cümleler kullan, gereksiz detaya girme
 - Sadece ihaleye teklif verecek firmaların bilmesi gereken kritik bilgileri vurgula
 - Belirsiz veya riskli maddeleri özellikle belirt
-- Toplam çıktı 600 kelimeyi geçmesin
+- Toplam çıktı 700 kelimeyi geçmesin
 
 ## Çıktı Formatı (bu başlıkları aynen kullan):
 
 📋 İŞİN TANIMI
 - İhalenin ne olduğu, kapsamı, yapılacak iş/alınacak mal/hizmetin kısa özeti
+
+📦 KALEMLER VE MİKTARLAR
+- Dokümandaki kalem/ürün adları ve miktarları birimiyle (adet, m², metre, ton, kişi/gün)
+- Kalem tablosu varsa en büyük en çok 10 kalemi rakamıyla AYNEN yaz; uydurma, yuvarlama
+- Dokümanda miktar yoksa bunu açıkça yaz ("dokümanda miktar belirtilmemiş")
 
 ⚙️ TEKNİK GEREKSİNİMLER
 - Aranan teknik özellikler, standartlar, sertifikalar, malzeme/ekipman şartları
@@ -60,6 +65,7 @@ Teklif hazırlayan firmaların karar almasına yardımcı olacak şekilde, aşa�
 - Geçici teminat oranı ve şartları
 - Teklif mektubu ve eki belgeler
 - Ortak girişim (konsorsiyum/iş ortaklığı) izni var mı, şartları neler
+- Kısmi teklif verilebilir mi; kısım sayısı ve kısımların adları
 
 📑 YETERLİK BELGELERİ
 - Ekonomik ve mali yeterlik şartları (ciro, bilanço, banka referans mektubu)
@@ -73,6 +79,7 @@ Teklif hazırlayan firmaların karar almasına yardımcı olacak şekilde, aşa�
 - Fiyat dışı unsurlar ve ağırlık puanları (varsa)
 - Sözleşme türü (birim fiyat/götürü bedel/karma)
 - Kesin teminat oranı
+- Ödeme şekli ve süresi (hakediş dönemi, ödeme kaç gün içinde), avans verilip verilmeyeceği
 
 📅 SÜREÇ VE TARİHLER
 - İhale dokümanı son görülme / satın alma tarihi

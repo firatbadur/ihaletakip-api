@@ -116,7 +116,15 @@ def _keyword_kademesi(tender):
     # çapa seçildiğinde kullanıcı bunu ANINDA görüyor (sessiz hata olmuyor).
     aciklama = ("Benzer işler: " + ", ".join(capalar) if capalar
                 else "Benzer işler (ihale adı benzerliği)")
-    return Kademe("anahtar", aciklama, Q(tender_id__in=ids), sira=ids)
+    # ⚠️ İhale TÜRÜ aynı olmalı (`grup` ve `idare_tur` kademeleri de böyle süzüyor).
+    # Kelime benzerliği türü bilmez: "öğretmenevi yapım işi" kümesine "öğretmen"
+    # geçen hizmet/mal sözleşmeleri giriyordu (kullanıcı bildirdi, 2026-11-04).
+    # Ölçüm (üretim, 50 açık ihale): 15'inde kümenin %20+'si farklı türdendi, en
+    # kötüsünde %93,5. Yapım ile hizmetin indirim dağılımı karşılaştırılamaz.
+    kosul = Q(tender_id__in=ids)
+    if tender.ihale_tip:
+        kosul &= Q(ihale_tip=tender.ihale_tip)
+    return Kademe("anahtar", aciklama, kosul, sira=ids)
 
 
 def _merdiven(tender):

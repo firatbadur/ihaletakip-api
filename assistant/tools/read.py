@@ -871,3 +871,76 @@ def dokuman_analizi(ctx, ikn=None, tur=None, **_):
         ],
         "not": "Bu analiz uygulama içinde yüklenen dokümandan üretildi; özetleyerek aktar.",
     })
+
+
+# ── İdarenin yüklenicileri (kim yapıyor) ───────────────
+AZAMI_IDARE_SOZLESME = 8
+
+
+def idare_yuklenicileri(ctx, idare_id=None, idare_detsis=None, konu=None, okas_kod=None,
+                        limit=None, **_):
+    """
+    "X idaresinin yemek işini şu an kim yapıyor" — idarenin EN SON sözleşmeleri.
+
+    Neden ayrı araç: bu soru tipi (sohbet analizi 2026-11-04: 54 mesaj) model
+    tarafından idare_ara → idare_profili → firma_isleri zinciriyle 4-7 turda
+    cevaplanıyordu ve 13 cevap tur tavanına vurdu. `idare_profili` toplam paya göre
+    sıralar ("en çok kime vermiş"); bu araç TARİHE göre sıralar ("şu an kim").
+    Kapsam `authority_profile.kapsam_coz` ile çözülür (rapor ucuyla aynı tanım).
+    """
+    from django.db.models import F
+
+    from ekap.authority_profile import kapsam_coz
+    from ekap.models import Contract
+    from ekap.utils import normalize_tr
+
+    if not (idare_id or idare_detsis):
+        return _hata("idare_id ya da idare_detsis gerekli (önce idare_ara ile bul).")
+    kapsam, hata = kapsam_coz({"idare_id": idare_id or "", "idare_detsis": idare_detsis or ""})
+    if hata:
+        return _hata(hata)
+    try:
+        qs = Contract.objects.filter(kapsam.contract_q)
+        if okas_kod:
+            qs = qs.filter(okas_ana_kod__startswith=str(okas_kod).strip())
+        if konu and len(str(konu).strip()) >= 3:
+            qs = qs.filter(tender__ihale_adi_norm__contains=normalize_tr(str(konu)))
+        n = min(int(limit or AZAMI_IDARE_SOZLESME), AZAMI_IDARE_SOZLESME)
+        satirlar = list(
+            qs.select_related("tender", "yuklenici")
+            .defer("tender__detail_raw", "tender__list_raw")
+            .order_by(F("sozlesme_tarihi").desc(nulls_last=True), "-pk")[:n]
+        )
+    except Exception:
+        logger.exception("idare_yuklenicileri başarısız: %s %s", idare_id, idare_detsis)
+        return _hata("İdarenin sözleşmeleri alınamadı.")
+
+    liste = []
+    for s in satirlar:
+        t = s.tender
+        if t:
+            ctx.kart_ekle(t)
+        liste.append({
+            "yuklenici": kes((s.yuklenici.kanonik_ad if s.yuklenici else "") or s.yuklenici_adi, 140),
+            "yuklenici_id": s.yuklenici_id,
+            "sozlesme_tarihi": s.sozlesme_tarihi.strftime("%d.%m.%Y") if s.sozlesme_tarihi else None,
+            "sozlesme_bedeli": para(s.sozlesme_bedeli_num),
+            "indirim_orani": para(s.indirim_orani),   # ORAN, yüzde değil
+            "ikn": t.ikn if t else None,
+            "ihale_adi": kes(t.ihale_adi, 140) if t else "",
+            "idare_adi": kes(t.idare_adi, 90) if t else "",
+        })
+    sonuc = {
+        "ok": True,
+        "kapsam": kapsam.bilgi,
+        "liste": liste,
+        "not": (
+            "En yeni sözleşme başta. 'Şu an kim yapıyor' sorusunda en yeni sözleşmenin "
+            "firmasını söyle ama süresinin bitip bitmediğini BİLMİYORSUN (sözleşme süresi "
+            "veride yok); tarihini mutlaka yaz."
+        ),
+    }
+    if not liste:
+        sonuc["not"] = ("Bu kapsamda sözleşme yok. Konu terimini genelleştir ya da üst "
+                        "idareyi (idare_detsis) dene; sonuç ilanı henüz gelmemiş olabilir.")
+    return butceye_sigdir(sonuc)

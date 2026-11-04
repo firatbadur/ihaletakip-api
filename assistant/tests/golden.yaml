@@ -170,3 +170,38 @@
   not: >
     Kapsam dışı isteğin üç sınıfından birincisi: yapılamayacak iş. Net reddedip
     yapabildiğine geçmeli; uydurma bir ekrana yönlendirmemeli.
+
+# ── 2026-11-04 sohbet analizi: üretimde bilgi VERİLEMEYEN gerçek sorular ──
+- soru: "Rize polis meslek eğitim merkezi yemek yapım ve dağıtım işini kim yapıyor"
+  arac_bekle: [idare_yuklenicileri, ihale_detay]
+  icermeli: ["taşhan"]
+  icermemeli: ["**", "göremiyorum", "bütçe"]
+  kart_bekle: 1
+  not: >
+    Sözleşme DB'deyken (2025/1615710 → TAŞHAN) asistan "yüklenici adını göremiyorum"
+    diyordu; ihale_detay sözleşme döndürmüyordu. 4-7 tur harcayan soru tipi.
+
+- soru: "Erzurum'da gıda alımı doğrudan temin var mı"
+  arac_bekle: [dogrudan_temin_ara]
+  icermeli: []
+  icermemeli: ["**", "ilansız", "veri tabanında"]
+  kart_bekle: 0
+  not: >
+    Asistan "doğrudan temin ilansızdır, EKAP verisinde yok" diyordu; kullanıcı
+    "uygulamayı kullanmama gerek kalmıyor" yazdı. DT'ler Doğrudan sekmesinde var.
+
+- soru: "Bilgisayarımdan nasıl giriş yapabilirim"
+  arac_bekle: []
+  icermeli: ["ihaletakip.com"]
+  icermemeli: ["**", "kapsamım"]
+  kart_bekle: 0
+  not: Ürün envanteri — web portalı. Üç kez soruldu, üçünde de "kapsamım dışında" dendi.
+
+- soru: "Avcılar Belediye Başkanlığı Fen İşleri Müdürlüğü'nün ihalelerine bak"
+  arac_bekle: [idare_ara]
+  icermeli: []
+  icermemeli: ["**", "bulamadım", "kayıt yok"]
+  kart_bekle: 1
+  not: >
+    DETSIS'te yok, ihaleleri idare_id=575 ile duruyor; idare_ara artık ihale
+    kayıtlarından da buluyor (kaynak: ihale_kayitlari).

@@ -188,3 +188,98 @@ class OlcumTests(TestCase):
         self.assertIn("'bilgi yok' kalıplı cevap: 1", metin)
         self.assertIn("tur tavanı: 1", metin)
         self.assertIn("kim_aldi", metin)
+
+
+class DogrudanTeminAraciTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from ekap.models import DogrudanTemin
+
+        simdi, bugun = timezone.now(), timezone.localdate()
+        ortak = dict(idare_adi="ERZURUM ATATÜRK ÜNİVERSİTESİ", idare_adi_norm="erzurum ataturk universitesi",
+                     il_id=269, tur=1, ilan_tarihi=bugun)
+        DogrudanTemin.objects.create(dtn="26DT1", ad="Tavuk Eti Alımı", ad_norm="tavuk eti alimi",
+                                     durum=202, son_teklif=simdi + timedelta(days=2), **ortak)
+        # Süresi geçmiş — açık listede OLMAMALI (tanım dt.acik_q'dan gelir).
+        DogrudanTemin.objects.create(dtn="26DT2", ad="Tavuk Alımı Eski", ad_norm="tavuk alimi eski",
+                                     durum=202, son_teklif=simdi - timedelta(days=1), **ortak)
+
+    def test_acik_dt_bulunur_suresi_gecen_dusulur(self):
+        sonuc = TOOL_IMPL["dogrudan_temin_ara"](_ctx(), q="tavuk", il_id=[269])
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual([x["dtn"] for x in sonuc["liste"]], ["26DT1"])
+        self.assertEqual(sonuc["liste"][0]["tur"], "Mal")
+
+    def test_sadece_acik_false_hepsini_getirir(self):
+        sonuc = TOOL_IMPL["dogrudan_temin_ara"](_ctx(), q="tavuk", sadece_acik=False)
+        self.assertEqual(sonuc["toplam"], 2)
+
+    def test_acik_tanimi_liste_ucuyla_ayni(self):
+        from ekap import dt_sorgu
+
+        beklenen = set(dt_sorgu.acik_qs().values_list("dtn", flat=True))
+        sonuc = TOOL_IMPL["dogrudan_temin_ara"](_ctx())
+        self.assertEqual({x["dtn"] for x in sonuc["liste"]}, beklenen)
+
+
+class SonucAlarmiTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create(email="al@test.local", username="al")
+        cls.tender = Tender.objects.create(ekap_id="al-1", ikn="2026/666001", ihale_adi="104 Adet İşyeri")
+
+    def test_alarm_varsayilan_olarak_SONUCU_bildirir(self):
+        from assistant.models import AssistantAction
+
+        ctx = _ctx(user=self.user)
+        ctx.kart_ekle(self.tender)
+        sonuc = TOOL_IMPL["alarm_kur_oner"](ctx, ikn="2026/666001")
+        eylem = AssistantAction.objects.get(id=sonuc["action_id"])
+        self.assertTrue(eylem.params["completed"])
+        self.assertFalse(eylem.params["kurul_karar"])
+        self.assertIn("sonuçlanınca", eylem.ozet)
+
+    def test_alarm_parametreleri_modelde_gecerli_alan(self):
+        """Yürütme `TenderAlarm.update_or_create(**params)` yapar; alan adı yanlışsa çöker."""
+        from tenders.models import TenderAlarm
+
+        alanlar = {f.name for f in TenderAlarm._meta.get_fields()}
+        ctx = _ctx(user=self.user)
+        ctx.kart_ekle(self.tender)
+        from assistant.models import AssistantAction
+
+        eylem = AssistantAction.objects.get(
+            id=TOOL_IMPL["alarm_kur_oner"](ctx, ikn="2026/666001", kurul_karari=True)["action_id"])
+        self.assertTrue(set(eylem.params) <= alanlar, set(eylem.params) - alanlar)
+
+
+class IdareYuklenicileriTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import datetime, timezone as tz
+
+        eski = Tender.objects.create(ekap_id="iy-1", ikn="2024/1", ihale_adi="Yemek Hizmeti 2024",
+                                     ihale_adi_norm="yemek hizmeti 2024", idare_id="501")
+        yeni = Tender.objects.create(ekap_id="iy-2", ikn="2025/2", ihale_adi="Yemek Hizmeti 2025",
+                                     ihale_adi_norm="yemek hizmeti 2025", idare_id="501")
+        temizlik = Tender.objects.create(ekap_id="iy-3", ikn="2025/3", ihale_adi="Temizlik",
+                                         ihale_adi_norm="temizlik", idare_id="501")
+        for t, ad, yil in ((eski, "ESKİ YEMEK", 2024), (yeni, "BEŞTEPE YEMEK", 2025),
+                           (temizlik, "TEMİZ AŞ", 2025)):
+            Contract.objects.create(tender=t, idare_id="501", yuklenici_adi=ad,
+                                    sozlesme_tarihi=datetime(yil, 6, 1, tzinfo=tz.utc),
+                                    sozlesme_bedeli_num=Decimal("100"))
+
+    def test_en_yeni_sozlesme_basta_konu_suzulur(self):
+        ctx = _ctx()
+        sonuc = TOOL_IMPL["idare_yuklenicileri"](ctx, idare_id="501", konu="yemek")
+        self.assertTrue(sonuc["ok"])
+        self.assertEqual([x["yuklenici"] for x in sonuc["liste"]], ["BEŞTEPE YEMEK", "ESKİ YEMEK"])
+        self.assertIn("2025/2", ctx.card_pool)
+
+    def test_idare_verilmezse_duzgun_hata(self):
+        self.assertFalse(TOOL_IMPL["idare_yuklenicileri"](_ctx())["ok"])

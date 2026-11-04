@@ -107,7 +107,15 @@ def ihale_kaydet_oner(ctx, ikn=None, klasor=None, **_):
 
 
 # ── Alarm kur ──────────────────────────────────────────
-def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, **_):
+def _alarm_icerigi(ihale_gunu, sonuclaninca, kurul_karari):
+    """Kartta kullanıcının neye onay verdiği açıkça yazsın."""
+    parcalar = [ad for ad, acik in (("ihale günü", ihale_gunu),
+                                     ("sonuçlanınca", sonuclaninca),
+                                     ("KİK kurul kararı", kurul_karari)) if acik]
+    return f" ({', '.join(parcalar)} bildirimi)" if parcalar else ""
+
+
+def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, sonuclaninca=True, kurul_karari=False, **_):
     kart, hata = _ihale_coz(ctx, ikn)
     if hata:
         return hata
@@ -122,10 +130,16 @@ def alarm_kur_oner(ctx, ikn=None, ihale_gunu=True, **_):
             "tender_title": (kart.get("ihale_adi") or "")[:500],
             "institution": (kart.get("idare_adi") or "")[:500],
             "reminder_day": bool(ihale_gunu),
+            # ⚠️ "İhale Sonuçlandı" bildirimi. Eskiden hiç gönderilmiyordu (model
+            # varsayılanı False) → model "sonuçlanınca haber alırsın" diyip sonuç
+            # bildirimi KAPALI alarm kuruyordu (sohbet analizi 2026-11-04).
+            "completed": bool(sonuclaninca),
+            "kurul_karar": bool(kurul_karari),
             # Doküman alarmı kaldırıldı (bkz. `tenders.tasks._detect_alarm_events`).
             "document_change": False,
         },
-        f"“{(kart.get('ihale_adi') or kart['ikn'])[:90]}” için alarm kurayım mı?",
+        f"“{(kart.get('ihale_adi') or kart['ikn'])[:90]}” için alarm kurayım mı?"
+        + _alarm_icerigi(ihale_gunu, sonuclaninca, kurul_karari),
     )
 
 

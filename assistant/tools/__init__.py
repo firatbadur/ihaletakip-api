@@ -10,7 +10,7 @@ Parametre adları bilerek `ekap.views.apply_tender_filters` ile birebir aynıdı
 ürettiği sözlük çevrilmeden geçirilir. Ara çeviri katmanı = zamanla ayrışan ikinci
 gerçek kaynağı.
 """
-from . import read, write
+from . import dt, read, write
 
 # Yalnızca sık kullanılan filtreler şemada; tamamı ~40 parametre ve hepsini yazmak
 # cache önekini gereksiz şişirir. Model bilmediği bir filtreye ihtiyaç duyarsa
@@ -238,6 +238,12 @@ _ALARM_KUR = {
         "properties": {
             "ikn": {"type": "string"},
             "ihale_gunu": {"type": "boolean", "description": "İhale günü hatırlat."},
+            "sonuclaninca": {"type": "boolean",
+                             "description": ("İhale sonuçlanınca (kazanan belli olunca) "
+                                             "bildir. Varsayılan AÇIK. \"Kim aldığını "
+                                             "öğrenmek istiyorum\" diyen kullanıcı için şart.")},
+            "kurul_karari": {"type": "boolean",
+                             "description": "Bu ihale için KİK uyuşmazlık kararı yayımlanınca bildir."},
             # ⚠️ "Doküman değişince bildir" seçeneği yok (2026-10-27'de kaldırıldı) —
             # model kullanıcıya artık çalışmayan bir bildirimi vaat etmesin.
         },
@@ -411,6 +417,48 @@ _IDARE_FAVORI = {
     },
 }
 
+_DT_ARA = {
+    "name": "dogrudan_temin_ara",
+    "description": (
+        "Doğrudan temin (DT, 4734/22) alımlarını arar — uygulamanın Doğrudan sekmesindeki "
+        "veri. Varsayılan: şu an teklif verilebilir olanlar, son teklif tarihi en yakın "
+        "önce. \"Doğrudan temin\" geçen her soruda bunu kullan; ihale_ara DT'leri içermez."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string", "description": "Alım adı ya da idare adında arar."},
+            "il_id": {"type": "array", "items": {"type": "integer"},
+                      "description": "EKAP il id'si (245-325), ihale_ara ile aynı. PLAKA DEĞİL."},
+            "tur": {"type": "array", "items": {"type": "integer"},
+                    "description": "1 Mal, 2 Yapım, 3 Hizmet, 4 Danışmanlık."},
+            "son_teklif_max": {"type": "string", "description": "YYYY-AA-GG; bu tarihe kadar son teklifi olanlar."},
+            "sadece_acik": {"type": "boolean", "description": "false → süresi dolmuşlar da (yalnızca son ~30 gün)."},
+            "order": {"type": "string", "enum": ["son_teklif", "yeni"]},
+            "page_size": {"type": "integer", "description": "En çok 15."},
+        },
+    },
+}
+
+_IDARE_YUKLENICILERI = {
+    "name": "idare_yuklenicileri",
+    "description": (
+        "Bir idarenin EN SON imzaladığı sözleşmeler (yüklenici, tarih, bedel), en yeni "
+        "başta. \"X'in yemek işini şu an kim yapıyor\", \"bu idarede son işi kim aldı\" "
+        "soruları için TEK çağrı. (idare_profili toplam paya göre sıralar, bu tarihe göre.)"
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "idare_id": {"type": "string", "description": "Yaprak idare (idare_ara sonucundan)."},
+            "idare_detsis": {"type": "string", "description": "Üst kurum; alt birimleri kapsar."},
+            "konu": {"type": "string", "description": "İhale adında aranır, ör. \"yemek\"."},
+            "okas_kod": {"type": "string", "description": "OKAS kod öneki."},
+            "limit": {"type": "integer", "description": "En çok 8."},
+        },
+    },
+}
+
 _KAYIT_SIL = {
     "name": "kayit_sil_oner",
     "description": (
@@ -453,6 +501,9 @@ TOOL_SPECS = [
     _FIRMA_TAKIP,
     _IDARE_FAVORI,
     _KAYIT_SIL,
+    # ── 2026-11-04 sohbet analizi (sona eklendi) ──
+    _DT_ARA,
+    _IDARE_YUKLENICILERI,
 ]
 
 TOOL_IMPL = {
@@ -477,6 +528,8 @@ TOOL_IMPL = {
     "firma_takip_oner": write.firma_takip_oner,
     "idare_favori_oner": write.idare_favori_oner,
     "kayit_sil_oner": write.kayit_sil_oner,
+    "dogrudan_temin_ara": dt.dogrudan_temin_ara,
+    "idare_yuklenicileri": read.idare_yuklenicileri,
 }
 
 assert {t["name"] for t in TOOL_SPECS} == set(TOOL_IMPL), "TOOL_SPECS ve TOOL_IMPL ayrıştı"

@@ -372,7 +372,13 @@ akışıdır; `dokuman_analizi` yalnızca DAHA ÖNCE üretilmiş analizi getirir
 sorulursa uygulamadaki Dokümanlar ekranını tarif et.
 - **"Bu işi kim aldı"** → `ihale_detay` sonucundaki `sozlesmeler` listesi (kazanan \
 firma + bedel). Liste boşsa ihale henüz sonuçlanmamış ya da sonuç ilanı gelmemiştir; \
-"yüklenici adını göremiyorum" DEME, bunu söyle ve sonuçlanınca haber vermek için alarm öner.
+"yüklenici adını göremiyorum" DEME, bunu söyle ve `alarm_kur_oner` ile (sonuclaninca \
+açık) sonuçlanınca haber vermeyi öner. Kullanıcı aynı sonucu tekrar tekrar soruyorsa \
+alarm en doğru cevaptır.
+- **"X idaresinin işini şu an kim yapıyor"** → `idare_ara` sonra `idare_yuklenicileri` \
+(konu ile). Sözleşme süresi veride YOK: en yeni sözleşmenin tarihini yaz, "hâlâ devam \
+ediyor" diye kesin konuşma.
+- **Doğrudan temin** soruları → `dogrudan_temin_ara`. `ihale_ara` DT'leri içermez.
 - **İç işleyişini kullanıcıya anlatma**: "araç", "bütçe doldu", "token", "parametre", \
 "idare_ara", "null" gibi terimler KULLANMA. Bir şeyi doğrulayamadıysan "şu kısmını \
 doğrulayamadım" de.

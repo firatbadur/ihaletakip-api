@@ -756,12 +756,18 @@ def tekrar_eden_ihaleler(ctx, key=None, beklenen_gun=None, page_size=None, **par
             seri = RecurringTenderSeries.objects.filter(
                 seri_anahtar=t.seri_anahtar, idare_id=t.idare_id
             ).first()
-            gecmis = (
+            # ⚠️ `Tender`'da `sozlesme_bedeli_num` YOK (o `Contract` alanı). Eskiden
+            # `.only()` onu istiyordu ve bu kip seriye ait HER ihalede KeyError ile
+            # düşüyordu — yani cevabın değerli olduğu tek durumda (log: 2026-11-03/04).
+            gecmis = list(
                 Tender.objects.filter(seri_anahtar=t.seri_anahtar, idare_id=t.idare_id)
                 .exclude(pk=t.pk)
-                .only("ikn", "ekap_id", "ihale_adi", "ilan_tarihi", "sozlesme_bedeli_num")
-                .order_by("-ilan_tarihi")[:n]
+                .only("pk", "ikn", "ekap_id", "ihale_adi", "ilan_tarihi", "ihale_tarihi",
+                      "toplam_sozlesme_bedeli", "yaklasik_maliyet_num")
+                .order_by(F("ilan_tarihi").desc(nulls_last=True), "-pk")[:n]
             )
+            for g in gecmis:
+                ctx.kart_ekle(g)
             return butceye_sigdir({
                 "ok": True,
                 "seri": _seri_dict(seri) if seri else None,
@@ -770,10 +776,18 @@ def tekrar_eden_ihaleler(ctx, key=None, beklenen_gun=None, page_size=None, **par
                         "ikn": g.ikn,
                         "ihale_adi": kes(g.ihale_adi, 110),
                         "ilan_tarihi": g.ilan_tarihi.isoformat() if g.ilan_tarihi else None,
-                        "sozlesme_bedeli": para(g.sozlesme_bedeli_num),
+                        # Bu yılın YM'si açıklanmadığında en iyi vekil geçen yılınkidir.
+                        "yaklasik_maliyet": para(g.yaklasik_maliyet_num),
+                        "sozlesme_bedeli": para(g.toplam_sozlesme_bedeli),
+                        "kazanan": [x["yuklenici"] for x in _ihale_sozlesmeleri(g)[:2]],
                     }
                     for g in gecmis
                 ],
+                "not": (
+                    "Bu ihalenin yaklaşık maliyeti açıklanmamışsa geçmiş yılların "
+                    "yaklasik_maliyet'ini vekil olarak ver (enflasyonu not düş). Kazanan "
+                    "firma `kazanan` alanında."
+                ),
             }, "gecmis")
 
         qs = RecurringTenderSeries.objects.filter(aktif=True)

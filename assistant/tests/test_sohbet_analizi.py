@@ -352,3 +352,31 @@ class KelimeKelimeAramaTests(TestCase):
         sonuc = TOOL_IMPL["ihale_ara"](_ctx(), q="Emirdağ 104 dükkan")
         self.assertEqual(sonuc["toplam"], 0)
         self.assertIn("dükkan → işyeri", sonuc["not"])
+
+
+class TekrarEdenTekIhaleTests(TestCase):
+    """Seriye ait ihalede tek-ihale kipi KeyError ile düşüyordu (üretim log'u 2026-11-03)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import date as d
+
+        ortak = dict(seri_anahtar="s" * 40, idare_id="777", idare_adi="PENDİK BELEDİYESİ")
+        cls.bu_yil = Tender.objects.create(ekap_id="te-1", ikn="2026/1916586",
+                                           ihale_adi="Taziye İkram Seti Alımı", **ortak)
+        gecen = Tender.objects.create(ekap_id="te-2", ikn="2025/1668453", ihale_adi="Taziye İkram Seti",
+                                      ilan_tarihi=d(2025, 11, 6), yaklasik_maliyet_num=Decimal("4278750"),
+                                      toplam_sozlesme_bedeli=Decimal("3850000"), **ortak)
+        Contract.objects.create(tender=gecen, yuklenici_adi="İKRAM GIDA LTD",
+                                sozlesme_bedeli_num=Decimal("3850000"))
+
+    def test_gecen_yilin_ym_si_ve_kazanani_doner(self):
+        ctx = _ctx()
+        sonuc = TOOL_IMPL["tekrar_eden_ihaleler"](ctx, key="2026/1916586")
+        self.assertTrue(sonuc["ok"], sonuc)
+        g = sonuc["gecmis"][0]
+        self.assertEqual(g["ikn"], "2025/1668453")
+        self.assertEqual(g["yaklasik_maliyet"], "4278750.00")
+        self.assertEqual(g["sozlesme_bedeli"], "3850000.00")
+        self.assertEqual(g["kazanan"], ["İKRAM GIDA LTD"])
+        self.assertIn("2025/1668453", ctx.card_pool)

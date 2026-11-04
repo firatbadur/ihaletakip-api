@@ -3061,6 +3061,53 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   ⚠️ Blok **iki personada da** geçerli (`PERSONA_PROMPT` + `AGENT_PERSONA_PROMPT` aynı
   `_BICIM`'i kullanıyor) → araç döngüsü kapatılsa bile kural düşmez.
 
+### ⚠️⚠️ Sohbet analizi (2026-11-04) — asistanın "bilmiyorum" dediği yerler
+
+445 kullanıcı mesajı (13 Tem → 4 Kas, 43 kullanıcı) okundu. Çökme yok denecek kadar
+az (4 cevapsız, 3'ü iç test) ama cevapların **%11,2'si** "bulamadım / göremiyorum"
+diyordu ve çoğunda **veri elimizdeydi** — araç vermiyordu ya da prompt yanlıştı.
+Ölçüm aracı artık var: `python manage.py asistan_rapor [--gun N] [--haric 3,5]`
+(cevapsız, "bilgi yok" kalıbı, tur tavanı, niyet/araç kırılımı, 👎). Temel çizgi:
+120 gün / iç hesaplar hariç → 357 mesaj, %11,2 bilgi-yok, 13 tur tavanı.
+
+Düzeltilenler (hepsi `assistant/tests/test_sohbet_analizi.py`, dişli):
+- `ihale_detay` **kazanan firmayı** (`sozlesmeler`) döndürmüyordu → "yüklenici adını
+  göremiyorum" (Rize POMEM, Hazine-Maliye yemek; sözleşmeler DB'deydi).
+- `dokuman_sayisi` modele verilmez: mobil hat doldurmuyor, model "idare henüz
+  yüklememiş" diyordu (2026'da %91'i 0).
+- Onay kartı sınırı (`write.AZAMI_KART`=3) **araçta** uygulanır: eskiden 11 kart
+  "çıktı" denip 3'ü gösteriliyor, 12 satır sonsuza dek `bekliyor` kalıyordu.
+- `idare_ara` DETSIS'te olmayan idareyi ihale kayıtlarından da bulur
+  (`kaynak: ihale_kayitlari`, detsis_no yok → favori değil, idare_id ile filtre).
+- Ürün envanteri (`prompts._URUN_VE_EKAP`) mobil koddan doğrulanarak güncellendi:
+  Doğrudan Teminler, KİK kurul kararları, ihaletakip.com + giriş/şifre, firma profili
+  (Asistan ekranındaki firma adı), Kayıtlı İdareler'de arama YOK, Yardım & Destek.
+  ⚠️ Mobilde yeni ekran eklenince burayı da güncelleyin — uydurma ekran adı bu
+  analizdeki şikâyetlerin kendisiydi.
+- Yeni araçlar: `dogrudan_temin_ara` (`ekap.dt_sorgu` ile ortak tanım, EKAP'ı
+  tetiklemez — asistan "DT ilansız, sistemde yok" diyordu), `idare_yuklenicileri`
+  ("X'in işini şu an kim yapıyor", tarihe göre; 4-7 tur harcıyordu).
+- `alarm_kur_oner` artık `completed` (sonuçlanınca) **vars. açık** + `kurul_karar`:
+  eskiden asistan alarmı sonuç bildirimi KAPALI kuruluyordu, model "sonuçlanınca
+  haber alırsın" diyordu. ⚠️ `TenderAlarm.completed` "sonuçlanınca bildir"
+  aboneliğidir, "tamamlandı" DEĞİL (`kullanicinin_verisi` yaklaşanlar süzgeci bu
+  yüzden terse çalışıyordu → `completed_notified`).
+- İki araç çöküyordu (log'dan bulundu): `tekrar_eden_ihaleler` tek-ihale kipi
+  (`Tender`'da `sozlesme_bedeli_num` yok — seriye ait HER ihalede KeyError) ve
+  `kullanicinin_verisi` favori idareler (`FavoriteAuthority.name` yok, alan `ad`).
+  Teşhis: `docker compose logs --no-log-prefix assistant-worker | grep -E "başarısız|çöktü"`.
+- Fiyat analizi `anahtar` kademesi ihale türünü süzer (öğretmenevi yapımına "öğretmen"
+  hizmetleri giriyordu; 50 ihalenin 15'inde kümenin %20+'si farklı türdü).
+- Oturumlar arası hafıza: yeni sohbette son 48 saatin ihaleleri + son soru bağlama
+  girer (digest kartları hariç). `ihale_ara` boş dönerse kelime-kelime yedek arama.
+- Ölçüm: araç izi `usage.araclar`, hata dalında kullanıcı mesajına `payload.hata`,
+  `POST /assistant/messages/<id>/feedback/` (👍/👎 — **mobil düğmeler henüz yok**),
+  admin ChatMessage "sorun" filtresi.
+
+Açık kalanlar: doküman içeriği soruları (~20, kalem/miktar/ödeme/süre) — analiz ucu
+dosyayı istemciden bekliyor; asistandan analiz başlatmak mobil kart türü ister,
+sunucu tarafı indirme kullanıcı belge bütçesi kararı ister (ölçülmeden açılmamalı).
+
 ## Destek Yazışması (`core.SupportTicket` + `SupportMessage`, 2026-10-29)
 
 Eskiden admin `reply` alanına yazıyordu; ne bildirim gidiyordu ne de mobil gösteriyordu →

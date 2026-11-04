@@ -200,8 +200,11 @@
 - soru: "Avcılar Belediye Başkanlığı Fen İşleri Müdürlüğü'nün ihalelerine bak"
   arac_bekle: [idare_ara]
   icermeli: []
-  icermemeli: ["**", "bulamadım", "kayıt yok"]
-  kart_bekle: 1
+  icermemeli: ["**", "bulamadım", "kayıt yok", "kayıtlı değil"]
+  kart_bekle: 0
   not: >
     DETSIS'te yok, ihaleleri idare_id=575 ile duruyor; idare_ara artık ihale
-    kayıtlarından da buluyor (kaynak: ihale_kayitlari).
+    kayıtlarından da buluyor (kaynak: ihale_kayitlari). ⚠️ kart_bekle 0 BİLİNÇLİ:
+    idarenin şu an açık ihalesi yok; model bazen ikinci kez "katılıma açık" arayıp
+    0 bulur ve dürüstçe "açık ihalesi yok, 126 ihale geçmişi var" der — doğru cevap.
+    Ölçülen şey idarenin BULUNMASI (eskiden dört kez "kayıt yok" deniyordu).

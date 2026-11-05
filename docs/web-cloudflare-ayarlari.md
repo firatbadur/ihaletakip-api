@@ -16,7 +16,7 @@
 | **Super Bot Fight Mode** | Otomasyon araçlarına (curl, HeadlessChrome, script) challenge | ✅ test edildi |
 | **Cloudflare Managed Ruleset** | Bilinen saldırı kalıplarını keser | ✅ açık |
 | Custom rule: **Sunucu istekleri — bot korumasından muaf** | API sunucusunun `/api/revalidate` çağrısı bot korumasına takılmaz | ✅ test edildi |
-| Yapay zekâ botları | Arama/asistan botları açık; model eğitim botları ve veri satıcıları kapalı | ⏳ yapılıyor |
+| Yapay zekâ botları | Arama/asistan botları açık; model eğitim botları ve veri satıcıları kapalı | ✅ uygulandı |
 | Custom rule: **Veri merkezi ağları** | Bulut/barındırma ASN'lerinden gelene challenge | ✅ test edildi |
 | Origin kilidi | Sunucunun 443'ü yalnızca Cloudflare'e açık | ✅ (§7) |
 
@@ -110,7 +110,7 @@ isteğinde gizli anahtar yoktu), challenge yok. Aynı sunucudan `/ihaleler` → 
   metinleri saldırı sanıp gerçek kullanıcıyı engelleyebilir. Açılırsa en düşük
   hassasiyetle ve Security Events izlenerek açılmalı.
 
-## 5. Yapay zekâ botları (AI Crawl Control) — yapılıyor
+## 5. Yapay zekâ botları (AI Crawl Control)
 
 Ürün kararı (2026-10-28, 2026-11-05'te yeniden onaylandı): ihaletakip.com yapay zekâ
 **arama ve asistan** cevaplarında kaynak gösterilebilsin (GEO). **Model eğitimine** ve veri
@@ -128,7 +128,12 @@ satıcılarına içerik verilmez.
 - `robots.txt` Cloudflare tarafından yönetiliyor ("Bot Preference Sync"). Web'in kendi
   `robots.txt`'inin başına Cloudflare'in bölümü ekleniyor. İki bölüm aynı listeyi
   söylemeli: aynı bot için iki grup birleşir ve sonuç bota göre değişir.
-- Ayar bitince `robots.txt` çıktısı web ekibiyle birlikte kontrol edilir.
+- Panel ayarı (Security → Settings → AI Crawler and Agent access policies): Search = Allow,
+  Training = Disallow, Agents = Allow, Bot Preference Sync açık. Canlı `robots.txt`'te
+  eğitim botları `Disallow: /` olarak görünüyor (2026-11-05).
+- ⚠️ Web'in kendi bölümündeki eğitim botu grubu (`Allow: /` + kısmi yasak) Cloudflare'in
+  `Disallow: /`'u ile birleşir ve izin kazanır. O grup kaldırılmalı
+  (`docs/web-portal-istekleri-8-yanit.md` #31).
 
 ## 6. Veri merkezi ağları (Security rules → Custom rules)
 

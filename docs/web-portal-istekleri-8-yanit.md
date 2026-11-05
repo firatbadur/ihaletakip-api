@@ -9,7 +9,7 @@
 | #28 | Hesap başına farklı IP / UA | ✅ yapıldı | yok |
 | #29 | Cloudflare dışından gelen trafik | ✅ yanıt + düzeltme | yok |
 | #30 | Hız kuralına girişli liste yolları | ✅ yapıldı, test edildi | yok |
-| #31 | AI Crawl Control: eğitim botları kapalı | ⏳ Cloudflare panelinde uygulanıyor | `robots.txt` çıktısını birlikte kontrol |
+| #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | **kendi eğitim botu grubunuzu `robots.ts`'ten kaldırın** |
 | #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ ASN kuralı test edildi · ⏳ ön onay | yok |
 
 Panel adımları bitince #30–#32 için test sonuçlarıyla bu not güncellenecek.
@@ -123,18 +123,48 @@ istemci sertifikası doğrulaması yanlış kurulursa API ve web birlikte düşe
 - **Test (2026-11-05):** Chrome TLS parmak izli istemciyle `/idareler`'e art arda 45 istek
   atıldı. İlk 39'u 200 döndü, sonrakiler `429` + `cf-mitigated: challenge` aldı.
 
-## #31 AI Crawl Control: eğitim botları kapalı ⏳
+## #31 AI Crawl Control: eğitim botları kapalı ✅ (web'den bir düzeltme gerekiyor)
 
 Kararınız doğru; bizim notumuzdaki tablo (`web-cloudflare-ayarlari.md` §5) yanlıştı ve
 düzeltildi.
 
-- Açık: Googlebot, Bingbot, Applebot, OAI-SearchBot, ChatGPT-User, Claude-SearchBot,
-  Claude-User, PerplexityBot, Perplexity-User.
-- Kapalı: GPTBot, ClaudeBot, anthropic-ai, CCBot, Google-Extended, Applebot-Extended,
-  Bytespider, meta-externalagent, Amazonbot, Diffbot, omgili.
+**Cloudflare ayarı (uygulandı):**
 
-Cloudflare'de ayar bitince `robots.txt` çıktısını size göndereceğiz. Birlikte kontrol
-ederiz.
+| Kategori | Ayar |
+|---|---|
+| Search | Allow |
+| Training | Disallow |
+| Agents | Allow |
+| Bot Preference Sync | açık |
+
+**Canlı `robots.txt` (2026-11-05):** Cloudflare bölümü şunları içeriyor:
+
+- Genel satır `Content-Signal: search=yes,ai-train=no,use=reference` ve `Allow: /`.
+- Şu eğitim botlarının her biri için `Disallow: /`: GPTBot, ClaudeBot, anthropic-ai,
+  Google-Extended, Applebot-Extended, CCBot, Bytespider, meta-externalagent, Amazonbot,
+  Diffbot, omgili. Cloudflare bunlara ek olarak cohere-ai, MistralAI-Training, GoogleOther
+  gibi başka eğitim botlarını da kapatıyor.
+- Arama ve asistan botları (OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-User,
+  PerplexityBot, Perplexity-User) engellenmiyor.
+
+**⚠️ Sizden istenen: kendi eğitim botu grubunuzu kaldırın.**
+
+Sizin bölümünüzde aynı 11 bot için ayrı bir grup var. O grup `Allow: /` ile başlıyor ve
+yalnızca `/ihale/`, `/ihaleler` ve özel yolları yasaklıyor. Cloudflare'in grubu ise aynı
+botlara `Disallow: /` diyor.
+
+Bir bot için iki grup olunca kurallar birleşiyor. Google'ın kuralına göre eşit uzunluktaki
+`Allow: /` ile `Disallow: /` çakışmasında izin kazanıyor. Sonuçta bu botlar anasayfayı ve
+blogu eğitim için okuyabiliyor. Notunuzda uyardığınız çelişki tam olarak bu.
+
+Eğitim botlarını artık Cloudflare'in bölümü tamamen kapatıyor. Sizin
+`User-Agent: GPTBot … omgili` grubunuz `src/app/robots.ts`'ten kaldırılmalı. Genel
+`User-Agent: *` bölümünüz aynen kalabilir.
+
+Yayından sonra `robots.txt` çıktısına birlikte bakalım.
+
+Not: Cloudflare'in "Disallow" ayarı yalnızca `robots.txt`'e yazar, isteği kesmez. Kuralı
+tanımayan botları (ör. Bytespider) Super Bot Fight Mode ve hız kuralları yakalar.
 
 ## #32 Veri merkezi ASN'si + Turnstile ön onayı ⏳
 

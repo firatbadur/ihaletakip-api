@@ -585,3 +585,21 @@ class IzlemeSayaclariTest(TestCase):
         r = self.client.get("/admin/guvenlik/")
         self.assertContains(r, "Web önbellek dolumu")
         self.assertContains(r, "İKN araması · boş")
+
+
+class MobilKimlikTest(TestCase):
+    """Gerçek mobil uygulama kimlikleri otomasyon sayılmamalı (Android = okhttp)."""
+
+    def test_android_ve_ios_uygulama_kimligi_otomasyon_degil(self):
+        for ua in ("okhttp/4.9.2",
+                   "IhaleTakip/2910262149 CFNetwork/3860.600.12 Darwin/25.5.0"):
+            self.assertIsNone(guvenlik.OTOMASYON_UA.search(ua), ua)
+
+    def test_yeni_android_hesabi_kota_dolunca_ASKIYA_ALINMAZ(self):
+        cache.clear()
+        u = User.objects.create_user(username="android", email="a@firma.com.tr", password="x")
+        cache.set(K._anahtar(f"u:{u.pk}", "g"), 10, 3600)   # "yeni" günlük kota dolu
+        satir = {"kimlik": f"u:{u.pk}", "istek": 120, "red": 0, "ua": "okhttp/4.9.2",
+                 "ip": "81.214.75.7"}
+        with mock.patch("core.guvenlik_izleme.en_yogun", return_value=[satir]):
+            self.assertEqual(guvenlik.otomatik_aski(), [])

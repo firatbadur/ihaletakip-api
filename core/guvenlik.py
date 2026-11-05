@@ -323,9 +323,15 @@ def hesap_engeli(kullanici):
 
 
 # ── Şüphe puanı + otomatik askı ───────────────────────
+# ⚠️⚠️ `okhttp` BURADA OLAMAZ: Android uygulamamız API'ye `okhttp/4.9.2` kimliğiyle geliyor
+# (React Native varsayılanı, üretimde ölçüldü 2026-11-05). Listede olsaydı yeni bir Android
+# hesabı yalnızca "yeni hesap (2) + otomasyon (3)" ile askı eşiğine (5) ulaşır, ilk gününde
+# 10 DT ayrıntısı açınca 24 saat askıya alınırdı. iOS `IhaleTakip/<build> CFNetwork/…`.
+# Mobil uygulamanın kimliğine benzeyen bir şeyi buraya eklemeden önce panelde gerçek
+# mobil UA'lara bakın (`/admin/guvenlik/`, istemci "mobil/API").
 OTOMASYON_UA = re.compile(
     r"headless|curl/|wget|python-requests|python-urllib|aiohttp|httpx|scrapy|go-http|"
-    r"java/|okhttp/[0-9.]+$|phantom|selenium|playwright|puppeteer|node-fetch|axios/",
+    r"java/|phantom|selenium|playwright|puppeteer|node-fetch|axios/",
     re.I)
 
 

@@ -10,9 +10,10 @@
 | #29 | Cloudflare dışından gelen trafik | ✅ yanıt + düzeltme | yok |
 | #30 | Hız kuralına girişli liste yolları | ✅ yapıldı, test edildi | yok |
 | #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | **kendi eğitim botu grubunuzu `robots.ts`'ten kaldırın** |
-| #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ ASN kuralı test edildi · ⏳ ön onay | yok |
+| #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ yapıldı | yok |
 
-Panel adımları bitince #30–#32 için test sonuçlarıyla bu not güncellenecek.
+#30–#32 Cloudflare panelinde uygulandı (2026-11-05). Web'den beklenen tek iş #31'deki
+`robots.ts` düzeltmesi ve #27'deki 429 ele alımı.
 
 ---
 
@@ -171,7 +172,10 @@ tanımayan botları (ör. Bytespider) Super Bot Fight Mode ve hız kuralları ya
 - ✅ Custom rule önerdiğiniz ifadeyle, Managed Challenge eylemiyle eklendi. Sırada blog
   yenileme istisnasının **altında**, yani ikinci kural. API sunucusu da Contabo'da
   (AS51167), `/api/revalidate` istisnası bu yüzden önde kalıyor.
-- ⏳ Turnstile widget'ında Pre-clearance = Managed açılıyor.
+- ✅ Turnstile widget'ında (`web-widget`) ön onay açıldı ("Skip future security rule
+  challenges for verified visitors"), mod Managed. Sitedeki kutuyu çözen kullanıcı, Cloudflare'in
+  challenge'ını Challenge Passage süresince (varsayılan 30 dk) yeniden görmez. Site key ve
+  secret key değişmedi; web'de bir şey yapmanız gerekmiyor.
 - **Test (2026-11-05):** aynı istemci (Chrome TLS parmak izi) kullanıldı.
   - Ev bağlantısından `/` → 200.
   - Contabo'daki sunucumuzdan `/` → 403 + `cf-mitigated: challenge`.

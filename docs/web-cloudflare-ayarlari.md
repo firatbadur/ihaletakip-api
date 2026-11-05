@@ -2,7 +2,7 @@
 
 > **Okuyucu:** web portalı ekibi (`ihaletakip-web`) · **Hazırlayan:** `ihaletakip-api` ·
 > **Tarih:** 2026-11-05 (8. not yanıtıyla güncellendi) · **Durum:** §1–§4 uygulandı ve test
-> edildi; §1 yeni yollar ve §6 ASN kuralı test edildi; §5 ve Turnstile ön onayı uygulanıyor. Bağlam: `docs/web-guvenlik-sayfa-siniri.md`
+> edildi; §1 yeni yollar, §5 yapay zekâ botları, §6 ASN kuralı ve Turnstile ön onayı uygulandı. Bağlam: `docs/web-guvenlik-sayfa-siniri.md`
 > #26 madde 1–2, `docs/web-portal-istekleri-8-yanit.md`.
 
 ## Özet
@@ -152,7 +152,7 @@ and ip.src.asnum in {16509 14618 396982 8075 24940 16276 14061 51167 63949 20473
   içinde.
 - Test: aynı Chrome TLS parmak izli istemci ev bağlantısından 200, Contabo'dan challenge
   aldı. Contabo'dan `/api/revalidate` challenge'a takılmadı.
-- ⏳ **Turnstile → widget → Pre-clearance: Managed.** Sitedeki "robot değilim" kutusunu
+- ✅ **Turnstile → `web-widget` → ön onay açık, mod Managed.** Sitedeki "robot değilim" kutusunu
   (API 428) çözen kullanıcı `cf_clearance` alır ve Cloudflare'in challenge'ını bir süre
   yeniden görmez.
 

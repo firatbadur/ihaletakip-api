@@ -2,7 +2,7 @@
 
 > **Okuyucu:** web portalı ekibi (`ihaletakip-web`) · **Hazırlayan:** `ihaletakip-api` ·
 > **Tarih:** 2026-11-05 (8. not yanıtıyla güncellendi) · **Durum:** §1–§4 uygulandı ve test
-> edildi; §1'deki yeni yollar, §5 ve §6 uygulanıyor. Bağlam: `docs/web-guvenlik-sayfa-siniri.md`
+> edildi; §1 yeni yollar ve §6 ASN kuralı test edildi; §5 ve Turnstile ön onayı uygulanıyor. Bağlam: `docs/web-guvenlik-sayfa-siniri.md`
 > #26 madde 1–2, `docs/web-portal-istekleri-8-yanit.md`.
 
 ## Özet
@@ -17,7 +17,7 @@
 | **Cloudflare Managed Ruleset** | Bilinen saldırı kalıplarını keser | ✅ açık |
 | Custom rule: **Sunucu istekleri — bot korumasından muaf** | API sunucusunun `/api/revalidate` çağrısı bot korumasına takılmaz | ✅ test edildi |
 | Yapay zekâ botları | Arama/asistan botları açık; model eğitim botları ve veri satıcıları kapalı | ⏳ yapılıyor |
-| Custom rule: **Veri merkezi ağları** | Bulut/barındırma ASN'lerinden gelene challenge | ⏳ yapılıyor |
+| Custom rule: **Veri merkezi ağları** | Bulut/barındırma ASN'lerinden gelene challenge | ✅ test edildi |
 | Origin kilidi | Sunucunun 443'ü yalnızca Cloudflare'e açık | ✅ (§7) |
 
 Mobil uygulama bu ayarlardan etkilenmez: API ayrı bir zone'da (`ihale-takip.envisoft.com.tr`).
@@ -41,7 +41,9 @@ and not (http.request.uri.query contains "_rsc=")
 
 - Sayaç: IP başına, **40 istek / 1 dakika** → **Managed Challenge**.
 - `/ihale` hem `/ihaleler`'i hem `/ihale/<ikn>`'i kapsar. `/yuklenici` firma listesi ve
-  sayfasını, `/idare` idareler ve idare sayfasını kapsar (8. not #30, ⏳ eklenmekte).
+  sayfasını, `/idare` idareler ve idare sayfasını kapsar (8. not #30). Pro planda en fazla iki
+  hız kuralı var ve ikisi dolu: yeni yollar bu kurala eklenir, yeni kural açılamaz.
+- Test (8. not #30): `/idareler`'e 45 istek → 39 × 200, sonrası `429` challenge.
 - `_rsc=` istekleri sayılmaz. Next.js'in sayfa içi gezinme ve önceden yükleme istekleri
   sayılırsa normal kullanıcı da kurala takılırdı; böylece yalnızca tam sayfa açılışları
   sayılıyor.
@@ -128,7 +130,7 @@ satıcılarına içerik verilmez.
   söylemeli: aynı bot için iki grup birleşir ve sonuç bota göre değişir.
 - Ayar bitince `robots.txt` çıktısı web ekibiyle birlikte kontrol edilir.
 
-## 6. Veri merkezi ağları (Security rules → Custom rules) — yapılıyor
+## 6. Veri merkezi ağları (Security rules → Custom rules)
 
 ```
 (not cf.client.bot)
@@ -143,7 +145,9 @@ and ip.src.asnum in {16509 14618 396982 8075 24940 16276 14061 51167 63949 20473
 - Google'ın ana ağı (15169) bilerek yok: çeviri ve önizleme vekilleri oradan gelir.
 - API sunucusu da Contabo'da (AS51167). `/api/revalidate` istisnası bu yüzden ifadenin
   içinde.
-- **Turnstile → widget → Pre-clearance: Managed.** Sitedeki "robot değilim" kutusunu
+- Test: aynı Chrome TLS parmak izli istemci ev bağlantısından 200, Contabo'dan challenge
+  aldı. Contabo'dan `/api/revalidate` challenge'a takılmadı.
+- ⏳ **Turnstile → widget → Pre-clearance: Managed.** Sitedeki "robot değilim" kutusunu
   (API 428) çözen kullanıcı `cf_clearance` alır ve Cloudflare'in challenge'ını bir süre
   yeniden görmez.
 

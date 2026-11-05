@@ -8,9 +8,9 @@
 | #27 | Dolum kovasında İKN araması ayrı bütçe | ✅ yapıldı | 429 ele alımı (aşağıda) |
 | #28 | Hesap başına farklı IP / UA | ✅ yapıldı | yok |
 | #29 | Cloudflare dışından gelen trafik | ✅ yanıt + düzeltme | yok |
-| #30 | Hız kuralına girişli liste yolları | ⏳ Cloudflare panelinde uygulanıyor | yok |
+| #30 | Hız kuralına girişli liste yolları | ✅ yapıldı, test edildi | yok |
 | #31 | AI Crawl Control: eğitim botları kapalı | ⏳ Cloudflare panelinde uygulanıyor | `robots.txt` çıktısını birlikte kontrol |
-| #32 | Veri merkezi ASN'si + Turnstile ön onayı | ⏳ Cloudflare panelinde uygulanıyor | yok |
+| #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ ASN kuralı test edildi · ⏳ ön onay | yok |
 
 Panel adımları bitince #30–#32 için test sonuçlarıyla bu not güncellenecek.
 
@@ -113,10 +113,15 @@ ve bizim kurallarımız ona uygulanmaz. Bunu kapatan şey zone'a özel sertifika
 Authenticated Origin Pulls. Bu ayrı ve kontrollü bir adım olarak sonra yapılacak: nginx'te
 istemci sertifikası doğrulaması yanlış kurulursa API ve web birlikte düşer.
 
-## #30 Hız kuralına girişli liste yolları ⏳
+## #30 Hız kuralına girişli liste yolları ✅
 
-"Sayfa tarama sınırı" kuralına `/yuklenici`, `/idare`, `/kurul-kararlari` ve `/bildirimler`
-önekleri ekleniyor. Bitince kısa bir sınama yapılıp sonuç buraya yazılacak.
+- "Sayfa tarama sınırı" kuralına `/yuklenici`, `/idare`, `/kurul-kararlari` ve `/bildirimler`
+  önekleri eklendi.
+- Pro planda en fazla iki hız kuralı açılabiliyor ve ikisi de dolu. Bu yüzden yeni kural
+  açılmadı, mevcut kural genişletildi; sınır yine IP başına dakikada 40 sayfa. Yeni bir
+  liste sayfası eklerseniz yolunu bildirin, aynı kurala ekleriz.
+- **Test (2026-11-05):** Chrome TLS parmak izli istemciyle `/idareler`'e art arda 45 istek
+  atıldı. İlk 39'u 200 döndü, sonrakiler `429` + `cf-mitigated: challenge` aldı.
 
 ## #31 AI Crawl Control: eğitim botları kapalı ⏳
 
@@ -133,10 +138,13 @@ ederiz.
 
 ## #32 Veri merkezi ASN'si + Turnstile ön onayı ⏳
 
-- Custom rule önerdiğiniz ifadeyle, Managed Challenge eylemiyle ekleniyor. Sırada blog
+- ✅ Custom rule önerdiğiniz ifadeyle, Managed Challenge eylemiyle eklendi. Sırada blog
   yenileme istisnasının **altında**, yani ikinci kural. API sunucusu da Contabo'da
   (AS51167), `/api/revalidate` istisnası bu yüzden önde kalıyor.
-- Turnstile widget'ında Pre-clearance = Managed açılıyor.
-- Sınama planı:
-  - Contabo'daki sunucumuzdan `/` → challenge beklenir.
-  - `/api/revalidate` → sizin kendi 401'iniz beklenir.
+- ⏳ Turnstile widget'ında Pre-clearance = Managed açılıyor.
+- **Test (2026-11-05):** aynı istemci (Chrome TLS parmak izi) kullanıldı.
+  - Ev bağlantısından `/` → 200.
+  - Contabo'daki sunucumuzdan `/` → 403 + `cf-mitigated: challenge`.
+  - Aynı sunucudan `/api/revalidate` → challenge yok, sizin kendi yanıtınız (GET'e 405).
+- Not: düz `curl` artık her yerden Super Bot Fight Mode'a takılıyor. Bu kuralları sınamak
+  için tarayıcı TLS parmak izi gerekiyor.

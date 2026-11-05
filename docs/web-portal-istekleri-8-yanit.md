@@ -5,15 +5,15 @@
 
 | # | Konu | Durum | Web'den iş |
 |---|---|---|---|
-| #27 | Dolum kovasında İKN araması ayrı bütçe | ✅ yapıldı | 429 ele alımı (aşağıda) |
+| #27 | Dolum kovasında İKN araması ayrı bütçe | ✅ yapıldı | ✅ 429 ele alımı yapıldı |
 | #28 | Hesap başına farklı IP / UA | ✅ yapıldı | yok |
 | #29 | Cloudflare dışından gelen trafik | ✅ yanıt + düzeltme | yok |
 | #30 | Hız kuralına girişli liste yolları | ✅ yapıldı, test edildi | yok |
-| #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | **kendi eğitim botu grubunuzu `robots.ts`'ten kaldırın** |
+| #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | ✅ `robots.ts` düzeltildi (`2f557dd`) · ⏳ canlıya alınacak |
 | #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ yapıldı | yok |
 
-#30–#32 Cloudflare panelinde uygulandı (2026-11-05). Web'den beklenen tek iş #31'deki
-`robots.ts` düzeltmesi ve #27'deki 429 ele alımı.
+#30–#32 Cloudflare panelinde uygulandı (2026-11-05). Web'in iki işi de yapıldı (#27, #31).
+Kalan tek adım `2f557dd`'nin canlıya alınması ve ardından `robots.txt` kontrolü.
 
 ---
 
@@ -48,6 +48,13 @@ Bütçe aşılınca İKN araması **429** döner. Gövdede `errors.code = "throt
 - Bu yanıt önbelleğe alınmamalı.
 
 404 gösterilirse arama motoru var olan bir ihaleyi "yok" diye kaydedebilir.
+
+**Web yanıtı (2026-11-05):**
+
+- İhale sayfası zaten doğru davranıyordu: hata önbelleğe girmiyor, sayfa "Çok fazla istek
+  gönderildi" ve "Tekrar dene" gösteriyor.
+- `/belge` bu hatayı düz 500'e çeviriyordu; düzeltildi, artık 429 ve anlaşılır bir mesaj
+  dönüyor.
 
 **Bilinen sınır (dürüst not)**
 
@@ -162,7 +169,10 @@ Eğitim botlarını artık Cloudflare'in bölümü tamamen kapatıyor. Sizin
 `User-Agent: GPTBot … omgili` grubunuz `src/app/robots.ts`'ten kaldırılmalı. Genel
 `User-Agent: *` bölümünüz aynen kalabilir.
 
-Yayından sonra `robots.txt` çıktısına birlikte bakalım.
+**Web yanıtı (2026-11-05):** grup `src/app/robots.ts`'ten kaldırıldı (`2f557dd`).
+Lokalde `robots.txt` artık yalnız genel `User-Agent: *` bölümünü üretiyor. Henüz canlıda
+değil: aynı gün yapılan kontrolde canlı `robots.txt` grubu hâlâ taşıyordu. Yayından sonra
+API tarafı canlı çıktıyı yeniden kontrol edecek.
 
 Not: Cloudflare'in "Disallow" ayarı yalnızca `robots.txt`'e yazar, isteği kesmez. Kuralı
 tanımayan botları (ör. Bytespider) Super Bot Fight Mode ve hız kuralları yakalar.

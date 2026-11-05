@@ -94,6 +94,26 @@ if [ "$ok" -ne 1 ]; then
   err "/health/ hâlâ yanıt vermiyor. Log: 'docker compose logs -f web'"
 fi
 
+# ⚠️⚠️ /health/ yalnızca web'i ölçer. 2026-11-05'te yeniden derleme kombu'yu 5.7'ye çekti,
+# tüm Celery worker'ları + beat açılışta çöküp yeniden başlamaya girdi ve /health/ 200
+# dönmeye devam etti → asistan sohbeti ~1 saat 500 verdi, arka plan işleri durdu.
+# Worker'lar ilk saniyelerde "Up" görünüp sonra düşer → biraz bekleyip iki kez bakılır.
+say "Worker kontrolü (çökme döngüsü var mı)"
+sleep 20
+cokenler=""
+for tur in 1 2; do
+  cokenler=$(dc ps -a --format '{{.Service}} {{.State}} {{.Status}}' \
+    | awk '$2!="running" || $0 ~ /Restarting/ {print $1}' | sort -u | tr '\n' ' ')
+  [ -z "$cokenler" ] && break
+  sleep 15
+done
+if [ -n "$cokenler" ]; then
+  err "Çalışmayan / yeniden başlayan servis: $cokenler"
+  err "Log: 'docker compose ... logs --tail 50 <servis>'"
+else
+  echo "  ✓ tüm servisler çalışıyor"
+fi
+
 say "Güncelleme tamamlandı."
 
 if [ "${1:-}" = "--logs" ]; then

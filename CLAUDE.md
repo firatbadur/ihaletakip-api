@@ -4610,6 +4610,11 @@ Amacı iki şey: **geri dönüş yolu** ve **Türkiye'de kalan son veri kopyası
   ⚠️ `docker compose start <servis>` mevcut konteyneri başlatır, **yeni imajı almaz**;
   `docker compose build <servis> && docker compose up -d <servis>` gerekir. Paralel build
   bu makinede (8 GB) `EOF` ile düşebiliyor → servisleri **tek tek** kurun.
+- ⚠️⚠️ **BAĞIMLILIKLAR SABİT OLMALI — yeniden derleme sessizce sürüm yükseltir** (2026-11-05):
+  `celery==5.4.0` "kombu<6" kabul ediyordu; deploy yeniden derlerken kombu 5.7 geldi (redis-py
+  ≥6.1 istiyor, bizde 5.2.1) → tüm worker'lar + beat çökme döngüsüne girdi, asistan sohbeti
+  ve profil kaydı ~1 saat **500** verdi, `/health/` ise 200 dönmeye devam etti. `kombu==5.6.2`
+  sabitlendi. `install.sh` artık deploy sonunda çökme döngüsündeki servisleri raporlar.
 - **⚡ Güncelleme betiği `install.sh`** (repo kökü): tek komutla `git pull --ff-only` +
   `docker compose up -d --build` + servis durumu + `/health/` doğrulaması yapar → her
   seferinde elle uğraşmaya gerek yok. `./install.sh` (normal), `./install.sh --logs`

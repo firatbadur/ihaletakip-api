@@ -33,3 +33,11 @@ def guvenlik_olay_temizligi(gun: int = 90):
     silinen, _ = GuvenlikOlayi.objects.filter(
         zaman__lt=timezone.now() - timedelta(days=gun)).delete()
     return {"silinen": silinen}
+
+
+@shared_task(name="core.tasks.otomatik_aski", ignore_result=True)
+def otomatik_aski():
+    """Açık sinyallerde 24 sa otomatik hesap askısı (`core.guvenlik.otomatik_aski`)."""
+    from .guvenlik import otomatik_aski as calistir
+
+    return {"askiya_alinan": calistir()}

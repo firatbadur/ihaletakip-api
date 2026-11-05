@@ -437,6 +437,14 @@ GUVENLIK_DOGRULAMA_MODU = env("GUVENLIK_DOGRULAMA_MODU", default="gozlem")
 GUVENLIK_DOGRULAMA_ESIK = env.json("GUVENLIK_DOGRULAMA_ESIK",
                                    default={"anonim": 100, "girisli": 150})
 GUVENLIK_DOGRULAMA_PENCERE_SN = env.int("GUVENLIK_DOGRULAMA_PENCERE_SN", default=600)
+# Otomatik hesap askısı (core.guvenlik.otomatik_aski, beat */5): hesap < YENI_SAAT +
+# şüphe puanı ≥ PUAN + (bugün ≥ ISTEK istek ya da EKAP kotası dolu) → SURE_SAAT askı.
+# Pro/staff/superuser asla. Kapatmak: GUVENLIK_OTOMATIK_ASKI=False (deploy'suz, env).
+GUVENLIK_OTOMATIK_ASKI = env.bool("GUVENLIK_OTOMATIK_ASKI", default=True)
+GUVENLIK_OTOMATIK_ASKI_PUAN = env.int("GUVENLIK_OTOMATIK_ASKI_PUAN", default=5)
+GUVENLIK_OTOMATIK_ASKI_ISTEK = env.int("GUVENLIK_OTOMATIK_ASKI_ISTEK", default=500)
+GUVENLIK_OTOMATIK_ASKI_YENI_SAAT = env.int("GUVENLIK_OTOMATIK_ASKI_YENI_SAAT", default=24)
+GUVENLIK_OTOMATIK_ASKI_SURE_SAAT = env.int("GUVENLIK_OTOMATIK_ASKI_SURE_SAAT", default=24)
 # Web e-posta kaydında Turnstile token'ı zorunlu mu? ⚠️ Web notu #23 yayılınca açın.
 TURNSTILE_KAYIT_ZORUNLU = env.bool("TURNSTILE_KAYIT_ZORUNLU", default=False)
 # Firma uçlarında para/oran alanlarını Free/anonim için SUNUCUDA maskele.

@@ -121,6 +121,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/10"),
         "options": {"expires": 540},
     },
+    # Açık sinyallerde 24 sa otomatik hesap askısı (yeni hesap + puan ≥ 5 + yoğun kullanım).
+    "core-otomatik-aski": {
+        "task": "core.tasks.otomatik_aski",
+        "schedule": crontab(minute="*/5"),
+        "options": {"expires": 240},
+    },
     # 90 günden eski güvenlik olaylarını sil (her gün 04:20)
     "core-guvenlik-olay-temizligi": {
         "task": "core.tasks.guvenlik_olay_temizligi",

@@ -328,3 +328,79 @@ class EngelTest(TestCase):
         # Özel ağ panelden de engellenemez.
         self.client.post("/admin/guvenlik/", {"tur": "ip", "ip": "172.19.0.1", "sure": "24s"})
         self.assertFalse(ErisimEngeli.objects.filter(deger="172.19.0.1").exists())
+
+
+HEADLESS = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "HeadlessChrome/156.0.0.0 Safari/537.36")
+CHROME = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/156.0.0.0 Safari/537.36"
+
+
+class OtomatikAskiTest(TestCase):
+    """Açık sinyallerde 24 sa otomatik askı (`guvenlik.otomatik_aski`)."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _hesap(self, ad, *, email=None, yeni=True, pro=False):
+        u = User.objects.create_user(username=ad, email=email or f"{ad}@firma.com.tr",
+                                     password="x")
+        alan = {}
+        if not yeni:
+            alan["date_joined"] = timezone.now() - timedelta(days=10)
+        if pro:
+            alan["subscription_tier"] = "pro"
+        if alan:
+            User.objects.filter(pk=u.pk).update(**alan)
+            u.refresh_from_db()
+        return u
+
+    def _calistir(self, *satirlar):
+        with mock.patch("core.guvenlik_izleme.en_yogun", return_value=list(satirlar)):
+            return guvenlik.otomatik_aski()
+
+    @staticmethod
+    def _satir(u, istek, ua):
+        return {"kimlik": f"u:{u.pk}", "istek": istek, "red": 0, "ua": ua, "ip": "81.214.75.7"}
+
+    def test_KAZIYICI_askiya_alinir_24_saat(self):
+        u = self._hesap("bot", email="ihalecin1@mailinator.com")
+        self.assertEqual(self._calistir(self._satir(u, 600, HEADLESS)), [u.pk])
+        u.refresh_from_db()
+        self.assertFalse(u.is_active)
+        e = ErisimEngeli.objects.get(kullanici=u, aktif=True)
+        self.assertIsNone(e.olusturan)
+        self.assertAlmostEqual((e.bitis - timezone.now()).total_seconds(), 24 * 3600, delta=60)
+        self.assertTrue(GuvenlikOlayi.objects.filter(tur="otomatik_aski", kullanici=u).exists())
+        # İkinci tur aynı hesabı tekrar askıya almaz.
+        self.assertEqual(self._calistir(self._satir(u, 900, HEADLESS)), [])
+
+    def test_ESKI_hesap_ve_PRO_alinmaz(self):
+        eski = self._hesap("eski", email="e@mailinator.com", yeni=False)
+        pro = self._hesap("pro", email="p@mailinator.com", pro=True)
+        self.assertEqual(self._calistir(self._satir(eski, 3000, HEADLESS),
+                                        self._satir(pro, 3000, HEADLESS)), [])
+
+    def test_normal_tarayicili_yogun_yeni_kullanici_alinmaz(self):
+        u = self._hesap("yogun")
+        # Yeni hesap (2) + 2000+ istek (2) = 4 < 5
+        self.assertEqual(self._calistir(self._satir(u, 2500, CHROME)), [])
+
+    def test_puan_yuksek_ama_kullanim_dusukse_alinmaz_kota_dolunca_alinir(self):
+        u = self._hesap("az", email="az@yopmail.com")
+        self.assertEqual(self._calistir(self._satir(u, 100, HEADLESS)), [])
+        cache.set(K._anahtar(f"u:{u.pk}", "g"), 10, 3600)   # "yeni" günlük kota = 10
+        self.assertEqual(self._calistir(self._satir(u, 100, HEADLESS)), [u.pk])
+
+    def test_ayar_kapaliysa_hic_calismaz(self):
+        u = self._hesap("kapali", email="k@mailinator.com")
+        with override_settings(GUVENLIK_OTOMATIK_ASKI=False):
+            self.assertEqual(self._calistir(self._satir(u, 5000, HEADLESS)), [])
+
+    def test_KURU_calistirma_hicbir_sey_yazmaz(self):
+        u = self._hesap("kuru", email="kuru@mailinator.com")
+        with mock.patch("core.guvenlik_izleme.en_yogun",
+                        return_value=[self._satir(u, 600, HEADLESS)]):
+            self.assertEqual(guvenlik.otomatik_aski(kuru=True), [u.pk])
+        u.refresh_from_db()
+        self.assertTrue(u.is_active)
+        self.assertFalse(ErisimEngeli.objects.filter(kullanici=u).exists())

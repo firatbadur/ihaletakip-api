@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import re
 import time
 from datetime import timedelta
 
@@ -319,3 +320,119 @@ def hesap_engeli(kullanici):
         return None
     return ErisimEngeli.objects.filter(
         tur=ErisimEngeli.TUR_KULLANICI, kullanici=kullanici, aktif=True).first()
+
+
+# ── Şüphe puanı + otomatik askı ───────────────────────
+OTOMASYON_UA = re.compile(
+    r"headless|curl/|wget|python-requests|python-urllib|aiohttp|httpx|scrapy|go-http|"
+    r"java/|okhttp/[0-9.]+$|phantom|selenium|playwright|puppeteer|node-fetch|axios/",
+    re.I)
+
+
+def supheli_puani(satir, user, kota_g):
+    """
+    Şüphe puanı + Türkçe gerekçeler. Panel (`/admin/guvenlik/`) ve otomatik askı
+    (`otomatik_aski`) AYNI fonksiyonu kullanır — ekranda görülen puan, kararı veren puandır.
+
+    `satir`: `guvenlik_izleme.en_yogun` satırı ({istek, red, ua, …}); `kota_g`: bugünkü
+    kişi başı EKAP isteği.
+    """
+    puan, neden = 0, []
+    if user is not None:
+        yas = timezone.now() - user.date_joined
+        if yas < timedelta(hours=24):
+            puan += 2
+            neden.append("hesap 24 saatten yeni")
+        if eposta_engelli(user.email or ""):
+            puan += 3
+            neden.append("tek kullanımlık e-posta")
+    ua = satir.get("ua") or ""
+    if ua and OTOMASYON_UA.search(ua):
+        puan += 3
+        neden.append("otomasyon tarayıcısı")
+    if satir["istek"] >= 2000:
+        puan += 2
+        neden.append("günde 2.000+ istek")
+    elif satir["istek"] >= 800:
+        puan += 1
+        neden.append("günde 800+ istek")
+    if satir.get("red", 0) >= 50:
+        puan += 2
+        neden.append("çok sayıda 429")
+    if kota_g:
+        puan += 1 if kota_g < 20 else 2
+        neden.append(f"EKAP isteği {kota_g}")
+    return puan, neden
+
+
+def otomatik_aski(kuru: bool = False) -> list[int]:
+    """
+    Açık sinyallerde hesabı **24 saat** otomatik askıya alır (kullanıcı kararı, 2026-11-05).
+
+    Koşulların HEPSİ (ayarlar `GUVENLIK_OTOMATIK_ASKI_*`):
+    1. Hesap 24 saatten yeni (`YENI_SAAT`),
+    2. şüphe puanı ≥ `PUAN` (5) — panelde kırmızı satır,
+    3. bugün ≥ `ISTEK` (500) API isteği **ya da** kişi başı EKAP kotası dolu.
+    ⚠️ Pro, staff ve superuser ASLA otomatik askıya alınmaz: kazıyıcı ödeme yapmaz,
+    ödeyen bir müşteriyi yanlışlıkla kesmek kazıyıcıyı birkaç dakika geç durdurmaktan pahalıdır.
+    ⚠️ IP otomatik ENGELLENMEZ — mobil operatör IP'leri paylaşılıyor (CGNAT).
+    ⚠️ Kaldırmak: panel → Etkin engeller → Kaldır (ya da 24 sa sonra kendiliğinden).
+    Dönen: askıya alınan kullanıcı id'leri. `kuru=True`: hiçbir şey yazmaz, yalnız adayları
+    döner (canlıya almadan önce üretim verisiyle deneme için).
+    """
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+
+    from ekap.mobil import kota as kota_mod
+
+    from . import guvenlik_izleme
+    from .models import ErisimEngeli
+
+    if not getattr(settings, "GUVENLIK_OTOMATIK_ASKI", True):
+        return []
+    esik_puan = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_PUAN", 5)
+    esik_istek = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_ISTEK", 500)
+    yeni_saat = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_YENI_SAAT", 24)
+    sure = timedelta(hours=getattr(settings, "GUVENLIK_OTOMATIK_ASKI_SURE_SAAT", 24))
+
+    satirlar = [s for s in guvenlik_izleme.en_yogun(adet=200)
+                if s["kimlik"].startswith("u:") and s["kimlik"][2:].isdigit()]
+    if not satirlar:
+        return []
+    uidler = [int(s["kimlik"][2:]) for s in satirlar]
+    sinir = timezone.now() - timedelta(hours=yeni_saat)
+    kullanicilar = {u.pk: u for u in get_user_model().objects.filter(
+        pk__in=uidler, is_active=True, is_staff=False, is_superuser=False,
+        date_joined__gte=sinir)}
+    askida = set(ErisimEngeli.objects.filter(
+        tur=ErisimEngeli.TUR_KULLANICI, aktif=True, kullanici_id__in=list(kullanicilar))
+        .values_list("kullanici_id", flat=True))
+    gunluk = kota_mod.tablo()
+    alinan = []
+    for s in satirlar:
+        u = kullanicilar.get(int(s["kimlik"][2:]))
+        if u is None or u.pk in askida or getattr(u, "is_premium", False):
+            continue
+        kota_g, _ = kota_mod.ozet(s["kimlik"])
+        seviye = kota_mod.seviye_bul(u) or "free"
+        kota_dolu = kota_g >= max(1, gunluk.get(seviye, {}).get("gun", 0))
+        puan, nedenler = supheli_puani(s, u, kota_g)
+        if puan < esik_puan or not (s["istek"] >= esik_istek or kota_dolu):
+            continue
+        if kuru:
+            logger.info("otomatik askı (kuru): uid=%s puan=%s %s", u.pk, puan, nedenler)
+            alinan.append(u.pk)
+            continue
+        sebep = (f"Otomatik askı: puan {puan} ({', '.join(nedenler)}); "
+                 f"bugün {s['istek']} istek, EKAP {kota_g}")
+        try:
+            engel = hesap_engelle(u, sebep=sebep, sure=sure)
+        except ValueError:
+            continue
+        olay_yaz("otomatik_aski", kimlik=s["kimlik"], kullanici=u, ip=s.get("ip"),
+                 ayrinti={"engel": engel.pk, "puan": puan, "nedenler": nedenler,
+                          "istek": s["istek"], "ekap": kota_g, "ua": (s.get("ua") or "")[:120]},
+                 her_zaman=True)
+        logger.warning("otomatik askı: uid=%s puan=%s istek=%s", u.pk, puan, s["istek"])
+        alinan.append(u.pk)
+    return alinan

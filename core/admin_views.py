@@ -5,15 +5,16 @@ Bugün en çok istek atan kimlikler (Redis izleme sayaçları — `core.guvenlik
 puanı + gerekçeleri, EKAP ortak bütçe durumu, son güvenlik olayları, etkin engeller ve tek
 tıkla hesap askıya alma / IP engelleme.
 
+Şüphe puanı `guvenlik.supheli_puani`'dan gelir (otomatik askı aynı fonksiyonu kullanır).
 ⚠️ Görüntüleme staff'a, **engelleme yalnızca superuser'a** açıktır (POST + CSRF).
 ⚠️ Ekran ağır sorgu atmaz: kimlik listesi Redis'ten, kullanıcı bilgileri tek `IN` sorgusuyla.
 """
 from __future__ import annotations
 
-import re
 import time
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.db.models import Count
@@ -23,41 +24,7 @@ from django.utils import timezone
 from . import guvenlik, guvenlik_izleme
 from .models import ErisimEngeli, GuvenlikOlayi
 
-_OTOMASYON_UA = re.compile(
-    r"headless|curl/|wget|python-requests|python-urllib|aiohttp|httpx|scrapy|go-http|"
-    r"java/|okhttp/[0-9.]+$|phantom|selenium|playwright|puppeteer|node-fetch|axios/",
-    re.I)
 _SURELER = {"24s": timedelta(hours=24), "7g": timedelta(days=7), "suresiz": None}
-
-
-def _supheli(satir, user, kota_g):
-    """Şüphe puanı (yalnızca gösterim; otomatik engel YOK) + Türkçe gerekçeler."""
-    puan, neden = 0, []
-    if user is not None:
-        yas = timezone.now() - user.date_joined
-        if yas < timedelta(hours=24):
-            puan += 2
-            neden.append("hesap 24 saatten yeni")
-        if guvenlik.eposta_engelli(user.email or ""):
-            puan += 3
-            neden.append("tek kullanımlık e-posta")
-    ua = satir.get("ua") or ""
-    if ua and _OTOMASYON_UA.search(ua):
-        puan += 3
-        neden.append("otomasyon tarayıcısı")
-    if satir["istek"] >= 2000:
-        puan += 2
-        neden.append("günde 2.000+ istek")
-    elif satir["istek"] >= 800:
-        puan += 1
-        neden.append("günde 800+ istek")
-    if satir.get("red", 0) >= 50:
-        puan += 2
-        neden.append("çok sayıda 429")
-    if kota_g:
-        puan += 1 if kota_g < 20 else 2
-        neden.append(f"EKAP isteği {kota_g}")
-    return puan, neden
 
 
 def _eylem(request):
@@ -106,7 +73,7 @@ def guvenlik_ekrani(request):
         s["engelli"] = uid in engelli_uid
         s["ip_engelli"] = bool(guvenlik.ip_engeli(s.get("ip") or ""))
         s["kota_gun"], s["kota_saat"] = kota.ozet(s["kimlik"])
-        s["puan"], s["nedenler"] = _supheli(s, u, s["kota_gun"])
+        s["puan"], s["nedenler"] = guvenlik.supheli_puani(s, u, s["kota_gun"])
         try:
             s["son"] = datetime.fromtimestamp(
                 int(s.get("zaman") or 0), tz=timezone.get_current_timezone())
@@ -135,5 +102,10 @@ def guvenlik_ekrani(request):
         "engeller": ErisimEngeli.objects.filter(aktif=True).select_related(
             "kullanici", "olusturan")[:100],
         "superuser": request.user.is_superuser,
+        "oto": {"acik": getattr(settings, "GUVENLIK_OTOMATIK_ASKI", True),
+                "puan": getattr(settings, "GUVENLIK_OTOMATIK_ASKI_PUAN", 5),
+                "istek": getattr(settings, "GUVENLIK_OTOMATIK_ASKI_ISTEK", 500),
+                "yeni_saat": getattr(settings, "GUVENLIK_OTOMATIK_ASKI_YENI_SAAT", 24),
+                "sure_saat": getattr(settings, "GUVENLIK_OTOMATIK_ASKI_SURE_SAAT", 24)},
         "an": int(time.time()),
     })

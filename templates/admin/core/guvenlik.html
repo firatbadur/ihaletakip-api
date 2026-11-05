@@ -12,7 +12,10 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
   <h1>Güvenlik Paneli <small class="text-body-secondary">{{ gun|date:"d.m.Y" }}</small></h1>
   <p class="text-body-secondary">
     İstek sayaçları Redis'tedir (3 gün), olaylar ve engeller veritabanında.
-    Şüphe puanı <b>yalnızca bir göstergedir</b>; otomatik engel yoktur.
+    Satır rengi şüphe puanıdır (turuncu ≥ 3, kırmızı ≥ 5).
+    {% if oto.acik %}<b>Otomatik askı açık:</b> {{ oto.yeni_saat }} saatten yeni hesap + puan ≥ {{ oto.puan }}
+    + (bugün {{ oto.istek }}+ istek ya da EKAP kotası dolu) → {{ oto.sure_saat }} saat askı (5 dk'da bir kontrol;
+    Pro/staff asla, IP otomatik engellenmez).{% else %}<b>Otomatik askı kapalı.</b>{% endif %}
     &middot; <a href="?">yenile</a>
     &middot; <a href="{% url 'admin:core_erisimengeli_changelist' %}">tüm engeller</a>
     &middot; <a href="{% url 'admin:core_guvenlikolayi_changelist' %}">tüm olaylar</a>
@@ -114,7 +117,7 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
         <td class="small">{{ e.sebep|truncatechars:80 }}</td>
         <td class="small">{{ e.bitis|date:"d.m.Y H:i"|default:"süresiz" }}</td>
         <td class="text-end">{{ e.isabet_sayisi|tr_sayi }}</td>
-        <td class="small">{{ e.olusturan|default:"—" }}</td>
+        <td class="small">{{ e.olusturan|default:"sistem (otomatik)" }}</td>
         {% if superuser %}
         <td><form method="post">{% csrf_token %}<input type="hidden" name="tur" value="kaldir"><input type="hidden" name="engel" value="{{ e.pk }}"><button class="btn btn-sm btn-outline-secondary">Kaldır</button></form></td>
         {% endif %}

@@ -308,6 +308,7 @@ class GuvenlikOlayi(models.Model):
         ("sayfa_siniri", "Free sayfa sınırı"),
         ("engel_eklendi", "Engel eklendi"),
         ("engel_kaldirildi", "Engel kaldırıldı"),
+        ("otomatik_aski", "Otomatik askı"),
     ]
 
     zaman = models.DateTimeField(default=timezone.now, db_index=True)

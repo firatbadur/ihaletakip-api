@@ -5198,6 +5198,13 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
   ortak bütçe, en yoğun 50 kimlik + şüphe puanı (yalnız gösterim, otomatik engel YOK),
   superuser'a askıya al / IP engelle düğmeleri; UserAdmin "Askıya al" eylemleri.
 - Testler `core/tests/test_guvenlik.py` (29; dişli: 6 korumanın 6'sı ısırıyor).
+- **Otomatik askı** (`guvenlik.otomatik_aski`, beat `core-otomatik-aski` */5): hesap < 24 sa **ve**
+  şüphe puanı ≥ 5 **ve** (bugün ≥ 500 istek ya da EKAP kotası dolu) → 24 sa askı (`olusturan=None`,
+  olay `otomatik_aski`). ⚠️ Pro/staff/superuser ASLA; IP otomatik ENGELLENMEZ (mobil CGNAT).
+  Puan panel ile AYNI fonksiyondan (`supheli_puani`). Deneme: `otomatik_aski(kuru=True)`.
+  Kapatma `GUVENLIK_OTOMATIK_ASKI=False`. Dişli: 3 korumanın 3'ü.
+  ⚠️ Kademeli geçici engel (15 dk/1 sa/24 sa, Redis `thr:ban:*`) yalnız `uygula` modunda →
+  bugün yalnız portal; panelin "Etkin engeller"inde GÖRÜNMEZ, yalnız `hiz_engeli` olayı olarak.
 - ✅ **ÜRETİM (2026-11-05)**: `bc8fe72` deploy; IP 78.164.78.132 + uid 631 süresiz engelli.
   Web `4f6fb60` canlıya çıkınca (`ihaletakip-web` `docs/backend/portal-istekleri-7.md`)
   `.env.prod`: `TURNSTILE_SECRET_KEY` (siteverify ile doğrulandı), `LISTE_SAYFA_SINIRI_DOLUM=uygula`,

@@ -9,11 +9,11 @@
 | #28 | Hesap başına farklı IP / UA | ✅ yapıldı | yok |
 | #29 | Cloudflare dışından gelen trafik | ✅ yanıt + düzeltme | yok |
 | #30 | Hız kuralına girişli liste yolları | ✅ yapıldı, test edildi | yok |
-| #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | ✅ `robots.ts` düzeltildi (`2f557dd`) · ⏳ canlıya alınacak |
+| #31 | AI Crawl Control: eğitim botları kapalı | ✅ uygulandı | ✅ `robots.ts` düzeltildi (`2f557dd`), canlıda doğrulandı |
 | #32 | Veri merkezi ASN'si + Turnstile ön onayı | ✅ yapıldı | yok |
 
-#30–#32 Cloudflare panelinde uygulandı (2026-11-05). Web'in iki işi de yapıldı (#27, #31).
-Kalan tek adım `2f557dd`'nin canlıya alınması ve ardından `robots.txt` kontrolü.
+**8. not kapandı (2026-11-05).** #30–#32 Cloudflare panelinde uygulandı; web'in iki işi
+(#27, #31) yapıldı ve canlıda doğrulandı.
 
 ---
 
@@ -170,9 +170,11 @@ Eğitim botlarını artık Cloudflare'in bölümü tamamen kapatıyor. Sizin
 `User-Agent: *` bölümünüz aynen kalabilir.
 
 **Web yanıtı (2026-11-05):** grup `src/app/robots.ts`'ten kaldırıldı (`2f557dd`).
-Lokalde `robots.txt` artık yalnız genel `User-Agent: *` bölümünü üretiyor. Henüz canlıda
-değil: aynı gün yapılan kontrolde canlı `robots.txt` grubu hâlâ taşıyordu. Yayından sonra
-API tarafı canlı çıktıyı yeniden kontrol edecek.
+Lokalde `robots.txt` artık yalnız genel `User-Agent: *` bölümünü üretiyor. **Canlı kontrol (2026-11-05, yayından sonra):**
+
+- Cloudflare bölümünde 11 eğitim botunun her biri `Disallow: /` ve `ai-train=no` taşıyor.
+- Web bölümünde yalnızca `User-Agent: *` grubu ve `Sitemap` satırı var.
+- Çakışma kalmadı.
 
 Not: Cloudflare'in "Disallow" ayarı yalnızca `robots.txt`'e yazar, isteği kesmez. Kuralı
 tanımayan botları (ör. Bytespider) Super Bot Fight Mode ve hız kuralları yakalar.

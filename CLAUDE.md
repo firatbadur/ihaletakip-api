@@ -5198,6 +5198,18 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
   ortak bütçe, en yoğun 50 kimlik + şüphe puanı (yalnız gösterim, otomatik engel YOK),
   superuser'a askıya al / IP engelle düğmeleri; UserAdmin "Askıya al" eylemleri.
 - Testler `core/tests/test_guvenlik.py` (29; dişli: 6 korumanın 6'sı ısırıyor).
+- ✅ **ÜRETİM (2026-11-05)**: `bc8fe72` deploy; IP 78.164.78.132 + uid 631 süresiz engelli.
+  Web `4f6fb60` canlıya çıkınca (`ihaletakip-web` `docs/backend/portal-istekleri-7.md`)
+  `.env.prod`: `TURNSTILE_SECRET_KEY` (siteverify ile doğrulandı), `LISTE_SAYFA_SINIRI_DOLUM=uygula`,
+  `GUVENLIK_DOGRULAMA_MODU=uygula`, `TURNSTILE_KAYIT_ZORUNLU=True` (yedek
+  `.env.prod.bak-20261105-guvenlik-ac`). Yalnız `web` yeniden yaratıldı (`up -d --no-deps web` +
+  `restart nginx`) — `db`'ye dokunmamak için; arada ~12 sn 502 olur. Üretimde doğrulandı:
+  dolum 4. sayfa 403, Pro 4. sayfa 200, anonim portal 101. istek 428, web kaydı token'sız 400.
+  Web kayıt widget'ı `action:"kayit"`, istek kutusu `action:"api_dogrulama"` (backend action'ı
+  zorunlu tutmuyor). Mobil sayfa sınırı hâlâ gözlemde (`LISTE_SAYFA_SINIRI_MOBIL_MIN_BUILD` bekliyor).
+  Cloudflare (ihaletakip.com, Pro plan): rate limiting "Sayfa tarama sınırı" (`/ihale*`,
+  `/dogrudan-temin*`, `/belge*`, `_rsc` hariç, 40/dk) + "İndirme sınırı" (`/belge*`, 15/dk),
+  ikisi de Managed Challenge — test edildi (429 + `cf-mitigated: challenge`).
 
 ## Önemli Uyarılar
 

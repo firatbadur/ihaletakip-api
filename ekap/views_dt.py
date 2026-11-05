@@ -32,12 +32,15 @@ from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
 from core.response import api_response
+from core.sayfa_siniri import pro_sayfa_kontrolu
 from core.throttling import istemci
 
 from . import dt_sorgu
 from .mobil import adapt
 from .mobil import constants as C
 from .mobil.dt import detaydan_guncelle, dtn_parcala
+from .mobil.kota import hazirla as kota_hazirla
+from .kota_yanit import kota_olayi, kota_yaniti
 from .models import DogrudanTemin
 from .serializers import DogrudanTeminSerializer
 
@@ -89,12 +92,14 @@ def _taze_enc(cli, obj):
 def _enc_ile(cli, obj, cagir):
     """`cagir(enc_id)`; bayat encID'de **bir kez** tazesiyle tekrar dener."""
     from .mobil.client import (
-        MobilButceError, MobilCaptchaError, MobilError, MobilSlotError, MobilYokError,
+        MobilButceError, MobilCaptchaError, MobilError, MobilKotaError, MobilSlotError,
+        MobilYokError,
     )
 
     try:
         return cagir(obj.enc_id)
-    except (MobilYokError, MobilButceError, MobilCaptchaError, MobilSlotError):
+    except (MobilYokError, MobilButceError, MobilCaptchaError, MobilSlotError,
+            MobilKotaError):
         raise
     except MobilError as e:
         logger.info("DT %s encID ile açılmadı, taze encID deneniyor: %s", obj.dtn, e)
@@ -200,6 +205,8 @@ class DogrudanTeminListView(APIView):
             boyut = min(100, max(1, int(qp.get("page_size", 20))))
         except (TypeError, ValueError):
             boyut = 20
+        # Free sayfa sınırı (core/sayfa_siniri.py): Pro değilse sayfa ≤ 3, boyut ≤ 20.
+        boyut = pro_sayfa_kontrolu(request, page, boyut, "dt_liste")
         # ⚠️ `_cached_count` KULLANILMAZ: liste 5 dk'da bir değişiyor ve küçük bir
         # tablo — 10 dk'lık sayı önbelleği, ekrandaki listeyle tutmayan bir sayı verirdi.
         toplam = qs.count()
@@ -267,7 +274,7 @@ class DogrudanTeminDetailView(APIView):
     throttle_kapsam = "belge"
 
     def get(self, request, dtn):
-        from .mobil.client import EkapMobilClient, MobilError
+        from .mobil.client import EkapMobilClient, MobilError, MobilKotaError
 
         obj = _dt(dtn)
         if obj is None:
@@ -279,17 +286,24 @@ class DogrudanTeminDetailView(APIView):
         # Durum değişimi (iptal/sonuç) tam taramanın doğrulama adımıyla `detail_raw`'a yazılır.
         detay = _detay_ozeti(obj.detail_raw) if isinstance(obj.detail_raw, dict) else None
         mesaj = ""
+        hata_kodu = None
         if detay is None:
-            if istemci(request).bot:
+            ist = istemci(request)
+            if ist.bot:
                 # Bot canlı istek tetiklemez (modül notu). İçerik farkı değil, bütçe koruması.
                 mesaj = "Ayrıntı henüz alınmadı."
             elif obj.enc_id:
-                cli = EkapMobilClient(butce="kullanici")
+                cli = EkapMobilClient(butce="kullanici",
+                                      kota=kota_hazirla(ist, request.user))
                 try:
                     ham = _enc_ile(cli, obj, cli.dt_detay)
                     detay = _detay_ozeti(ham)
                     # ⚠️ Yalnızca KESİN cevap kaydedilir ("bilmiyorum" ≠ "yok").
                     detaydan_guncelle(obj, ham)
+                except MobilKotaError as e:
+                    # ⚠️ 200 kalır (yanıt şekli korunur); istemci `hata_kodu`na bakar.
+                    mesaj, hata_kodu = e.kullanici_mesaji, e.kod
+                    kota_olayi(request, ist, cli.kota, f"dt-detay {obj.dtn}")
                 except MobilError as e:
                     logger.warning("DT detayı alınamadı (%s): %s", obj.dtn, str(e)[:150])
                     mesaj = "EKAP'tan ayrıntı şu an alınamadı; lütfen birazdan tekrar deneyin."
@@ -302,6 +316,7 @@ class DogrudanTeminDetailView(APIView):
             C.DT_BIRIM_FIYAT_URL.format(enc_id=obj.enc_id) if obj.enc_id else None
         )
         veri["mesaj"] = mesaj
+        veri["hata_kodu"] = hata_kodu
         return api_response(data=veri)
 
 
@@ -389,11 +404,16 @@ class DogrudanTeminDokumanView(APIView):
         if cache.get(yok_anahtar):
             return api_response(message=yok, success=False, status=404)
 
-        cli = EkapMobilClient(butce="kullanici")
+        ist = istemci(request)
+        cli = EkapMobilClient(butce="kullanici", kota=kota_hazirla(ist, request.user))
         try:
             resp = _enc_ile(cli, obj, cli.dt_dokuman_indir)
         except MobilError as e:
-            from .mobil.client import MobilYokError
+            from .mobil.client import MobilKotaError, MobilYokError
+
+            if isinstance(e, MobilKotaError):
+                kota_olayi(request, ist, cli.kota, f"dt-dokuman {obj.dtn}")
+                return kota_yaniti(e)
 
             if isinstance(e, MobilYokError):
                 # Kesin cevap → 24 sa hatırlanır; geçici hatalar hatırlanmaz.

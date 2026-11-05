@@ -15,6 +15,7 @@ from rest_framework import permissions, serializers
 from rest_framework.views import APIView
 
 from core.response import api_response
+from core.sayfa_siniri import pro_sayfa_kontrolu
 
 from .models import KurulKarari, Tender
 from .serializers import KurulKarariSerializer
@@ -92,6 +93,8 @@ class KurulKarariListView(APIView):
             boyut = min(100, max(1, int(qp.get("page_size", 20))))
         except (TypeError, ValueError):
             boyut = 20
+        # Free sayfa sınırı (core/sayfa_siniri.py): Pro değilse sayfa ≤ 3, boyut ≤ 20.
+        boyut = pro_sayfa_kontrolu(request, page, boyut, "kurul_liste")
         toplam = qs.count()
         sayfa = list(qs[(page - 1) * boyut: page * boyut])
         veri = KurulKarariSerializer(sayfa, many=True,

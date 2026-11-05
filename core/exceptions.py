@@ -43,6 +43,9 @@ def custom_exception_handler(exc, context):
 
         detail = {"detail": MESAJ_429, "code": "throttled",
                   "retry_after": int(exc.wait) if exc.wait is not None else None}
+    ek = getattr(exc, "ek_hata", None)
+    if ek and isinstance(detail, dict):
+        detail = {**detail, **ek}
     response.data = {
         "success": False,
         "message": extract_message(detail),

@@ -95,11 +95,21 @@ class PremiumRequired(APIException):
     default_detail = "Bu özellik Pro aboneliğe özeldir."
     default_code = "premium_required"
 
-    def __init__(self, detail: str | None = None):
+    def __init__(self, detail: str | None = None, ek: dict | None = None):
         message = str(detail or self.default_detail)
         # detail bir dict → global exception handler bunu `errors` alanına koyar,
         # `message` alanına da içteki "detail"i çıkarır (bkz. core.response.extract_message).
         super().__init__({"code": self.default_code, "detail": message})
+        # `errors`'a TİPİ KORUNARAK eklenecek alanlar (ör. `sebep`, `azami_sayfa`).
+        # DRF detail sözlüğündeki her değeri metne çevirir; bu yüzden ayrı taşınır
+        # ve `core.exceptions` zarfı kurarken birleştirir.
+        self.ek_hata = dict(ek or {})
+
+
+MSG_SAYFA = (
+    "Daha fazla sonuç görmek Pro üyelere özeldir. Ücretsiz üyelikte ilk 3 sayfa "
+    "görüntülenebilir; tüm sonuçlar için Pro'ya geçin."
+)
 
 
 def require_premium(user, message: str | None = None) -> None:

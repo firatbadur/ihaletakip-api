@@ -27,6 +27,19 @@ from .serializers import (
     issue_tokens,
 )
 from .models import PushDevice
+
+
+def askiya_alinmis_yaniti(user):
+    """Etkin hesap engeli varsa 403 `account_suspended`, yoksa `None`."""
+    from core.guvenlik import MESAJ_HESAP, hesap_engeli
+    from core.response import api_response
+
+    if hesap_engeli(user) is None:
+        return None
+    return api_response(message=MESAJ_HESAP, success=False, status=403,
+                        errors={"code": "account_suspended", "detail": MESAJ_HESAP})
+
+
 from .services.eposta_kod import EpostaHatasi, EpostaIpThrottle
 from .services.apple import AppleAuthError, verify_apple_identity_token
 from .services.google import GoogleAuthError, verify_google_id_token
@@ -130,6 +143,13 @@ class LoginView(APIView):
         user_obj = User.objects.filter(email__iexact=identifier).first()
         username = user_obj.username if user_obj else identifier
 
+        # ⚠️ Askıya alınmış hesap (`core.guvenlik`): `authenticate()` pasif hesapta None
+        # döner ve kullanıcı "Geçersiz kimlik bilgileri" görürdü. Şifre doğruysa sebebi
+        # açıkça söyle (makine okunur `account_suspended`).
+        aday = user_obj or User.objects.filter(username=identifier).first()
+        if aday is not None and not aday.is_active and aday.check_password(password):
+            if yanit := askiya_alinmis_yaniti(aday):
+                return yanit
         user = authenticate(request, username=username, password=password)
         if user is None:
             return Response(
@@ -202,6 +222,11 @@ class GoogleLoginView(APIView):
             last_name=info.get("family_name", ""),
             photo_url=info.get("picture", ""),
         )
+        # ⚠️ Sosyal giriş `is_active`'e hiç bakmıyordu: askıya alınmış hesap token alır,
+        # sonra her istekte 401 yerdi. Burada açıkça reddedilir.
+        if not user.is_active:
+            return askiya_alinmis_yaniti(user) or Response(
+                {"detail": "Hesap devre dışı."}, status=status.HTTP_403_FORBIDDEN)
         return Response(issue_tokens(user, created=created))
 
 
@@ -257,6 +282,11 @@ class AppleLoginView(APIView):
             provider_uid=info["sub"],
             display_name=full_name,
         )
+        # ⚠️ Sosyal giriş `is_active`'e hiç bakmıyordu: askıya alınmış hesap token alır,
+        # sonra her istekte 401 yerdi. Burada açıkça reddedilir.
+        if not user.is_active:
+            return askiya_alinmis_yaniti(user) or Response(
+                {"detail": "Hesap devre dışı."}, status=status.HTTP_403_FORBIDDEN)
         return Response(issue_tokens(user, created=created))
 
 

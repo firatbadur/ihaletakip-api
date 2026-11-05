@@ -80,6 +80,11 @@ class Istemci:
     bot: bool
     girisli: bool
     dolum: bool = False
+    # Gerçek istemci IP'si / tarayıcı kimliği (izleme + IP engeli). Girişli istekte de
+    # dolar; dolumda boştur (kullanıcısız istek kimin için yapıldığını taşımaz).
+    ip: str = ""
+    ua: str = ""
+    uid: int | None = None
 
     @property
     def tur(self) -> str:
@@ -103,28 +108,44 @@ def _gecerli_ip(deger: str) -> str | None:
         return None
 
 
+def istemci_ip(request, portal: bool | None = None) -> str:
+    """Gerçek istemci IP'si: portalda `X-IT-Client-IP`, aksi hâlde `X-Real-IP`."""
+    if portal is None:
+        portal = portal_dogrulandi(request)
+    ip = _gecerli_ip(request.META.get("HTTP_X_IT_CLIENT_IP")) if portal else None
+    return (ip or _gecerli_ip(request.META.get("HTTP_X_REAL_IP"))
+            or _gecerli_ip(request.META.get("REMOTE_ADDR")) or "")
+
+
+def _istemci_ua(request, portal: bool) -> str:
+    # ⚠️ Portalda User-Agent web konteynerinindir ("node") → gerçek tarayıcı
+    # `X-IT-Client-UA` ile gelir (web notu #25); yalnızca anahtar doğruysa kabul edilir.
+    ua = request.META.get("HTTP_X_IT_CLIENT_UA", "") if portal else ""
+    return (ua or request.META.get("HTTP_USER_AGENT", "") or "")[:300]
+
+
 def istemci(request, *, imzali_uid: int | None = None) -> Istemci:
     portal = portal_dogrulandi(request)
     bot = portal and request.META.get("HTTP_X_IT_VERIFIED_BOT") == "1"
-    # ⚠️⚠️ Önbellek dolumu (portal 2. not #8): web'in paylaşılan önbelleğini dolduran
-    # istek hangi kullanıcı için yapıldığını TAŞIYAMAZ (Next.js önbellekli fonksiyonda
-    # istek başlığı okunamıyor) → `X-IT-Client-IP` yok. IP'ye düşseydi web
-    # konteynerinin TEK IP'si olurdu ve önbellek dışı anahtar gezen tek bir tarayıcı
-    # bütün anonim web kullanıcılarını 429'a düşürürdü. Bu yüzden ayrı kova; kullanıcı
-    # ve IP kovalarına hiç dokunmaz. Anahtar yoksa başlık YOK SAYILIR (taklit edilemez).
-    if portal and request.META.get("HTTP_X_IT_CACHE_FILL") == "1":
-        return Istemci(DOLUM_KIMLIGI, True, bot, False, dolum=True)
     kullanici = getattr(request, "user", None)
-    if kullanici is not None and kullanici.is_authenticated:
-        return Istemci(f"u:{kullanici.pk}", portal, bot, True)
+    girisli = kullanici is not None and kullanici.is_authenticated
+    # ⚠️⚠️ GİRİŞLİ KULLANICI DOLUMDAN ÖNCE GELİR (2026-11-05). Web token taşıyan
+    # isteklere de `X-IT-Cache-Fill: 1` koyuyordu (`documents/`, benchmark, profile);
+    # dolum önce değerlendirildiği için bu istekler kullanıcının değil sitenin ORTAK
+    # kovasına düşüyor, tek bir kazıyıcı bütün web kullanıcılarını 429'a sokuyordu
+    # (o gece 1.584 adet) ve kişi başı EKAP kotası kimliği göremiyordu.
+    # Önbellek dolumu (portal 2. not #8): web'in paylaşılan önbelleğini dolduran
+    # KULLANICISIZ istek `X-IT-Client-IP` taşıyamaz → ayrı kova. IP'ye düşseydi web
+    # konteynerinin TEK IP'si olurdu. Anahtar yoksa başlık YOK SAYILIR (taklit edilemez).
+    if not girisli and portal and request.META.get("HTTP_X_IT_CACHE_FILL") == "1":
+        return Istemci(DOLUM_KIMLIGI, True, bot, False, dolum=True)
+    ip = istemci_ip(request, portal)
+    ua = _istemci_ua(request, portal)
+    if girisli:
+        return Istemci(f"u:{kullanici.pk}", portal, bot, True, ip=ip, ua=ua, uid=kullanici.pk)
     if imzali_uid:
-        return Istemci(f"u:{imzali_uid}", portal, bot, True)
-    ip = None
-    if portal:
-        ip = _gecerli_ip(request.META.get("HTTP_X_IT_CLIENT_IP"))
-    ip = ip or _gecerli_ip(request.META.get("HTTP_X_REAL_IP")) or _gecerli_ip(
-        request.META.get("REMOTE_ADDR")) or "bilinmiyor"
-    return Istemci(f"ip:{ip}", portal, bot, False)
+        return Istemci(f"u:{imzali_uid}", portal, bot, True, ip=ip, ua=ua, uid=imzali_uid)
+    return Istemci(f"ip:{ip or 'bilinmiyor'}", portal, bot, False, ip=ip, ua=ua)
 
 
 def mod(ist: Istemci) -> str:
@@ -167,7 +188,7 @@ def gozlem_kaydet(olay: str, kapsam: str, ist: Istemci) -> None:
 def gozlem_ozeti(gun: str) -> dict:
     """`throttle_rapor` komutu için: {(olay, kapsam, tür): (istek, tekil)}."""
     sonuc = {}
-    for olay in ("hiz", "derinlik", "belge_anonim"):
+    for olay in ("hiz", "derinlik", "belge_anonim", "sayfa_pro", "dogrulama"):
         for kapsam in (*VARSAYILAN_ORANLAR, "liste"):
             for tur in ("dogrudan-anonim", "dogrudan-girisli", "portal-anonim",
                         "portal-girisli", "portal-dolum"):
@@ -185,18 +206,43 @@ class KapsamliThrottle(BaseThrottle):
         self._bekle = None
 
     def allow_request(self, request, view):
+        from .insan_dogrulama import DogrulamaGerekli
+
         kapsam = getattr(view, "throttle_kapsam", None)
+        ist = None
+        try:
+            imzali = getattr(view, "imzali_uid", None)
+            ist = istemci(request, imzali_uid=imzali(request) if callable(imzali) else None)
+            from .guvenlik_izleme import kaydet
+
+            # İzleme TÜM API isteklerinde (yönetim paneli), kapsamsız uçlar dahil.
+            kaydet(ist, request)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("istek izleme hatası: %s", str(e)[:200])
         if not kapsam:
             return True
         try:
-            return self._karar(request, view, kapsam)
+            izin = self._karar(request, view, kapsam, ist)
+        except DogrulamaGerekli:
+            # ⚠️ Yutulmamalı: aşağıdaki genel `except` 428'i "koruma hatası" sanıp isteği
+            # geçirirdi ve insan doğrulaması hiç çalışmazdı.
+            raise
         except Exception as e:  # noqa: BLE001 — koruma hatası API'yi kırmamalı
             logger.warning("throttle hatası (istek geçirildi): %s", str(e)[:200])
             return True
+        if not izin:
+            try:
+                from .guvenlik_izleme import kaydet
 
-    def _karar(self, request, view, kapsam):
-        imzali = getattr(view, "imzali_uid", None)
-        ist = istemci(request, imzali_uid=imzali(request) if callable(imzali) else None)
+                kaydet(ist, request, reddedildi=True)
+            except Exception:  # noqa: BLE001
+                pass
+        return izin
+
+    def _karar(self, request, view, kapsam, ist=None):
+        if ist is None:
+            imzali = getattr(view, "imzali_uid", None)
+            ist = istemci(request, imzali_uid=imzali(request) if callable(imzali) else None)
         if ist.bot:
             # ⚠️ Doğrulanmış arama botu sınırlanmaz: 429 Google'ın tarama bütçesini
             # düşürür. Bota farklı İÇERİK verilmez, yalnızca sınır farklıdır.
@@ -211,6 +257,11 @@ class KapsamliThrottle(BaseThrottle):
             if bitis and bitis > simdi:
                 self._bekle = int(bitis - simdi) + 1
                 return False
+
+        # İnsan doğrulaması (yalnızca portal; kendi modu var — core/insan_dogrulama.py).
+        from .insan_dogrulama import kontrol as dogrulama_kontrol
+
+        dogrulama_kontrol(ist, kapsam, request)
 
         bekle = None
         for pencere, sinir in oranlar(kapsam, ist):
@@ -247,6 +298,10 @@ class KapsamliThrottle(BaseThrottle):
                 cache.set(f"thr:ban:{ist.kimlik}", simdi + sure, sure)
                 logger.warning("throttle engeli: kimlik=%s aşım=%s süre=%ss",
                                ist.kimlik, sayi, sure)
+                from .guvenlik import olay_yaz
+
+                olay_yaz("hiz_engeli", ist=ist, ayrinti={"asim": sayi, "sure_sn": sure},
+                         her_zaman=True)
                 return sure
         return None
 

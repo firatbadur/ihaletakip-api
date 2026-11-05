@@ -1,0 +1,162 @@
+{% extends "admin/base_site.html" %}
+{% load dashboard_tags %}
+{% comment %}
+Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
+
+⚠️ Renkler sabit hex YAZILMAZ (jazzmin teması çalışma anında değişiyor): Bootstrap'ın
+`text-bg-*` / `table` sınıfları iki temada da okunur. Sayılar `|tr_sayi`'den geçer.
+⚠️ Engelleme düğmeleri yalnızca superuser'a gösterilir; sunucu da ayrıca kontrol eder.
+{% endcomment %}
+{% block content %}
+<div class="guvenlik-ekrani">
+  <h1>Güvenlik Paneli <small class="text-body-secondary">{{ gun|date:"d.m.Y" }}</small></h1>
+  <p class="text-body-secondary">
+    İstek sayaçları Redis'tedir (3 gün), olaylar ve engeller veritabanında.
+    Şüphe puanı <b>yalnızca bir göstergedir</b>; otomatik engel yoktur.
+    &middot; <a href="?">yenile</a>
+    &middot; <a href="{% url 'admin:core_erisimengeli_changelist' %}">tüm engeller</a>
+    &middot; <a href="{% url 'admin:core_guvenlikolayi_changelist' %}">tüm olaylar</a>
+  </p>
+
+  <div class="row g-3 mb-4">
+    {% for ad, b in butce.items %}
+    <div class="col-6 col-md-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small">EKAP ortak bütçe · {{ ad }}</div>
+        <div class="fs-4 fw-bold">{{ b.kullanilan|tr_sayi }} / {{ b.tavan|tr_sayi }}</div>
+      </div></div>
+    </div>
+    {% endfor %}
+    <div class="col-6 col-md-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small">Bugün API isteği · kimlik</div>
+        <div class="fs-4 fw-bold">{{ toplam.istek|tr_sayi }} · {{ toplam.kimlik|tr_sayi }}</div>
+        <div class="small">reddedilen (429): {{ toplam.red|tr_sayi }}</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-body-secondary small">Şüpheli (puan ≥ 5) · etkin engel</div>
+        <div class="fs-4 fw-bold">{{ supheli }} · {{ engeller|length }}</div>
+      </div></div>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="card h-100"><div class="card-body small">
+        <div class="text-body-secondary">Bugünkü olaylar</div>
+        {% for tur, n in olay_sayilari.items %}<span class="badge text-bg-secondary me-1">{{ tur }}: {{ n }}</span>{% empty %}—{% endfor %}
+        <div class="text-body-secondary mt-2">Kişi başı EKAP kotası (gün/saat):
+          {% for sev, k in kota_tablo.items %}{{ sev }} {{ k.gun }}/{{ k.saat }}{% if not forloop.last %} · {% endif %}{% endfor %}
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <h2>Bugün en yoğun kimlikler</h2>
+  <div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead><tr>
+      <th>Kimlik</th><th>Hesap</th><th class="text-end">İstek</th><th class="text-end">429</th>
+      <th class="text-end">EKAP (gün/saat)</th><th>İstemci · IP</th><th>Tarayıcı</th>
+      <th>Şüphe</th><th>Son</th>{% if superuser %}<th>İşlem</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for s in satirlar %}
+      <tr{% if s.puan >= 5 %} class="table-danger"{% elif s.puan >= 3 %} class="table-warning"{% endif %}>
+        <td><code>{{ s.kimlik }}</code></td>
+        <td>
+          {% if s.user %}
+            <a href="{% url 'admin:accounts_user_change' s.user.pk %}">{{ s.user.email|default:s.user.username }}</a>
+            <div class="small text-body-secondary">kayıt {{ s.user.date_joined|date:"d.m.Y H:i" }}{% if s.user.is_premium %} · Pro{% endif %}{% if s.engelli %} · <b>askıda</b>{% endif %}</div>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end">{{ s.istek|tr_sayi }}</td>
+        <td class="text-end">{{ s.red|tr_sayi }}</td>
+        <td class="text-end">{{ s.kota_gun }}/{{ s.kota_saat }}</td>
+        <td class="small">{{ s.istemci }}<br><code>{{ s.ip|default:"—" }}</code>{% if s.ip_engelli %} <b>engelli</b>{% endif %}</td>
+        <td class="small" style="max-width:220px;word-break:break-word">{{ s.ua|truncatechars:90 }}</td>
+        <td class="small"><b>{{ s.puan }}</b>{% if s.nedenler %}<br>{{ s.nedenler|join:", " }}{% endif %}</td>
+        <td class="small">{{ s.son|date:"H:i" }}</td>
+        {% if superuser %}
+        <td class="small">
+          {% if s.user and not s.engelli and not s.user.is_superuser %}
+          <form method="post" class="d-inline">{% csrf_token %}
+            <input type="hidden" name="tur" value="hesap"><input type="hidden" name="uid" value="{{ s.user.pk }}">
+            <select name="sure" class="form-select form-select-sm d-inline w-auto"><option value="24s">24 sa</option><option value="7g">7 gün</option><option value="suresiz">süresiz</option></select>
+            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Hesap askıya alınsın mı?')">Askıya al</button>
+          </form>
+          {% endif %}
+          {% if s.ip and not s.ip_engelli %}
+          <form method="post" class="d-inline">{% csrf_token %}
+            <input type="hidden" name="tur" value="ip"><input type="hidden" name="ip" value="{{ s.ip }}">
+            <select name="sure" class="form-select form-select-sm d-inline w-auto"><option value="24s">24 sa</option><option value="7g">7 gün</option><option value="suresiz">süresiz</option></select>
+            <button class="btn btn-sm btn-outline-warning" onclick="return confirm('{{ s.ip }} engellensin mi?')">IP engelle</button>
+          </form>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="10" class="text-body-secondary">Bugün için izleme verisi yok.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h2 class="mt-4">Etkin engeller</h2>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Tür</th><th>Hedef</th><th>Sebep</th><th>Bitiş</th><th class="text-end">İsabet</th><th>Ekleyen</th>{% if superuser %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for e in engeller %}
+      <tr>
+        <td>{{ e.get_tur_display }}</td>
+        <td><code>{{ e.deger|default:e.kullanici_id }}</code></td>
+        <td class="small">{{ e.sebep|truncatechars:80 }}</td>
+        <td class="small">{{ e.bitis|date:"d.m.Y H:i"|default:"süresiz" }}</td>
+        <td class="text-end">{{ e.isabet_sayisi|tr_sayi }}</td>
+        <td class="small">{{ e.olusturan|default:"—" }}</td>
+        {% if superuser %}
+        <td><form method="post">{% csrf_token %}<input type="hidden" name="tur" value="kaldir"><input type="hidden" name="engel" value="{{ e.pk }}"><button class="btn btn-sm btn-outline-secondary">Kaldır</button></form></td>
+        {% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="text-body-secondary">Etkin engel yok.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if superuser %}
+  <h2 class="mt-4">Elle IP / ağ engelle</h2>
+  <form method="post" class="row g-2 mb-4">{% csrf_token %}
+    <input type="hidden" name="tur" value="ip">
+    <div class="col-12 col-md-3"><input name="ip" class="form-control" placeholder="203.0.113.7 ya da 203.0.113.0/24" required></div>
+    <div class="col-12 col-md-4"><input name="sebep" class="form-control" placeholder="Sebep"></div>
+    <div class="col-6 col-md-2"><select name="sure" class="form-select"><option value="24s">24 saat</option><option value="7g">7 gün</option><option value="suresiz">süresiz</option></select></div>
+    <div class="col-6 col-md-2"><button class="btn btn-danger w-100">Engelle</button></div>
+  </form>
+  {% endif %}
+
+  <h2 class="mt-4">Son güvenlik olayları</h2>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Zaman</th><th>Tür</th><th>Kimlik</th><th>Hesap</th><th>IP</th><th>Yol</th><th>Ayrıntı</th></tr></thead>
+    <tbody>
+    {% for o in olaylar %}
+      <tr>
+        <td class="small">{{ o.zaman|date:"d.m H:i" }}</td>
+        <td>{{ o.get_tur_display }}</td>
+        <td><code>{{ o.kimlik }}</code></td>
+        <td class="small">{% if o.kullanici %}<a href="{% url 'admin:accounts_user_change' o.kullanici_id %}">{{ o.kullanici.email|default:o.kullanici.username }}</a>{% else %}—{% endif %}</td>
+        <td><code>{{ o.ip|default:"—" }}</code></td>
+        <td class="small">{{ o.yol|truncatechars:50 }}</td>
+        <td class="small">{{ o.ayrinti }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="text-body-secondary">Olay yok.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

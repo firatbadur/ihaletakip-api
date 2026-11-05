@@ -8,12 +8,15 @@ Tüm endpoint'ler bu yapıda döner. View'lar düz `Response(data)` dönebilir;
 from rest_framework.response import Response
 
 
-def api_response(data=None, message="", success=True, status=200):
-    """Zarfı açıkça oluşturur (renderer bunu tekrar sarmaz)."""
-    resp = Response(
-        {"success": success, "message": message, "data": data},
-        status=status,
-    )
+def api_response(data=None, message="", success=True, status=200, errors=None):
+    """Zarfı açıkça oluşturur (renderer bunu tekrar sarmaz).
+
+    `errors` verilirse zarfa eklenir (makine okunur `code` taşımak için).
+    """
+    govde = {"success": success, "message": message, "data": data}
+    if errors is not None:
+        govde["errors"] = errors
+    resp = Response(govde, status=status)
     resp._enveloped = True  # renderer'a "zaten sarıldı" işareti
     return resp
 

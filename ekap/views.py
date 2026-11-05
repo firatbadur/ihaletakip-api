@@ -36,7 +36,8 @@ from accounts.premium import (
     require_premium,
 )
 from core.response import api_response
-from core.throttling import sayfa_derinligi_asimi
+from core.sayfa_siniri import pro_sayfa_kontrolu
+from core.throttling import istemci, sayfa_derinligi_asimi
 
 from . import authority_profile, benchmark as benchmark_mod, market as market_mod
 
@@ -1290,6 +1291,8 @@ class TenderListView(APIView):
         # Sayfa derinliği — DB'ye dokunmadan önce (bkz. core/throttling.py; mobil için
         # vars. yalnızca gözlem).
         page, boyut = sayfa_parametreleri(qp, varsayilan=10, azami=100)
+        # Free sayfa sınırı (core/sayfa_siniri.py): Pro değilse sayfa ≤ 3, boyut ≤ 20.
+        azami_boyut = pro_sayfa_kontrolu(request, page, boyut, "ihale_arama")
         if mesaj := sayfa_derinligi_asimi(request, page, boyut, "ihale_arama"):
             return api_response(message=mesaj, success=False, status=400)
 
@@ -1365,7 +1368,7 @@ class TenderListView(APIView):
         # (normal aramanın bütün değeri o paylaşımda).
         kapsam = f"tender:kf{request.user.pk}" if kf_idler else "tender"
         total = _cached_count(qs, qp, scope=kapsam)
-        items, page, _boyut = sirala_sayfala(qs, qp)
+        items, page, _boyut = sirala_sayfala(qs, qp, azami_boyut=min(100, azami_boyut))
         data = EkapTenderListSerializer(items, many=True).data
         payload = {"list": data, "totalCount": total, "page": page}
 
@@ -2057,9 +2060,14 @@ class TenderDocumentsView(APIView):
         # ⚠️ Önbellek hız bütçesinin asıl koruması: liste her doküman ekranı
         # açılışında sorulacak, ama içerik gün içinde değişmiyor.
         onbellek = _dokuman_onbellek_oku(tender.ikn)
+        kota_hatasi = None
         if onbellek is None:
-            cli = EkapMobilClient(butce="kullanici")
-            onbellek = {"ihale": [], "teknik": []}
+            from .kota_yanit import kota_olayi
+            from .mobil.kota import hazirla as kota_hazirla
+
+            ist = istemci(request)
+            cli = EkapMobilClient(butce="kullanici", kota=kota_hazirla(ist, request.user))
+            onbellek = {"ihale": [], "teknik": [], "_kota": None}
             # ⚠️ İhale dokümanının VARLIĞI da sorulur: EKAP istisna/kapsam dışı
             # ihalelerde doküman yayımlamıyor (ölçüldü) ve koşulsuz bağlantı vermek
             # kullanıcıyı hataya sürüklüyordu.
@@ -2089,9 +2097,15 @@ class TenderDocumentsView(APIView):
             # saklanıyor ve kullanıcı gün boyu belgeye ulaşamıyordu. Üretimde yaşandı
             # (2026-09-11). "Bilmiyorum"u "yok" diye önbelleğe almak, yanlış veriyi
             # kalıcılaştırmaktır.
+            kota_hatasi = onbellek.pop("_kota", None)
             if ihale_kesin and teknik_kesin:
                 cache.set(_dokuman_onbellek_anahtari(tender.ikn), onbellek,
                           timeout=_DOK_ONBELLEK_TTL)
+            elif kota_hatasi is not None:
+                # ⚠️ Kişi kotası: istek EKAP'a hiç gitmedi → "alınamadı" demek yanlış olur.
+                veri["mesaj"] = kota_hatasi.kullanici_mesaji
+                veri["hata_kodu"] = kota_hatasi.kod
+                kota_olayi(request, ist, cli.kota, f"documents {tender.ikn}")
             else:
                 veri["mesaj"] = ("Doküman bilgisi şu an alınamadı; "
                                  "lütfen birazdan tekrar deneyin.")
@@ -2147,13 +2161,16 @@ class TenderDocumentsView(APIView):
         captcha duvarı ve benzeri geçici arızalar `False` döner → çağıran sonucu
         önbelleğe yazmaz.
         """
-        from .mobil.client import MobilError, MobilYokError
+        from .mobil.client import MobilError, MobilKotaError, MobilYokError
 
         try:
             onbellek[alan] = cagir()
             return True
         except MobilYokError:
             return True          # EKAP net söyledi: kayıt yok
+        except MobilKotaError as e:
+            onbellek["_kota"] = e    # çağıran ayrı mesaj verir; önbelleğe YAZILMAZ
+            return False
         except MobilError as e:  # ağ/captcha/5xx → BİLMİYORUZ
             logger.warning("%s alınamadı (%s): %s", etiket, ikn, str(e)[:150])
             return False
@@ -2200,7 +2217,12 @@ class TenderDocumentView(APIView):
         # ölçüldü: ayrı 15 MB PDF, ayrı uç). Kullanıcı "doküman indir" deyip teknik
         # şartnameyi bulamıyordu → ayrı `?tur=teknik` yolu.
         tur = (request.query_params.get("tur") or "ihale").lower()
-        cli = EkapMobilClient(butce="kullanici")
+        from .kota_yanit import kota_olayi, kota_yaniti
+        from .mobil.client import MobilKotaError
+        from .mobil.kota import hazirla as kota_hazirla
+
+        ist = istemci(request, imzali_uid=_imzali_uid(request))
+        cli = EkapMobilClient(butce="kullanici", kota=kota_hazirla(ist, request.user))
         try:
             if tur == "teknik":
                 # ⚠️ Teknik şartname **birden çok dosya** olabilir (ölçüldü: 10-11
@@ -2265,6 +2287,9 @@ class TenderDocumentView(APIView):
                     )
                 # ⚠️ Liste ve indirme AYNI zincirde: id tek kullanımlık, önbelleklenemez.
                 resp = cli.dokuman_indir(yil, sayi, secilen["id"], zincir=True)
+        except MobilKotaError as e:
+            kota_olayi(request, ist, cli.kota, f"document {tender.ikn}")
+            return kota_yaniti(e)
         except MobilYokError:
             # ⚠️ 502 DEĞİL: EKAP'ta doküman yok, bizde arıza yok. 502 demek
             # kullanıcıya "sistem bozuk" demektir ve destek talebi doğurur.
@@ -2513,7 +2538,7 @@ class CityListView(APIView):
 
 # ── Yüklenici (firma) uçları ───────────────────────────
 def _paginate(request, qs, serializer_class, default_page_size=20, context=None,
-              donustur=None, ek=None):
+              donustur=None, ek=None, azami_boyut=100):
     """assistant.views._paginate ile aynı zarf: {list, totalCount, page}.
 
     `donustur`: satır başına dönüşüm (ör. Free maskelemesi). `ek`: zarfa eklenecek
@@ -2528,6 +2553,7 @@ def _paginate(request, qs, serializer_class, default_page_size=20, context=None,
         page_size = min(100, max(1, int(qp.get("page_size", default_page_size))))
     except (TypeError, ValueError):
         page_size = default_page_size
+    page_size = min(page_size, max(1, azami_boyut))
 
     # İhale listesiyle aynı gerekçe: COUNT filtreli büyük tabloda tam tarama demek ve
     # aynı aramanın her sayfası onu yeniden hesaplıyordu. Anahtara `request.path` de
@@ -2646,6 +2672,7 @@ class ContractorListView(APIView):
     def get(self, request):
         qp = request.query_params
         page, boyut = sayfa_parametreleri(qp, varsayilan=20, azami=100)
+        azami_boyut = pro_sayfa_kontrolu(request, page, boyut, "firma_liste")
         if mesaj := sayfa_derinligi_asimi(request, page, boyut, "firma_liste"):
             return api_response(message=mesaj, success=False, status=400)
         qs = Contractor.objects.all()
@@ -2684,7 +2711,7 @@ class ContractorListView(APIView):
         kilitli = firma_kilitli(request)
         return _paginate(request, qs, ContractorListSerializer,
                          donustur=_firma_satiri_maskele if kilitli else None,
-                         ek={"kilitli": kilitli})
+                         ek={"kilitli": kilitli}, azami_boyut=azami_boyut)
 
 
 @extend_schema(

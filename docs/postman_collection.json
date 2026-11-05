@@ -68,16 +68,12 @@
       "name": "auth",
       "item": [
         {
-          "name": "E-posta ile kayıt — kod gönder",
+          "name": "api_v1_auth_email_register_start_create",
           "request": {
             "method": "POST",
             "header": [
               {
                 "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Content-Type",
                 "value": "application/json"
               }
             ],
@@ -96,19 +92,7 @@
                 ""
               ]
             },
-            "description": "Kaydın **1. adımı**: e-posta + şifre (+ isteğe bağlı ad) doğrulanır ve e-postaya **6 haneli kod** gönderilir. Hesap bu adımda **açılmaz**; `register/verify/` ile kod girilince açılır.\n\nKodu yeniden göndermek için bu uç **aynı gövdeyle** tekrar çağrılır (`tekrar_gonderim_sn` dolmadan → 429 `code_cooldown`). Her yeni kod öncekini geçersiz kılar.\n\nŞifre kuralları: en az **8** karakter, yalnız rakam olamaz, çok yaygın bir şifre olamaz, e-postaya/ada çok benzeyemez. İhlal → 400 `errors.password` (liste).\n\nHata kodları (`errors.code`): `email_exists` (400), `code_cooldown` / `code_limit` (429, `retry_after` sn), `send_failed` (503).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"ahmet@firma.com.tr\",\n  \"password\": \"Guclu.Sifre42\",\n  \"display_name\": \"Ahmet Yılmaz\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "auth": {
-              "type": "noauth"
-            }
+            "description": "_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
@@ -5348,6 +5332,53 @@
               ]
             },
             "description": "Kayıt yoksa da `204` döner (idempotent).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        }
+      ]
+    },
+    {
+      "name": "guvenlik",
+      "item": [
+        {
+          "name": "İnsan doğrulaması (Cloudflare Turnstile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/guvenlik/insan-dogrulama/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "guvenlik",
+                "insan-dogrulama",
+                ""
+              ]
+            },
+            "description": "**Yalnızca web portalı** (`X-IT-Portal-Key` + `X-IT-Client-IP`; girişliyse `Authorization`). Bir uç **428** `errors.code=\"human_verification_required\"` döndüğünde web Turnstile kutusunu gösterir ve çıkan token'ı buraya iletir. Geçerse o kimliğin (hesap ya da IP) sayaçları sıfırlanır; asıl istek tekrarlanabilir.\n\n⚠️ Token tek kullanımlıktır (~300 sn). `X-IT-Client-IP` Cloudflare'e `remoteip` olarak gönderilir; yanlış IP doğrulamayı düşürebilir.\n\nHatalar: 403 (portal anahtarı yok), 400 `human_verification_required` (token geçersiz/süresi dolmuş), 503 (Turnstile yapılandırılmamış).\n\n_Herkese açık — kimlik doğrulaması gerekmez._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"0.AbC…\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
           }
         }
       ]

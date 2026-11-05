@@ -230,3 +230,103 @@ class SupportMessage(models.Model):
         return f"#{self.ticket_id} {self.sender}: {self.body[:40]}"
 
 # Not: DETSIS/kurum kaydı artık ekap.Authority modelinde (EKAP'tan senkronlanır).
+
+
+class ErisimEngeli(models.Model):
+    """
+    Erişim engeli: IP/CIDR kara listesi, hesap askıya alma, e-posta alanı yasağı.
+
+    Mantık `core.guvenlik`'te (tek yer: admin, panel düğmeleri ve süre görevi aynı
+    fonksiyonları çağırır). ⚠️ Satırı silmek engeli kaldırmanın doğru yolu DEĞİLDİR:
+    hesap engeli `is_active`'i kapatır, geri açan `guvenlik.engeli_kaldir`'dır.
+    """
+
+    TUR_IP = "ip"
+    TUR_KULLANICI = "kullanici"
+    TUR_EPOSTA_ALANI = "eposta_alani"
+    TUR_CHOICES = [
+        (TUR_IP, "IP / ağ (CIDR)"),
+        (TUR_KULLANICI, "Hesap"),
+        (TUR_EPOSTA_ALANI, "E-posta alanı"),
+    ]
+
+    tur = models.CharField("tür", max_length=16, choices=TUR_CHOICES, db_index=True)
+    # IP/CIDR ya da alan adı (küçük harf). Hesap engelinde kullanıcı e-postası (gösterim).
+    deger = models.CharField("değer", max_length=255, blank=True, db_index=True)
+    kullanici = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="erisim_engelleri", verbose_name="hesap",
+    )
+    sebep = models.TextField("sebep", blank=True)
+    bitis = models.DateTimeField("bitiş", null=True, blank=True,
+                                 help_text="Boş = süresiz.")
+    aktif = models.BooleanField(default=True, db_index=True)
+    # Hesap engeli: engelden önce hesap aktif miydi? Kaldırınca yalnızca o zaman açılır.
+    onceki_aktif = models.BooleanField(null=True, blank=True, editable=False)
+    olusturan = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", editable=False,
+    )
+    isabet_sayisi = models.PositiveIntegerField("isabet", default=0, editable=False)
+    son_isabet = models.DateTimeField(null=True, blank=True, editable=False)
+    kaldirilma = models.DateTimeField(null=True, blank=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Erişim Engeli"
+        verbose_name_plural = "Erişim Engelleri"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["tur", "aktif"], name="core_engel_tur_aktif")]
+
+    def __str__(self):
+        hedef = self.deger or (self.kullanici_id and f"uid {self.kullanici_id}") or "?"
+        return f"{self.get_tur_display()}: {hedef}"
+
+    @property
+    def suresi_doldu(self) -> bool:
+        return bool(self.bitis and self.bitis <= timezone.now())
+
+
+class GuvenlikOlayi(models.Model):
+    """
+    Güvenlik günlüğü — yönetim panelindeki "son olaylar" ve şüpheli hesap kanıtı.
+
+    ⚠️ Her istek DEĞİL, yalnızca olay yazılır (hız engeli, kota dolumu, doğrulama, engel
+    isabeti…) ve kimlik × tür başına dakikada en çok bir satır (`guvenlik.olay_yaz`).
+    90 günden eskiler `cleanup_old_notifications` ile silinir.
+    """
+
+    TURLER = [
+        ("hiz_engeli", "Hız sınırı engeli"),
+        ("ekap_kota", "EKAP kotası doldu"),
+        ("dogrulama_istendi", "İnsan doğrulaması istendi"),
+        ("dogrulama_gecti", "İnsan doğrulaması geçti"),
+        ("dogrulama_basarisiz", "İnsan doğrulaması başarısız"),
+        ("engel_isabet", "Engelli erişim denemesi"),
+        ("tek_kullanimlik_eposta", "Tek kullanımlık e-posta reddi"),
+        ("sayfa_siniri", "Free sayfa sınırı"),
+        ("engel_eklendi", "Engel eklendi"),
+        ("engel_kaldirildi", "Engel kaldırıldı"),
+    ]
+
+    zaman = models.DateTimeField(default=timezone.now, db_index=True)
+    tur = models.CharField("tür", max_length=32, choices=TURLER, db_index=True)
+    kimlik = models.CharField(max_length=80, blank=True, db_index=True)
+    kullanici = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name="hesap",
+    )
+    ip = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    ua = models.CharField("tarayıcı", max_length=300, blank=True)
+    istemci_turu = models.CharField("istemci", max_length=24, blank=True)
+    yol = models.CharField(max_length=300, blank=True)
+    ayrinti = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Güvenlik Olayı"
+        verbose_name_plural = "Güvenlik Olayları"
+        ordering = ["-zaman"]
+
+    def __str__(self):
+        return f"{self.get_tur_display()} · {self.kimlik}"

@@ -66,6 +66,8 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # IP kara listesi `/api/`'ye DRF'ten önce (bkz. core.guvenlik).
+    "core.middleware.ErisimEngeliMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -409,6 +411,34 @@ API_SAYFA_DERINLIK_GIRISLI = env.int("API_SAYFA_DERINLIK_GIRISLI", default=1000)
 # gözlem sayacına yazılır (`belge_anonim`). Sayaç sıfıra inince açın.
 EKAP_BELGE_GIRIS_ZORUNLU = env.bool("EKAP_BELGE_GIRIS_ZORUNLU", default=False)
 EKAP_BELGE_IMZA_SURE_SN = env.int("EKAP_BELGE_IMZA_SURE_SN", default=24 * 3600)
+# ── Güvenlik katmanı (2026-11-05 kazıyıcı arızası; bkz. CLAUDE.md "Güvenlik katmanı") ──
+# Kişi başı EKAP isteği kotası (ekap/mobil/kota.py). EKAP'a giden GERÇEK istek sayılır,
+# önbellekten dönen cevap sayılmaz. {"free": {"gun": 30, "saat": 15}, ...}
+EKAP_KIMLIK_KOTA = env.json("EKAP_KIMLIK_KOTA", default={})
+# Pro olmayan kullanıcı listelerde en çok N sayfa (core/sayfa_siniri.py).
+LISTE_FREE_AZAMI_SAYFA = env.int("LISTE_FREE_AZAMI_SAYFA", default=3)
+LISTE_FREE_AZAMI_SAYFA_BOYUTU = env.int("LISTE_FREE_AZAMI_SAYFA_BOYUTU", default=20)
+# Mod: kapali | gozlem | uygula. Portal (web) hemen; mobil yeni sürümle.
+LISTE_SAYFA_SINIRI_PORTAL = env("LISTE_SAYFA_SINIRI_PORTAL", default="uygula")
+# ⚠️ Kullanıcısız web önbellek dolumu: web token'sız derin sayfa istemeyi bırakana kadar
+# (web notu #21) KAPALI — açılırsa web'in Pro kullanıcısı da 4. sayfada kesilirdi.
+LISTE_SAYFA_SINIRI_DOLUM = env("LISTE_SAYFA_SINIRI_DOLUM", default="kapali")
+# Mobil/doğrudan: eski mağaza sürümü 4. sayfada hata ekranına düşüyor → vars. gözlem;
+# `X-IT-App-Build` bu değere eşit/büyükse uygulanır (0 = build ile açma kapalı).
+LISTE_SAYFA_SINIRI_DIGER = env("LISTE_SAYFA_SINIRI_DIGER", default="gozlem")
+LISTE_SAYFA_SINIRI_MOBIL_MIN_BUILD = env.int("LISTE_SAYFA_SINIRI_MOBIL_MIN_BUILD", default=0)
+# İnsan doğrulaması (Cloudflare Turnstile) — yalnızca web portalı (core/insan_dogrulama.py).
+TURNSTILE_SECRET_KEY = env("TURNSTILE_SECRET_KEY", default="")
+TURNSTILE_HOSTNAMES = env.list("TURNSTILE_HOSTNAMES",
+                               default=["ihaletakip.com", "www.ihaletakip.com"])
+# kapali | gozlem | uygula. ⚠️ Sır boşsa `uygula` da gözleme düşer.
+GUVENLIK_DOGRULAMA_MODU = env("GUVENLIK_DOGRULAMA_MODU", default="gozlem")
+# 10 dakikalık pencerede kapsamlı API çağrısı eşiği (ihale sayfası ≈ 4 çağrı).
+GUVENLIK_DOGRULAMA_ESIK = env.json("GUVENLIK_DOGRULAMA_ESIK",
+                                   default={"anonim": 100, "girisli": 150})
+GUVENLIK_DOGRULAMA_PENCERE_SN = env.int("GUVENLIK_DOGRULAMA_PENCERE_SN", default=600)
+# Web e-posta kaydında Turnstile token'ı zorunlu mu? ⚠️ Web notu #23 yayılınca açın.
+TURNSTILE_KAYIT_ZORUNLU = env.bool("TURNSTILE_KAYIT_ZORUNLU", default=False)
 # Firma uçlarında para/oran alanlarını Free/anonim için SUNUCUDA maskele.
 EKAP_FIRMA_SUNUCU_MASKE = env.bool("EKAP_FIRMA_SUNUCU_MASKE", default=True)
 # DB'de olmayan anahtar için canlı EKAP v2 detayı denensin mi (eski davranış)?
@@ -955,6 +985,8 @@ JAZZMIN_SETTINGS = {
         # ⚠️ Operatör yolu: OCR captcha'yı çözemezse toplama durur ve resim burada
         # gösterilir. Menüde görünür olması şart — gizli bir sayfa, "sistem sessizce
         # durmasın" tasarımını işlevsiz bırakır.
+        # Şüpheli hesap/IP, engeller, EKAP ortak bütçe (core/admin_views.py).
+        {"name": "Güvenlik", "url": "core_guvenlik", "permissions": ["auth.view_user"]},
         {"name": "Sektörler", "url": "ekap_sektorler",
          "permissions": ["ekap.view_tender"]},
         {"name": "EKAP Captcha", "url": "ekap_mobil_captcha",

@@ -111,6 +111,34 @@ class _EpostaUcu(APIView):
                      retry_after=42),
     ],
 )
+def _kayit_korumasi(request, email):
+    """
+    Kayıt kötüye kullanım korumaları (2026-11-05: betikle açılmış mailinator hesabı ortak
+    EKAP bütçesini bitirdi — `core.guvenlik`):
+    1. Tek kullanımlık / yasaklı e-posta alanı → 400 `disposable_email`.
+    2. Web portalından gelen kayıtta Turnstile token'ı (`turnstile_token`) — yalnızca
+       `TURNSTILE_KAYIT_ZORUNLU` açıkken (web notu #23 yayılınca). Mobil etkilenmez.
+    """
+    from django.conf import settings
+
+    from core.guvenlik import MESAJ_EPOSTA, eposta_engelli, olay_yaz
+    from core.insan_dogrulama import MESAJ_GECERSIZ, turnstile_dogrula
+    from core.throttling import istemci, portal_dogrulandi
+
+    if eposta_engelli(email):
+        olay_yaz("tek_kullanimlik_eposta", ist=istemci(request), request=request,
+                 ayrinti={"alan": email.rsplit("@", 1)[-1]})
+        raise EpostaHatasi(MESAJ_EPOSTA, "disposable_email")
+    if getattr(settings, "TURNSTILE_KAYIT_ZORUNLU", False) and portal_dogrulandi(request):
+        ist = istemci(request)
+        tamam, hatalar = turnstile_dogrula(str(request.data.get("turnstile_token") or ""),
+                                           ist.ip)
+        if not tamam:
+            olay_yaz("dogrulama_basarisiz", ist=ist, request=request,
+                     ayrinti={"yer": "kayit", "hatalar": hatalar[:5]})
+            raise EpostaHatasi(MESAJ_GECERSIZ, "human_verification_required")
+
+
 class EmailRegisterStartView(_EpostaUcu):
     eposta_kapsam = "kod_gonder"
 
@@ -118,6 +146,7 @@ class EmailRegisterStartView(_EpostaUcu):
         s = EmailRegisterStartSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         email = s.validated_data["email"]
+        _kayit_korumasi(request, email)
         if User.objects.filter(email__iexact=email).exists():
             raise EpostaHatasi(MSG_KAYITLI, "email_exists")
         kod_gonder(email, EpostaKodu.Amac.KAYIT, veri={

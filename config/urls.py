@@ -10,6 +10,7 @@ from drf_spectacular.views import (
 from accounts.views_eposta import eposta_abonelik, ses_bildirim
 from blog.views import blog_medya
 from core.views import health_check
+from core.admin_views import guvenlik_ekrani
 from ekap.admin_views import sektor_ekrani
 from ekap.mobil.admin_views import captcha_ekrani
 
@@ -33,6 +34,11 @@ urlpatterns = [
     # `admin_view` sarmalayıcısı staff kontrolünü ve giriş yönlendirmesini sağlar.
     # ⚠️ `sektor`ün kayıtlı bir modeli YOK (kapalı taksonomi, ayrı tablosu yok) →
     # admin'de hazır liste ekranı da yok. Bu sayfa onun yerine geçer.
+    path(
+        "admin/guvenlik/",
+        admin.site.admin_view(guvenlik_ekrani),
+        name="core_guvenlik",
+    ),
     path(
         "admin/ekap/sektorler/",
         admin.site.admin_view(sektor_ekrani),

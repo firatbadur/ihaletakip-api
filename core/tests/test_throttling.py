@@ -103,8 +103,11 @@ class ThrottleTest(TestCase):
         self.assertEqual(sureler[9], 24 * 3600)
 
 
+# ⚠️ Free 3 sayfa sınırı (core/sayfa_siniri.py) bu sınıfta KAPALI: burada ölçülen şey
+# kayıt ofseti derinliğidir; Free sınırı `test_guvenlik_sayfa.py`'de ayrıca test edilir.
 @override_settings(PORTAL_KEY=ANAHTAR, API_THROTTLE_MODU="gozlem",
-                   API_THROTTLE_PORTAL_MODU="uygula")
+                   API_THROTTLE_PORTAL_MODU="uygula", LISTE_SAYFA_SINIRI_PORTAL="kapali",
+                   LISTE_SAYFA_SINIRI_DOLUM="kapali")
 class SayfaDerinligiTest(TestCase):
     def setUp(self):
         cache.clear()

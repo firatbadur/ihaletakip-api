@@ -69,6 +69,18 @@ class MobilButceError(MobilError):
     """Günlük istek bütçesi doldu — bu tur bedavaya çıkılır."""
 
 
+class MobilKotaError(MobilError):
+    """Kişi başı EKAP kotası doldu (`ekap.mobil.kota`) — istek EKAP'a gitmedi.
+
+    `kullanici_mesaji` kullanıcıya gösterilecek Türkçe metindir; `kod` = `ekap_quota`.
+    """
+
+    def __init__(self, kullanici_mesaji: str):
+        super().__init__(kullanici_mesaji)
+        self.kullanici_mesaji = kullanici_mesaji
+        self.kod = "ekap_quota"
+
+
 def _cihaz_uuid() -> str:
     """
     `user-agent` içindeki cihaz kimliği.
@@ -101,7 +113,7 @@ class EkapMobilClient:
     """Mobil API POST istemcisi (throttle + kalıcı oturum + captcha)."""
 
     def __init__(self, base_url=None, timeout=None, butce="arka_plan",
-                 pencere_adi=None, slot_bekleme=None):
+                 pencere_adi=None, slot_bekleme=None, kota=None):
         """
         `butce`       → günlük hakkın düşüleceği kategori (`throttle.BUTCE_KATEGORILERI`).
         `pencere_adi` → zaman penceresi; vars. kullanıcı için `kullanici`, diğerleri
@@ -110,12 +122,16 @@ class EkapMobilClient:
                         ayrı pencere EKAP'a giden toplam hızı ikiye katlardı.
         `slot_bekleme`→ `None` ise pencere doluyken hemen `MobilSlotError` (tik
                         deseni); sayı verilirse en çok o kadar saniye beklenir.
+        `kota`        → `ekap.mobil.kota.Kota` (kişi başı EKAP hakkı) ya da `None`
+                        (arka plan / muaf). Kullanıcı yolunda ZORUNLU tutulmalı:
+                        bkz. `kota.py` modül notu (2026-11-05 arızası).
         """
         self.base_url = (base_url or settings.EKAP_MOBIL_BASE_URL).rstrip("/")
         self.timeout = timeout or getattr(settings, "EKAP_MOBIL_TIMEOUT", 60)
         self.butce = butce
         self.pencere_adi = pencere_adi or ("kullanici" if butce == "kullanici" else "arka_plan")
         self.slot_bekleme = slot_bekleme
+        self.kota = kota
         self.session = requests.Session()
         self.son_istek_captcha = False
 
@@ -163,6 +179,9 @@ class EkapMobilClient:
             # aynı pencereyi paylaşınca çakışma olağan hâle gelir. Önce ucuz bir ön
             # kontrol yapılır (bütçe bitmişse pencere boşuna rezerve edilmesin),
             # kesin (atomik) düşüm pencereden sonradır.
+            # Kişi kotası ortak bütçeden ÖNCE: hakkı biten kişi pencere de almasın.
+            if self.kota is not None and not self.kota.on_kontrol():
+                raise MobilKotaError(self.kota.mesaj())
             if throttle.butce_kalan(self.butce) <= 0:
                 raise MobilButceError(
                     f"EKAP mobil günlük bütçe doldu ({self.butce}); tur atlandı."
@@ -195,7 +214,11 @@ class EkapMobilClient:
                 raise MobilSlotError(
                     f"EKAP mobil hız penceresi {self.slot_bekleme:.0f} sn içinde boşalmadı."
                 )
+            if self.kota is not None and not self.kota.harca():
+                raise MobilKotaError(self.kota.mesaj())
             if not throttle.butce_harca(self.butce):
+                if self.kota is not None:
+                    self.kota.iade()   # istek atılmadı → kişinin hakkı yanmasın
                 raise MobilButceError(
                     f"EKAP mobil günlük bütçe doldu ({self.butce}); tur atlandı."
                 )

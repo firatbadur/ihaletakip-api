@@ -209,3 +209,146 @@ class SupportTicketAdmin(admin.ModelAdmin):
             request,
             f"Yanıt #{obj.pk} talebine eklendi; kullanıcıya bildirim ve push gönderiliyor.",
         )
+
+
+# ── Güvenlik katmanı (core/guvenlik.py) ─────────────────
+from datetime import timedelta  # noqa: E402
+
+from django.utils import timezone  # noqa: E402
+
+from . import guvenlik  # noqa: E402
+from .models import ErisimEngeli, GuvenlikOlayi  # noqa: E402
+
+
+class ErisimEngeliForm(forms.ModelForm):
+    class Meta:
+        model = ErisimEngeli
+        fields = ["tur", "deger", "kullanici", "sebep", "bitis"]
+
+    def clean(self):
+        veri = super().clean()
+        tur, deger = veri.get("tur"), (veri.get("deger") or "").strip()
+        if self.instance.pk:
+            return veri
+        try:
+            if tur == ErisimEngeli.TUR_IP:
+                guvenlik.ag_coz(deger)
+            elif tur == ErisimEngeli.TUR_KULLANICI:
+                if not veri.get("kullanici"):
+                    raise forms.ValidationError("Hesap engeli için hesap seçin.")
+                if veri["kullanici"].is_superuser:
+                    raise forms.ValidationError("Süper kullanıcı askıya alınamaz.")
+            elif tur == ErisimEngeli.TUR_EPOSTA_ALANI and "." not in deger:
+                raise forms.ValidationError("Geçerli bir alan adı girin.")
+        except ValueError as e:
+            raise forms.ValidationError(str(e)) from e
+        return veri
+
+
+@admin.register(ErisimEngeli)
+class ErisimEngeliAdmin(admin.ModelAdmin):
+    """
+    ⚠️ Ekleme/kaldırma `core.guvenlik` üzerinden yapılır: hesap engeli `is_active`'i kapatır,
+    IP listesi süreç önbelleğini sürüm anahtarıyla yeniler. Satırı SİLMEK bunları yapmaz →
+    silme kapalı, "Engeli kaldır" eylemi kullanılır.
+    """
+
+    form = ErisimEngeliForm
+    list_display = ["tur", "hedef", "aktif", "bitis", "isabet_sayisi", "son_isabet",
+                    "olusturan", "created_at"]
+    list_filter = ["tur", "aktif"]
+    search_fields = ["deger", "sebep", "kullanici__email", "kullanici__username"]
+    raw_id_fields = ["kullanici"]
+    readonly_fields = ["aktif", "onceki_aktif", "olusturan", "isabet_sayisi",
+                       "son_isabet", "kaldirilma", "created_at", "updated_at"]
+    actions = ["engeli_kaldir"]
+
+    @admin.display(description="Hedef")
+    def hedef(self, obj):
+        return obj.deger or (obj.kullanici and (obj.kullanici.email or obj.kullanici.username))
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        ro = list(self.readonly_fields)
+        if obj is not None:
+            ro += ["tur", "deger", "kullanici"]
+        return ro
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            super().save_model(request, obj, form, change)
+            guvenlik.degisti()
+            return
+        sure = None
+        if obj.bitis:
+            sure = obj.bitis - timezone.now()
+        if obj.tur == ErisimEngeli.TUR_KULLANICI:
+            yeni = guvenlik.hesap_engelle(obj.kullanici, sebep=obj.sebep, sure=sure,
+                                          olusturan=request.user)
+        elif obj.tur == ErisimEngeli.TUR_IP:
+            yeni = guvenlik.ip_engelle(obj.deger, sebep=obj.sebep, sure=sure,
+                                       olusturan=request.user)
+        else:
+            yeni = guvenlik.eposta_alani_engelle(obj.deger, sebep=obj.sebep,
+                                                 olusturan=request.user)
+        obj.pk = yeni.pk
+        obj.__dict__.update({k: v for k, v in yeni.__dict__.items() if not k.startswith("_")})
+
+    @admin.action(description="Seçili engelleri kaldır")
+    def engeli_kaldir(self, request, queryset):
+        n = 0
+        for e in queryset.filter(aktif=True):
+            guvenlik.engeli_kaldir(e, kaldiran=request.user)
+            n += 1
+        self.message_user(request, f"{n} engel kaldırıldı.", messages.SUCCESS)
+
+
+@admin.register(GuvenlikOlayi)
+class GuvenlikOlayiAdmin(admin.ModelAdmin):
+    list_display = ["zaman", "tur", "kimlik", "kullanici", "ip", "istemci_turu", "yol"]
+    list_filter = ["tur", "istemci_turu"]
+    search_fields = ["kimlik", "ip", "kullanici__email", "ua", "yol"]
+    date_hierarchy = "zaman"
+    list_select_related = ["kullanici"]
+    actions = ["hesabi_askiya_al", "ipyi_engelle"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Olaydaki hesapları 7 gün askıya al")
+    def hesabi_askiya_al(self, request, queryset):
+        if not request.user.is_superuser:
+            self.message_user(request, "Yalnızca süper kullanıcı.", messages.ERROR)
+            return
+        n = 0
+        for o in queryset.exclude(kullanici=None).select_related("kullanici"):
+            if o.kullanici.is_superuser:
+                continue
+            guvenlik.hesap_engelle(o.kullanici, sebep=f"Olay #{o.pk} ({o.tur})",
+                                   sure=timedelta(days=7), olusturan=request.user)
+            n += 1
+        self.message_user(request, f"{n} hesap askıya alındı.", messages.SUCCESS)
+
+    @admin.action(description="Olaydaki IP'leri 7 gün engelle")
+    def ipyi_engelle(self, request, queryset):
+        if not request.user.is_superuser:
+            self.message_user(request, "Yalnızca süper kullanıcı.", messages.ERROR)
+            return
+        n, hata = 0, []
+        for ip in set(queryset.exclude(ip=None).values_list("ip", flat=True)):
+            if guvenlik.ip_engeli(ip):
+                continue
+            try:
+                guvenlik.ip_engelle(ip, sebep="Güvenlik olayından", sure=timedelta(days=7),
+                                    olusturan=request.user)
+                n += 1
+            except ValueError as e:
+                hata.append(f"{ip}: {e}")
+        self.message_user(request, f"{n} IP engellendi." + (f" Atlanan: {'; '.join(hata)}"
+                                                            if hata else ""),
+                          messages.SUCCESS if not hata else messages.WARNING)

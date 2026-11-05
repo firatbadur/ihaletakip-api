@@ -114,6 +114,12 @@ core/              # Ortak altyapı
 ├── support.py     # destek yazışması iş mantığı (API + admin ortak; bildirim/push)
 ├── renderers.py   # EnvelopeJSONRenderer (global {success,message,data})
 ├── throttling.py  # kapsam bazlı hız sınırı + sayfa derinliği (portal/gözlem modları)
+├── guvenlik.py    # erişim engelleri (IP/CIDR, hesap askıya alma, e-posta alanı) + olay günlüğü
+├── middleware.py  # ErisimEngeliMiddleware — IP kara listesi `/api/`'de
+├── insan_dogrulama.py # Cloudflare Turnstile (yalnız portal, çok istekte → 428)
+├── sayfa_siniri.py    # Free 3 sayfa sınırı (4 liste ucu)
+├── guvenlik_izleme.py # Redis istek sayaçları → /admin/guvenlik/
+├── admin_views.py # Güvenlik Paneli (/admin/guvenlik/)
 ├── exceptions.py  # custom_exception_handler (global hata zarfı)
 ├── response.py    # api_response() yardımcısı
 ├── storage.py     # JazzminManifestStaticFilesStorage (statik dosya storage)
@@ -5143,6 +5149,55 @@ mobil kod tarandı (`~/Desktop/IhaleTakip`); kırılma riski olan yerde **bayrak
   `core/tests/test_nginx_conf.py` (2),
   `ekap/tests/test_portal_guvenlik.py` (13), `ekap/tests/test_portal_uclari.py` (6),
   `accounts/tests/test_apple_audience.py` (4).
+
+## Güvenlik katmanı (2026-11-05) — kazıyıcı arızasından sonra
+
+**Olay**: 4 Kas gecesi betikle açılmış tek kullanımlık hesap (uid 631,
+`ihalecin<ms-damga>@mailinator.com`, IP 78.164.78.132, HeadlessChrome + curl + Windows Claude
+masaüstü UA) web'de ~23 bin sayfa gezdi; EKAP mobil **ortak** `kullanici` bütçesi (600/gün)
+01:05'te bitti → gün boyu mobil+web'de DT ayrıntısı, doküman listesi, indirme kapalı.
+Belirti: DT detayı `200` + `detay:null`; log `EKAP mobil günlük bütçe doldu (kullanici)`.
+Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç = suçlu kimlik.
+İstemci belgeleri: `docs/web-guvenlik-sayfa-siniri.md` (#19–#26), `docs/mobil-guvenlik-sayfa-siniri.md`.
+
+- ⚠️⚠️ **Kimlik: girişli kullanıcı DOLUMDAN önce gelir** (`throttling.istemci`). Web token'lı
+  isteğe de `X-IT-Cache-Fill: 1` koyuyordu → kazıyıcı ortak dolum kovasını doldurup tüm web
+  kullanıcılarını 429'a soktu (1.584). `Istemci` artık `ip`, `ua` (`X-IT-Client-UA`), `uid` taşır.
+- **Kişi başı EKAP kotası** (`ekap/mobil/kota.py`, `EkapMobilClient(kota=…)`): çağrı değil
+  **EKAP'a giden gerçek istek** sayılır (eski `belge` 200 çağrı × 2 istek = bütçenin 2/3'ü).
+  Gün/saat: anonim 0/0 · yeni (<24 sa) 10/5 · free 30/15 · pro 60/30 (`EKAP_KIMLIK_KOTA`);
+  superuser muaf; ortak bütçe dolarsa kişi hakkı iade edilir. `MobilKotaError` →
+  DT detay/`documents/` 200 + `hata_kodu:"ekap_quota"`, indirmeler 429 + `X-IT-Hata`
+  (`ekap/kota_yanit.py`). ⚠️ `_enc_ile` kota hatasında taze encID DENEMEZ.
+  ⚠️ Anonim 0 → web DT detayı token'sız gidiyordu (web #20).
+- **Free 3 sayfa** (`core/sayfa_siniri.py`): tenders, contractors, DT, kurul listeleri;
+  bildirimden açılan dahil. 403 `premium_required` + `sebep:"page_limit"` + `azami_sayfa`
+  (tipli: `PremiumRequired(ek=…)` → `core.exceptions` birleştirir). Pro değilse
+  `page_size ≤ 20`. Mod: portal `uygula`; dolum `kapali` (web #21 madde 2'ye kadar —
+  açılırsa web'in Pro'su da kesilir); mobil `X-IT-App-Build ≥ LISTE_SAYFA_SINIRI_MOBIL_MIN_BUILD`
+  ise uygula, değilse `LISTE_SAYFA_SINIRI_DIGER` (vars. gözlem — eski sürüm 4. sayfada
+  hata ekranına düşüyor). `sayfa_derinligi_asimi` korunur.
+- **Turnstile** (`core/insan_dogrulama.py`): yalnız portal, bot/dolum muaf; kimlik (+girişliyse
+  IP) başına 10 dk sayaç, eşik anonim 100 / girişli 150 / IP 400 → **428**
+  `human_verification_required`; `POST /guvenlik/insan-dogrulama/` siteverify geçerse sayaç
+  sıfırlanır. ⚠️ `KapsamliThrottle.allow_request` genel `except`'i `DogrulamaGerekli`'yi
+  yeniden fırlatır (yutulsaydı kapı hiç çalışmazdı). Mod `GUVENLIK_DOGRULAMA_MODU` (vars.
+  gözlem; sır yoksa uygula da gözlem). Kayıt: `TURNSTILE_KAYIT_ZORUNLU` (web #23'e kadar False).
+- **Engeller** (`core/guvenlik.py`, `ErisimEngeli`, `0006`): IP/CIDR (middleware, 403
+  `ip_blocked`; portalda `X-IT-Client-IP`), hesap (`is_active=False` + refresh token kara
+  liste, `onceki_aktif` ile geri alma; giriş/Google/Apple 403 `account_suspended` —
+  sosyal giriş eskiden `is_active`'e hiç bakmıyordu), e-posta alanı (yerleşik tek kullanımlık
+  liste + admin; kayıtta 400 `disposable_email`). ⚠️ Özel/loopback/Docker ağı ve v4 /16 ·
+  v6 /32'den geniş blok REDDEDİLİR — web API'ye Docker ağ geçidinden geliyor. ⚠️ Python 3.13
+  TEST-NET'i (203.0.113/24, 198.51.100/24) özel sayar → testte gerçek genel IP kullanın.
+  Engel satırı silinmez (admin'de silme kapalı), `engeli_kaldir` kullanılır; süre dolumu
+  beat `core-erisim-engeli-sure` (*/10).
+- **Görünürlük**: `GuvenlikOlayi` (kimlik × tür dakikada tek satır, 90 gün,
+  `core-guvenlik-olay-temizligi`), `core/guvenlik_izleme.py` (her API isteğinde tek Redis
+  pipeline: günlük ZSET + meta hash, 3 gün), **`/admin/guvenlik/`** (üst menü "Güvenlik"):
+  ortak bütçe, en yoğun 50 kimlik + şüphe puanı (yalnız gösterim, otomatik engel YOK),
+  superuser'a askıya al / IP engelle düğmeleri; UserAdmin "Askıya al" eylemleri.
+- Testler `core/tests/test_guvenlik.py` (29; dişli: 6 korumanın 6'sı ısırıyor).
 
 ## Önemli Uyarılar
 

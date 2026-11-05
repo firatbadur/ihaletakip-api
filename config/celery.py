@@ -114,6 +114,18 @@ app.conf.beat_schedule = {
         "task": "tenders.tasks.check_favorite_authority_matches",
         "schedule": crontab(hour=8, minute=30),
     },
+    # ── Güvenlik katmanı (core/guvenlik.py) ─────────────
+    # Süresi dolan IP/hesap engellerini kaldır (hesap engelinde `is_active` geri açılır).
+    "core-erisim-engeli-sure": {
+        "task": "core.tasks.erisim_engeli_suresi",
+        "schedule": crontab(minute="*/10"),
+        "options": {"expires": 540},
+    },
+    # 90 günden eski güvenlik olaylarını sil (her gün 04:20)
+    "core-guvenlik-olay-temizligi": {
+        "task": "core.tasks.guvenlik_olay_temizligi",
+        "schedule": crontab(hour=4, minute=20),
+    },
     # 30 günden eski okunmuş bildirimleri temizle (her gün 04:00)
     "cleanup-old-notifications": {
         "task": "tenders.tasks.cleanup_old_notifications",

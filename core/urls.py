@@ -1,6 +1,7 @@
 """Core URL'leri."""
 from django.urls import path
 
+from .views_guvenlik import InsanDogrulamaView
 from .views import (
     SupportTicketView,
     app_status,
@@ -18,5 +19,8 @@ urlpatterns = [
     path("support/<int:pk>/", support_ticket_detail, name="support-detail"),
     path("support/<int:pk>/messages/", support_ticket_reply, name="support-reply"),
     path("support/<int:pk>/close/", support_ticket_close, name="support-close"),
+    # Web portalı insan doğrulaması (Turnstile) — core/insan_dogrulama.py
+    path("guvenlik/insan-dogrulama/", InsanDogrulamaView.as_view(),
+         name="guvenlik-insan-dogrulama"),
     # Not: DETSIS/kurum arama artık ekap app'inde: /api/v1/ekap/authorities/search/
 ]

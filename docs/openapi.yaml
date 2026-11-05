@@ -826,60 +826,14 @@ paths:
   /api/v1/auth/email/register/start/:
     post:
       operationId: api_v1_auth_email_register_start_create
-      description: 'Kaydın **1. adımı**: e-posta + şifre (+ isteğe bağlı ad) doğrulanır
-        ve e-postaya **6 haneli kod** gönderilir. Hesap bu adımda **açılmaz**; `register/verify/`
-        ile kod girilince açılır.
-
-
-        Kodu yeniden göndermek için bu uç **aynı gövdeyle** tekrar çağrılır (`tekrar_gonderim_sn`
-        dolmadan → 429 `code_cooldown`). Her yeni kod öncekini geçersiz kılar.
-
-
-        Şifre kuralları: en az **8** karakter, yalnız rakam olamaz, çok yaygın bir
-        şifre olamaz, e-postaya/ada çok benzeyemez. İhlal → 400 `errors.password`
-        (liste).
-
-
-        Hata kodları (`errors.code`): `email_exists` (400), `code_cooldown` / `code_limit`
-        (429, `retry_after` sn), `send_failed` (503).'
-      summary: E-posta ile kayıt — kod gönder
       tags:
-      - auth
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EmailRegisterStart'
-            examples:
-              İstek:
-                value:
-                  email: ahmet@firma.com.tr
-                  password: Guclu.Sifre42
-                  display_name: Ahmet Yılmaz
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/EmailRegisterStart'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/EmailRegisterStart'
-        required: true
+      - api
+      security:
+      - cookieAuth: []
+      - {}
       responses:
         '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CodeSent'
-              examples:
-                KodGönderildi:
-                  value:
-                    success: true
-                    message: Doğrulama kodu e-posta adresinize gönderildi.
-                    data:
-                      email: ahmet@firma.com.tr
-                      gecerlilik_sn: 600
-                      tekrar_gonderim_sn: 60
-                  summary: Kod gönderildi
-          description: ''
+          description: No response body
   /api/v1/auth/email/register/verify/:
     post:
       operationId: api_v1_auth_email_register_verify_create
@@ -4448,6 +4402,54 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/guvenlik/insan-dogrulama/:
+    post:
+      operationId: guvenlik_insan_dogrulama
+      description: '**Yalnızca web portalı** (`X-IT-Portal-Key` + `X-IT-Client-IP`;
+        girişliyse `Authorization`). Bir uç **428** `errors.code="human_verification_required"`
+        döndüğünde web Turnstile kutusunu gösterir ve çıkan token''ı buraya iletir.
+        Geçerse o kimliğin (hesap ya da IP) sayaçları sıfırlanır; asıl istek tekrarlanabilir.
+
+
+        ⚠️ Token tek kullanımlıktır (~300 sn). `X-IT-Client-IP` Cloudflare''e `remoteip`
+        olarak gönderilir; yanlış IP doğrulamayı düşürebilir.
+
+
+        Hatalar: 403 (portal anahtarı yok), 400 `human_verification_required` (token
+        geçersiz/süresi dolmuş), 503 (Turnstile yapılandırılmamış).'
+      summary: İnsan doğrulaması (Cloudflare Turnstile)
+      tags:
+      - guvenlik
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsanDogrulamaIstek'
+            examples:
+              İstek:
+                value:
+                  token: 0.AbC…
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InsanDogrulamaIstek'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InsanDogrulamaIstek'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsanDogrulamaYanit'
+              examples:
+                Başarılı:
+                  value:
+                    success: true
+                    message: ''
+                    data:
+                      dogrulandi: true
+          description: ''
   /api/v1/notifications/:
     get:
       operationId: api_v1_notifications_list
@@ -6063,24 +6065,6 @@ components:
           maxLength: 254
       required:
       - email
-    EmailRegisterStart:
-      type: object
-      description: E-posta ile kayıt — 1. adım (kod gönderilir, hesap henüz AÇILMAZ).
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 254
-        password:
-          type: string
-          writeOnly: true
-          maxLength: 128
-        display_name:
-          type: string
-          maxLength: 255
-      required:
-      - email
-      - password
     FCMToken:
       type: object
       properties:
@@ -6339,6 +6323,21 @@ components:
         * `hanim` - Hanım
 
         * `yok` - Hitap kullanma'
+    InsanDogrulamaIstek:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Turnstile widget'ının ürettiği token.
+      required:
+      - token
+    InsanDogrulamaYanit:
+      type: object
+      properties:
+        dogrulandi:
+          type: boolean
+      required:
+      - dogrulandi
     IsFavorite:
       type: object
       properties:

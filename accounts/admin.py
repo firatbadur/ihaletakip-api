@@ -106,6 +106,50 @@ class UserAdmin(BaseUserAdmin):
         "username", "email", "display_name", "provider_uid", "push_devices__token",
     ]
     ordering = ["-date_joined"]
+    actions = ["askiya_al_7g", "askiya_al_suresiz", "askiyi_kaldir"]
+
+    # ── Hesap askıya alma (core.guvenlik) ──────────────────
+    # ⚠️ `is_active` kutusunu elle kapatmak yerine bunlar kullanılır: engel kaydı (sebep,
+    # süre, ekleyen) tutulur, yenileme token'ları kara listeye alınır, süre dolunca geri açılır.
+    def _askiya(self, request, queryset, sure):
+        from datetime import timedelta
+
+        from django.contrib import messages
+
+        from core import guvenlik
+
+        if not request.user.is_superuser:
+            self.message_user(request, "Yalnızca süper kullanıcı.", messages.ERROR)
+            return
+        n = 0
+        for u in queryset.exclude(is_superuser=True):
+            guvenlik.hesap_engelle(u, sebep="Yönetim panelinden",
+                                   sure=timedelta(days=sure) if sure else None,
+                                   olusturan=request.user)
+            n += 1
+        self.message_user(request, f"{n} hesap askıya alındı.", messages.SUCCESS)
+
+    @admin.action(description="Askıya al (7 gün)")
+    def askiya_al_7g(self, request, queryset):
+        self._askiya(request, queryset, 7)
+
+    @admin.action(description="Askıya al (süresiz)")
+    def askiya_al_suresiz(self, request, queryset):
+        self._askiya(request, queryset, None)
+
+    @admin.action(description="Askıyı kaldır")
+    def askiyi_kaldir(self, request, queryset):
+        from django.contrib import messages
+
+        from core import guvenlik
+        from core.models import ErisimEngeli
+
+        n = 0
+        for e in ErisimEngeli.objects.filter(tur=ErisimEngeli.TUR_KULLANICI, aktif=True,
+                                             kullanici__in=queryset):
+            guvenlik.engeli_kaldir(e, kaldiran=request.user)
+            n += 1
+        self.message_user(request, f"{n} askı kaldırıldı.", messages.SUCCESS)
 
     fieldsets = BaseUserAdmin.fieldsets + (
         (

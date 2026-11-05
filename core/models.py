@@ -309,6 +309,7 @@ class GuvenlikOlayi(models.Model):
         ("engel_eklendi", "Engel eklendi"),
         ("engel_kaldirildi", "Engel kaldırıldı"),
         ("otomatik_aski", "Otomatik askı"),
+        ("pro_supheli", "Şüpheli Pro (askı yerine işaret)"),
     ]
 
     zaman = models.DateTimeField(default=timezone.now, db_index=True)

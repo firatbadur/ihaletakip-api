@@ -365,6 +365,27 @@ def supheli_puani(satir, user, kota_g):
     return puan, neden
 
 
+def aski_kosulu(satir, user, kota_g) -> tuple[bool, int, list[str]]:
+    """
+    Puan + kullanım şartı (yaş ve Pro HARİÇ): (sağlanıyor mu, puan, gerekçeler).
+
+    Otomatik askı bunu yeni hesap + Pro değil şartıyla birleştirir; panel aynı fonksiyonla
+    Pro satırını kırmızı işaretler — ekranda "askı koşulu" görülen satır, kuralın gördüğüdür.
+    """
+    from django.conf import settings
+
+    from ekap.mobil import kota as kota_mod
+
+    puan, nedenler = supheli_puani(satir, user, kota_g)
+    seviye = kota_mod.seviye_bul(user) or "free"
+    gun_tavan = kota_mod.tablo().get(seviye, {}).get("gun", 0)
+    kota_dolu = kota_g >= max(1, gun_tavan)
+    kullanim = (satir["istek"] >= getattr(settings, "GUVENLIK_OTOMATIK_ASKI_ISTEK", 500)
+                or kota_dolu)
+    return (puan >= getattr(settings, "GUVENLIK_OTOMATIK_ASKI_PUAN", 5) and kullanim,
+            puan, nedenler)
+
+
 def otomatik_aski(kuru: bool = False) -> list[int]:
     """
     Açık sinyallerde hesabı **24 saat** otomatik askıya alır (kullanıcı kararı, 2026-11-05).
@@ -373,8 +394,9 @@ def otomatik_aski(kuru: bool = False) -> list[int]:
     1. Hesap 24 saatten yeni (`YENI_SAAT`),
     2. şüphe puanı ≥ `PUAN` (5) — panelde kırmızı satır,
     3. bugün ≥ `ISTEK` (500) API isteği **ya da** kişi başı EKAP kotası dolu.
-    ⚠️ Pro, staff ve superuser ASLA otomatik askıya alınmaz: kazıyıcı ödeme yapmaz,
-    ödeyen bir müşteriyi yanlışlıkla kesmek kazıyıcıyı birkaç dakika geç durdurmaktan pahalıdır.
+    ⚠️⚠️ **PRO ASLA ASKIYA ALINMAZ** (kullanıcı kararı): koşulları (yaş hariç) sağlayan Pro
+    hesap yalnızca **işaretlenir** — panelde kırmızı + günde bir `pro_supheli` olayı.
+    Staff ve superuser hiç değerlendirilmez.
     ⚠️ IP otomatik ENGELLENMEZ — mobil operatör IP'leri paylaşılıyor (CGNAT).
     ⚠️ Kaldırmak: panel → Etkin engeller → Kaldır (ya da 24 sa sonra kendiliğinden).
     Dönen: askıya alınan kullanıcı id'leri. `kuru=True`: hiçbir şey yazmaz, yalnız adayları
@@ -390,8 +412,6 @@ def otomatik_aski(kuru: bool = False) -> list[int]:
 
     if not getattr(settings, "GUVENLIK_OTOMATIK_ASKI", True):
         return []
-    esik_puan = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_PUAN", 5)
-    esik_istek = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_ISTEK", 500)
     yeni_saat = getattr(settings, "GUVENLIK_OTOMATIK_ASKI_YENI_SAAT", 24)
     sure = timedelta(hours=getattr(settings, "GUVENLIK_OTOMATIK_ASKI_SURE_SAAT", 24))
 
@@ -402,22 +422,30 @@ def otomatik_aski(kuru: bool = False) -> list[int]:
     uidler = [int(s["kimlik"][2:]) for s in satirlar]
     sinir = timezone.now() - timedelta(hours=yeni_saat)
     kullanicilar = {u.pk: u for u in get_user_model().objects.filter(
-        pk__in=uidler, is_active=True, is_staff=False, is_superuser=False,
-        date_joined__gte=sinir)}
+        pk__in=uidler, is_active=True, is_staff=False, is_superuser=False)}
     askida = set(ErisimEngeli.objects.filter(
         tur=ErisimEngeli.TUR_KULLANICI, aktif=True, kullanici_id__in=list(kullanicilar))
         .values_list("kullanici_id", flat=True))
-    gunluk = kota_mod.tablo()
+    gun = timezone.localdate().isoformat()
     alinan = []
     for s in satirlar:
         u = kullanicilar.get(int(s["kimlik"][2:]))
-        if u is None or u.pk in askida or getattr(u, "is_premium", False):
+        if u is None or u.pk in askida:
             continue
         kota_g, _ = kota_mod.ozet(s["kimlik"])
-        seviye = kota_mod.seviye_bul(u) or "free"
-        kota_dolu = kota_g >= max(1, gunluk.get(seviye, {}).get("gun", 0))
-        puan, nedenler = supheli_puani(s, u, kota_g)
-        if puan < esik_puan or not (s["istek"] >= esik_istek or kota_dolu):
+        uygun, puan, nedenler = aski_kosulu(s, u, kota_g)
+        if not uygun:
+            continue
+        ayrinti = {"puan": puan, "nedenler": nedenler, "istek": s["istek"], "ekap": kota_g,
+                   "ua": (s.get("ua") or "")[:120]}
+        if getattr(u, "is_premium", False):
+            # Pro: ASLA askı — yalnız işaret (günde bir olay; panel satırı kırmızı).
+            if not kuru and cache.add(f"guv:prosup:{u.pk}:{gun}", 1, 26 * 3600):
+                olay_yaz("pro_supheli", kimlik=s["kimlik"], kullanici=u, ip=s.get("ip"),
+                         ayrinti=ayrinti, her_zaman=True)
+                logger.warning("şüpheli Pro (askı yok, işaret): uid=%s puan=%s", u.pk, puan)
+            continue
+        if u.date_joined < sinir:
             continue
         if kuru:
             logger.info("otomatik askı (kuru): uid=%s puan=%s %s", u.pk, puan, nedenler)
@@ -430,9 +458,7 @@ def otomatik_aski(kuru: bool = False) -> list[int]:
         except ValueError:
             continue
         olay_yaz("otomatik_aski", kimlik=s["kimlik"], kullanici=u, ip=s.get("ip"),
-                 ayrinti={"engel": engel.pk, "puan": puan, "nedenler": nedenler,
-                          "istek": s["istek"], "ekap": kota_g, "ua": (s.get("ua") or "")[:120]},
-                 her_zaman=True)
+                 ayrinti={**ayrinti, "engel": engel.pk}, her_zaman=True)
         logger.warning("otomatik askı: uid=%s puan=%s istek=%s", u.pk, puan, s["istek"])
         alinan.append(u.pk)
     return alinan

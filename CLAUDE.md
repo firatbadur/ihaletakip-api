@@ -5200,7 +5200,9 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
 - Testler `core/tests/test_guvenlik.py` (29; dişli: 6 korumanın 6'sı ısırıyor).
 - **Otomatik askı** (`guvenlik.otomatik_aski`, beat `core-otomatik-aski` */5): hesap < 24 sa **ve**
   şüphe puanı ≥ 5 **ve** (bugün ≥ 500 istek ya da EKAP kotası dolu) → 24 sa askı (`olusturan=None`,
-  olay `otomatik_aski`). ⚠️ Pro/staff/superuser ASLA; IP otomatik ENGELLENMEZ (mobil CGNAT).
+  olay `otomatik_aski`). ⚠️⚠️ **Pro ASLA askıya alınmaz** (kullanıcı kararı): koşulu (yaş hariç,
+  `aski_kosulu`) sağlayan Pro panelde **kırmızı** + "Pro · askı yok, incele" + günde bir
+  `pro_supheli` olayı. Staff/superuser hiç değerlendirilmez; IP otomatik ENGELLENMEZ (mobil CGNAT).
   Puan panel ile AYNI fonksiyondan (`supheli_puani`). Deneme: `otomatik_aski(kuru=True)`.
   Kapatma `GUVENLIK_OTOMATIK_ASKI=False`. Dişli: 3 korumanın 3'ü.
   ⚠️ Kademeli geçici engel (15 dk/1 sa/24 sa, Redis `thr:ban:*`) yalnız `uygula` modunda →

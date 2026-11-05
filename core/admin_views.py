@@ -74,6 +74,9 @@ def guvenlik_ekrani(request):
         s["ip_engelli"] = bool(guvenlik.ip_engeli(s.get("ip") or ""))
         s["kota_gun"], s["kota_saat"] = kota.ozet(s["kimlik"])
         s["puan"], s["nedenler"] = guvenlik.supheli_puani(s, u, s["kota_gun"])
+        # Pro ASLA otomatik askıya alınmaz; askı koşulunu sağlıyorsa kırmızı işaretlenir.
+        s["pro_isaret"] = bool(u is not None and getattr(u, "is_premium", False)
+                               and guvenlik.aski_kosulu(s, u, s["kota_gun"])[0])
         try:
             s["son"] = datetime.fromtimestamp(
                 int(s.get("zaman") or 0), tz=timezone.get_current_timezone())
@@ -87,7 +90,8 @@ def guvenlik_ekrani(request):
     bugun_bas = timezone.make_aware(datetime.combine(gun, datetime.min.time()))
     olay_sayilari = {r["tur"]: r["n"] for r in GuvenlikOlayi.objects.filter(
         zaman__gte=bugun_bas).values("tur").annotate(n=Count("id")).order_by()}
-    supheli = sum(1 for s in satirlar if s["puan"] >= 5)
+    supheli = sum(1 for s in satirlar if s["puan"] >= 5 or s["pro_isaret"])
+    pro_isaretli = sum(1 for s in satirlar if s["pro_isaret"])
 
     return render(request, "admin/core/guvenlik.html", {
         "title": "Güvenlik Paneli",
@@ -98,6 +102,7 @@ def guvenlik_ekrani(request):
         "kota_tablo": kota.tablo(),
         "olay_sayilari": olay_sayilari,
         "supheli": supheli,
+        "pro_isaretli": pro_isaretli,
         "olaylar": GuvenlikOlayi.objects.select_related("kullanici")[:40],
         "engeller": ErisimEngeli.objects.filter(aktif=True).select_related(
             "kullanici", "olusturan")[:100],

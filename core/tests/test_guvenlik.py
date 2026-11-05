@@ -374,11 +374,30 @@ class OtomatikAskiTest(TestCase):
         # İkinci tur aynı hesabı tekrar askıya almaz.
         self.assertEqual(self._calistir(self._satir(u, 900, HEADLESS)), [])
 
-    def test_ESKI_hesap_ve_PRO_alinmaz(self):
+    def test_ESKI_hesap_askiya_alinmaz(self):
         eski = self._hesap("eski", email="e@mailinator.com", yeni=False)
+        self.assertEqual(self._calistir(self._satir(eski, 3000, HEADLESS)), [])
+
+    def test_PRO_ASLA_askiya_alinmaz_isaretlenir_gunde_bir_olay(self):
         pro = self._hesap("pro", email="p@mailinator.com", pro=True)
-        self.assertEqual(self._calistir(self._satir(eski, 3000, HEADLESS),
-                                        self._satir(pro, 3000, HEADLESS)), [])
+        self.assertEqual(self._calistir(self._satir(pro, 3000, HEADLESS)), [])
+        self._calistir(self._satir(pro, 3500, HEADLESS))
+        pro.refresh_from_db()
+        self.assertTrue(pro.is_active)
+        self.assertFalse(ErisimEngeli.objects.filter(kullanici=pro).exists())
+        self.assertEqual(GuvenlikOlayi.objects.filter(tur="pro_supheli", kullanici=pro).count(), 1)
+
+    def test_ESKI_PRO_da_isaretlenir_panelde_kirmizi(self):
+        pro = self._hesap("eskipro", yeni=False, pro=True)
+        satir = self._satir(pro, 2500, HEADLESS)    # otomasyon 3 + 2000+ istek 2 = 5
+        self._calistir(satir)
+        self.assertTrue(GuvenlikOlayi.objects.filter(tur="pro_supheli", kullanici=pro).exists())
+        admin = User.objects.create_superuser("adm2", "adm2@x.co", "p")
+        self.client.force_login(admin)
+        with mock.patch("core.guvenlik_izleme.en_yogun", return_value=[satir]):
+            r = self.client.get("/admin/guvenlik/")
+        self.assertContains(r, "Pro · askı yok, incele")
+        self.assertContains(r, "table-danger")
 
     def test_normal_tarayicili_yogun_yeni_kullanici_alinmaz(self):
         u = self._hesap("yogun")

@@ -260,7 +260,8 @@ bunu neredeyse hiç görmez.
 ### İstenen
 
 1. **Widget**: Cloudflare Turnstile, *managed* mod.
-   - Site key env'den gelsin: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (değeri ayrıca iletilecek).
+   - Site key env'den gelsin: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = `0x4AAAAAAF0mPlLwrUn3B2L7` (üretim
+     widget'ı; site key herkese açıktır, secret key yalnızca API sunucusunda durur).
    - `action: "api_dogrulama"` verin. Backend şimdilik action'ı zorunlu tutmuyor; ileride
      tutabilir.
 2. **CSP** (`next.config.ts:20-33`): `script-src` ve `frame-src`'ye
@@ -405,5 +406,6 @@ yakalar.
 | `TURNSTILE_KAYIT_ZORUNLU` | `False` | #23 yayılınca → `True` |
 
 Gözlem modunda API, kimin doğrulamaya düşeceğini sayar ama engellemez. Eşikleri bu
-sayılara bakarak doğrulayıp sonra açacağız. Turnstile site key'i ve test ortamı için
-ayrı bir widget ayrıca iletilecek.
+sayılara bakarak doğrulayıp sonra açacağız. API tarafında Turnstile secret key'i kurulu ve
+Cloudflare'e karşı doğrulandı (2026-11-05); doğrulama ucu (`guvenlik/insan-dogrulama/`)
+şimdiden çalışıyor, web geliştirirken üretim widget'ıyla uçtan uca denenebilir.

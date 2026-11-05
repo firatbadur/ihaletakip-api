@@ -11,6 +11,9 @@ psycopg[binary]==3.2.4
 
 # ── Async / Task queue ─────────────────────────────────
 celery==5.4.0
+# ⚠️ kombu SABİT: celery 5.4 "kombu<6" kabul ediyor; kombu 5.7 redis-py>=6.1 istiyor ve
+# 2026-11-05 yeniden kurulumda 5.7 gelip tüm worker'ları + asistan sohbetini düşürdü (redis==5.2.1).
+kombu==5.6.2
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
 redis==5.2.1

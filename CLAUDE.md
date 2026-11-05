@@ -5221,6 +5221,10 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
   `aski_kosulu`) sağlayan Pro panelde **kırmızı** + "Pro · askı yok, incele" + günde bir
   `pro_supheli` olayı. Staff/superuser hiç değerlendirilmez; IP otomatik ENGELLENMEZ (mobil CGNAT).
   Puan panel ile AYNI fonksiyondan (`supheli_puani`). Deneme: `otomatik_aski(kuru=True)`.
+  ⚠️⚠️ **Android uygulaması `okhttp/4.9.2` UA'sıyla gelir** (iOS `IhaleTakip/<build> CFNetwork/…`):
+  `OTOMASYON_UA`'da `okhttp` vardı → yeni Android hesabı yalnızca "yeni 2 + otomasyon 3" ile
+  eşiğe ulaşıp ilk gün kota dolunca askıya alınırdı. 2026-11-05 aynı gün çıkarıldı
+  (`701b749`, kimse etkilenmedi). Listeye mobil kimliğine benzeyen bir şey eklemeyin.
   Kapatma `GUVENLIK_OTOMATIK_ASKI=False`. Dişli: 3 korumanın 3'ü.
   ⚠️ Kademeli geçici engel (15 dk/1 sa/24 sa, Redis `thr:ban:*`) yalnız `uygula` modunda →
   bugün yalnız portal; panelin "Etkin engeller"inde GÖRÜNMEZ, yalnız `hiz_engeli` olayı olarak.

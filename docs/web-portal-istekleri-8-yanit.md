@@ -115,11 +115,19 @@ Bugün yapılanlar:
 - 80 için de haftalık tazeleme eklendi.
 - Kontrol edildi: üç site de Cloudflare üzerinden 200 dönüyor, doğrudan bağlantı düşüyor.
 
-**Kalan risk ve sonraki adım:** kilit "kaynak bir Cloudflare IP'si mi" diye bakıyor.
-Başka bir Cloudflare hesabında sunucu IP'mize yönlendirilmiş bir alan adı bu kontrolü geçer
-ve bizim kurallarımız ona uygulanmaz. Bunu kapatan şey zone'a özel sertifikayla
-Authenticated Origin Pulls. Bu ayrı ve kontrollü bir adım olarak sonra yapılacak: nginx'te
-istemci sertifikası doğrulaması yanlış kurulursa API ve web birlikte düşer.
+**Authenticated Origin Pulls ✅ (aynı gün, zorunlu):**
+
+- Kilit yalnızca "kaynak bir Cloudflare IP'si mi" diye bakıyordu. Başka bir Cloudflare
+  hesabında sunucu IP'mize yönlendirilmiş bir alan adı bu kontrolü geçerdi.
+- Artık iki zone'umuz (ihaletakip.com, envisoft.com.tr) origin'e bağlanırken kendi CA'mızla
+  imzalı istemci sertifikasını sunuyor.
+- nginx geçerli sertifika taşımayan isteğe 403 dönüyor. Docker ağından gelen iç trafik
+  (sizin API çağrılarınız) bu kuraldan muaf.
+- Önce gözlem aşamasında çalıştı: Cloudflare'den gelen her istek doğrulandı. Ardından
+  zorunlu kılındı.
+- Sınama: sunucu IP'sine sertifikasız istek 403, bizim sertifikamızla 200. Cloudflare
+  üzerinden web, API ve önbelleğe girmeyen bir arama 200.
+- Sizden bir şey gerekmiyor.
 
 ## #30 Hız kuralına girişli liste yolları ✅
 

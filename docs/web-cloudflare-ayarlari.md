@@ -167,8 +167,15 @@ and ip.src.asnum in {16509 14618 396982 8075 24940 16276 14061 51167 63949 20473
 - ⚠️ Docker açılışta bu zinciri boşaltıyor. Kilit 2026-11-05'ten beri Docker'ın her
   açılışında systemd ile yeniden kuruluyor. Ondan önce, 2026-10-19 yeniden başlatmasından
   sonra bir hafta açık kalmıştı.
-- Kalan açık: başka bir Cloudflare hesabından sunucu IP'sine yönlendirme. Bunun çözümü
-  Authenticated Origin Pulls; ayrı bir adım olarak planlandı.
+- ✅ **Authenticated Origin Pulls (2026-11-05):** IP kilidi başka bir Cloudflare hesabından
+  sunucu IP'mize yönlendirilmiş bir alan adını engellemezdi. Bu yüzden iki zone'umuz
+  origin'e bağlanırken kendi CA'mızla imzalı istemci sertifikasını sunuyor. nginx bu
+  sertifikası olmayan isteğe 403 dönüyor. Cloudflare'in herkese ortak origin-pull
+  sertifikası bilerek kullanılmadı. Web'in API çağrıları Docker ağından geldiği için muaf.
+  - Sınama: sunucu IP'sine sertifikasız istek 403, bizim sertifikamızla 200.
+    Cloudflare üzerinden web, API ve sitedeki aramalar 200.
+  - ⚠️ ihaletakip.com'un önüne yeni bir sunucu ya da Cloudflare dışında bir katman
+    koyarsanız (ör. başka bir CDN) bu kontrole takılır; önce bize haber verin.
 
 ## Sizden istenenler
 

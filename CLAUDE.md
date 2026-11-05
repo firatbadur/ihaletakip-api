@@ -4468,8 +4468,16 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   kilidi Docker'ın her açılışında iki port için kurar; son geçerli CF listesi
   `/var/lib/cf-kilit/ips-v4`'te (açılışta ağ yoksa kullanılır); cron 443 + 80'i tazeler.
   `durum` artık birimin etkin olup olmadığını söyler — "after.rules var" kalıcılık DEĞİLDİR.
-  ⚠️ Kilit yalnızca kaynak IP'ye bakar: başka bir Cloudflare hesabından IP'mize yönlendirme
-  geçer. Çözüm (Authenticated Origin Pulls, zone sertifikası) ayrı adım olarak bekliyor.
+  ✅ **Authenticated Origin Pulls (2026-11-05, zorunlu)**: IP kilidi başka bir Cloudflare
+  hesabından IP'mize yönlendirmeyi geçirirdi. Kendi CA'mız + istemci sertifikası
+  (`docker/nginx/certs/aop/`, git dışında, şifreli gece yedeğinde; istemci 2036-11-02'ye,
+  CA 2045'e kadar) API ile **envisoft.com.tr** ve **ihaletakip.com** zone'larına yüklendi
+  (zone düzeyi AOP açık). nginx `ssl_verify_client optional_no_ca` + `$aop_red` → geçerli
+  sertifikasız ve iç ağ (127/8, 172.16/12 — `$realip_remote_addr`) dışı istek **403**.
+  Pinmotion blokları kapsam dışı. Log alanları `aop=` + `kaynak=`: CF kaynaklı `aop=NONE`
+  görülürse AOP bir zone'da kapanmış ya da sertifika bitmiştir. ⚠️ Cloudflare'in ORTAK
+  origin-pull sertifikası kullanılmaz (her CF müşterisi sunabilir). Sınama: sunucudan
+  `curl --resolve <host>:443:173.249.43.236` → 403; `--cert aop/client.pem` ile → 200.
   ⚠️⚠️ **Bu, IP'yi GİZLEMEZ — IP'yi İŞE YARAMAZ hâle getirir.** Origin IP'si
   sertifika şeffaflık kayıtları, eski DNS kayıtları ve toplu taramalarla zaten
   bulunabilir; gizlemeye çalışmak kırılgan bir savunmadır. Güvenlik artık

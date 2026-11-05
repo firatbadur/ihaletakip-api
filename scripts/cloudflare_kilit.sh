@@ -38,6 +38,10 @@ V4_URL="${V4_URL:-https://www.cloudflare.com/ips-v4}"
 # bu sayı birden 3'e düşerse bu bir CF değişikliği değil, BOZUK BİR ÇEKME demektir
 # ve uygulanırsa trafiğin çoğu kesilir. Eşik bilinçli olarak yüksek.
 ASGARI_ARALIK="${ASGARI_ARALIK:-10}"
+# Son doğrulanmış liste: açılışta ağ henüz hazır değilse ya da cloudflare.com
+# yanıt vermezse kilit bu listeyle kurulur. Liste yoksa ve çekilemezse kilit
+# KURULAMAZ → "açık kalmak" yerine hata verilir ve durum bunu gösterir.
+ONBELLEK="${ONBELLEK:-/var/lib/cf-kilit/ips-v4}"
 
 oldu()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 uyari() { printf '  \033[33m⚠\033[0m %s\n' "$*"; }
@@ -49,10 +53,8 @@ hata()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; }
 # ⚠️⚠️ Doğrulama bu betiğin en kritik parçası: hatalı/boş bir listeyle "yalnızca
 # CF'e izin ver" kuralı yazmak, siteyi **tamamen** kapatmak demektir. Bu yüzden
 # tek bir bozuk satır bile işi durdurur; kısmen uygulamak yoktur.
-cf_araliklari() {
-  local ham satir sayi=0
-  ham=$(curl -fsS --max-time 25 "$V4_URL" 2>/dev/null | tr -d '\r')
-  [ -n "$ham" ] || { hata "CF aralıkları çekilemedi ($V4_URL)"; return 1; }
+aralik_dogrula() {
+  local ham="$1" satir sayi=0
   while IFS= read -r satir; do
     [ -z "$satir" ] && continue
     if ! printf '%s' "$satir" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$'; then
@@ -71,6 +73,23 @@ cf_araliklari() {
     return 1
   fi
   return 0
+}
+
+cf_araliklari() {
+  local ham liste
+  ham=$(curl -fsS --max-time 25 "$V4_URL" 2>/dev/null | tr -d '\r')
+  if [ -n "$ham" ] && liste=$(aralik_dogrula "$ham"); then
+    mkdir -p "$(dirname "$ONBELLEK")" && printf '%s\n' "$liste" > "$ONBELLEK"
+    printf '%s\n' "$liste"
+    return 0
+  fi
+  hata "CF aralıkları çekilemedi ya da geçersiz ($V4_URL)"
+  if [ -s "$ONBELLEK" ] && liste=$(aralik_dogrula "$(cat "$ONBELLEK")"); then
+    uyari "son doğrulanmış liste kullanılıyor ($ONBELLEK)" >&2
+    printf '%s\n' "$liste"
+    return 0
+  fi
+  return 1
 }
 
 # ── Canlı kuralları temizle (etiketli olanlar) ───────────────────────────────
@@ -214,13 +233,21 @@ mod_durum() {
   # sunucusunda UFW kapalıydı ve tam bu duruma düşüldü).
   if grep -qF "$BLOK_BAS" "$AFTER_RULES" 2>/dev/null; then
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "^Status: active"; then
-      oldu "kalıcılık var (after.rules + UFW aktif → yeniden başlatmada korunur)"
+      oldu "after.rules yazılı + UFW aktif (tek başına yetmez — Docker açılışta zinciri boşaltır)"
     else
       uyari "after.rules yazılı AMA UFW KAPALI → dosya açılışta yüklenmez, kural yeniden başlatmada KAYBOLUR"
     fi
   else
     uyari "kalıcılık YOK — yeniden başlatmada kilit kaybolur"
   fi
+  # Docker açılışından ÖNCE kurulmuş kural yaşayamaz (Docker zinciri boşaltır);
+  # o yüzden asıl kalıcılık cf-kilit.service'tir.
+  if systemctl is-enabled cf-kilit.service >/dev/null 2>&1; then
+    oldu "cf-kilit.service etkin (Docker her açıldığında kilidi yeniden kurar)"
+  else
+    uyari "cf-kilit.service etkin DEĞİL → Docker yeniden başlarsa kilit kaybolur"
+  fi
+  printf '  docker açılışı: %s\n' "$(systemctl show docker -p ActiveEnterTimestamp --value 2>/dev/null)"
   printf '  isabet sayacı:\n'
   iptables -L DOCKER-USER -n -v 2>/dev/null | grep "$ETIKET" | awk '$1!="0"{n++; p+=$1} END{printf "    engellenen paket: %s\n", (p+0)}'
 }

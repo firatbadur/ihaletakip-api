@@ -1,0 +1,25 @@
+# Origin kilidini (443 + 80 yalnızca Cloudflare) Docker'ın HER açılışında yeniden kurar.
+#
+# ⚠️⚠️ Neden: Docker açılışta DOCKER-USER zincirini boşaltıyor (gözlendi, Docker 29,
+# 2026-11-05). after.rules'taki blok UFW ile yüklenir ama Docker sonra başlayınca
+# kurallar gider; 2026-10-19 yeniden başlatmasından sonra 443 bir hafta, 80 iki
+# haftadan uzun Cloudflare'i atlayarak erişilebilir kaldı.
+# PartOf + WantedBy=docker.service → Docker başlarken/yeniden başlarken bu da koşar.
+#
+# Kurulum (sunucuda):
+#   cp scripts/cf-kilit.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now cf-kilit.service
+[Unit]
+Description=Origin portlarini yalnizca Cloudflare'e ac (DOCKER-USER)
+After=docker.service network-online.target
+Wants=network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/root/ihaletakip-api/scripts/cloudflare_kilit.sh uygula
+ExecStart=/usr/bin/env PORT=80 /root/ihaletakip-api/scripts/cloudflare_kilit.sh uygula
+
+[Install]
+WantedBy=docker.service

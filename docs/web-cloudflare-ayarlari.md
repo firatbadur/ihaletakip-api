@@ -1,8 +1,9 @@
 # Web portalı — Cloudflare ayarları (ihaletakip.com)
 
 > **Okuyucu:** web portalı ekibi (`ihaletakip-web`) · **Hazırlayan:** `ihaletakip-api` ·
-> **Tarih:** 2026-11-05 · **Durum:** uygulandı ve test edildi (yapay zekâ botları hariç;
-> o kısım yapılıyor). Bağlam: `docs/web-guvenlik-sayfa-siniri.md` #26 madde 1–2.
+> **Tarih:** 2026-11-05 (8. not yanıtıyla güncellendi) · **Durum:** §1–§4 uygulandı ve test
+> edildi; §1'deki yeni yollar, §5 ve §6 uygulanıyor. Bağlam: `docs/web-guvenlik-sayfa-siniri.md`
+> #26 madde 1–2, `docs/web-portal-istekleri-8-yanit.md`.
 
 ## Özet
 
@@ -15,7 +16,9 @@
 | **Super Bot Fight Mode** | Otomasyon araçlarına (curl, HeadlessChrome, script) challenge | ✅ test edildi |
 | **Cloudflare Managed Ruleset** | Bilinen saldırı kalıplarını keser | ✅ açık |
 | Custom rule: **Sunucu istekleri — bot korumasından muaf** | API sunucusunun `/api/revalidate` çağrısı bot korumasına takılmaz | ✅ test edildi |
-| Yapay zekâ botları | Arama/asistan botları ve büyük sağlayıcılar açık, veri satıcıları kapalı | ⏳ yapılıyor |
+| Yapay zekâ botları | Arama/asistan botları açık; model eğitim botları ve veri satıcıları kapalı | ⏳ yapılıyor |
+| Custom rule: **Veri merkezi ağları** | Bulut/barındırma ASN'lerinden gelene challenge | ⏳ yapılıyor |
+| Origin kilidi | Sunucunun 443'ü yalnızca Cloudflare'e açık | ✅ (§7) |
 
 Mobil uygulama bu ayarlardan etkilenmez: API ayrı bir zone'da (`ihale-takip.envisoft.com.tr`).
 Web'in API'ye giden sunucu istekleri de Cloudflare'i atladığı için (`host-gateway`) etkilenmez.
@@ -27,13 +30,18 @@ Web'in API'ye giden sunucu istekleri de Cloudflare'i atladığı için (`host-ga
 ```
 (starts_with(http.request.uri.path, "/ihale")
  or starts_with(http.request.uri.path, "/dogrudan-temin")
- or starts_with(http.request.uri.path, "/belge"))
+ or starts_with(http.request.uri.path, "/belge")
+ or starts_with(http.request.uri.path, "/yuklenici")
+ or starts_with(http.request.uri.path, "/idare")
+ or starts_with(http.request.uri.path, "/kurul-kararlari")
+ or starts_with(http.request.uri.path, "/bildirimler"))
 and not cf.client.bot
 and not (http.request.uri.query contains "_rsc=")
 ```
 
 - Sayaç: IP başına, **40 istek / 1 dakika** → **Managed Challenge**.
-- `/ihale` hem `/ihaleler`'i hem `/ihale/<ikn>`'i kapsar.
+- `/ihale` hem `/ihaleler`'i hem `/ihale/<ikn>`'i kapsar. `/yuklenici` firma listesi ve
+  sayfasını, `/idare` idareler ve idare sayfasını kapsar (8. not #30, ⏳ eklenmekte).
 - `_rsc=` istekleri sayılmaz. Next.js'in sayfa içi gezinme ve önceden yükleme istekleri
   sayılırsa normal kullanıcı da kurala takılırdı; böylece yalnızca tam sayfa açılışları
   sayılıyor.
@@ -102,29 +110,65 @@ isteğinde gizli anahtar yoktu), challenge yok. Aynı sunucudan `/ihaleler` → 
 
 ## 5. Yapay zekâ botları (AI Crawl Control) — yapılıyor
 
-Ürün kararı: ihaletakip.com yapay zekâ cevaplarında kaynak gösterilebilsin (GEO).
+Ürün kararı (2026-10-28, 2026-11-05'te yeniden onaylandı): ihaletakip.com yapay zekâ
+**arama ve asistan** cevaplarında kaynak gösterilebilsin (GEO). **Model eğitimine** ve veri
+satıcılarına içerik verilmez.
 
-| Açık | Kapalı |
+| Açık (arama, asistan, kaynak gösterme) | Kapalı (model eğitimi, veri satıcıları) |
 |---|---|
-| OAI-SearchBot, ChatGPT-User, GPTBot (OpenAI) | Bytespider (ByteDance) |
-| Claude-SearchBot, Claude-User, ClaudeBot (Anthropic) | CCBot (Common Crawl) |
-| PerplexityBot, Perplexity-User | Diffbot, omgili ve diğer veri satıcıları |
-| Google-Extended, Applebot-Extended | Amazonbot |
-| Googlebot, BingBot, Applebot (arama motorları) | |
+| Googlebot, Bingbot, Applebot | GPTBot, ClaudeBot, anthropic-ai |
+| OAI-SearchBot, ChatGPT-User | Google-Extended, Applebot-Extended |
+| Claude-SearchBot, Claude-User | CCBot, Bytespider, meta-externalagent |
+| PerplexityBot, Perplexity-User | Amazonbot, Diffbot, omgili |
 
-- `robots.txt` Cloudflare tarafından yönetiliyor ("Bot Preference Sync"). Web'deki kendi
-  `robots.txt`'nizin başına Cloudflare'in bölümü ekleniyor. Bu ayarlar bitince
-  `robots.txt`'te yukarıdaki açık botlar `Disallow` listesinden çıkacak.
-- ⚠️ Web'in kendi `robots.txt`'i bu botları ayrıca `Disallow` ediyorsa Cloudflare
-  ayarıyla çelişir. Kontrol edip varsa kaldırın.
+- ⚠️ Bu notun ilk sürümü GPTBot, ClaudeBot, Google-Extended ve Applebot-Extended'i "açık"
+  yazıyordu. O tablo yanlıştı, düzeltildi.
+- `robots.txt` Cloudflare tarafından yönetiliyor ("Bot Preference Sync"). Web'in kendi
+  `robots.txt`'inin başına Cloudflare'in bölümü ekleniyor. İki bölüm aynı listeyi
+  söylemeli: aynı bot için iki grup birleşir ve sonuç bota göre değişir.
+- Ayar bitince `robots.txt` çıktısı web ekibiyle birlikte kontrol edilir.
+
+## 6. Veri merkezi ağları (Security rules → Custom rules) — yapılıyor
+
+```
+(not cf.client.bot)
+and not starts_with(http.request.uri.path, "/_next/")
+and not (http.request.uri.path eq "/api/revalidate")
+and ip.src.asnum in {16509 14618 396982 8075 24940 16276 14061 51167 63949 20473 31898 12876 45102 132203}
+```
+
+- Aksiyon: **Managed Challenge**. Sırada §3 istisnasının **altında** (2. kural).
+- Kapsam: AWS, Google Cloud, Azure, Hetzner, OVH, DigitalOcean, Contabo, Linode, Vultr,
+  Oracle, Scaleway, Alibaba, Tencent.
+- Google'ın ana ağı (15169) bilerek yok: çeviri ve önizleme vekilleri oradan gelir.
+- API sunucusu da Contabo'da (AS51167). `/api/revalidate` istisnası bu yüzden ifadenin
+  içinde.
+- **Turnstile → widget → Pre-clearance: Managed.** Sitedeki "robot değilim" kutusunu
+  (API 428) çözen kullanıcı `cf_clearance` alır ve Cloudflare'in challenge'ını bir süre
+  yeniden görmez.
+
+## 7. Origin kilidi (sunucu güvenlik duvarı)
+
+- Sunucunun 443'ü (ve aynı sunucudaki 80) yalnızca Cloudflare'in IPv4 aralıklarına açık.
+  Diğer her kaynak `DOCKER-USER` zincirinde düşürülür. Doğrudan IP'ye
+  `Host: ihaletakip.com` ile gelen istek bağlantı kuramaz. Böylece bu notun kuralları
+  atlanamaz.
+- Web'in API'ye giden istekleri (`host-gateway`, Docker köprüsü) ve sunucu içi sağlık
+  kontrolleri etkilenmez.
+- ⚠️ Docker açılışta bu zinciri boşaltıyor. Kilit 2026-11-05'ten beri Docker'ın her
+  açılışında systemd ile yeniden kuruluyor. Ondan önce, 2026-10-19 yeniden başlatmasından
+  sonra bir hafta açık kalmıştı.
+- Kalan açık: başka bir Cloudflare hesabından sunucu IP'sine yönlendirme. Bunun çözümü
+  Authenticated Origin Pulls; ayrı bir adım olarak planlandı.
 
 ## Sizden istenenler
 
 1. Web'e sunucu-sunucu çağrısı eklediğinizde bize haber verin; Cloudflare istisnası
    gerekir (§2).
-2. Kendi `robots.txt`'nizde yapay zekâ botlarına `Disallow` varsa kaldırın (§5).
-3. Hız kuralları `/firma…` ve `/kurul…` sayfalarını henüz kapsamıyor. Bu sayfaların gerçek
-   yollarını iletin; kurala ekleyelim.
+2. `robots.txt`'nizdeki yapay zekâ listesi §5'teki kapalı listeyle aynı kalsın. ~~Disallow'u
+   kaldırın~~: bu istek yanlıştı, geri alındı.
+3. ~~Firma ve kurul sayfalarının yollarını iletin~~: iletildi (8. not #30), kurala ekleniyor.
+   Yeni bir liste sayfası açarsanız yolunu bildirin.
 4. Yerelde ya da test ortamında `ihaletakip.com`'a Cloudflare üzerinden otomatik test
    (Playwright, curl) koşacaksanız bot moduna takılır. Testleri doğrudan sunucuya ya da
    localhost'a yönlendirin.

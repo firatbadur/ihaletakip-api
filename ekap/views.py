@@ -37,7 +37,7 @@ from accounts.premium import (
 )
 from core.response import api_response
 from core.sayfa_siniri import pro_sayfa_kontrolu
-from core.throttling import istemci, sayfa_derinligi_asimi
+from core.throttling import ikn_dolum_sonucu, istemci, sayfa_derinligi_asimi
 
 from . import authority_profile, benchmark as benchmark_mod, market as market_mod
 
@@ -1285,6 +1285,16 @@ class TenderListView(APIView):
     permission_classes = [permissions.AllowAny]  # ihale tarama girişsiz
     throttle_kapsam = "ihale_arama"
 
+    @staticmethod
+    def _ikn_aramasi(qp) -> bool:
+        return bool(qp.get("ikn_yil") and qp.get("ikn_sayi") and not qp.get("kayitli_filtreler"))
+
+    def throttle_kapsam_coz(self, request):
+        # Web `/ihale/<yıl>-<sayı>` sayfası ihaleyi bu iki parametreyle bulur. Ayrı
+        # kapsam → web önbellek dolumunda İKN sayan bir betik LİSTE bütçesini tüketemez
+        # (web 8. not #27). Kişi kovaları `ihale_arama` ile aynı oranlardır.
+        return "ikn_arama" if self._ikn_aramasi(request.query_params) else "ihale_arama"
+
     def get(self, request):
         qp = request.query_params
 
@@ -1368,6 +1378,9 @@ class TenderListView(APIView):
         # (normal aramanın bütün değeri o paylaşımda).
         kapsam = f"tender:kf{request.user.pk}" if kf_idler else "tender"
         total = _cached_count(qs, qp, scope=kapsam)
+        if self._ikn_aramasi(qp):
+            # Dolum İKN araması sonuca göre sayılır: boş aramalar ayrı ve dar bütçede.
+            ikn_dolum_sonucu(request, bool(total))
         items, page, _boyut = sirala_sayfala(qs, qp, azami_boyut=min(100, azami_boyut))
         data = EkapTenderListSerializer(items, many=True).data
         payload = {"list": data, "totalCount": total, "page": page}

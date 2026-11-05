@@ -4461,6 +4461,15 @@ sonlandırır (CF↔origin şifreli). Dışa açılan **tek port 443**'tür (ngi
   443 yalnızca Cloudflare'in 15 IPv4 aralığına açık, gerisi `DROP`. Haftalık cron
   (`tazele`, Pazartesi 05:17) aralıkları yeniler. Ayrıntı ve tuzaklar için bkz.
   "Origin'i Cloudflare'e kilitleme" bölümü.
+  ⚠️⚠️ **DOCKER AÇILIŞTA `DOCKER-USER`'I BOŞALTIR** (gözlendi, Docker 29, 2026-11-05):
+  `after.rules` UFW ile yüklenir ama Docker sonra başlayınca kurallar gider. 2026-10-19
+  yeniden başlatmasından sonra 443 kilidi bir hafta (ilk Pazartesi cron'una kadar), 80 kilidi
+  2026-11-05'e kadar yoktu. → `scripts/cf-kilit.service` (`PartOf`/`WantedBy=docker.service`)
+  kilidi Docker'ın her açılışında iki port için kurar; son geçerli CF listesi
+  `/var/lib/cf-kilit/ips-v4`'te (açılışta ağ yoksa kullanılır); cron 443 + 80'i tazeler.
+  `durum` artık birimin etkin olup olmadığını söyler — "after.rules var" kalıcılık DEĞİLDİR.
+  ⚠️ Kilit yalnızca kaynak IP'ye bakar: başka bir Cloudflare hesabından IP'mize yönlendirme
+  geçer. Çözüm (Authenticated Origin Pulls, zone sertifikası) ayrı adım olarak bekliyor.
   ⚠️⚠️ **Bu, IP'yi GİZLEMEZ — IP'yi İŞE YARAMAZ hâle getirir.** Origin IP'si
   sertifika şeffaflık kayıtları, eski DNS kayıtları ve toplu taramalarla zaten
   bulunabilir; gizlemeye çalışmak kırılgan bir savunmadır. Güvenlik artık
@@ -5207,6 +5216,18 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
   Kapatma `GUVENLIK_OTOMATIK_ASKI=False`. Dişli: 3 korumanın 3'ü.
   ⚠️ Kademeli geçici engel (15 dk/1 sa/24 sa, Redis `thr:ban:*`) yalnız `uygula` modunda →
   bugün yalnız portal; panelin "Etkin engeller"inde GÖRÜNMEZ, yalnız `hiz_engeli` olayı olarak.
+- **Web 8. not (#27/#28, 2026-11-05, yanıt `docs/web-portal-istekleri-8-yanit.md`)**:
+  - İKN araması (`ikn_yil` + `ikn_sayi`) kendi kapsamında (`TenderListView.throttle_kapsam_coz`
+    → `ikn_arama`, `throttling.kapsam_bul`): dolumda liste kovasını tüketmez.
+  - Dolum İKN araması sorgudan SONRA sonuca göre sayılır (`throttling.ikn_dolum_sonucu`):
+    bulunan 300/dk, boş 60/dk (`API_THROTTLE_DOLUM_IKN`); aşan 429. DB emniyet tavanı
+    `ikn_arama` dolumu 1500/dk.
+  - Panelde dakikalık dolum kartı (`guvenlik_izleme.dolum_say/dolum_seri`, `guv:dolum:*`, 2 sa).
+  - Hesap başına son 1 sa farklı IP/UA (`guv:hip|hua:{uid}` ZSET): puana +2/+1 eklenir ama
+    `aski_kosulu` SAYMAZ (`supheli_puani(..., paylasim=False)`) — mobil IP sık değişir.
+  - ⚠️ Bulunan İKN'leri sayan betik `detay` dolum kovasını yine tüketebilir (sınırlı:
+    ~1M ihale ≈ 55 sa). Dağıtık saldırıya karşı Cloudflare tarafı (IP hız kuralı + veri
+    merkezi ASN kuralı) korur.
 - ✅ **ÜRETİM (2026-11-05)**: `bc8fe72` deploy; IP 78.164.78.132 + uid 631 süresiz engelli.
   Web `4f6fb60` canlıya çıkınca (`ihaletakip-web` `docs/backend/portal-istekleri-7.md`)
   `.env.prod`: `TURNSTILE_SECRET_KEY` (siteverify ile doğrulandı), `LISTE_SAYFA_SINIRI_DOLUM=uygula`,

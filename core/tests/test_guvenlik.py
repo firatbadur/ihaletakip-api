@@ -423,3 +423,165 @@ class OtomatikAskiTest(TestCase):
         u.refresh_from_db()
         self.assertTrue(u.is_active)
         self.assertFalse(ErisimEngeli.objects.filter(kullanici=u).exists())
+
+
+# ── Web 8. not: İKN dolum bütçesi (#27), hesap paylaşımı işareti (#28) ────────────
+def _ihale(ikn):
+    from ekap.models import Tender
+
+    return Tender.objects.create(ikn=ikn, ekap_id=f"e-{ikn.replace('/', '-')}", ihale_adi=ikn,
+                                 ihale_durum=2, ihale_tarihi=timezone.now() + timedelta(days=5))
+
+
+@override_settings(PORTAL_KEY=ANAHTAR, API_THROTTLE_PORTAL_MODU="uygula",
+                   API_THROTTLE_MODU="gozlem", LISTE_SAYFA_SINIRI_PORTAL="kapali",
+                   LISTE_SAYFA_SINIRI_DOLUM="kapali", GUVENLIK_DOGRULAMA_MODU="kapali",
+                   API_THROTTLE_DOLUM_ORANLARI={"ihale_arama": [(60, 2)]},
+                   API_THROTTLE_DOLUM_IKN={"bulunan": 100, "bos": 2})
+class IknDolumTest(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.c = APIClient()
+        _ihale("2026/123")
+
+    def _ikn(self, sayi, **meta):
+        return self.c.get(LISTE, {"ikn_yil": "2026", "ikn_sayi": sayi, "page_size": 1},
+                          **PORTAL, **DOLUM, **meta)
+
+    def test_IKN_aramasi_LISTE_dolum_butcesini_tuketmez(self):
+        for _ in range(5):
+            r = self._ikn("123")
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["data"]["totalCount"], 1)
+        self.assertEqual(self.c.get(LISTE, **PORTAL, **DOLUM).status_code, 200)
+
+    def test_yalniz_BOS_ikn_aramasi_yavaslar(self):
+        for sayi in ("900", "901"):
+            self.assertEqual(self._ikn(sayi).status_code, 200)
+        r = self._ikn("902")
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.json()["errors"]["code"], "throttled")
+        self.assertIn("Retry-After", r)
+        # Var olan İKN'yi açan istek etkilenmez.
+        self.assertEqual(self._ikn("123").status_code, 200)
+
+    def test_dolum_olmayan_ikn_aramasi_bos_butceye_girmez(self):
+        with override_settings(API_THROTTLE_DOLUM_IKN={"bulunan": 0, "bos": 0}):
+            r = self.c.get(LISTE, {"ikn_yil": "2026", "ikn_sayi": "999"}, **PORTAL,
+                           HTTP_X_IT_CLIENT_IP="81.214.75.9")
+        self.assertEqual(r.status_code, 200)
+
+    def test_kapsam_cozumu(self):
+        from ekap.views import TenderListView
+
+        rf = RequestFactory()
+        v = TenderListView()
+        self.assertEqual(v.throttle_kapsam_coz(
+            v.initialize_request(rf.get(LISTE, {"ikn_yil": "2026", "ikn_sayi": "1"}))),
+            "ikn_arama")
+        self.assertEqual(v.throttle_kapsam_coz(
+            v.initialize_request(rf.get(LISTE, {"ikn_yil": "2026"}))), "ihale_arama")
+
+
+class PaylasimPuaniTest(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_cok_IP_puana_eklenir_ama_otomatik_askiya_sayilmaz(self):
+        u = User.objects.create_user(username="pay", email="pay@firma.com.tr", password="x")
+        satir = {"kimlik": f"u:{u.pk}", "istek": 600, "red": 0, "ua": CHROME,
+                 "ip": "81.214.75.7", "ip_1s": 14, "ua_1s": 6}
+        puan, nedenler = guvenlik.supheli_puani(satir, u, 0)
+        self.assertEqual(puan, 5)                      # yeni 2 + IP 2 + tarayıcı 1
+        self.assertIn("1 saatte 14 farklı IP", nedenler)
+        uygun, aski_puan, _ = guvenlik.aski_kosulu(satir, u, 0)
+        self.assertFalse(uygun)
+        self.assertEqual(aski_puan, 2)
+        with mock.patch("core.guvenlik_izleme.en_yogun", return_value=[satir]):
+            self.assertEqual(guvenlik.otomatik_aski(), [])
+
+
+class _SahteRedis:
+    """guvenlik_izleme'nin kullandığı Redis komutlarının küçük bir taklidi."""
+
+    def __init__(self):
+        self.z, self.h, self.s = {}, {}, {}
+
+    def pipeline(self, transaction=False):
+        return self
+
+    def execute(self):
+        return []
+
+    def expire(self, k, t):
+        pass
+
+    def zincrby(self, k, n, m):
+        self.z.setdefault(k, {})[m] = self.z.get(k, {}).get(m, 0) + n
+
+    def zadd(self, k, mapping):
+        self.z.setdefault(k, {}).update(mapping)
+
+    def zremrangebyscore(self, k, mn, mx):
+        self.z[k] = {m: v for m, v in self.z.get(k, {}).items() if not (mn <= v <= mx)}
+
+    def zcount(self, k, mn, mx):
+        return sum(1 for v in self.z.get(k, {}).values() if v >= mn)
+
+    def zrevrange(self, k, a, b, withscores=False):
+        return sorted(self.z.get(k, {}).items(), key=lambda x: -x[1])[a:b + 1]
+
+    def zscore(self, k, m):
+        return self.z.get(k, {}).get(m)
+
+    def hset(self, k, mapping):
+        self.h.setdefault(k, {}).update(mapping)
+
+    def hgetall(self, k):
+        return self.h.get(k, {})
+
+    def incr(self, k):
+        self.s[k] = self.s.get(k, 0) + 1
+
+    def mget(self, keys):
+        return [self.s.get(k) for k in keys]
+
+
+class IzlemeSayaclariTest(TestCase):
+    def setUp(self):
+        from core import guvenlik_izleme
+
+        self.iz = guvenlik_izleme
+        self.r = _SahteRedis()
+        p = mock.patch.object(guvenlik_izleme, "_redis", return_value=self.r)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_hesap_basina_son_1_saatte_farkli_IP_ve_tarayici(self):
+        from core.throttling import Istemci
+
+        istek = RequestFactory().get(LISTE)
+        for i in range(12):
+            ist = Istemci("u:7", True, False, True, ip=f"81.214.75.{i}",
+                          ua=f"Chrome/{i % 3}", uid=7)
+            self.iz.kaydet(ist, istek)
+        self.iz.kaydet(Istemci("ip:81.214.75.1", True, False, False, ip="81.214.75.1"), istek)
+        satirlar = {s["kimlik"]: s for s in self.iz.en_yogun()}
+        self.assertEqual((satirlar["u:7"]["ip_1s"], satirlar["u:7"]["ua_1s"]), (12, 3))
+        self.assertNotIn("ip_1s", satirlar["ip:81.214.75.1"])
+
+    def test_dolum_serisi(self):
+        self.iz.dolum_say("ikn_bos")
+        self.iz.dolum_say("ikn_bos")
+        seri = self.iz.dolum_seri(60)
+        self.assertEqual(len(seri["ikn_bos"]), 60)
+        self.assertEqual(seri["ikn_bos"][-1], 2)
+        self.assertEqual(sum(seri["liste"]), 0)
+
+    def test_panel_dolum_karti_render(self):
+        self.iz.dolum_say("ikn_bos")
+        admin = User.objects.create_superuser("adm3", "adm3@x.co", "p")
+        self.client.force_login(admin)
+        r = self.client.get("/admin/guvenlik/")
+        self.assertContains(r, "Web önbellek dolumu")
+        self.assertContains(r, "İKN araması · boş")

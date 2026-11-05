@@ -51,6 +51,37 @@ def _eylem(request):
         messages.error(request, str(e) or "İşlem yapılamadı.")
 
 
+_DOLUM_ADLARI = {"liste": "İhale listesi", "ikn_bulunan": "İKN araması · bulunan",
+                 "ikn_bos": "İKN araması · boş", "firma_liste": "Firma listesi",
+                 "detay": "Detay", "red": "Reddedilen (429)"}
+
+
+def _dolum_karti() -> list[dict]:
+    """Web önbellek dolumu, son 60 dk: tür başına toplam, son dakika, en yoğun dakika,
+    dakikalık sınır ve sparkline verisi (web 8. not #27)."""
+    from .throttling import VARSAYILAN_DOLUM_IKN, VARSAYILAN_DOLUM_ORANLARI
+
+    ikn = dict(VARSAYILAN_DOLUM_IKN)
+    ikn.update(getattr(settings, "API_THROTTLE_DOLUM_IKN", None) or {})
+    oranlar = dict(VARSAYILAN_DOLUM_ORANLARI)
+    oranlar.update(getattr(settings, "API_THROTTLE_DOLUM_ORANLARI", None) or {})
+
+    def dakika_siniri(kapsam):
+        return next((n for p, n in oranlar.get(kapsam, []) if p == 60), None)
+
+    sinirlar = {"liste": dakika_siniri("ihale_arama"), "firma_liste": dakika_siniri("firma_liste"),
+                "detay": dakika_siniri("detay"), "ikn_bulunan": ikn.get("bulunan"),
+                "ikn_bos": ikn.get("bos"), "red": None}
+    seri = guvenlik_izleme.dolum_seri(60)
+    out = []
+    for tur, ad in _DOLUM_ADLARI.items():
+        d = seri.get(tur) or []
+        out.append({"tur": tur, "ad": ad, "seri": d, "toplam": sum(d),
+                    "son": d[-1] if d else 0, "zirve": max(d) if d else 0,
+                    "sinir": sinirlar.get(tur)})
+    return out
+
+
 def guvenlik_ekrani(request):
     from ekap.mobil import kota, throttle
 
@@ -72,6 +103,8 @@ def guvenlik_ekrani(request):
         s["user"] = u
         s["engelli"] = uid in engelli_uid
         s["ip_engelli"] = bool(guvenlik.ip_engeli(s.get("ip") or ""))
+        s.setdefault("ip_1s", None)  # yalnız girişli kimliklerde ölçülür
+        s.setdefault("ua_1s", None)
         s["kota_gun"], s["kota_saat"] = kota.ozet(s["kimlik"])
         s["puan"], s["nedenler"] = guvenlik.supheli_puani(s, u, s["kota_gun"])
         # Pro ASLA otomatik askıya alınmaz; askı koşulunu sağlıyorsa kırmızı işaretlenir.
@@ -91,6 +124,7 @@ def guvenlik_ekrani(request):
     olay_sayilari = {r["tur"]: r["n"] for r in GuvenlikOlayi.objects.filter(
         zaman__gte=bugun_bas).values("tur").annotate(n=Count("id")).order_by()}
     supheli = sum(1 for s in satirlar if s["puan"] >= 5 or s["pro_isaret"])
+    dolum = _dolum_karti()
     pro_isaretli = sum(1 for s in satirlar if s["pro_isaret"])
 
     return render(request, "admin/core/guvenlik.html", {
@@ -103,6 +137,8 @@ def guvenlik_ekrani(request):
         "olay_sayilari": olay_sayilari,
         "supheli": supheli,
         "pro_isaretli": pro_isaretli,
+        "dolum": dolum,
+        "paylasim_ip": getattr(settings, "GUVENLIK_PAYLASIM_IP", 10),
         "olaylar": GuvenlikOlayi.objects.select_related("kullanici")[:40],
         "engeller": ErisimEngeli.objects.filter(aktif=True).select_related(
             "kullanici", "olusturan")[:100],

@@ -12,7 +12,7 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
   <h1>Güvenlik Paneli <small class="text-body-secondary">{{ gun|date:"d.m.Y" }}</small></h1>
   <p class="text-body-secondary">
     İstek sayaçları Redis'tedir (3 gün), olaylar ve engeller veritabanında.
-    Satır rengi şüphe puanıdır (turuncu ≥ 3, kırmızı ≥ 5).
+    Satır rengi şüphe puanıdır (turuncu ≥ 3, kırmızı ≥ 5). "1 saatte çok IP/tarayıcı" puana eklenir ama otomatik askıya sayılmaz.
     {% if oto.acik %}<b>Otomatik askı açık:</b> {{ oto.yeni_saat }} saatten yeni hesap + puan ≥ {{ oto.puan }}
     + (bugün {{ oto.istek }}+ istek ya da EKAP kotası dolu) → {{ oto.sure_saat }} saat askı (5 dk'da bir kontrol;
     Pro asla askıya alınmaz — koşulu sağlarsa kırmızı işaretlenir; staff asla; IP otomatik engellenmez).{% else %}<b>Otomatik askı kapalı.</b>{% endif %}
@@ -55,12 +55,37 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
     </div>
   </div>
 
+  <h2>Web önbellek dolumu — son 60 dakika</h2>
+  <p class="text-body-secondary small">Kullanıcısız web istekleri (paylaşılan önbelleği dolduran) tek bir site bütçesinden
+    harcanır. İKN araması sonuca göre ayrı sayılır: boş aramalar dar bütçededir, var olan İKN'yi açan kullanıcı ve liste
+    bütçesi bundan etkilenmez. Sınır = dakikada izin verilen; zirve sınıra yakınsa biri İKN ya da sayfa sayıyor olabilir.</p>
+  <div class="table-responsive mb-4">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Tür</th><th class="text-end">60 dk toplam</th><th class="text-end">Son dakika</th>
+      <th class="text-end">Zirve / dk</th><th class="text-end">Sınır / dk</th><th>Dakikalık</th></tr></thead>
+    <tbody>
+    {% for d in dolum %}
+      <tr{% if d.sinir and d.zirve > d.sinir %} class="table-danger"{% elif d.tur == "ikn_bos" and d.toplam %} class="table-warning"{% endif %}>
+        <td>{{ d.ad }}</td>
+        <td class="text-end">{{ d.toplam|tr_sayi }}</td>
+        <td class="text-end">{{ d.son|tr_sayi }}</td>
+        <td class="text-end">{{ d.zirve|tr_sayi }}</td>
+        <td class="text-end">{% if d.sinir %}{{ d.sinir|tr_sayi }}{% else %}—{% endif %}</td>
+        <td>{% if d.toplam %}{% sparkline d.seri as yol %}<svg width="160" height="28" viewBox="0 0 100 28" preserveAspectRatio="none" class="{% if d.tur == 'ikn_bos' or d.tur == 'red' %}text-danger{% else %}text-primary{% endif %}"><path d="{{ yol|safe }}" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>{% else %}<span class="text-body-secondary small">—</span>{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="text-body-secondary">Dolum sayacı yok (Redis bağlı değil).</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
   <h2>Bugün en yoğun kimlikler</h2>
   <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">
     <thead><tr>
       <th>Kimlik</th><th>Hesap</th><th class="text-end">İstek</th><th class="text-end">429</th>
-      <th class="text-end">EKAP (gün/saat)</th><th>İstemci · IP</th><th>Tarayıcı</th>
+      <th class="text-end">EKAP (gün/saat)</th><th class="text-end" title="Son 1 saatte farklı IP / tarayıcı (yalnız girişli)">1 sa IP/UA</th><th>İstemci · IP</th><th>Tarayıcı</th>
       <th>Şüphe</th><th>Son</th>{% if superuser %}<th>İşlem</th>{% endif %}
     </tr></thead>
     <tbody>
@@ -76,6 +101,7 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
         <td class="text-end">{{ s.istek|tr_sayi }}</td>
         <td class="text-end">{{ s.red|tr_sayi }}</td>
         <td class="text-end">{{ s.kota_gun }}/{{ s.kota_saat }}</td>
+        <td class="text-end{% if s.ip_1s and s.ip_1s >= paylasim_ip %} text-danger fw-bold{% endif %}">{% if s.ip_1s is not None %}{{ s.ip_1s }}/{{ s.ua_1s }}{% else %}—{% endif %}</td>
         <td class="small">{{ s.istemci }}<br><code>{{ s.ip|default:"—" }}</code>{% if s.ip_engelli %} <b>engelli</b>{% endif %}</td>
         <td class="small" style="max-width:220px;word-break:break-word">{{ s.ua|truncatechars:90 }}</td>
         <td class="small"><b>{{ s.puan }}</b>{% if s.pro_isaret %} <span class="badge text-bg-danger">Pro · askı yok, incele</span>{% endif %}{% if s.nedenler %}<br>{{ s.nedenler|join:", " }}{% endif %}</td>
@@ -100,7 +126,7 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
         {% endif %}
       </tr>
     {% empty %}
-      <tr><td colspan="10" class="text-body-secondary">Bugün için izleme verisi yok.</td></tr>
+      <tr><td colspan="11" class="text-body-secondary">Bugün için izleme verisi yok.</td></tr>
     {% endfor %}
     </tbody>
   </table>

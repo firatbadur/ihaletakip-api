@@ -329,10 +329,11 @@ OTOMASYON_UA = re.compile(
     re.I)
 
 
-def supheli_puani(satir, user, kota_g):
+def supheli_puani(satir, user, kota_g, *, paylasim: bool = True):
     """
     Şüphe puanı + Türkçe gerekçeler. Panel (`/admin/guvenlik/`) ve otomatik askı
-    (`otomatik_aski`) AYNI fonksiyonu kullanır — ekranda görülen puan, kararı veren puandır.
+    (`otomatik_aski`) AYNI fonksiyonu kullanır. Tek fark: paylaşım sinyali (1 saatte çok
+    IP/tarayıcı) panelde puana eklenir, askı kararında sayılmaz (`paylasim=False`).
 
     `satir`: `guvenlik_izleme.en_yogun` satırı ({istek, red, ua, …}); `kota_g`: bugünkü
     kişi başı EKAP isteği.
@@ -362,6 +363,18 @@ def supheli_puani(satir, user, kota_g):
     if kota_g:
         puan += 1 if kota_g < 20 else 2
         neden.append(f"EKAP isteği {kota_g}")
+    # Hesap paylaşımı / dönen vekil (web 8. not #28). ⚠️ Yalnız İŞARET: otomatik askı
+    # bunu saymaz (`aski_kosulu` → paylasim=False) — mobil ağda IP sık değişir.
+    if paylasim:
+        from django.conf import settings
+
+        ip_1s, ua_1s = satir.get("ip_1s") or 0, satir.get("ua_1s") or 0
+        if ip_1s >= getattr(settings, "GUVENLIK_PAYLASIM_IP", 10):
+            puan += 2
+            neden.append(f"1 saatte {ip_1s} farklı IP")
+        if ua_1s >= getattr(settings, "GUVENLIK_PAYLASIM_UA", 5):
+            puan += 1
+            neden.append(f"1 saatte {ua_1s} farklı tarayıcı")
     return puan, neden
 
 
@@ -376,7 +389,7 @@ def aski_kosulu(satir, user, kota_g) -> tuple[bool, int, list[str]]:
 
     from ekap.mobil import kota as kota_mod
 
-    puan, nedenler = supheli_puani(satir, user, kota_g)
+    puan, nedenler = supheli_puani(satir, user, kota_g, paylasim=False)
     seviye = kota_mod.seviye_bul(user) or "free"
     gun_tavan = kota_mod.tablo().get(seviye, {}).get("gun", 0)
     kota_dolu = kota_g >= max(1, gun_tavan)

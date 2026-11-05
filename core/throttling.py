@@ -56,6 +56,9 @@ VARSAYILAN_ORANLAR = {
     # Belge uçları canlı EKAP'a gider ve sınırlı bir günlük bütçeyi harcar.
     "belge": {"anonim": [(60, 20), (86400, 200)], "girisli": [(60, 20), (86400, 200)]},
 }
+# İKN araması (`ihale_arama` ucu + `ikn_yil` & `ikn_sayi`): kişi kovası aramayla aynı;
+# ayrı kapsam olmasının tek sebebi dolum bütçesinin ayrılması (web 8. not #27).
+VARSAYILAN_ORANLAR["ikn_arama"] = VARSAYILAN_ORANLAR["ihale_arama"]
 # Portal önbellek dolumu kovası (`dolum`): TÜM web anonim kullanıcılarının paylaştığı
 # önbellek ıskaları buraya düşer → tek kişinin değil, sitenin bütçesidir.
 # ⚠️ Belge dolum olamaz (kişiye özel); yanlışlıkla gelirse anonim belge sınırı uygulanır.
@@ -64,7 +67,16 @@ VARSAYILAN_DOLUM_ORANLARI = {
     "firma_liste": [(60, 200)],
     "detay": [(60, 300)],
     "belge": [(60, 20)],
+    # ⚠️ Yalnızca DB emniyet tavanı. Asıl İKN bütçesi SONUCA göredir
+    # (`ikn_dolum_sonucu`): boş İKN araması ile var olan İKN'yi açan istek ayrı sayılır.
+    "ikn_arama": [(60, 1500)],
 }
+# Dolum İKN araması, sorgudan SONRA sonuca göre (dakikada): İKN sayan bir betik
+# çoğunlukla olmayan İKN'leri dener; gerçek kullanıcı ve arama motoru neredeyse hep var
+# olanı açar → yalnız boş aramalar yavaşlar. `API_THROTTLE_DOLUM_IKN` ile ezilir.
+VARSAYILAN_DOLUM_IKN = {"bulunan": 300, "bos": 60}
+# Panelin dakikalık dolum grafiği için kapsam → tür (İKN türleri görünümde yazılır).
+_DOLUM_TURU = {"ihale_arama": "liste", "firma_liste": "firma_liste", "detay": "detay"}
 DOLUM_KIMLIGI = "portal:dolum"
 
 # Kademeli geçici engel: farklı dakikalarda tekrarlanan aşım sayısı → engel süresi.
@@ -189,7 +201,7 @@ def gozlem_ozeti(gun: str) -> dict:
     """`throttle_rapor` komutu için: {(olay, kapsam, tür): (istek, tekil)}."""
     sonuc = {}
     for olay in ("hiz", "derinlik", "belge_anonim", "sayfa_pro", "dogrulama"):
-        for kapsam in (*VARSAYILAN_ORANLAR, "liste"):
+        for kapsam in (*VARSAYILAN_ORANLAR, "liste", "ikn_bulunan", "ikn_bos"):
             for tur in ("dogrudan-anonim", "dogrudan-girisli", "portal-anonim",
                         "portal-girisli", "portal-dolum"):
                 n = cache.get(f"thr:gz:{gun}:{olay}:{kapsam}:{tur}")
@@ -197,6 +209,55 @@ def gozlem_ozeti(gun: str) -> dict:
                     sonuc[(olay, kapsam, tur)] = (
                         n, cache.get(f"thr:gzt:{gun}:{olay}:{kapsam}:{tur}") or 0)
     return sonuc
+
+
+def kapsam_bul(view, request) -> str | None:
+    """View `throttle_kapsam_coz(request)` tanımlıyorsa istek başına kapsam, yoksa sabit."""
+    coz = getattr(view, "throttle_kapsam_coz", None)
+    if callable(coz):
+        return coz(request)
+    return getattr(view, "throttle_kapsam", None)
+
+
+def ikn_dolum_sonucu(request, bulundu: bool) -> None:
+    """
+    Dolum İKN aramasının SONUCA göre bütçesi (web 8. not #27). Sorgudan sonra çağrılır;
+    sınır aşıldıysa `Throttled` (429 + Retry-After) fırlatır.
+
+    ⚠️ Sorgu bu noktada zaten koşmuştur: İKN araması indeksli ve ucuz, DB'yi korumak
+    `VARSAYILAN_DOLUM_ORANLARI["ikn_arama"]` tavanının işi. Burada korunan şey bütçe
+    paylaşımıdır — boş aramalarla dolan sayaç var olan İKN'yi açan kullanıcıyı kesmez.
+    ⚠️ Koruma hatası API'yi kırmaz (throttle ile aynı kural).
+    """
+    from rest_framework.exceptions import Throttled
+
+    try:
+        ist = istemci(request)
+        if not ist.dolum or ist.bot:
+            return
+        m = mod(ist)
+        if m == "kapali":
+            return
+        tur = "bulunan" if bulundu else "bos"
+        from .guvenlik_izleme import dolum_say
+
+        dolum_say(f"ikn_{tur}")
+        tablo = dict(VARSAYILAN_DOLUM_IKN)
+        tablo.update(getattr(settings, "API_THROTTLE_DOLUM_IKN", None) or {})
+        simdi = time.time()
+        n = _say(f"thr:dolum:ikn:{tur}:{int(simdi // 60)}", 65)
+        if n <= int(tablo.get(tur, 0) or 0):
+            return
+        if m == "gozlem":
+            gozlem_kaydet("hiz", f"ikn_{tur}", ist)
+            return
+        dolum_say("red")
+        KapsamliThrottle._dolum_logla(request, f"ikn_{tur}", simdi)
+        bekle = int(60 - simdi % 60) + 1
+    except Exception as e:  # noqa: BLE001
+        logger.warning("İKN dolum bütçesi hatası (istek geçirildi): %s", str(e)[:200])
+        return
+    raise Throttled(wait=bekle)
 
 
 class KapsamliThrottle(BaseThrottle):
@@ -208,8 +269,11 @@ class KapsamliThrottle(BaseThrottle):
     def allow_request(self, request, view):
         from .insan_dogrulama import DogrulamaGerekli
 
-        kapsam = getattr(view, "throttle_kapsam", None)
         ist = None
+        try:
+            kapsam = kapsam_bul(view, request)
+        except Exception:  # noqa: BLE001
+            kapsam = getattr(view, "throttle_kapsam", None)
         try:
             imzali = getattr(view, "imzali_uid", None)
             ist = istemci(request, imzali_uid=imzali(request) if callable(imzali) else None)
@@ -263,6 +327,11 @@ class KapsamliThrottle(BaseThrottle):
 
         dogrulama_kontrol(ist, kapsam, request)
 
+        if ist.dolum and kapsam in _DOLUM_TURU:
+            from .guvenlik_izleme import dolum_say
+
+            dolum_say(_DOLUM_TURU[kapsam])
+
         bekle = None
         for pencere, sinir in oranlar(kapsam, ist):
             dilim = int(simdi // pencere)
@@ -282,6 +351,9 @@ class KapsamliThrottle(BaseThrottle):
             # engel web'in tüm önbellek ıskalarını bir gün kapatırdı. Sık dolması bir
             # tarayıcının önbellek dışı anahtar gezdiği demek → uç + sorgu loglanır.
             self._dolum_logla(request, kapsam, simdi)
+            from .guvenlik_izleme import dolum_say
+
+            dolum_say("red")
             self._bekle = bekle
             return False
         self._bekle = max(bekle, self._ceza(ist, simdi) or 0)

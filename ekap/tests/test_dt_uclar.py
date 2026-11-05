@@ -177,6 +177,31 @@ class DokumanTest(TestCase):
         self.assertEqual(self.c.get(URL + "26DT1/dokuman/").status_code, 404)
         self.assertEqual(Cli.return_value.dt_dokuman_indir.call_count, 1)
 
+    def test_yok_derse_TAZE_encID_ile_bir_kez_denenir(self, Cli):
+        # Bayat encID'nin 404'ü 24 saat "doküman yok" diye hatırlanmasın
+        _dt("26DT1", dokuman_var=True)
+        cli = Cli.return_value
+        resp = MagicMock()
+        resp.headers = {"content-disposition": 'attachment; filename="a.pdf"'}
+        resp.iter_content.return_value = [b"%PDF"]
+        cli.dt_dokuman_indir.side_effect = [MobilYokError("yok"), resp]
+        cli.dt_liste_govdesi.side_effect = lambda **kw: kw
+        cli.dt_liste.return_value = [{"dtn": "26DT1", "encID": "taze"}]
+        r = self.c.get(URL + "26DT1/dokuman/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(cli.dt_dokuman_indir.call_args.args[0], "taze")
+        self.assertIsNone(cache.get("dt:dokyok:26DT1"))
+
+    def test_taze_encID_ayniysa_tekrar_denenmez_ve_hatirlanir(self, Cli):
+        _dt("26DT1", dokuman_var=True)
+        cli = Cli.return_value
+        cli.dt_dokuman_indir.side_effect = MobilYokError("yok")
+        cli.dt_liste_govdesi.side_effect = lambda **kw: kw
+        cli.dt_liste.return_value = [{"dtn": "26DT1", "encID": "enc-26DT1"}]
+        self.assertEqual(self.c.get(URL + "26DT1/dokuman/").status_code, 404)
+        self.assertEqual(cli.dt_dokuman_indir.call_count, 1)
+        self.assertEqual(cache.get("dt:dokyok:26DT1"), 1)
+
     def test_captcha_503_ve_HATIRLANMAZ(self, Cli):
         _dt("26DT1", dokuman_var=True)
         Cli.return_value.dt_dokuman_indir.side_effect = MobilCaptchaError("duvar")

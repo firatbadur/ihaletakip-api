@@ -89,8 +89,13 @@ def _taze_enc(cli, obj):
     return obj.enc_id
 
 
-def _enc_ile(cli, obj, cagir):
-    """`cagir(enc_id)`; bayat encID'de **bir kez** tazesiyle tekrar dener."""
+def _enc_ile(cli, obj, cagir, *, yokta_tazele=False):
+    """`cagir(enc_id)`; bayat encID'de **bir kez** tazesiyle tekrar dener.
+
+    `yokta_tazele`: EKAP "kayıt yok" (404) derse de tazesiyle bir kez denenir.
+    Doküman ucu bunu ister: "yok" cevabı 24 saat hatırlanıyor (`dt:dokyok:`) ve
+    bayat bir encID'nin 404'ü dokümanı bir gün boyunca kilitliyordu.
+    """
     from .mobil.client import (
         MobilButceError, MobilCaptchaError, MobilError, MobilKotaError, MobilSlotError,
         MobilYokError,
@@ -98,8 +103,16 @@ def _enc_ile(cli, obj, cagir):
 
     try:
         return cagir(obj.enc_id)
-    except (MobilYokError, MobilButceError, MobilCaptchaError, MobilSlotError,
-            MobilKotaError):
+    except MobilYokError:
+        if not yokta_tazele:
+            raise
+        eski = obj.enc_id
+        logger.info("DT %s encID ile kayıt yok dendi, taze encID deneniyor", obj.dtn)
+        yeni = _taze_enc(cli, obj)
+        if not yeni or yeni == eski:
+            raise
+        return cagir(yeni)
+    except (MobilButceError, MobilCaptchaError, MobilSlotError, MobilKotaError):
         raise
     except MobilError as e:
         logger.info("DT %s encID ile açılmadı, taze encID deneniyor: %s", obj.dtn, e)
@@ -407,7 +420,7 @@ class DogrudanTeminDokumanView(APIView):
         ist = istemci(request)
         cli = EkapMobilClient(butce="kullanici", kota=kota_hazirla(ist, request.user))
         try:
-            resp = _enc_ile(cli, obj, cli.dt_dokuman_indir)
+            resp = _enc_ile(cli, obj, cli.dt_dokuman_indir, yokta_tazele=True)
         except MobilError as e:
             from .mobil.client import MobilKotaError, MobilYokError
 

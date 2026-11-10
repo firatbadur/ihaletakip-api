@@ -98,6 +98,14 @@ class User(AbstractUser):
         "e-posta bildirimleri", default=True, db_default=True,
         help_text="Günlük bildirim özetini e-postayla al.",
     )
+    # Günlük blog yazısı e-postası (`blog/tasks.py`). Bülten tercihinden AYRI: blogdan çıkan
+    # kullanıcı ihale özetini kaybetmesin. `email_notifications=False` ikisini de kapatır.
+    blog_eposta = models.BooleanField(
+        "blog e-postaları", default=True, db_default=True,
+        help_text="Her gün yayımlanan blog yazısını e-postayla al.",
+    )
+    # Hoş geldin e-postası (`accounts/services/hosgeldin.py`) gönderildi mi — tek sefer.
+    hosgeldin_eposta_at = models.DateTimeField("hoş geldin e-postası", null=True, blank=True)
 
     # ── Abonelik ───────────────────────────────────────────
     # Premium (Pro) özellikler `is_premium` üzerinden kapılanır (bkz. accounts.premium).

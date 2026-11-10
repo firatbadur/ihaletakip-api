@@ -65,21 +65,29 @@ def ihale_url(ikn: str) -> str:
     return _url(f"/ihale/{(ikn or '').strip().replace('/', '-', 1)}")
 
 
-def abonelik_token(user) -> str:
-    return signing.dumps({"u": user.pk}, salt=ABONELIK_SALT, compress=True)
+def abonelik_token(user, kapsam: str = "") -> str:
+    """`kapsam=""` → tüm e-posta bildirimleri (`email_notifications`), `"blog"` → yalnız blog."""
+    veri = {"u": user.pk, **({"k": kapsam} if kapsam else {})}
+    return signing.dumps(veri, salt=ABONELIK_SALT, compress=True)
+
+
+def abonelik_coz_tam(token: str):
+    """Token → `(kullanıcı id, kapsam)`; geçersizse `(None, "")`. Süresiz: e-postadaki
+    bağlantı aylar sonra da çalışmalı."""
+    try:
+        veri = signing.loads(token, salt=ABONELIK_SALT)
+        return int(veri["u"]), (veri.get("k") or "")
+    except (signing.BadSignature, KeyError, TypeError, ValueError):
+        return None, ""
 
 
 def abonelik_coz(token: str):
-    """Token → kullanıcı id (süresiz: e-postadaki bağlantı aylar sonra da çalışmalı)."""
-    try:
-        return int(signing.loads(token, salt=ABONELIK_SALT)["u"])
-    except (signing.BadSignature, KeyError, TypeError, ValueError):
-        return None
+    return abonelik_coz_tam(token)[0]
 
 
-def abonelik_url(user) -> str:
+def abonelik_url(user, kapsam: str = "") -> str:
     taban = settings.PUBLIC_BASE_URL.rstrip("/")
-    return f"{taban}/eposta/abonelik/?{urlencode({'t': abonelik_token(user)})}"
+    return f"{taban}/eposta/abonelik/?{urlencode({'t': abonelik_token(user, kapsam)})}"
 
 
 def _iller():

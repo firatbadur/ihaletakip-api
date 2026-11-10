@@ -48,7 +48,9 @@ class BlogPostForm(forms.ModelForm):
 @admin.register(BlogPost)
 class BlogPostAdmin(admin.ModelAdmin):
     form = BlogPostForm
-    list_display = ("title", "category", "durum", "published_at", "updated_at")
+    list_display = ("title", "category", "durum", "published_at", "eposta_gonderildi_at",
+                    "updated_at")
+    actions = ["eposta_gonder"]
     list_filter = ("status", "category")
     search_fields = ("title", "summary")
     date_hierarchy = "published_at"
@@ -91,6 +93,25 @@ class BlogPostAdmin(admin.ModelAdmin):
         return "Yayında"
 
     @admin.display(description="önizleme")
+    @admin.action(description="Kullanıcılara e-postayla gönder (Toplu Gönderim kuyruğu)")
+    def eposta_gonder(self, request, queryset):
+        """Yayımlanmış ve henüz gönderilmemiş yazıyı elle e-postalar (günlük 12:00 görevinin
+        elle hâli). Yalnız süper kullanıcı; bir yazı bir kez gider."""
+        from django.contrib import messages
+
+        from .eposta import gonder
+
+        if not request.user.is_superuser:
+            self.message_user(request, "Yalnızca süper kullanıcı gönderebilir.", messages.ERROR)
+            return
+        for post in queryset.yayinda().select_related("category"):
+            g = gonder(post, request.user)
+            if g:
+                self.message_user(request, f"“{post.title}” kuyruğa alındı: {g.toplam} alıcı "
+                                  f"(Toplu Gönderim #{g.pk}).")
+            else:
+                self.message_user(request, f"“{post.title}” daha önce gönderilmiş.", messages.WARNING)
+
     def kapak_onizleme(self, obj):
         if not obj or not obj.cover_image:
             return "—"

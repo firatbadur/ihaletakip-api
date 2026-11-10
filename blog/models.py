@@ -197,6 +197,9 @@ class BlogPost(models.Model):
     # denenir, ikinci yazı oluşmaz. Admin'den yazılanlarda boştur.
     external_id = models.CharField("dış kimlik", max_length=64, null=True, blank=True,
                                    unique=True, editable=False)
+    # Kullanıcılara e-postayla gönderildiği an (`blog/tasks.py`, günlük 12:00) — tek sefer.
+    eposta_gonderildi_at = models.DateTimeField("e-postayla gönderildi", null=True, blank=True,
+                                                editable=False)
 
     objects = BlogPostQuerySet.as_manager()
 

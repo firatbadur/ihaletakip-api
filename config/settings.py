@@ -368,6 +368,10 @@ EPOSTA_BULTEN_MAX_SN = env.int("EPOSTA_BULTEN_MAX_SN", default=240)
 # e-posta hızı (SES hesap sınırı 14/sn — altında kalınır).
 TOPLU_TUR_SN = env.int("TOPLU_TUR_SN", default=200)
 TOPLU_EPOSTA_SANIYE = env.float("TOPLU_EPOSTA_SANIYE", default=8.0)
+# Yeni kullanıcıya hoş geldin e-postası (accounts/signals.py) ve günlük blog yazısı
+# e-postası (blog/tasks.py, beat 12:00) — kill switch'ler.
+HOSGELDIN_EPOSTA_ENABLED = env.bool("HOSGELDIN_EPOSTA_ENABLED", default=True)
+BLOG_EPOSTA_ENABLED = env.bool("BLOG_EPOSTA_ENABLED", default=True)
 # E-postadaki bağlantıların tabanı (web portalı: /ihale/<yil-sayi>, /bildirimler, /hesabim).
 EPOSTA_LINK_TABANI = env("EPOSTA_LINK_TABANI", default="https://ihaletakip.com")
 

@@ -3564,6 +3564,22 @@ istemci notu `docs/eposta-bildirim.md`.
   e-posta bildirimleri kapalı · cihaz yok / push kapalı / sessiz saat. Push'ta "sessiz saat ve
   limit uygulanmasın" seçeneği `transactional=True`. Worker düşerse "Devam ettir".
 - Testler `accounts/tests/test_eposta_engel.py` (8), `core/tests/test_toplu_gonderim.py` (11).
+- **Hoş geldin e-postası** (`accounts/services/hosgeldin.py`, 2026-11-10): `post_save(created)`
+  sinyali (`accounts/signals.py`) → `on_commit` → `accounts.tasks.hosgeldin_eposta` (30 sn
+  gecikme, 3 yeniden deneme). Tüm kayıt yolları (e-posta, Google, Apple) tek kapıdan. İlk
+  adımlar + Pro avantajları + fiyat (mağaza kaydından, `magaza_fiyatlari`; kayıt yoksa fiyat
+  yazılmaz). Tek sefer `User.hosgeldin_eposta_at` (koşullu UPDATE; SMTP düşerse geri alınır).
+  Personel, e-postasız ve `email_notifications=False` almaz. Mevcut kullanıcılar etkilenmez.
+  ⚠️ Pro maddeleri gerçek kapılarla aynı tutulmalı (`PRO_AVANTAJLARI`). Kill switch
+  `HOSGELDIN_EPOSTA_ENABLED`.
+- **Günlük blog e-postası** (`blog/eposta.py`, beat `blog-gunluk-eposta` **12:00**): son 24 saatin
+  en yeni yazısı toplu gönderim kuyruğuyla (`TopluGonderim.kategori="blog"`) herkese; günde
+  tek blog e-postası (son 20 saatte gittiyse atlar), arşiv topluca gitmez. `BlogPost.
+  eposta_gonderildi_at` tek seferi tutar. Ayrı tercih `User.blog_eposta`: blog e-postasındaki
+  abonelik bağlantısı (`abonelik_token(user, "blog")`) yalnız blogu kapatır;
+  `email_notifications=False` ikisini de kapatır. Admin blog listesinde "e-postayla gönder"
+  eylemi (süper kullanıcı). Kill switch `BLOG_EPOSTA_ENABLED`.
+- Testler `accounts/tests/test_hosgeldin.py` (8), `blog/tests/test_blog_eposta.py` (4).
 
 ### `last_seen_at` — etkinlik izi (MAU/DAU)
 

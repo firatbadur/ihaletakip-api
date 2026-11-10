@@ -1,0 +1,4 @@
+{% comment %}Blog e-postasının gövdesi — `blog/eposta.icerik_html()`; toplu e-posta düzenine gömülür.{% endcomment %}
+{% if kapak %}<a href="{{ url }}" style="text-decoration:none;"><img src="{{ kapak }}" width="528" alt="{{ post.cover_alt|default:post.title }}" style="display:block;width:100%;max-width:528px;height:auto;border:0;border-radius:14px;margin:4px 0 18px;"></a>{% endif %}
+<p style="margin:0 0 10px;font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:#0074cb;">{% if kategori %}{{ kategori }} &nbsp;·&nbsp; {% endif %}{{ post.reading_minutes }} dk okuma</p>
+{% if post.summary %}<p style="margin:0;font-size:16px;line-height:1.7;color:#334155;">{{ post.summary }}</p>{% endif %}

@@ -8,7 +8,7 @@
 </td></tr>
 <tr><td align="center" style="padding:14px 24px 8px;font-size:12px;line-height:1.7;color:{{ t.soluk }};">
   {% if email %}Bu e-postayı <span style="color:{{ t.ikincil }};">{{ email }}</span> adresine {{ neden|default:"İhale Takip hesabınız olduğu için" }} gönderdik.<br>{% endif %}
-  {% if abonelik %}<a href="{{ ayarlar|default:marka.site }}" style="color:{{ t.ikincil }};text-decoration:underline;">Bildirim tercihleri</a> &nbsp;·&nbsp; <a href="{{ abonelik }}" style="color:{{ t.ikincil }};text-decoration:underline;">E-postalardan çık</a><br>{% endif %}
+  {% if abonelik %}<a href="{{ ayarlar|default:marka.site }}" style="color:{{ t.ikincil }};text-decoration:underline;">Bildirim tercihleri</a> &nbsp;·&nbsp; <a href="{{ abonelik }}" style="color:{{ t.ikincil }};text-decoration:underline;">{{ abonelik_metni|default:"E-postalardan çık" }}</a><br>{% endif %}
   <a href="{{ marka.site }}" style="color:{{ t.ikincil }};text-decoration:none;font-weight:600;">{{ marka.site_ad }}</a> &nbsp;·&nbsp; {{ marka.sirket }}<br>
   Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayın.
 </td></tr>

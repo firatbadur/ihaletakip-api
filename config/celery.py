@@ -44,6 +44,12 @@ app.conf.beat_schedule = {
     # `email_notifications` açık olanlara). ⚠️ Sabah bildirim dizisinden SONRA (10:00);
     # 4 tetik: süre bütçesi dolarsa kalan kullanıcılar sonraki tetikte gönderilir
     # (kullanıcı başına gün kilidi mükerreri engeller). Saat `EPOSTA_BULTEN_SAAT` ile aynı.
+    # Günlük blog yazısı e-postası — 12:00 (öğle arası; bülten 10:00'da). Son 24 saatin
+    # en yeni yazısı toplu gönderim kuyruğuyla tüm kullanıcılara (blog/eposta.py).
+    "blog-gunluk-eposta": {
+        "task": "blog.tasks.gunluk_blog_epostasi",
+        "schedule": crontab(hour=12, minute=0),
+    },
     "tenders-email-digest": {
         "task": "tenders.tasks.send_email_digest",
         "schedule": crontab(hour=10, minute="0,15,30,45"),

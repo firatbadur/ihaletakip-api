@@ -28,16 +28,22 @@
     <h1>Bağlantı geçersiz</h1>
     <p>Bu bağlantı tanınmadı. E-posta bildirimlerini uygulamada Profil → Bildirim tercihleri ekranından kapatabilirsiniz.</p>
   {% elif durum == "onay" %}
-    <h1>E-posta bildirimlerinden çıkılsın mı?</h1>
-    <p><strong>{{ email }}</strong> adresine günlük ihale özeti gönderilmeyecek. Uygulama içi ve push bildirimleriniz değişmez.</p>
+    {% if blog %}<h1>Blog e-postalarından çıkılsın mı?</h1>
+    <p><strong>{{ email }}</strong> adresine günlük blog yazısı gönderilmeyecek. Günlük ihale özetiniz ve diğer bildirimleriniz değişmez.</p>
+    {% else %}<h1>E-posta bildirimlerinden çıkılsın mı?</h1>
+    <p><strong>{{ email }}</strong> adresine günlük ihale özeti ve duyuru e-postaları gönderilmeyecek. Uygulama içi ve push bildirimleriniz değişmez.</p>{% endif %}
     <form method="post"><input type="hidden" name="t" value="{{ token }}"><button type="submit">Evet, çık</button></form>
   {% elif durum == "cikildi" or durum == "zaten" %}
-    <h1>E-posta bildirimleri kapalı</h1>
-    <p><strong>{{ email }}</strong> adresine artık günlük özet göndermeyeceğiz. Fikrinizi değiştirirseniz buradan ya da uygulamadan yeniden açabilirsiniz.</p>
-    <form method="post"><input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="islem" value="geri"><button type="submit" class="ikincil">E-posta bildirimlerini yeniden aç</button></form>
+    {% if blog %}<h1>Blog e-postaları kapalı</h1>
+    <p><strong>{{ email }}</strong> adresine artık blog yazısı göndermeyeceğiz. Yazılara her zaman ihaletakip.com/blog adresinden ulaşabilirsiniz.</p>
+    {% else %}<h1>E-posta bildirimleri kapalı</h1>
+    <p><strong>{{ email }}</strong> adresine artık günlük özet göndermeyeceğiz. Fikrinizi değiştirirseniz buradan ya da uygulamadan yeniden açabilirsiniz.</p>{% endif %}
+    <form method="post"><input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="islem" value="geri"><button type="submit" class="ikincil">{% if blog %}Blog e-postalarını{% else %}E-posta bildirimlerini{% endif %} yeniden aç</button></form>
   {% elif durum == "acildi" %}
-    <h1>E-posta bildirimleri açıldı</h1>
-    <p>Günlük ihale özetiniz <strong>{{ email }}</strong> adresine gönderilmeye devam edecek.</p>
+    {% if blog %}<h1>Blog e-postaları açıldı</h1>
+    <p>Günlük blog yazısı <strong>{{ email }}</strong> adresine gönderilmeye devam edecek.</p>
+    {% else %}<h1>E-posta bildirimleri açıldı</h1>
+    <p>Günlük ihale özetiniz <strong>{{ email }}</strong> adresine gönderilmeye devam edecek.</p>{% endif %}
   {% endif %}
 </main>
 </body>

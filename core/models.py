@@ -357,7 +357,14 @@ class TopluGonderim(models.Model):
         METIN = "metin", "Düz metin"
         HTML = "html", "HTML"
 
+    class Kategori(models.TextChoices):
+        GENEL = "genel", "Duyuru"
+        BLOG = "blog", "Blog yazısı"
+
     kanal = models.CharField(max_length=10, choices=Kanal.choices)
+    # `blog` → `User.blog_eposta` kapalı olana gitmez, abonelik bağlantısı yalnız blogdan çıkarır.
+    kategori = models.CharField(max_length=8, choices=Kategori.choices, default=Kategori.GENEL,
+                                db_default=Kategori.GENEL)
     durum = models.CharField(max_length=14, choices=Durum.choices, default=Durum.KUYRUKTA,
                              db_index=True)
     konu = models.CharField("konu / bildirim başlığı", max_length=200)

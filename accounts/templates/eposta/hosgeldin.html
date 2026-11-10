@@ -1,0 +1,52 @@
+{% extends duzen %}
+{% comment %}Hoş geldin e-postası — bağlam `accounts/services/hosgeldin.baglam()`.{% endcomment %}
+{% block icerik %}
+<p style="margin:18px 0 6px;font-size:15px;line-height:1.7;color:{{ t.ikincil }};">
+  İhale Takip; EKAP'ta yayımlanan ihaleleri, doğrudan temin alımlarını ve KİK kurul kararlarını sizin için her gün tarar, size uyanları önünüze getirir. Başlamak için üç adım yeterli:
+</p>
+
+{% for baslik, metin in adimlar %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;"><tr>
+  <td valign="top" width="40" style="padding-top:2px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" width="30" height="30" bgcolor="{{ t.kutu }}" style="background:{{ t.kutu }};border-radius:999px;font-size:14px;font-weight:800;color:{{ t.vurgu }};">{{ forloop.counter }}</td></tr></table>
+  </td>
+  <td valign="top">
+    <p style="margin:0;font-size:15px;font-weight:700;color:{{ t.yazi }};">{{ baslik }}</p>
+    <p style="margin:3px 0 0;font-size:14px;line-height:1.6;color:{{ t.ikincil }};">{{ metin }}</p>
+  </td>
+</tr></table>
+{% endfor %}
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr>
+  <td bgcolor="{{ t.vurgu }}" style="background:{{ t.vurgu }};border-radius:{% if tema == 'b' %}999px{% else %}8px{% endif %};"><a href="{{ kesfet_url }}" style="display:inline-block;padding:13px 24px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;">İhaleleri keşfedin &rarr;</a></td>
+</tr></table>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:30px;"><tr>
+  <td bgcolor="{{ t.koyu }}" style="background:{{ t.koyu }};background-image:linear-gradient(135deg,{{ t.koyu }} 0%,#1d4fa8 100%);border-radius:{{ t.radius }}px;padding:28px 26px 26px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#ffffff" style="background:#ffffff;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:800;letter-spacing:.6px;color:{{ t.koyu }};">PRO</td></tr></table>
+    <p style="margin:14px 0 4px;font-family:{{ t.baslik_font }};font-size:22px;line-height:1.3;font-weight:700;color:#ffffff;">Pro ile bir adım önde olun</p>
+    <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#c4d9f3;">Ücretsiz hesabınızla aramaya ve filtre bildirimlerine hemen başlayabilirsiniz. Rakiplerinizden önce davranmak için Pro'da:</p>
+    {% for baslik, metin in pro %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
+      <td valign="top" width="28" style="font-size:15px;font-weight:800;color:#6fd3a0;padding-top:1px;">&#10003;</td>
+      <td valign="top" style="font-size:14px;line-height:1.55;color:#e6eefb;"><strong style="color:#ffffff;">{{ baslik }}</strong> — {{ metin }}</td>
+    </tr></table>
+    {% endfor %}
+    {% if fiyat %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;"><tr><td style="border-top:1px solid #2b4a83;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+    <p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#c4d9f3;">
+      Aylık <strong style="color:#ffffff;">{{ fiyat.aylik.fiyat }}</strong>{% if fiyat.yillik %} · yıllık <strong style="color:#ffffff;">{{ fiyat.yillik.fiyat }}</strong>{% if fiyat.yillik.aylik_karsilik %} (aylık {{ fiyat.yillik.aylik_karsilik }}'ye gelir){% endif %}{% endif %}
+    </p>
+    {% if fiyat.deneme %}<p style="margin:6px 0 0;font-size:14px;font-weight:700;color:#6fd3a0;">İlk {{ fiyat.deneme }} ücretsiz deneyin — dilediğiniz an iptal edin.</p>{% endif %}
+    {% endif %}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;"><tr>
+      <td bgcolor="#ffffff" style="background:#ffffff;border-radius:{% if tema == 'b' %}999px{% else %}8px{% endif %};"><a href="{{ pro_url }}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:700;color:{{ t.koyu }};text-decoration:none;">Pro'yu keşfedin &rarr;</a></td>
+    </tr></table>
+  </td>
+</tr></table>
+
+<p style="margin:26px 0 0;font-size:14px;line-height:1.6;color:{{ t.ikincil }};">
+  Bir sorunuz mu var? Uygulamadaki <strong style="color:{{ t.yazi }};">Yardım &amp; Destek</strong> bölümünden bize yazın; ekibimiz yanıtlasın.
+</p>
+<p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:{{ t.ikincil }};">İyi ihaleler,<br><strong style="color:{{ t.yazi }};">İhale Takip ekibi</strong></p>
+{% endblock %}

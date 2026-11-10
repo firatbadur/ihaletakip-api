@@ -27,3 +27,12 @@ def zamanlanmis_yazilari_bildir():
     )
     gonderilen = sum(1 for s in sluglar if web_revalidate(s))
     return {"aday": len(sluglar), "gonderilen": gonderilen}
+
+
+@shared_task(name="blog.tasks.gunluk_blog_epostasi", ignore_result=True)
+def gunluk_blog_epostasi():
+    """Son 24 saatin en yeni blog yazısını tüm kullanıcılara e-postalar (beat 12:00,
+    `blog/eposta.py`). Gönderimin kendisi toplu gönderim kuyruğunda işlenir."""
+    from .eposta import gunluk
+
+    return gunluk()

@@ -368,21 +368,25 @@ def eposta_abonelik(request):
     - **POST** (form ya da `List-Unsubscribe-Post` tek tık): `email_notifications=False`.
       `islem=geri` yeniden açar.
     """
-    from tenders.services.eposta_bulten import abonelik_coz
+    from tenders.services.eposta_bulten import abonelik_coz_tam
 
-    uid = abonelik_coz(request.GET.get("t") or request.POST.get("t") or "")
+    uid, kapsam = abonelik_coz_tam(request.GET.get("t") or request.POST.get("t") or "")
     user = User.objects.filter(pk=uid).first() if uid else None
     if user is None:
         return render(request, "eposta/abonelik.html", {"durum": "gecersiz"}, status=400)
+    # `kapsam="blog"` → yalnız blog e-postaları (`blog_eposta`); aksi hâlde tüm e-posta
+    # bildirimleri (`email_notifications`). Blogdan çıkan ihale özetini kaybetmez.
+    alan = "blog_eposta" if kapsam == "blog" else "email_notifications"
     if request.method == "POST":
         acik = request.POST.get("islem") == "geri"
-        User.objects.filter(pk=user.pk).update(email_notifications=acik)
-        logger.info("e-posta bülteni tercihi: uid=%s acik=%s (bağlantı)", user.pk, acik)
+        User.objects.filter(pk=user.pk).update(**{alan: acik})
+        logger.info("e-posta tercihi: uid=%s %s=%s (bağlantı)", user.pk, alan, acik)
         durum = "acildi" if acik else "cikildi"
     else:
-        durum = "onay" if user.email_notifications else "zaten"
+        durum = "onay" if getattr(user, alan) else "zaten"
     return render(request, "eposta/abonelik.html", {
-        "durum": durum, "email": user.email, "token": request.GET.get("t") or request.POST.get("t"),
+        "durum": durum, "email": user.email, "blog": kapsam == "blog",
+        "token": request.GET.get("t") or request.POST.get("t"),
     })
 
 

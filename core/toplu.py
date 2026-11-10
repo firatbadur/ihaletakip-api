@@ -130,11 +130,12 @@ def eposta_olustur(g, user, *, tema=None, connection=None):
 
     konu = kisisellestir(g.konu, user)
     icerik = eposta_icerik_html(g, user)
-    abonelik = abonelik_url(user) if user and user.pk else ""
+    blog = g.kategori == TopluGonderim.Kategori.BLOG
+    abonelik = abonelik_url(user, "blog" if blog else "") if user and user.pk else ""
     baglam = {
         **marka_baglami(tema or g.tema or None),
         "belge_basligi": konu,
-        "baslik_ust": "İhale Takip",
+        "baslik_ust": "İhale Takip Blog" if blog else "İhale Takip",
         "baslik": kisisellestir(g.eposta_baslik or g.konu, user),
         "on_metin": kisisellestir(g.on_metin, user) or strip_tags(icerik)[:140],
         "icerik": icerik,
@@ -144,6 +145,7 @@ def eposta_olustur(g, user, *, tema=None, connection=None):
         "abonelik": abonelik,
         "ayarlar": f"{settings.EPOSTA_LINK_TABANI.rstrip('/')}/hesabim",
         "neden": "İhale Takip hesabınız olduğu için",
+        "abonelik_metni": "Blog e-postalarından çık" if blog else "",
     }
     html = render_to_string("eposta/toplu.html", baglam)
     duz = strip_tags(icerik).strip()
@@ -168,7 +170,8 @@ def olustur(veri: dict, olusturan) -> TopluGonderim:
 
     with transaction.atomic():
         g = TopluGonderim.objects.create(
-            kanal=veri["kanal"], konu=veri["konu"], eposta_baslik=veri.get("eposta_baslik", ""),
+            kanal=veri["kanal"], kategori=veri.get("kategori") or TopluGonderim.Kategori.GENEL,
+            konu=veri["konu"], eposta_baslik=veri.get("eposta_baslik", ""),
             on_metin=veri.get("on_metin", ""), icerik_turu=veri.get("icerik_turu", "metin"),
             icerik=veri["icerik"], dugme_metni=veri.get("dugme_metni", ""),
             dugme_url=veri.get("dugme_url", ""), uygulama_ici=veri.get("uygulama_ici", True),
@@ -201,6 +204,8 @@ def _eposta_gonder(g, user, connection, engelli) -> tuple[str, str]:
         return TopluGonderimAlici.Durum.ATLANDI, "engelli adres (geri dönüş/şikâyet)"
     if not user.email_notifications:
         return TopluGonderimAlici.Durum.ATLANDI, "e-posta bildirimleri kapalı"
+    if g.kategori == TopluGonderim.Kategori.BLOG and not user.blog_eposta:
+        return TopluGonderimAlici.Durum.ATLANDI, "blog e-postaları kapalı"
     mesaj, _ = eposta_olustur(g, user, connection=connection)
     if not mesaj.send():
         return TopluGonderimAlici.Durum.ATLANDI, "gönderim katmanı reddetti"

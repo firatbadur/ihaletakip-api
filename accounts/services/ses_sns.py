@@ -97,6 +97,13 @@ def _kaydet(email: str, tur: str, alt_tur: str, aciklama: str, ses_id: str) -> N
     kapat = tur != EpostaGeriBildirim.Tur.GECICI
     kapandi = kapat and get_user_model().objects.filter(
         email__iexact=email, email_notifications=True).update(email_notifications=False) > 0
+    if kapat:
+        # Kalıcı bounce / şikâyet → adres engellenir: bundan sonra HİÇBİR e-posta gitmez.
+        from accounts.models import EpostaEngeli
+        from accounts.services.eposta_engel import engelle
+
+        engelle(email, EpostaEngeli.Sebep.SIKAYET if tur == EpostaGeriBildirim.Tur.SIKAYET
+                else EpostaEngeli.Sebep.BOUNCE, f"{alt_tur} {aciklama}".strip())
     EpostaGeriBildirim.objects.create(
         email=email.lower()[:254], tur=tur, alt_tur=alt_tur[:64], aciklama=aciklama[:500],
         ses_mesaj_id=ses_id[:128], bulten_kapatildi=kapandi)

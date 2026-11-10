@@ -41,3 +41,12 @@ def otomatik_aski():
     from .guvenlik import otomatik_aski as calistir
 
     return {"askiya_alinan": calistir()}
+
+
+@shared_task(name="core.tasks.toplu_gonderim_isle", ignore_result=True)
+def toplu_gonderim_isle(gonderim_id: int):
+    """Toplu e-posta / push gönderiminin bir turu (`core/toplu.py`). İş kaldıysa kendini
+    yeniden kuyruğa atar → `celery` kuyruğunu tek başına uzun süre meşgul etmez."""
+    from .toplu import isle
+
+    return isle(gonderim_id)

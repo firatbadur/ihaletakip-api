@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import EpostaGeriBildirim, EpostaKodu, PushDevice, User, WebHandoff
+from .models import EpostaEngeli, EpostaGeriBildirim, EpostaKodu, PushDevice, User, WebHandoff
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -74,6 +74,27 @@ class SubscriptionCancelFilter(admin.SimpleListFilter):
         return queryset
 
 
+class EpostaEngelliFilter(admin.SimpleListFilter):
+    """Adresine e-posta gönderilmeyen (kalıcı bounce / şikâyet / elle) kullanıcılar."""
+
+    title = "e-posta engeli"
+    parameter_name = "eposta_engeli"
+
+    def lookups(self, request, model_admin):
+        return [("evet", "Engelli (e-posta gitmiyor)"), ("hayir", "Engelsiz")]
+
+    def queryset(self, request, queryset):
+        from django.db.models import Exists, OuterRef
+        from django.db.models.functions import Lower
+
+        var = Exists(EpostaEngeli.objects.filter(aktif=True, email=Lower(OuterRef("email"))))
+        if self.value() == "evet":
+            return queryset.filter(var)
+        if self.value() == "hayir":
+            return queryset.exclude(var)
+        return queryset
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     list_display = [
@@ -90,6 +111,7 @@ class UserAdmin(BaseUserAdmin):
     ]
     list_filter = [
         "subscription_tier",
+        EpostaEngelliFilter,
         SubscriptionCancelFilter,
         "subscription_period_type",
         HasFcmTokenFilter,
@@ -304,6 +326,48 @@ class EpostaGeriBildirimAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(EpostaEngeli)
+class EpostaEngeliAdmin(admin.ModelAdmin):
+    """E-posta gönderilmeyen adresler. Kalıcı bounce / şikâyet kendiliğinden düşer.
+
+    ⚠️ Satır silinmez — "Engeli kaldır" eylemi `aktif=False` yapar (iz kalır). Adres yine
+    geri dönerse engel kendiliğinden tekrar etkinleşir.
+    """
+
+    list_display = ["email", "sebep", "aktif", "sayac", "created_at", "updated_at",
+                    "kaldirildi_at", "kaldiran"]
+    list_filter = ["aktif", "sebep"]
+    search_fields = ["email"]
+    readonly_fields = ["sayac", "created_at", "updated_at", "kaldirildi_at", "kaldiran"]
+    fields = ["email", "sebep", "aciklama", "aktif", *readonly_fields]
+    actions = ["engeli_kaldir"]
+
+    def get_readonly_fields(self, request, obj=None):
+        # Var olan satırda adres değişmez; elle yeni engel eklerken yazılabilir.
+        return [*self.readonly_fields, "email"] if obj else self.readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from .services.eposta_engel import normalize
+
+        obj.email = normalize(obj.email)
+        if not change:
+            obj.sebep = obj.sebep or EpostaEngeli.Sebep.ELLE
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description="Engeli kaldır (bu adreslere yeniden e-posta gönderilir)")
+    def engeli_kaldir(self, request, queryset):
+        from .services.eposta_engel import engeli_kaldir
+
+        n = 0
+        for satir in queryset.filter(aktif=True):
+            engeli_kaldir(satir, kaldiran=request.user)
+            n += 1
+        self.message_user(request, f"{n} adresin engeli kaldırıldı.")
 
 
 @admin.register(WebHandoff)

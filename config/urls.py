@@ -10,6 +10,7 @@ from drf_spectacular.views import (
 from accounts.views_eposta import eposta_abonelik, ses_bildirim
 from blog.views import blog_medya
 from core.views import health_check
+from core import admin_toplu
 from core.admin_views import guvenlik_ekrani
 from ekap.admin_views import sektor_ekrani
 from ekap.mobil.admin_views import captcha_ekrani
@@ -39,6 +40,25 @@ urlpatterns = [
         admin.site.admin_view(guvenlik_ekrani),
         name="core_guvenlik",
     ),
+    # Toplu e-posta / push (core/admin_toplu.py) — tamamı süper kullanıcıya açık.
+    path("admin/toplu-gonderim/", admin.site.admin_view(admin_toplu.toplu_ekrani),
+         name="core_toplu"),
+    path("admin/toplu-gonderim/ara/", admin.site.admin_view(admin_toplu.kullanici_ara),
+         name="core_toplu_ara"),
+    path("admin/toplu-gonderim/sayim/", admin.site.admin_view(admin_toplu.sayim),
+         name="core_toplu_sayim"),
+    path("admin/toplu-gonderim/onizle/", admin.site.admin_view(admin_toplu.onizle),
+         name="core_toplu_onizle"),
+    path("admin/toplu-gonderim/test/", admin.site.admin_view(admin_toplu.test_gonder),
+         name="core_toplu_test"),
+    path("admin/toplu-gonderim/gonder/", admin.site.admin_view(admin_toplu.gonder),
+         name="core_toplu_gonder"),
+    path("admin/toplu-gonderim/liste/", admin.site.admin_view(admin_toplu.liste),
+         name="core_toplu_liste"),
+    path("admin/toplu-gonderim/<int:pk>/", admin.site.admin_view(admin_toplu.detay),
+         name="core_toplu_detay"),
+    path("admin/toplu-gonderim/<int:pk>/<str:ad>/", admin.site.admin_view(admin_toplu.eylem),
+         name="core_toplu_eylem"),
     path(
         "admin/ekap/sektorler/",
         admin.site.admin_view(sektor_ekrani),

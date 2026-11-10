@@ -363,6 +363,11 @@ EPOSTA_BULTEN_GUNLUK_TAVAN = env.int("EPOSTA_BULTEN_GUNLUK_TAVAN", default=5000)
 SES_SNS_TOPIC_ARNS = env.list("SES_SNS_TOPIC_ARNS", default=[])
 # Tur süre bütçesi (< CELERY_TASK_TIME_LIMIT=300); kalan kullanıcılar sonraki tetikte.
 EPOSTA_BULTEN_MAX_SN = env.int("EPOSTA_BULTEN_MAX_SN", default=240)
+# Toplu gönderim (admin → Toplu Gönderim, `core/toplu.py`): bir turun süre bütçesi
+# (< CELERY_TASK_TIME_LIMIT=300; tur bitince görev kendini yeniden kuyruğa atar) ve
+# e-posta hızı (SES hesap sınırı 14/sn — altında kalınır).
+TOPLU_TUR_SN = env.int("TOPLU_TUR_SN", default=200)
+TOPLU_EPOSTA_SANIYE = env.float("TOPLU_EPOSTA_SANIYE", default=8.0)
 # E-postadaki bağlantıların tabanı (web portalı: /ihale/<yil-sayi>, /bildirimler, /hesabim).
 EPOSTA_LINK_TABANI = env("EPOSTA_LINK_TABANI", default="https://ihaletakip.com")
 
@@ -995,6 +1000,8 @@ JAZZMIN_SETTINGS = {
         # durmasın" tasarımını işlevsiz bırakır.
         # Şüpheli hesap/IP, engeller, EKAP ortak bütçe (core/admin_views.py).
         {"name": "Güvenlik", "url": "core_guvenlik", "permissions": ["auth.view_user"]},
+        # Toplu e-posta / push bildirimi (core/admin_toplu.py) — yalnız süper kullanıcı gönderir.
+        {"name": "Toplu Gönderim", "url": "core_toplu", "permissions": ["core.add_toplugonderim"]},
         {"name": "Sektörler", "url": "ekap_sektorler",
          "permissions": ["ekap.view_tender"]},
         {"name": "EKAP Captcha", "url": "ekap_mobil_captcha",

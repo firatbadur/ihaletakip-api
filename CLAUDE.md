@@ -3536,6 +3536,35 @@ istemci notu `docs/eposta-bildirim.md`.
   kayıtlı olmalı; değilse geri döner.
 - Testler: `tenders/tests/test_eposta_bulten.py` (14).
 
+### E-posta engeli, tasarım ve toplu gönderim (2026-11-10)
+
+- **Engelli adres = `accounts.EpostaEngeli`** (`accounts/services/eposta_engel.py`). Kalıcı
+  bounce / şikâyet SNS'ten gelince kendiliğinden konur (`ses_sns._kaydet`), admin'den elle
+  konur/kaldırılır (silinmez, `aktif=False`). ⚠️⚠️ **Kapı gönderim katmanındadır**
+  (`core.eposta.SaglayiciBackend.send_messages` → `engellileri_ayikla`): bülten, toplu
+  gönderim, kod, destek — HİÇBİR e-posta engelli adrese gitmez; yeni bir gönderim yolu da
+  atlayamaz. DB hatasında kontrol gönderimi DURDURMAZ (kod yutulmasın). Kayıt kodu engelli
+  adrese 400 `email_undeliverable` döner; şifre sıfırlamada hata verilmez (adres sızmasın).
+  Bülten ve toplu gönderim adayları baştan eler. `0014` geçmiş bounce/şikâyetleri doldurur.
+  Kullanıcı listesinde "e-posta engeli" filtresi var. Dişli: filtre kaldırılınca 2 test kırılıyor.
+- **Tasarım** (`core/templates/eposta/duzen/{a,b,c}.html` + `parca/`): bülten, kod ve toplu
+  e-posta aynı düzenden türer; tema admin'den: Uygulama Ayarları → `eposta_tasarim`
+  (`a` Kurumsal · `b` Modern · `c` Sade; vars. `a`). Token'lar `core.eposta.TEMALAR`.
+  Logo `static/ihaletakip/eposta/*.png` (Gmail SVG göstermez), adres HASH'SİZ statik yol
+  (`marka_baglami`) — eski e-postalar da logoyu göstersin.
+- **Toplu gönderim** — admin üst menü → *Toplu Gönderim* (`/admin/toplu-gonderim/`,
+  `core/admin_toplu.py` + `core/toplu.py`, yalnız süper kullanıcı). Kanal e-posta ya da push;
+  alıcı: hepsi / Pro / Free / son 30 gün aktif / seçili kullanıcılar (arama). E-posta düz metin
+  ya da HTML, `{ad}` kişiselleştirme, düğme, canlı önizleme (masaüstü/mobil), push için telefon
+  önizlemesi, "bana test gönder", onaylı gönderim, ilerleme + iptal/devam.
+  Alıcılar `TopluGonderimAlici`'ye dökülür (anı dondurur; `(gonderim,user)` tekil → iki kez
+  gitmez). `core.tasks.toplu_gonderim_isle` 25'lik partilerle `TOPLU_TUR_SN` (200) çalışıp
+  kendini yeniden kuyruğa atar → `celery` kuyruğu tıkanmaz; e-posta hızı
+  `TOPLU_EPOSTA_SANIYE` (8/sn, SES 14/sn). Atlananlar sebebiyle yazılır: adres yok / engelli /
+  e-posta bildirimleri kapalı · cihaz yok / push kapalı / sessiz saat. Push'ta "sessiz saat ve
+  limit uygulanmasın" seçeneği `transactional=True`. Worker düşerse "Devam ettir".
+- Testler `accounts/tests/test_eposta_engel.py` (8), `core/tests/test_toplu_gonderim.py` (11).
+
 ### `last_seen_at` — etkinlik izi (MAU/DAU)
 
 ⚠️ **`last_login` bu projede İŞE YARAMAZ**: JWT uçları (`serializers.issue_tokens`)

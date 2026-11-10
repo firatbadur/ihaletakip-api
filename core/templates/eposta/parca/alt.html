@@ -1,0 +1,14 @@
+{% comment %}Ortak alt bilgi: uygulama bağlantıları, şirket, alıcı ve abonelik satırı.{% endcomment %}
+<tr><td align="center" style="padding:26px 16px 6px;">
+  <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:{{ t.ikincil }};">İhale Takip cebinizde</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:0 4px;"><a href="{{ marka.app_store }}" style="display:inline-block;padding:9px 16px;border-radius:999px;border:1px solid {{ t.kenar }};background:#ffffff;color:{{ t.yazi }};font-size:13px;font-weight:600;text-decoration:none;">App Store&#8217;dan indirin</a></td>
+    <td style="padding:0 4px;"><a href="{{ marka.google_play }}" style="display:inline-block;padding:9px 16px;border-radius:999px;border:1px solid {{ t.kenar }};background:#ffffff;color:{{ t.yazi }};font-size:13px;font-weight:600;text-decoration:none;">Google Play&#8217;den indirin</a></td>
+  </tr></table>
+</td></tr>
+<tr><td align="center" style="padding:14px 24px 8px;font-size:12px;line-height:1.7;color:{{ t.soluk }};">
+  {% if email %}Bu e-postayı <span style="color:{{ t.ikincil }};">{{ email }}</span> adresine {{ neden|default:"İhale Takip hesabınız olduğu için" }} gönderdik.<br>{% endif %}
+  {% if abonelik %}<a href="{{ ayarlar|default:marka.site }}" style="color:{{ t.ikincil }};text-decoration:underline;">Bildirim tercihleri</a> &nbsp;·&nbsp; <a href="{{ abonelik }}" style="color:{{ t.ikincil }};text-decoration:underline;">E-postalardan çık</a><br>{% endif %}
+  <a href="{{ marka.site }}" style="color:{{ t.ikincil }};text-decoration:none;font-weight:600;">{{ marka.site_ad }}</a> &nbsp;·&nbsp; {{ marka.sirket }}<br>
+  Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayın.
+</td></tr>

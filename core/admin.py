@@ -352,3 +352,41 @@ class GuvenlikOlayiAdmin(admin.ModelAdmin):
         self.message_user(request, f"{n} IP engellendi." + (f" Atlanan: {'; '.join(hata)}"
                                                             if hata else ""),
                           messages.SUCCESS if not hata else messages.WARNING)
+
+
+from .models import TopluGonderim, TopluGonderimAlici  # noqa: E402
+
+
+@admin.register(TopluGonderim)
+class TopluGonderimAdmin(admin.ModelAdmin):
+    """Toplu gönderim kayıtları (salt okunur). Yeni gönderim: üst menü → Toplu Gönderim."""
+
+    list_display = ["created_at", "kanal", "konu", "hedef_ozet", "durum", "toplam",
+                    "gonderilen", "atlanan", "hatali", "olusturan"]
+    list_filter = ["kanal", "durum"]
+    search_fields = ["konu"]
+    list_select_related = ["olusturan"]
+    readonly_fields = [f.name for f in TopluGonderim._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TopluGonderimAlici)
+class TopluGonderimAliciAdmin(admin.ModelAdmin):
+    """Alıcı satırları — "şu kullanıcıya neden gitmedi" sorusunun ekranı."""
+
+    list_display = ["gonderim", "user", "durum", "sebep", "islem_at"]
+    list_filter = ["durum", "gonderim"]
+    search_fields = ["user__email"]
+    list_select_related = ["gonderim", "user"]
+    raw_id_fields = ["gonderim", "user"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -1135,6 +1135,9 @@ def send_email_digest(gun=None):
             created_at__gt=taban, created_at__lte=tavan).values("user_id"))
         .exclude(email="").order_by("pk"))
     iller = eb._iller()
+    from accounts.services.eposta_engel import normalize, tum_engelliler
+
+    engelli = tum_engelliler()  # kalıcı bounce / şikâyet → hiç denenmez
     bas = _time.monotonic()
     gonderilen = atlanan = hatali = 0
     yarim = False
@@ -1144,6 +1147,9 @@ def send_email_digest(gun=None):
             if _time.monotonic() - bas > settings.EPOSTA_BULTEN_MAX_SN:
                 yarim = True
                 break
+            if normalize(user.email) in engelli:
+                atlanan += 1
+                continue
             kilit = f"bulten:{user.pk}:{gun.isoformat()}"
             if not cache.add(kilit, 1, 36 * 3600):
                 atlanan += 1

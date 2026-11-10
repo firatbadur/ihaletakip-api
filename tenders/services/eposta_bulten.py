@@ -183,7 +183,29 @@ def bulten_kur(user, taban, tavan, *, iller=None):
     }
 
 
-def eposta_olustur(user, baglam, connection=None) -> EmailMultiAlternatives:
+def sablon_baglami(baglam, tema=None) -> dict:
+    """`bulten_kur` verisini e-posta düzeninin (tema) beklediği alanlarla birleştirir."""
+    from django.utils.html import format_html
+
+    from core.eposta import marka_baglami
+
+    adet = baglam["adet"]
+    return {
+        **baglam,
+        **marka_baglami(tema),
+        "belge_basligi": f"İhale Takip · {baglam['kisa_tarih']} özeti",
+        "baslik_ust": "Günlük ihale özeti",
+        "baslik": f"Günaydın {baglam['ad']}," if baglam.get("ad") else "Günaydın,",
+        "alt_baslik": format_html("Son 24 saatte sizin için <strong>{} yeni gelişme</strong> "
+                                  "derledik.", adet),
+        "vurgu_sayi": adet,
+        "vurgu_etiket": "yeni gelişme",
+        "on_metin": baglam["ozet"],
+        "neden": "İhale Takip hesabınızda e-posta bildirimleri açık olduğu için",
+    }
+
+
+def eposta_olustur(user, baglam, connection=None, tema=None) -> EmailMultiAlternatives:
     adet = baglam["adet"]
     konu = (f"{baglam['kisa_tarih']} özetiniz: {adet} yeni gelişme · İhale Takip" if adet > 1
             else f"{baglam['bolumler'][0]['baslik']} · İhale Takip")
@@ -199,5 +221,6 @@ def eposta_olustur(user, baglam, connection=None) -> EmailMultiAlternatives:
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         },
     )
-    mesaj.attach_alternative(render_to_string("eposta/bulten.html", baglam), "text/html")
+    mesaj.attach_alternative(
+        render_to_string("eposta/bulten.html", sablon_baglami(baglam, tema)), "text/html")
     return mesaj

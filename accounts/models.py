@@ -323,6 +323,48 @@ class EpostaGeriBildirim(models.Model):
         return f"{self.email} · {self.get_tur_display()}"
 
 
+class EpostaEngeli(models.Model):
+    """E-posta gönderilmeyecek adres (`accounts/services/eposta_engel.py`).
+
+    Kalıcı bounce ya da spam şikâyeti gelen adres buraya düşer ve o adrese HİÇBİR
+    e-posta gitmez — bülten, toplu gönderim, doğrulama kodu dahil. Kontrol gönderim
+    katmanında (`core.eposta.SaglayiciBackend`) yapılır; yeni bir gönderim yolu
+    eklense bile engel atlanamaz.
+
+    ⚠️ Gerekçe SES'in askıya alma eşiği: bounce ~%5, şikâyet ~%0,1. Ölü adrese her gün
+    bülten göndermek oranı kendi kendine şişirir.
+    ⚠️ Satır silinmez, `aktif=False` yapılır (admin "engeli kaldır"): neden engellendiği
+    ve kimin kaldırdığı iz olarak kalır. Kaldırılan adres yeniden geri dönerse tekrar
+    etkinleşir.
+    ⚠️ `email` küçük harfle saklanır; karşılaştırma `normalize` ile yapılır.
+    """
+
+    class Sebep(models.TextChoices):
+        BOUNCE = "bounce", "Kalıcı geri dönüş"
+        SIKAYET = "sikayet", "Spam şikâyeti"
+        ELLE = "elle", "Elle engellendi"
+
+    email = models.EmailField("e-posta", unique=True)
+    sebep = models.CharField("sebep", max_length=16, choices=Sebep.choices)
+    aciklama = models.CharField("açıklama", max_length=500, blank=True)
+    aktif = models.BooleanField("engel etkin", default=True, db_index=True)
+    sayac = models.PositiveIntegerField("geri bildirim sayısı", default=1)
+    created_at = models.DateTimeField("ilk engel", auto_now_add=True)
+    updated_at = models.DateTimeField("son güncelleme", auto_now=True)
+    kaldirildi_at = models.DateTimeField("kaldırıldı", null=True, blank=True)
+    kaldiran = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+", verbose_name="kaldıran")
+
+    class Meta:
+        verbose_name = "Engelli E-posta Adresi"
+        verbose_name_plural = "Engelli E-posta Adresleri"
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"{self.email} · {self.get_sebep_display()}"
+
+
 class WebHandoff(models.Model):
     """
     Web → mobil geçiş kodu: web'de girişli kullanıcının telefonda AYNI hesapla,

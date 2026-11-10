@@ -100,12 +100,26 @@ def _gunluk_hak_var() -> bool:
         return True
 
 
-def _postala(email: str, amac: str, kod: str) -> None:
-    baglam = {
+def kod_baglami(amac: str, kod: str, tema: str | None = None) -> dict:
+    from core.eposta import marka_baglami
+
+    kayit = amac == EpostaKodu.Amac.KAYIT
+    return {
+        **marka_baglami(tema),
         "kod": kod,
         "sure_dk": settings.EPOSTA_KOD_SURE_DK,
-        "kayit": amac == EpostaKodu.Amac.KAYIT,
+        "kayit": kayit,
+        "belge_basligi": "Doğrulama kodu" if kayit else "Şifre sıfırlama kodu",
+        "baslik_ust": "Hesap güvenliği",
+        "baslik": "Doğrulama kodunuz" if kayit else "Şifre sıfırlama kodunuz",
+        "alt_baslik": ("İhale Takip hesabınızı oluşturmak için son bir adım kaldı." if kayit
+                       else "Şifrenizi yenilemek için aşağıdaki kodu kullanın."),
+        "on_metin": f"Kodunuz: {kod} — {settings.EPOSTA_KOD_SURE_DK} dakika geçerli.",
     }
+
+
+def _postala(email: str, amac: str, kod: str) -> None:
+    baglam = kod_baglami(amac, kod)
     mesaj = EmailMultiAlternatives(
         subject=KONULAR[amac].format(kod=kod),
         body=render_to_string("eposta/kod.txt", baglam),
@@ -122,8 +136,20 @@ def kod_gonder(email: str, amac: str, veri: dict | None = None) -> None:
     ⚠️ Gönderim transaction İÇİNDE yapılır: SMTP düşerse satır geri alınır, yani
     başarısız deneme ne bekleme süresini ne saatlik hakkı yer. Satır kilidi yalnızca
     o e-postanın satırını tutar (SMTP ~1-2 sn).
+
+    ⚠️ Engelli adres (`EpostaEngeli`): kayıtta açık hata döner — gönderim katmanı zaten
+    göndermeyecekti, kullanıcı gelmeyecek bir kodu beklemesin. Şifre sıfırlamada hata
+    VERİLMEZ (uç kayıtlı adresi sızdırmamak için hep aynı 200'ü döner); kod gönderim
+    katmanında sessizce düşer.
     """
     email = normalize_email(email)
+    if amac == EpostaKodu.Amac.KAYIT:
+        from accounts.services.eposta_engel import engelli_mi
+
+        if engelli_mi(email):
+            raise EpostaHatasi(
+                "Bu e-posta adresine ileti ulaştırılamıyor. Lütfen başka bir adres deneyin.",
+                "email_undeliverable", 400)
     simdi = timezone.now()
     with transaction.atomic():
         kayit, _ = EpostaKodu.objects.get_or_create(email=email, amac=amac)

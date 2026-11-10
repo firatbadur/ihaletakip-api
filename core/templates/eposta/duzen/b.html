@@ -1,0 +1,49 @@
+{% comment %}
+E-posta düzeni B — "Modern". Koyu lacivert üst blok: beyaz logo ortada, büyük vurgu sayısı;
+altında yuvarlak köşeli beyaz gövde. Bağlam: bkz. `duzen/a.html`.
+{% endcomment %}<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
+<title>{{ belge_basligi|default:"İhale Takip" }}</title>
+<style>
+  @media only screen and (max-width:620px) {
+    .kap { width:100% !important; }
+    .ic { padding-left:22px !important; padding-right:22px !important; }
+    .h1 { font-size:24px !important; }
+    .dev { font-size:46px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:{{ t.zemin }};font-family:{{ t.font }};color:{{ t.yazi }};-webkit-text-size-adjust:100%;" bgcolor="{{ t.zemin }}">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">{{ on_metin }}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{{ t.zemin }}" style="background:{{ t.zemin }};">
+<tr><td align="center" style="padding:28px 12px 32px;">
+  <table class="kap" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+
+    <tr><td class="ic" align="center" bgcolor="{{ t.koyu }}" style="background:{{ t.koyu }};background-image:radial-gradient(circle at 85% 0%,#1d5fc7 0%,{{ t.koyu }} 55%);border-radius:{{ t.radius }}px {{ t.radius }}px 0 0;padding:30px 40px 36px;">
+      <a href="{{ marka.site }}" style="text-decoration:none;"><img src="{{ marka.logo_beyaz }}" width="140" height="33" alt="İhale Takip" style="display:block;border:0;width:140px;height:auto;margin:0 auto;"></a>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:26px;"><tr><td style="border-top:1px solid #2b4a83;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+      {% if baslik_ust %}<p style="margin:22px 0 0;font-size:12px;letter-spacing:1.6px;text-transform:uppercase;font-weight:700;color:#7fb3ec;">{{ baslik_ust }}{% if tarih %} &nbsp;·&nbsp; {{ tarih }}{% endif %}</p>{% endif %}
+      {% if vurgu_sayi %}
+      <p class="dev" style="margin:10px 0 0;font-size:56px;line-height:1;font-weight:800;color:#ffffff;">{{ vurgu_sayi }}</p>
+      <p style="margin:6px 0 0;font-size:15px;font-weight:600;color:#a9c9ef;">{{ vurgu_etiket }}</p>
+      {% endif %}
+      <h1 class="h1" style="margin:{% if vurgu_sayi %}20px{% else %}12px{% endif %} 0 0;font-family:{{ t.baslik_font }};font-size:26px;line-height:1.3;font-weight:700;color:#ffffff;">{{ baslik }}</h1>
+      {% if alt_baslik and not vurgu_sayi %}<p style="margin:10px 0 0;font-size:15px;line-height:1.6;color:#c4d9f3;">{{ alt_baslik }}</p>{% endif %}
+    </td></tr>
+
+    <tr><td class="ic" bgcolor="{{ t.govde }}" style="background:{{ t.govde }};border-radius:0 0 {{ t.radius }}px {{ t.radius }}px;padding:18px 36px 34px;">
+      {% block icerik %}{% endblock %}
+    </td></tr>
+
+    {% include "eposta/parca/alt.html" %}
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

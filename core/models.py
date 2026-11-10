@@ -332,3 +332,93 @@ class GuvenlikOlayi(models.Model):
 
     def __str__(self):
         return f"{self.get_tur_display()} · {self.kimlik}"
+
+
+class TopluGonderim(models.Model):
+    """Admin'den toplu e-posta / push bildirimi (`core/toplu.py`, admin → Toplu Gönderim).
+
+    Alıcılar gönderim başlarken `TopluGonderimAlici` satırlarına dökülür; görev onları
+    küçük partilerle işler ve süre bütçesi dolunca kendini yeniden kuyruğa atar →
+    `celery` kuyruğundaki diğer işler beklemez, worker çökerse kalan alıcılar
+    "Devam ettir" ile kaldığı yerden sürer. Aynı kullanıcıya iki kez gitmez (unique).
+    """
+
+    class Kanal(models.TextChoices):
+        EPOSTA = "eposta", "E-posta"
+        BILDIRIM = "bildirim", "Push bildirimi"
+
+    class Durum(models.TextChoices):
+        KUYRUKTA = "kuyrukta", "Kuyrukta"
+        GONDERILIYOR = "gonderiliyor", "Gönderiliyor"
+        TAMAMLANDI = "tamamlandi", "Tamamlandı"
+        IPTAL = "iptal", "İptal edildi"
+
+    class IcerikTuru(models.TextChoices):
+        METIN = "metin", "Düz metin"
+        HTML = "html", "HTML"
+
+    kanal = models.CharField(max_length=10, choices=Kanal.choices)
+    durum = models.CharField(max_length=14, choices=Durum.choices, default=Durum.KUYRUKTA,
+                             db_index=True)
+    konu = models.CharField("konu / bildirim başlığı", max_length=200)
+    eposta_baslik = models.CharField("e-posta üst başlığı", max_length=200, blank=True)
+    on_metin = models.CharField("ön metin", max_length=200, blank=True)
+    icerik_turu = models.CharField(max_length=6, choices=IcerikTuru.choices,
+                                   default=IcerikTuru.METIN)
+    icerik = models.TextField("içerik")
+    dugme_metni = models.CharField(max_length=60, blank=True)
+    dugme_url = models.URLField(max_length=500, blank=True)
+    uygulama_ici = models.BooleanField("uygulama içi bildirim de yaz", default=True)
+    sessiz_saat_yok = models.BooleanField("sessiz saat / günlük limit uygulanmasın",
+                                          default=False)
+    hedef = models.JSONField(default=dict, blank=True)
+    hedef_ozet = models.CharField("hedef", max_length=200, blank=True)
+    tema = models.CharField(max_length=2, blank=True)
+    toplam = models.PositiveIntegerField(default=0)
+    gonderilen = models.PositiveIntegerField(default=0)
+    atlanan = models.PositiveIntegerField(default=0)
+    hatali = models.PositiveIntegerField(default=0)
+    son_hata = models.CharField(max_length=500, blank=True)
+    olusturan = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                  on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField("oluşturuldu", auto_now_add=True, db_index=True)
+    baslangic = models.DateTimeField(null=True, blank=True)
+    bitis = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Toplu Gönderim"
+        verbose_name_plural = "Toplu Gönderimler"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_kanal_display()} · {self.konu}"
+
+    @property
+    def islenen(self) -> int:
+        return self.gonderilen + self.atlanan + self.hatali
+
+
+class TopluGonderimAlici(models.Model):
+    class Durum(models.TextChoices):
+        BEKLIYOR = "bekliyor", "Bekliyor"
+        GONDERILDI = "gonderildi", "Gönderildi"
+        ATLANDI = "atlandi", "Atlandı"
+        HATALI = "hatali", "Hatalı"
+
+    gonderim = models.ForeignKey(TopluGonderim, on_delete=models.CASCADE,
+                                 related_name="alicilar")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="+")
+    durum = models.CharField(max_length=10, choices=Durum.choices, default=Durum.BEKLIYOR)
+    sebep = models.CharField(max_length=200, blank=True)
+    islem_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Toplu Gönderim Alıcısı"
+        verbose_name_plural = "Toplu Gönderim Alıcıları"
+        constraints = [models.UniqueConstraint(fields=["gonderim", "user"],
+                                               name="toplu_alici_tekil")]
+        indexes = [models.Index(fields=["gonderim", "durum"], name="toplu_alici_durum")]
+
+    def __str__(self):
+        return f"{self.gonderim_id} → {self.user_id} ({self.durum})"

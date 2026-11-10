@@ -1,0 +1,51 @@
+{% comment %}
+E-posta düzeni C — "Sade". Gazete/bülten havası: beyaz kağıt, renkli logo, ince mavi çizgi,
+serif başlık, numaralı bölümler. Bağlam: bkz. `duzen/a.html`.
+{% endcomment %}<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
+<title>{{ belge_basligi|default:"İhale Takip" }}</title>
+<style>
+  @media only screen and (max-width:620px) {
+    .kap { width:100% !important; }
+    .ic { padding-left:22px !important; padding-right:22px !important; }
+    .h1 { font-size:26px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:{{ t.zemin }};font-family:{{ t.font }};color:{{ t.yazi }};-webkit-text-size-adjust:100%;" bgcolor="{{ t.zemin }}">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">{{ on_metin }}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{{ t.zemin }}" style="background:{{ t.zemin }};">
+<tr><td align="center" style="padding:28px 12px 32px;">
+  <table class="kap" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="{{ t.govde }}" style="width:600px;max-width:600px;background:{{ t.govde }};border-top:4px solid {{ t.koyu }};">
+
+    <tr><td class="ic" style="padding:26px 44px 0;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td align="left" valign="middle"><a href="{{ marka.site }}" style="text-decoration:none;"><img src="{{ marka.logo }}" width="132" height="31" alt="İhale Takip" style="display:block;border:0;width:132px;height:auto;"></a></td>
+        <td align="right" valign="middle" style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:{{ t.soluk }};">{{ tarih|default:"" }}</td>
+      </tr></table>
+    </td></tr>
+
+    <tr><td class="ic" style="padding:30px 44px 6px;">
+      {% if baslik_ust %}<p style="margin:0 0 10px;font-size:12px;letter-spacing:1.6px;text-transform:uppercase;font-weight:700;color:{{ t.vurgu }};">{{ baslik_ust }}</p>{% endif %}
+      <h1 class="h1" style="margin:0;font-family:{{ t.baslik_font }};font-size:32px;line-height:1.2;font-weight:400;color:{{ t.yazi }};">{{ baslik }}</h1>
+      {% if alt_baslik %}<p style="margin:14px 0 0;font-size:16px;line-height:1.6;color:{{ t.ikincil }};">{{ alt_baslik }}</p>{% endif %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;"><tr><td style="border-top:1px solid {{ t.kenar }};font-size:0;line-height:0;">&nbsp;</td></tr></table>
+    </td></tr>
+
+    <tr><td class="ic" style="padding:6px 44px 36px;">
+      {% block icerik %}{% endblock %}
+    </td></tr>
+  </table>
+  <table class="kap" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+    {% include "eposta/parca/alt.html" %}
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

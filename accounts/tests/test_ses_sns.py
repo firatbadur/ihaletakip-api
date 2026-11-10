@@ -16,7 +16,7 @@ from cryptography.x509.oid import NameOID
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
-from accounts.models import EpostaGeriBildirim, User
+from accounts.models import EpostaEngeli, EpostaGeriBildirim, User
 from accounts.services.ses_sns import _ALANLAR
 
 YOL = "/eposta/ses-bildirim/"
@@ -78,6 +78,13 @@ class SesSnsTest(TestCase):
         self.assertFalse(self._acik())
         k = EpostaGeriBildirim.objects.get()
         self.assertEqual((k.tur, k.bulten_kapatildi), ("bounce", True))
+
+    def test_kalici_bounce_ve_sikayet_adresi_engeller_gecici_engellemez(self):
+        self._post(_bildirim(_bounce("gecici@firma.com.tr", tur="Transient")))
+        self.assertFalse(EpostaEngeli.objects.exists())
+        self._post(_bildirim(_bounce("Ahmet@Firma.com.tr")))
+        e = EpostaEngeli.objects.get()
+        self.assertEqual((e.email, e.sebep, e.aktif), ("ahmet@firma.com.tr", "bounce", True))
 
     def test_imza_surumu_1_de_kabul(self):
         self.assertEqual(self._post(_bildirim(_bounce("ahmet@firma.com.tr"), surum="1"))

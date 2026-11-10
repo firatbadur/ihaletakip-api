@@ -1,0 +1,459 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+Toplu Gönderim — core/admin_toplu.py. Yalnızca süper kullanıcı.
+⚠️ Renkler sabit hex yerine Bootstrap sınıflarıyla (jazzmin teması çalışma anında değişir);
+yalnızca telefon önizlemesi kendi sabit renklerini taşır (gerçek cihazı taklit eder).
+⚠️ Kullanıcıdan gelen metin DOM'a yalnızca `textContent` ile yazılır; e-posta önizlemesi
+`sandbox`lı iframe'de (betik çalışmaz).
+{% endcomment %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .tg .form-label { font-weight: 600; }
+  .tg .sayac { font-size: .8rem; }
+  .tg .secim-cip { display:inline-flex; align-items:center; gap:.35rem; margin:0 .35rem .35rem 0; }
+  .tg .ara-sonuc { position:absolute; z-index:20; left:0; right:0; max-height:300px; overflow:auto; }
+  .tg .onizleme-kap { position: sticky; top: 1rem; }
+  .tg iframe.eposta { width:100%; height:760px; border:0; border-radius:.5rem; background:#fff; transition: width .2s; }
+  .tg .cerceve-mobil iframe.eposta { width:390px; max-width:100%; display:block; margin:0 auto; }
+  .tg .telefon { width:300px; max-width:100%; margin:0 auto; border-radius:42px; padding:14px; background:#111; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+  .tg .telefon-ekran { border-radius:30px; min-height:540px; padding:56px 12px 20px; background:linear-gradient(160deg,#3b5b9a 0%,#1c2c55 55%,#0d1530 100%); }
+  .tg .telefon-saat { color:#fff; text-align:center; font-size:56px; font-weight:300; line-height:1; margin-bottom:4px; }
+  .tg .telefon-tarih { color:#dfe7f7; text-align:center; font-size:14px; margin-bottom:28px; }
+  .tg .bildirim { background:rgba(245,245,247,.92); border-radius:18px; padding:11px 13px; color:#111; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .tg .bildirim-ust { display:flex; align-items:center; gap:7px; font-size:12px; color:#666; margin-bottom:3px; }
+  .tg .bildirim-ust img { width:20px; height:20px; border-radius:5px; background:#fff; }
+  .tg .bildirim-baslik { font-weight:700; font-size:14px; word-break:break-word; }
+  .tg .bildirim-metin { font-size:14px; white-space:pre-wrap; word-break:break-word; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+  .tg .arac-cubugu .btn { padding:.15rem .5rem; }
+  .tg textarea.kod { font-family: Menlo, Consolas, monospace; font-size:.85rem; }
+  .tg .durum-satiri td { vertical-align: middle; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="tg">
+  <h1 class="mb-1">Toplu Gönderim</h1>
+  <p class="text-body-secondary mb-4">
+    Kullanıcılara toplu e-posta ya da push bildirimi gönderin. Gönderimler kuyrukta küçük partiler hâlinde işlenir (e-posta saniyede en çok ~8),
+    sayfadan ayrılsanız da sürer. E-posta tasarımı: <b>{{ tema_ad }}</b>
+    (Uygulama Ayarları → <code>eposta_tasarim</code>). İçerikte <code>{ad}</code> yazdığınız yere alıcının adı gelir.
+  </p>
+  {% csrf_token %}
+
+  <div class="row g-4">
+    <div class="col-xl-7">
+      <div class="card"><div class="card-body">
+
+        <div class="mb-4">
+          <label class="form-label d-block">1. Kanal</label>
+          <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="kanal" id="kanal-eposta" value="eposta" checked>
+            <label class="btn btn-outline-primary" for="kanal-eposta"><i class="fas fa-envelope me-1"></i> E-posta</label>
+            <input type="radio" class="btn-check" name="kanal" id="kanal-bildirim" value="bildirim">
+            <label class="btn btn-outline-primary" for="kanal-bildirim"><i class="fas fa-bell me-1"></i> Push bildirimi</label>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label d-block">2. Alıcılar</label>
+          <div class="d-flex flex-wrap gap-3 mb-2">
+            {% for kod, ad in segmentler.items %}
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="segment" id="seg-{{ kod }}" value="{{ kod }}" {% if kod == "secili" %}checked{% endif %}>
+              <label class="form-check-label" for="seg-{{ kod }}">{{ ad }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div id="secili-alan" class="position-relative">
+            <input type="search" id="kullanici-ara" class="form-control" placeholder="E-posta, ad ya da kullanıcı no ile arayın (en az 2 karakter)" autocomplete="off">
+            <div id="ara-sonuc" class="list-group ara-sonuc shadow d-none"></div>
+            <div id="secilenler" class="mt-2"></div>
+            <button type="button" id="secim-temizle" class="btn btn-link btn-sm p-0 d-none">Seçimi temizle</button>
+          </div>
+          <div id="sayim" class="alert alert-light border mt-2 mb-0 small">Alıcı seçin.</div>
+        </div>
+
+        <div class="mb-2"><label class="form-label">3. İçerik</label></div>
+
+        <div id="alan-eposta">
+          <div class="mb-3">
+            <label class="form-label small" for="konu-eposta">Konu satırı</label>
+            <input type="text" id="konu-eposta" class="form-control" maxlength="200" placeholder="Örn. Yeni özellik: Doğrudan temin alımları artık İhale Takip'te">
+            <div class="sayac text-body-secondary text-end"><span data-say="konu-eposta">0</span>/200</div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small" for="eposta-baslik">Üst başlık <span class="text-body-secondary fw-normal">(boşsa konu)</span></label>
+              <input type="text" id="eposta-baslik" class="form-control" maxlength="200" placeholder="Merhaba {ad},">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="on-metin">Ön metin <span class="text-body-secondary fw-normal">(gelen kutusunda konunun yanında)</span></label>
+              <input type="text" id="on-metin" class="form-control" maxlength="200">
+            </div>
+          </div>
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <div class="btn-group btn-group-sm" role="group">
+              <input type="radio" class="btn-check" name="icerik-turu" id="tur-metin" value="metin" checked>
+              <label class="btn btn-outline-secondary" for="tur-metin">Düz metin</label>
+              <input type="radio" class="btn-check" name="icerik-turu" id="tur-html" value="html">
+              <label class="btn btn-outline-secondary" for="tur-html">HTML</label>
+            </div>
+            <div class="arac-cubugu btn-group btn-group-sm d-none" id="arac-cubugu">
+              <button type="button" class="btn btn-outline-secondary" data-ekle="<h2 style=&quot;margin:24px 0 8px;font-size:20px;color:#14202c;&quot;>Başlık</h2>" title="Ara başlık"><b>H</b></button>
+              <button type="button" class="btn btn-outline-secondary" data-sar="strong" title="Kalın"><b>B</b></button>
+              <button type="button" class="btn btn-outline-secondary" data-sar="em" title="İtalik"><i>I</i></button>
+              <button type="button" class="btn btn-outline-secondary" data-ekle="<p>Paragraf</p>" title="Paragraf">¶</button>
+              <button type="button" class="btn btn-outline-secondary" data-ekle="<ul>&#10;  <li>Madde</li>&#10;  <li>Madde</li>&#10;</ul>" title="Liste">•</button>
+              <button type="button" class="btn btn-outline-secondary" data-bag title="Bağlantı"><i class="fas fa-link"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-ekle="<hr style=&quot;border:0;border-top:1px solid #e3e9f0;margin:24px 0;&quot;>" title="Ayraç">—</button>
+            </div>
+          </div>
+          <textarea id="icerik-eposta" class="form-control" rows="12" placeholder="Merhaba {ad},&#10;&#10;İhale Takip'e yeni bir özellik ekledik…"></textarea>
+          <div class="form-text">Düz metinde satır boşlukları paragraf olur, bağlantılar tıklanabilir hâle gelir. HTML'de logo, alt bilgi ve abonelikten çıkma satırı otomatik eklenir — yalnızca gövdeyi yazın.</div>
+          <div class="row g-3 mt-1 mb-2">
+            <div class="col-md-5">
+              <label class="form-label small" for="dugme-metni">Düğme metni <span class="text-body-secondary fw-normal">(isteğe bağlı)</span></label>
+              <input type="text" id="dugme-metni" class="form-control" maxlength="60" placeholder="Hemen inceleyin">
+            </div>
+            <div class="col-md-7">
+              <label class="form-label small" for="dugme-url">Düğme adresi</label>
+              <input type="url" id="dugme-url" class="form-control" placeholder="https://ihaletakip.com/…">
+            </div>
+          </div>
+        </div>
+
+        <div id="alan-bildirim" class="d-none">
+          <div class="mb-3">
+            <label class="form-label small" for="konu-bildirim">Bildirim başlığı</label>
+            <input type="text" id="konu-bildirim" class="form-control" maxlength="120" placeholder="Örn. Yeni: Doğrudan teminler">
+            <div class="sayac text-body-secondary text-end"><span data-say="konu-bildirim">0</span>/120</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small" for="icerik-bildirim">Bildirim metni</label>
+            <textarea id="icerik-bildirim" class="form-control" rows="4" maxlength="500" placeholder="Kısa ve net yazın — kilit ekranında ilk ~2 satır görünür."></textarea>
+            <div class="sayac text-body-secondary text-end"><span data-say="icerik-bildirim">0</span>/500</div>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="uygulama-ici" checked>
+            <label class="form-check-label" for="uygulama-ici">Uygulamadaki <b>Bildirimler</b> listesine de ekle</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="sessiz-saat-yok">
+            <label class="form-check-label" for="sessiz-saat-yok">Sessiz saatleri (22:00–07:00) ve günlük bildirim limitini <b>uygulama</b> — yalnızca acil duyurular için</label>
+          </div>
+        </div>
+
+        <hr class="my-4">
+        <div id="hata" class="alert alert-danger d-none"></div>
+        <div id="bilgi" class="alert alert-success d-none"></div>
+        <div class="d-flex flex-wrap gap-2 justify-content-end">
+          <button type="button" id="btn-test" class="btn btn-outline-secondary"><i class="fas fa-vial me-1"></i> Bana test gönder</button>
+          <button type="button" id="btn-gonder" class="btn btn-primary"><i class="fas fa-paper-plane me-1"></i> Gönder…</button>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="col-xl-5">
+      <div class="onizleme-kap">
+        <div class="card"><div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h5 class="mb-0">Önizleme</h5>
+            <div class="btn-group btn-group-sm" id="cihaz-sec" role="group">
+              <input type="radio" class="btn-check" name="cihaz" id="cihaz-masaustu" value="masaustu" checked>
+              <label class="btn btn-outline-secondary" for="cihaz-masaustu"><i class="fas fa-desktop"></i></label>
+              <input type="radio" class="btn-check" name="cihaz" id="cihaz-mobil" value="mobil">
+              <label class="btn btn-outline-secondary" for="cihaz-mobil"><i class="fas fa-mobile-alt"></i></label>
+            </div>
+          </div>
+          <div id="onizleme-eposta">
+            <div class="small text-body-secondary mb-2">Konu: <b id="onizleme-konu">—</b> · Adlar sizin adınızla gösterilir.</div>
+            <div id="iframe-kap"><iframe class="eposta" id="eposta-iframe" sandbox="allow-popups" title="E-posta önizlemesi"></iframe></div>
+          </div>
+          <div id="onizleme-bildirim" class="d-none">
+            <div class="telefon"><div class="telefon-ekran">
+              <div class="telefon-saat" id="tel-saat">09:41</div>
+              <div class="telefon-tarih" id="tel-tarih"></div>
+              <div class="bildirim">
+                <div class="bildirim-ust"><img src="{{ ikon_url }}" alt=""> <span>İHALE TAKİP</span><span class="ms-auto">şimdi</span></div>
+                <div class="bildirim-baslik" id="tel-baslik">Bildirim başlığı</div>
+                <div class="bildirim-metin" id="tel-metin">Bildirim metni burada görünecek.</div>
+              </div>
+            </div></div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-4"><div class="card-body">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0">Son gönderimler</h5>
+      <a class="small" href="{% url 'admin:core_toplugonderim_changelist' %}">tüm kayıtlar</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Tarih</th><th>Kanal</th><th>Konu</th><th>Alıcılar</th><th style="min-width:180px">İlerleme</th><th>Durum</th><th></th></tr></thead>
+        <tbody id="gonderimler"></tbody>
+      </table>
+    </div>
+  </div></div>
+</div>
+
+{{ gonderimler|json_script:"ilk-gonderimler" }}
+<script>
+(function () {
+  const URL = {
+    ara: "{% url 'core_toplu_ara' %}", sayim: "{% url 'core_toplu_sayim' %}",
+    onizle: "{% url 'core_toplu_onizle' %}", test: "{% url 'core_toplu_test' %}",
+    gonder: "{% url 'core_toplu_gonder' %}", liste: "{% url 'core_toplu_liste' %}",
+    kok: "{% url 'core_toplu' %}",
+  };
+  const $ = (s) => document.querySelector(s);
+  const csrf = document.querySelector("input[name=csrfmiddlewaretoken]").value;
+  const secili = new Map();   // id → {email, ad}
+
+  function post(url, govde) {
+    return fetch(url, {method: "POST", credentials: "same-origin",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrf},
+      body: JSON.stringify(govde)}).then(async (r) => ({ok: r.ok, veri: await r.json().catch(() => ({}))}));
+  }
+  const kanal = () => document.querySelector("input[name=kanal]:checked").value;
+  const segment = () => document.querySelector("input[name=segment]:checked").value;
+  const icerikTuru = () => document.querySelector("input[name=icerik-turu]:checked").value;
+
+  function veri() {
+    const e = kanal() === "eposta";
+    return {
+      kanal: kanal(),
+      konu: (e ? $("#konu-eposta") : $("#konu-bildirim")).value,
+      icerik: (e ? $("#icerik-eposta") : $("#icerik-bildirim")).value,
+      icerik_turu: icerikTuru(),
+      eposta_baslik: $("#eposta-baslik").value, on_metin: $("#on-metin").value,
+      dugme_metni: $("#dugme-metni").value, dugme_url: $("#dugme-url").value,
+      uygulama_ici: $("#uygulama-ici").checked, sessiz_saat_yok: $("#sessiz-saat-yok").checked,
+      hedef: {segment: segment(), user_ids: Array.from(secili.keys())},
+    };
+  }
+  function mesaj(kutu, metin) {
+    ["#hata", "#bilgi"].forEach((k) => $(k).classList.add("d-none"));
+    if (!metin) return;
+    $(kutu).textContent = metin; $(kutu).classList.remove("d-none");
+  }
+  function hataMetni(v) {
+    if (v.hatalar) return Object.values(v.hatalar).join(" ");
+    return v.mesaj || "İşlem yapılamadı.";
+  }
+
+  // ── Kanal / içerik türü ──
+  function kanalGuncelle() {
+    const e = kanal() === "eposta";
+    $("#alan-eposta").classList.toggle("d-none", !e);
+    $("#alan-bildirim").classList.toggle("d-none", e);
+    $("#onizleme-eposta").classList.toggle("d-none", !e);
+    $("#onizleme-bildirim").classList.toggle("d-none", e);
+    $("#cihaz-sec").classList.toggle("d-none", !e);
+    sayimGuncelle(); onizle();
+  }
+  document.querySelectorAll("input[name=kanal]").forEach((r) => r.addEventListener("change", kanalGuncelle));
+  document.querySelectorAll("input[name=icerik-turu]").forEach((r) => r.addEventListener("change", () => {
+    $("#arac-cubugu").classList.toggle("d-none", icerikTuru() !== "html");
+    $("#icerik-eposta").classList.toggle("kod", icerikTuru() === "html");
+    onizle();
+  }));
+  document.querySelectorAll("input[name=cihaz]").forEach((r) => r.addEventListener("change", () => {
+    $("#iframe-kap").classList.toggle("cerceve-mobil", r.value === "mobil" && r.checked);
+  }));
+
+  // ── HTML araç çubuğu ──
+  const alan = $("#icerik-eposta");
+  function yerlestir(once, sonra) {
+    const b = alan.selectionStart, s = alan.selectionEnd, sec = alan.value.slice(b, s);
+    alan.setRangeText(once + sec + (sonra || ""), b, s, "end");
+    alan.focus(); onizle();
+  }
+  document.querySelectorAll("[data-ekle]").forEach((b) => b.addEventListener("click", () => yerlestir(b.dataset.ekle + "\n")));
+  document.querySelectorAll("[data-sar]").forEach((b) => b.addEventListener("click", () => yerlestir("<" + b.dataset.sar + ">", "</" + b.dataset.sar + ">")));
+  document.querySelector("[data-bag]").addEventListener("click", () => {
+    const url = prompt("Bağlantı adresi (https://…)", "https://");
+    if (url) yerlestir('<a href="' + url.replace(/"/g, "&quot;") + '" style="color:#0074cb;font-weight:600;">', "</a>");
+  });
+
+  // ── Karakter sayaçları ──
+  document.querySelectorAll("[data-say]").forEach((s) => {
+    const g = document.getElementById(s.dataset.say);
+    const yaz = () => { s.textContent = g.value.length; };
+    g.addEventListener("input", yaz); yaz();
+  });
+
+  // ── Alıcı seçimi ──
+  function segmentGuncelle() {
+    $("#secili-alan").classList.toggle("d-none", segment() !== "secili");
+    sayimGuncelle();
+  }
+  document.querySelectorAll("input[name=segment]").forEach((r) => r.addEventListener("change", segmentGuncelle));
+
+  function cipleriCiz() {
+    const kap = $("#secilenler"); kap.replaceChildren();
+    secili.forEach((u, id) => {
+      const c = document.createElement("span");
+      c.className = "badge text-bg-primary secim-cip";
+      c.textContent = u.email || ("#" + id);
+      const x = document.createElement("button");
+      x.type = "button"; x.className = "btn-close btn-close-white"; x.style.fontSize = ".55rem";
+      x.addEventListener("click", () => { secili.delete(id); cipleriCiz(); sayimGuncelle(); });
+      c.appendChild(x); kap.appendChild(c);
+    });
+    $("#secim-temizle").classList.toggle("d-none", secili.size === 0);
+  }
+  $("#secim-temizle").addEventListener("click", () => { secili.clear(); cipleriCiz(); sayimGuncelle(); });
+
+  let araZaman;
+  $("#kullanici-ara").addEventListener("input", (e) => {
+    clearTimeout(araZaman);
+    const q = e.target.value.trim();
+    if (q.length < 2) { $("#ara-sonuc").classList.add("d-none"); return; }
+    araZaman = setTimeout(() => {
+      fetch(URL.ara + "?q=" + encodeURIComponent(q), {credentials: "same-origin"}).then((r) => r.json()).then((v) => {
+        const liste = $("#ara-sonuc"); liste.replaceChildren();
+        if (!v.sonuclar.length) {
+          const b = document.createElement("div"); b.className = "list-group-item small text-body-secondary";
+          b.textContent = "Sonuç yok."; liste.appendChild(b);
+        }
+        v.sonuclar.forEach((u) => {
+          const b = document.createElement("button");
+          b.type = "button"; b.className = "list-group-item list-group-item-action small";
+          const ust = document.createElement("div"); ust.className = "fw-semibold";
+          ust.textContent = (u.email || "(e-postasız)") + (u.ad ? " — " + u.ad : "");
+          const alt = document.createElement("div"); alt.className = "text-body-secondary";
+          alt.textContent = "#" + u.id + (u.pro ? " · Pro" : " · Free") + (u.push ? " · cihaz kayıtlı" : " · cihaz yok") + (u.eposta ? "" : " · e-posta kapalı");
+          b.append(ust, alt);
+          if (secili.has(u.id)) b.classList.add("active");
+          b.addEventListener("click", () => {
+            secili.set(u.id, {email: u.email, ad: u.ad}); cipleriCiz(); sayimGuncelle();
+            liste.classList.add("d-none"); $("#kullanici-ara").value = "";
+          });
+          liste.appendChild(b);
+        });
+        liste.classList.remove("d-none");
+      });
+    }, 250);
+  });
+  document.addEventListener("click", (e) => { if (!$("#secili-alan").contains(e.target)) $("#ara-sonuc").classList.add("d-none"); });
+
+  let sonSayim = null;
+  let sayimZaman;
+  function sayimGuncelle() {
+    clearTimeout(sayimZaman);
+    sayimZaman = setTimeout(() => {
+      const h = veri().hedef;
+      if (h.segment === "secili" && !h.user_ids.length) { $("#sayim").textContent = "Henüz kullanıcı seçilmedi."; sonSayim = null; return; }
+      post(URL.sayim, {hedef: h}).then(({veri: v}) => {
+        sonSayim = v;
+        const e = kanal() === "eposta";
+        const ulasir = e ? v.eposta : v.bildirim;
+        $("#sayim").textContent = v.toplam + " kullanıcı seçili · " + (e
+          ? ulasir + " kişiye e-posta ulaşabilir (adresi olmayan, engelli ya da e-postaları kapatan " + (v.toplam - ulasir) + " kişi atlanır)"
+          : ulasir + " kişinin kayıtlı cihazı var (kalan " + (v.toplam - ulasir) + " kişi push alamaz)");
+      });
+    }, 200);
+  }
+
+  // ── Önizleme ──
+  let onizZaman;
+  function onizle() {
+    const v = veri();
+    if (v.kanal === "bildirim") {
+      $("#tel-baslik").textContent = v.konu || "Bildirim başlığı";
+      $("#tel-metin").textContent = v.icerik || "Bildirim metni burada görünecek.";
+      return;
+    }
+    $("#onizleme-konu").textContent = v.konu || "—";
+    clearTimeout(onizZaman);
+    onizZaman = setTimeout(() => {
+      post(URL.onizle, v).then(({veri: r}) => { if (r.html !== undefined) $("#eposta-iframe").srcdoc = r.html; });
+    }, 350);
+  }
+  ["#konu-eposta", "#eposta-baslik", "#on-metin", "#icerik-eposta", "#dugme-metni", "#dugme-url", "#konu-bildirim", "#icerik-bildirim"]
+    .forEach((s) => $(s).addEventListener("input", onizle));
+  const simdi = new Date();
+  $("#tel-saat").textContent = simdi.toLocaleTimeString("tr-TR", {hour: "2-digit", minute: "2-digit"});
+  $("#tel-tarih").textContent = simdi.toLocaleDateString("tr-TR", {weekday: "long", day: "numeric", month: "long"});
+
+  // ── Test / gönder ──
+  $("#btn-test").addEventListener("click", () => {
+    mesaj(); $("#btn-test").disabled = true;
+    post(URL.test, veri()).then(({ok, veri: v}) => {
+      mesaj(ok && v.ok ? "#bilgi" : "#hata", ok && v.ok ? v.mesaj : hataMetni(v));
+    }).finally(() => { $("#btn-test").disabled = false; });
+  });
+  $("#btn-gonder").addEventListener("click", () => {
+    mesaj();
+    const v = veri();
+    const e = v.kanal === "eposta";
+    const n = sonSayim ? (e ? sonSayim.eposta : sonSayim.bildirim) : "?";
+    const tur = e ? "E-POSTA" : "PUSH BİLDİRİMİ";
+    if (!confirm(tur + " gönderilecek.\n\nKonu: " + (v.konu || "—") + "\nAlıcı: " + (sonSayim ? sonSayim.toplam : "?") + " kullanıcı (ulaşılabilir: " + n + ")\n\nGönderim geri alınamaz. Devam edilsin mi?")) return;
+    $("#btn-gonder").disabled = true;
+    post(URL.gonder, {...v, onay: true}).then(({ok, veri: r}) => {
+      if (ok && r.ok) { mesaj("#bilgi", "Gönderim kuyruğa alındı (#" + r.gonderim.id + ", " + r.gonderim.toplam + " alıcı). İlerlemeyi aşağıdan izleyebilirsiniz."); listeYenile(); }
+      else mesaj("#hata", hataMetni(r));
+    }).finally(() => { $("#btn-gonder").disabled = false; });
+  });
+
+  // ── Son gönderimler ──
+  const ROZET = {kuyrukta: "secondary", gonderiliyor: "primary", tamamlandi: "success", iptal: "warning"};
+  function satirCiz(g) {
+    const tr = document.createElement("tr"); tr.className = "durum-satiri";
+    const td = (metin, sinif) => { const h = document.createElement("td"); if (sinif) h.className = sinif; h.textContent = metin; return h; };
+    tr.append(td(g.olusturma, "small text-nowrap"), td(g.kanal_ad, "small"), td(g.konu));
+    tr.append(td(g.hedef + " · " + g.toplam, "small"));
+    const ilerleme = document.createElement("td");
+    const yuzde = g.toplam ? Math.round(100 * g.islenen / g.toplam) : 100;
+    ilerleme.innerHTML = '<div class="progress" style="height:8px"><div class="progress-bar" role="progressbar"></div></div><div class="small text-body-secondary mt-1"></div>';
+    ilerleme.querySelector(".progress-bar").style.width = yuzde + "%";
+    ilerleme.querySelector(".small").textContent = "✓ " + g.gonderilen + " gönderildi · " + g.atlanan + " atlandı" + (g.hatali ? " · " + g.hatali + " hatalı" : "");
+    tr.append(ilerleme);
+    const durum = document.createElement("td");
+    const rozet = document.createElement("span"); rozet.className = "badge text-bg-" + (ROZET[g.durum] || "secondary"); rozet.textContent = g.durum_ad;
+    durum.append(rozet); tr.append(durum);
+    const eylem = document.createElement("td"); eylem.className = "text-nowrap text-end";
+    const dugme = (metin, sinif, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = "btn btn-sm " + sinif + " ms-1"; b.textContent = metin; b.addEventListener("click", fn); return b; };
+    eylem.append(dugme("Ayrıntı", "btn-outline-secondary", () => ayrinti(g.id, tr)));
+    if (g.durum === "kuyrukta" || g.durum === "gonderiliyor") {
+      eylem.append(dugme("Devam ettir", "btn-outline-primary", () => post(URL.kok + g.id + "/devam/", {}).then(listeYenile)));
+      eylem.append(dugme("İptal", "btn-outline-danger", () => { if (confirm("Gönderim durdurulsun mu? Henüz gönderilmeyenlere gitmeyecek.")) post(URL.kok + g.id + "/iptal/", {}).then(listeYenile); }));
+    }
+    tr.append(eylem);
+    return tr;
+  }
+  function ayrinti(id, tr) {
+    const var_ = tr.nextElementSibling;
+    if (var_ && var_.dataset.ayrinti) { var_.remove(); return; }
+    fetch(URL.kok + id + "/", {credentials: "same-origin"}).then((r) => r.json()).then((g) => {
+      const satir = document.createElement("tr"); satir.dataset.ayrinti = "1";
+      const h = document.createElement("td"); h.colSpan = 7; h.className = "bg-body-tertiary small";
+      const p = document.createElement("div");
+      p.textContent = "Oluşturan: " + (g.olusturan || "—") + (g.bitis ? " · Bitiş: " + g.bitis : "") + (g.son_hata ? " · Son hata: " + g.son_hata : "");
+      h.append(p);
+      if (g.sebepler.length) {
+        const ul = document.createElement("ul"); ul.className = "mb-0 mt-1";
+        g.sebepler.forEach((s) => { const li = document.createElement("li"); li.textContent = s.n + " × " + (s.durum === "hatali" ? "hatalı" : "atlandı") + " — " + (s.sebep || "—"); ul.append(li); });
+        h.append(ul);
+      } else { const s = document.createElement("div"); s.textContent = "Atlanan/hatalı alıcı yok."; h.append(s); }
+      satir.append(h); tr.after(satir);
+    });
+  }
+  let yoklama;
+  function listeCiz(liste) {
+    const tb = $("#gonderimler"); tb.replaceChildren();
+    if (!liste.length) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 7; td.className = "text-body-secondary"; td.textContent = "Henüz gönderim yok."; tr.append(td); tb.append(tr); }
+    liste.forEach((g) => tb.append(satirCiz(g)));
+    clearTimeout(yoklama);
+    if (liste.some((g) => g.durum === "kuyrukta" || g.durum === "gonderiliyor")) yoklama = setTimeout(listeYenile, 4000);
+  }
+  function listeYenile() { fetch(URL.liste, {credentials: "same-origin"}).then((r) => r.json()).then((v) => listeCiz(v.gonderimler)); }
+
+  listeCiz(JSON.parse(document.getElementById("ilk-gonderimler").textContent));
+  segmentGuncelle(); kanalGuncelle();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% comment %}
+E-posta düzeni A — "Kurumsal". Beyaz logo şeridi + lacivert→mavi degrade kahraman alanı +
+beyaz gövde. Bağlam: `core.eposta.marka_baglami()` + baslik_ust, baslik, alt_baslik,
+vurgu_sayi/vurgu_etiket, on_metin, belge_basligi, tarih. Gövde `{% block icerik %}`.
+⚠️ E-posta istemcileri için: tablo düzeni, satır içi stil, degrade için `bgcolor` yedeği
+(Outlook degrade göstermez), görselde `width` + `alt`.
+{% endcomment %}<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
+<title>{{ belge_basligi|default:"İhale Takip" }}</title>
+<style>
+  @media only screen and (max-width:620px) {
+    .kap { width:100% !important; }
+    .ic { padding-left:22px !important; padding-right:22px !important; }
+    .h1 { font-size:24px !important; }
+    .gizle-mobil { display:none !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:{{ t.zemin }};font-family:{{ t.font }};color:{{ t.yazi }};-webkit-text-size-adjust:100%;" bgcolor="{{ t.zemin }}">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">{{ on_metin }}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{{ t.zemin }}" style="background:{{ t.zemin }};">
+<tr><td align="center" style="padding:28px 12px 32px;">
+  <table class="kap" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+
+    <tr><td style="padding:0 6px 18px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td align="left" valign="middle"><a href="{{ marka.site }}" style="text-decoration:none;"><img src="{{ marka.logo }}" width="150" height="35" alt="İhale Takip" style="display:block;border:0;width:150px;height:auto;"></a></td>
+        <td align="right" valign="middle" class="gizle-mobil" style="font-size:13px;color:{{ t.soluk }};">{{ tarih|default:"" }}</td>
+      </tr></table>
+    </td></tr>
+
+    <tr><td class="ic" bgcolor="{{ t.koyu }}" style="background:{{ t.koyu }};background-image:linear-gradient(135deg,{{ t.koyu }} 0%,{{ t.vurgu }} 100%);border-radius:16px 16px 0 0;padding:34px 40px 32px;">
+      {% if baslik_ust %}<p style="margin:0 0 10px;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;color:#bcd8f5;">{{ baslik_ust }}</p>{% endif %}
+      <h1 class="h1" style="margin:0;font-family:{{ t.baslik_font }};font-size:28px;line-height:1.25;font-weight:700;color:#ffffff;">{{ baslik }}</h1>
+      {% if alt_baslik %}<p style="margin:12px 0 0;font-size:16px;line-height:1.55;color:#dcebfa;">{{ alt_baslik }}</p>{% endif %}
+    </td></tr>
+
+    <tr><td class="ic" bgcolor="{{ t.govde }}" style="background:{{ t.govde }};border-radius:0 0 16px 16px;padding:14px 40px 34px;">
+      {% block icerik %}{% endblock %}
+    </td></tr>
+
+    {% include "eposta/parca/alt.html" %}
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

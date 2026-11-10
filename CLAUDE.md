@@ -3427,7 +3427,10 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   Geçersiz değer / kimliksiz sağlayıcı → SES'e düşer + log. ⚠️ Resend'deyken geri dönen
   e-posta / şikâyet bildirimleri TOPLANMAZ (SNS ucu yalnız SES) → bülten SES onayı gelmeden
   açılmamalı. Google Workspace kapatıldı (kullanıcı, 2026-10-29) — yedek yol değil.
-  SES onaylanınca: `eposta_saglayici=ses`. Testler `core/tests/test_eposta_saglayici.py` (6).
+  ✅ **2026-11-10: SES üretim erişimi AÇILDI** (50.000/gün, 14/sn; 2026-11-03 ilk ret, gerekçeli
+  yeniden başvuruyla açıldı) → `eposta_saglayici=ses` yapıldı; simülatöre gönderim + bounce →
+  `EpostaGeriBildirim` zinciri üretimde doğrulandı. Resend yedek olarak duruyor (değeri `resend`
+  yapmak geri döner). Testler `core/tests/test_eposta_saglayici.py` (6).
 - **Bounce/şikâyet** (`accounts/services/ses_sns.py`): SES → SNS → `POST
   /eposta/ses-bildirim/` (DRF değil; SNS `text/plain` yollar). Kimlik = izinli topic
   (`SES_SNS_TOPIC_ARNS`, **boşsa uç kapalı**) + SNS imzası (sertifika YALNIZCA
@@ -3468,7 +3471,7 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   11:18) + SES identity Feedback notifications (Bounce + Complaint) → topic bağlandı;
   uçtan uca doğrulandı: `bounce@` / `complaint@simulator.amazonses.com` → 3 sn içinde
   `EpostaGeriBildirim` satırı. **`EPOSTA_BULTEN_ENABLED=False`** (web canlıya çıkınca
-  açılacak). SES sandbox onayı bekleniyor.
+  açılacak). SES üretim erişimi 2026-11-10'da açıldı (sandbox bitti).
   ⚠️ Test için yalnızca SES simülatör adreslerini kullanın — gerçek bir adrese bounce
   ürettirmek hesabın bounce oranını bozar. `.env.prod` yedeği: `.env.prod.bak-20261027-eposta`.
 

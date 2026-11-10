@@ -454,6 +454,10 @@ GUVENLIK_OTOMATIK_ASKI_PUAN = env.int("GUVENLIK_OTOMATIK_ASKI_PUAN", default=5)
 GUVENLIK_OTOMATIK_ASKI_ISTEK = env.int("GUVENLIK_OTOMATIK_ASKI_ISTEK", default=500)
 GUVENLIK_OTOMATIK_ASKI_YENI_SAAT = env.int("GUVENLIK_OTOMATIK_ASKI_YENI_SAAT", default=24)
 GUVENLIK_OTOMATIK_ASKI_SURE_SAAT = env.int("GUVENLIK_OTOMATIK_ASKI_SURE_SAAT", default=24)
+# Güvenlik panelinde "bizden" etiketlenecek sabit IP/ağlar (yalnız gösterim):
+# {"203.0.113.7": "izleme servisi", "198.51.100.0/24": "ofis"}. Blog botu kendiliğinden
+# öğrenilir (geçerli anahtarlı istek), sağlık kontrolü / web dolumu / ekip hesapları da.
+GUVENLIK_IC_KIMLIKLER = env.json("GUVENLIK_IC_KIMLIKLER", default={})
 # Web e-posta kaydında Turnstile token'ı zorunlu mu? ⚠️ Web notu #23 yayılınca açın.
 TURNSTILE_KAYIT_ZORUNLU = env.bool("TURNSTILE_KAYIT_ZORUNLU", default=False)
 # Firma uçlarında para/oran alanlarını Free/anonim için SUNUCUDA maskele.

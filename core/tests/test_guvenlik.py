@@ -603,3 +603,73 @@ class MobilKimlikTest(TestCase):
                  "ip": "81.214.75.7"}
         with mock.patch("core.guvenlik_izleme.en_yogun", return_value=[satir]):
             self.assertEqual(guvenlik.otomatik_aski(), [])
+
+
+class IcKimlikPanelTest(TestCase):
+    """Panel: bizden olan kimlikler etiketlenir; sıra kırmızı → sarı → normal → bizden."""
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_superuser("adm_ic", "adm_ic@x.co", "p")
+        self.client.force_login(self.admin)
+
+    def _panel(self, *satirlar):
+        with mock.patch("core.guvenlik_izleme.en_yogun", return_value=list(satirlar)):
+            return self.client.get("/admin/guvenlik/")
+
+    @staticmethod
+    def _sira(r, *kimlikler):
+        html = r.content.decode()
+        return [html.index(f"<code>{k}</code>") for k in kimlikler]
+
+    def test_SIRA_kirmizi_sari_normal_bizden(self):
+        yeni = User.objects.create_user(username="yeni", email="y@firma.com.tr", password="x")
+        saglik = {"kimlik": "ip:127.0.0.1", "istek": 8600, "red": 0, "ua": "curl/8.14.1",
+                  "ip": "127.0.0.1", "yol": "/health/"}
+        normal = {"kimlik": "ip:81.214.75.9", "istek": 900, "red": 0, "ua": CHROME,
+                  "ip": "81.214.75.9"}                       # 800+ istek → 1 puan
+        sari = {"kimlik": f"u:{yeni.pk}", "istek": 900, "red": 0, "ua": CHROME,
+                "ip": "81.214.75.8"}                         # yeni 2 + 800+ 1 = 3
+        kirmizi = {"kimlik": "ip:81.214.75.7", "istek": 50, "red": 60, "ua": HEADLESS,
+                   "ip": "81.214.75.7"}                      # otomasyon 3 + 429 2 = 5
+        r = self._panel(saglik, normal, sari, kirmizi)       # en_yogun: çok istekten aza
+        a, b, c, d = self._sira(r, "ip:81.214.75.7", f"u:{yeni.pk}", "ip:81.214.75.9",
+                                "ip:127.0.0.1")
+        self.assertLess(a, b)
+        self.assertLess(b, c)
+        self.assertLess(c, d)
+        self.assertContains(r, "bizden · sunucu sağlık kontrolü")
+        self.assertContains(r, "table-danger", count=1)      # yalnız gerçek kırmızı
+        self.assertContains(r, "table-warning", count=1)
+        # Bizden olan satırda engel düğmesi yok (127.0.0.1 için form üretilmez).
+        self.assertNotContains(r, 'name="ip" value="127.0.0.1"')
+
+    def test_web_dolumu_ve_ekip_hesabi_bizden(self):
+        ekip = _kullanici("ekip", is_staff=True)
+        r = self._panel(
+            {"kimlik": DOLUM_KIMLIGI, "istek": 5000, "red": 0, "ua": "", "ip": ""},
+            {"kimlik": f"u:{ekip.pk}", "istek": 3000, "red": 0, "ua": HEADLESS,
+             "ip": "81.214.75.6"})
+        self.assertContains(r, "bizden · web sitesi · önbellek dolumu")
+        self.assertContains(r, "bizden · ekip hesabı")
+        self.assertNotContains(r, "table-danger")
+        self.assertNotContains(r, 'name="ip" value="81.214.75.6"')
+
+    @override_settings(GUVENLIK_IC_KIMLIKLER={"85.105.12.0/24": "izleme servisi"})
+    def test_ayardaki_ag_bizden(self):
+        self.assertEqual(guvenlik.ic_kimlik({"ip": "85.105.12.40"}), "izleme servisi")
+        self.assertIsNone(guvenlik.ic_kimlik({"ip": "81.214.75.7"}))
+
+    @override_settings(BLOG_BOT_KEY="bot-sir")
+    def test_BLOG_BOTU_gecerli_anahtarla_ogrenilir_gecersizle_ogrenilmez(self):
+        ip = "2a02:c207:2341:1596::1"
+        api = APIClient()
+        api.post("/api/v1/blog/bot/posts/", {}, HTTP_X_BLOG_BOT_KEY="yanlis", HTTP_X_REAL_IP=ip)
+        self.assertIsNone(guvenlik.ic_kimlik({"ip": ip}))
+        api.post("/api/v1/blog/bot/posts/", {}, HTTP_X_BLOG_BOT_KEY="bot-sir", HTTP_X_REAL_IP=ip)
+        self.assertEqual(guvenlik.ic_kimlik({"ip": ip}), "blog botu")
+        # Botun anahtarsız GET'i (blog listesi) de panelde bizden görünür, kırmızı olmaz.
+        r = self._panel({"kimlik": f"ip:{ip}", "istek": 21, "red": 60, "ua": "python-httpx/0.28.1",
+                         "ip": ip})
+        self.assertContains(r, "bizden · blog botu")
+        self.assertNotContains(r, "table-danger")

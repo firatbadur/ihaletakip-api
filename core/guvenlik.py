@@ -384,6 +384,64 @@ def supheli_puani(satir, user, kota_g, *, paylasim: bool = True):
     return puan, neden
 
 
+# ── "Bizden" kimlikler (güvenlik paneli) ──────────────
+# Panelde şüpheli gibi görünen ama bizim olan kimlikler: Docker sağlık kontrolü
+# (127.0.0.1, `curl`, 10 sn'de bir → günde ~8.600 istek; "otomasyon + 2.000+ istek" ile
+# sürekli kırmızıydı), web sitesinin önbellek dolumu, blog botu, ekip hesapları.
+# 2026-11-09'da blog botunun IP'si panelden 24 saatliğine engellendi ve o gün yazı
+# yayımlanamadı → bu satırlar etiketlenir, renklendirilmez, engel düğmesi gösterilmez.
+# ⚠️ Yalnızca GÖSTERİMDİR: hız sınırı, kota ve otomatik askı bu etiketi okumaz.
+_IC_TTL = 30 * 24 * 3600
+
+
+def _ic_anahtar(ip: str) -> str:
+    return f"guv:ic:{ip}"
+
+
+def ic_ogren(ip: str, etiket: str) -> None:
+    """Kendi servisimizin IP'sini panel için etiketle (ör. geçerli blog botu anahtarıyla
+    gelen istek). 30 gün tutulur, her istekte tazelenir. Hata isteği düşürmez."""
+    ip = _gecerli_tek_ip(ip)
+    if not ip:
+        return
+    try:
+        cache.set(_ic_anahtar(ip), (etiket or "")[:60], _IC_TTL)
+    except Exception:                                       # noqa: BLE001
+        logger.debug("iç kimlik yazılamadı", exc_info=True)
+
+
+def ic_kimlik(satir, user=None) -> str | None:
+    """Kimlik bizdense Türkçe etiketi, değilse None. `satir`: `en_yogun` satırı."""
+    from django.conf import settings
+
+    from .throttling import DOLUM_KIMLIGI
+
+    if satir.get("kimlik") == DOLUM_KIMLIGI:
+        return "web sitesi · önbellek dolumu"
+    if user is not None and (user.is_staff or user.is_superuser):
+        return "ekip hesabı"
+    ip = _gecerli_tek_ip(satir.get("ip"))
+    if not ip:
+        return None
+    adres = ipaddress.ip_address(ip)
+    # Elle verilen ve öğrenilen etiket genel kuraldan önce (daha belirgin).
+    for ag, etiket in (getattr(settings, "GUVENLIK_IC_KIMLIKLER", None) or {}).items():
+        try:
+            if adres in ipaddress.ip_network(str(ag), strict=False):
+                return str(etiket)
+        except ValueError:
+            continue
+    try:
+        ogrenilen = cache.get(_ic_anahtar(ip))
+    except Exception:                                       # noqa: BLE001
+        ogrenilen = None
+    if ogrenilen:
+        return ogrenilen
+    if adres.is_loopback or adres.is_private or adres.is_link_local:
+        return "sunucu sağlık kontrolü" if satir.get("yol") == "/health/" else "sunucu içi"
+    return None
+
+
 def aski_kosulu(satir, user, kota_g) -> tuple[bool, int, list[str]]:
     """
     Puan + kullanım şartı (yaş ve Pro HARİÇ): (sağlanıyor mu, puan, gerekçeler).

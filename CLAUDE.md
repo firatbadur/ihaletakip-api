@@ -5273,6 +5273,15 @@ Teşhis: `throttle.butce_ozet()` + Redis `thr:belge:*:86400:*` en büyük sayaç
   pipeline: günlük ZSET + meta hash, 3 gün), **`/admin/guvenlik/`** (üst menü "Güvenlik"):
   ortak bütçe, en yoğun 50 kimlik + şüphe puanı (yalnız gösterim, otomatik engel YOK),
   superuser'a askıya al / IP engelle düğmeleri; UserAdmin "Askıya al" eylemleri.
+  Sıra **kırmızı → sarı → normal → bizden** (grup içinde istek sayısı). **"Bizden"**
+  (`guvenlik.ic_kimlik`, 2026-11-10): `127.0.0.1` = `web`'in Docker sağlık kontrolü (10 sn'de
+  bir `curl /health/`, günde ~8.600 — "otomasyon + 2.000+ istek" ile hep kırmızıydı), web
+  önbellek dolumu, staff/superuser, **blog botu** (geçerli `X-Blog-Bot-Key` ile gelen IP
+  `BlogBotAnahtari`'nda öğrenilir, Redis 30 gün — anahtarsız GET'leri de tanınır),
+  `GUVENLIK_IC_KIMLIKLER` (env JSON `{ip/cidr: etiket}`). Renklendirilmez, engel düğmesi
+  çıkmaz; elle engellenirse uyarı. ⚠️ Yalnız gösterim — hız sınırı/kota/askı okumaz.
+  Sebep: 2026-11-09 blog botunun IP'si panelden 24 sa engellendi, ertesi gün yazı ve
+  12:00 blog e-postası gitmedi.
 - Testler `core/tests/test_guvenlik.py` (29; dişli: 6 korumanın 6'sı ısırıyor).
 - **Otomatik askı** (`guvenlik.otomatik_aski`, beat `core-otomatik-aski` */5): hesap < 24 sa **ve**
   şüphe puanı ≥ 5 **ve** (bugün ≥ 500 istek ya da EKAP kotası dolu) → 24 sa askı (`olusturan=None`,

@@ -25,6 +25,7 @@ from . import guvenlik, guvenlik_izleme
 from .models import ErisimEngeli, GuvenlikOlayi
 
 _SURELER = {"24s": timedelta(hours=24), "7g": timedelta(days=7), "suresiz": None}
+_SEVIYE_SIRASI = {"kirmizi": 0, "sari": 1, "normal": 2, "ic": 3}
 
 
 def _eylem(request):
@@ -43,6 +44,10 @@ def _eylem(request):
             e = guvenlik.ip_engelle(request.POST.get("ip"), sebep=sebep, sure=sure,
                                     olusturan=request.user)
             messages.success(request, f"{e.deger} engellendi.")
+            ic = guvenlik.ic_kimlik({"ip": e.deger})
+            if ic:
+                messages.warning(request, f"Dikkat: {e.deger} bizden görünüyor ({ic}). "
+                                          "Yanlışlıkla engellendiyse aşağıdan kaldırın.")
         elif tur == "kaldir":
             e = ErisimEngeli.objects.get(pk=int(request.POST.get("engel")))
             guvenlik.engeli_kaldir(e, kaldiran=request.user)
@@ -119,11 +124,24 @@ def guvenlik_ekrani(request):
                         "dogrudan-girisli": "mobil/API", "dogrudan-anonim":
                         "mobil/API (anonim)", "portal-dolum": "web önbellek"}.get(
                             s.get("tur", ""), s.get("tur", ""))
+        # Bizden olanlar (sağlık kontrolü, web dolumu, blog botu, ekip) renklendirilmez.
+        s["ic"] = guvenlik.ic_kimlik(s, u)
+        if s["ic"]:
+            s["pro_isaret"] = False
+            s["seviye"] = "ic"
+        elif s["pro_isaret"] or s["puan"] >= 5:
+            s["seviye"] = "kirmizi"
+        elif s["puan"] >= 3:
+            s["seviye"] = "sari"
+        else:
+            s["seviye"] = "normal"
+    # Kırmızı → sarı → normal → bizden; grup içinde çok istekten aza (sıralama kararlı).
+    satirlar.sort(key=lambda s: (_SEVIYE_SIRASI[s["seviye"]], -s["istek"]))
 
     bugun_bas = timezone.make_aware(datetime.combine(gun, datetime.min.time()))
     olay_sayilari = {r["tur"]: r["n"] for r in GuvenlikOlayi.objects.filter(
         zaman__gte=bugun_bas).values("tur").annotate(n=Count("id")).order_by()}
-    supheli = sum(1 for s in satirlar if s["puan"] >= 5 or s["pro_isaret"])
+    supheli = sum(1 for s in satirlar if s["seviye"] == "kirmizi")
     dolum = _dolum_karti()
     pro_isaretli = sum(1 for s in satirlar if s["pro_isaret"])
 

@@ -12,7 +12,10 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
   <h1>Güvenlik Paneli <small class="text-body-secondary">{{ gun|date:"d.m.Y" }}</small></h1>
   <p class="text-body-secondary">
     İstek sayaçları Redis'tedir (3 gün), olaylar ve engeller veritabanında.
-    Satır rengi şüphe puanıdır (turuncu ≥ 3, kırmızı ≥ 5). "1 saatte çok IP/tarayıcı" puana eklenir ama otomatik askıya sayılmaz.
+    Satır rengi şüphe puanıdır (sarı ≥ 3, kırmızı ≥ 5); sıra kırmızı → sarı → normal → <span class="badge text-bg-info">bizden</span>,
+    grup içinde çok istekten aza. "Bizden": sunucu sağlık kontrolü, web sitesinin önbellek dolumu, blog botu (geçerli anahtarla
+    geldiği IP kendiliğinden öğrenilir), ekip hesapları ve <code>GUVENLIK_IC_KIMLIKLER</code> — renklendirilmez, engel düğmesi gösterilmez.
+    "1 saatte çok IP/tarayıcı" puana eklenir ama otomatik askıya sayılmaz.
     {% if oto.acik %}<b>Otomatik askı açık:</b> {{ oto.yeni_saat }} saatten yeni hesap + puan ≥ {{ oto.puan }}
     + (bugün {{ oto.istek }}+ istek ya da EKAP kotası dolu) → {{ oto.sure_saat }} saat askı (5 dk'da bir kontrol;
     Pro asla askıya alınmaz — koşulu sağlarsa kırmızı işaretlenir; staff asla; IP otomatik engellenmez).{% else %}<b>Otomatik askı kapalı.</b>{% endif %}
@@ -90,8 +93,8 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
     </tr></thead>
     <tbody>
     {% for s in satirlar %}
-      <tr{% if s.pro_isaret or s.puan >= 5 %} class="table-danger"{% elif s.puan >= 3 %} class="table-warning"{% endif %}>
-        <td><code>{{ s.kimlik }}</code></td>
+      <tr{% if s.seviye == "kirmizi" %} class="table-danger"{% elif s.seviye == "sari" %} class="table-warning"{% endif %}>
+        <td><code>{{ s.kimlik }}</code>{% if s.ic %}<br><span class="badge text-bg-info">bizden · {{ s.ic }}</span>{% endif %}</td>
         <td>
           {% if s.user %}
             <a href="{% url 'admin:accounts_user_change' s.user.pk %}">{{ s.user.email|default:s.user.username }}</a>
@@ -104,10 +107,11 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
         <td class="text-end{% if s.ip_1s and s.ip_1s >= paylasim_ip %} text-danger fw-bold{% endif %}">{% if s.ip_1s is not None %}{{ s.ip_1s }}/{{ s.ua_1s }}{% else %}—{% endif %}</td>
         <td class="small">{{ s.istemci }}<br><code>{{ s.ip|default:"—" }}</code>{% if s.ip_engelli %} <b>engelli</b>{% endif %}</td>
         <td class="small" style="max-width:220px;word-break:break-word">{{ s.ua|truncatechars:90 }}</td>
-        <td class="small"><b>{{ s.puan }}</b>{% if s.pro_isaret %} <span class="badge text-bg-danger">Pro · askı yok, incele</span>{% endif %}{% if s.nedenler %}<br>{{ s.nedenler|join:", " }}{% endif %}</td>
+        <td class="small">{% if s.ic %}<span class="text-body-secondary">—</span>{% else %}<b>{{ s.puan }}</b>{% if s.pro_isaret %} <span class="badge text-bg-danger">Pro · askı yok, incele</span>{% endif %}{% if s.nedenler %}<br>{{ s.nedenler|join:", " }}{% endif %}{% endif %}</td>
         <td class="small">{{ s.son|date:"H:i" }}</td>
         {% if superuser %}
         <td class="small">
+          {% if not s.ic %}
           {% if s.user and not s.engelli and not s.user.is_superuser %}
           <form method="post" class="d-inline">{% csrf_token %}
             <input type="hidden" name="tur" value="hesap"><input type="hidden" name="uid" value="{{ s.user.pk }}">
@@ -121,6 +125,7 @@ Güvenlik Paneli — core/admin_views.py `guvenlik_ekrani`.
             <select name="sure" class="form-select form-select-sm d-inline w-auto"><option value="24s">24 sa</option><option value="7g">7 gün</option><option value="suresiz">süresiz</option></select>
             <button class="btn btn-sm btn-outline-warning" onclick="return confirm('{{ s.ip }} engellensin mi?')">IP engelle</button>
           </form>
+          {% endif %}
           {% endif %}
         </td>
         {% endif %}

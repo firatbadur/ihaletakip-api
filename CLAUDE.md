@@ -3549,7 +3549,7 @@ istemci notu `docs/eposta-bildirim.md`.
   Kullanıcı listesinde "e-posta engeli" filtresi var. Dişli: filtre kaldırılınca 2 test kırılıyor.
 - **Tasarım** (`core/templates/eposta/duzen/{a,b,c}.html` + `parca/`): bülten, kod ve toplu
   e-posta aynı düzenden türer; tema admin'den: Uygulama Ayarları → `eposta_tasarim`
-  (`a` Kurumsal · `b` Modern · `c` Sade; vars. `a`). Token'lar `core.eposta.TEMALAR`.
+  (`a` Kurumsal · `b` Modern · `c` Sade; vars. **`b`** — kullanıcı seçimi 2026-11-10). Token'lar `core.eposta.TEMALAR`.
   Logo `static/ihaletakip/eposta/*.png` (Gmail SVG göstermez), adres HASH'SİZ statik yol
   (`marka_baglami`) — eski e-postalar da logoyu göstersin.
 - **Toplu gönderim** — admin üst menü → *Toplu Gönderim* (`/admin/toplu-gonderim/`,

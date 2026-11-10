@@ -145,7 +145,7 @@ TEMALAR = {
         "numarali": True, "kart": False,
     },
 }
-VARSAYILAN_TEMA = "a"
+VARSAYILAN_TEMA = "b"
 
 
 def aktif_tema() -> str:

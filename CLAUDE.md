@@ -3472,6 +3472,12 @@ notları `docs/mobil-eposta-kayit.md` + `docs/web-eposta-kayit.md`.
   uçtan uca doğrulandı: `bounce@` / `complaint@simulator.amazonses.com` → 3 sn içinde
   `EpostaGeriBildirim` satırı. **`EPOSTA_BULTEN_ENABLED=False`** (web canlıya çıkınca
   açılacak). SES üretim erişimi 2026-11-10'da açıldı (sandbox bitti).
+  ✅ **BÜLTEN AÇIK (2026-11-10)**: `.env.prod` `EPOSTA_BULTEN_ENABLED=True` (yedek
+  `.env.prod.bak-20261110-bulten`; yalnız `worker` yeniden yaratıldı, görev `celery` kuyruğunda).
+  İlk gün 297 bülten, 0 hata; 5 dk içinde 2 kalıcı bounce (otomatik `email_notifications=False`)
+  + 3 iCloud geçici bounce, şikâyet 0. Apple gizli adresleri (~%30) için Apple Developer →
+  *Sign in with Apple for Email Communication*'a `ihaletakip.com` + `mail.ihaletakip.com`
+  kaydedildi (ikisi de SPF ✓); 3 adreslik ön denemede geri dönüş olmadı.
   ⚠️ Test için yalnızca SES simülatör adreslerini kullanın — gerçek bir adrese bounce
   ürettirmek hesabın bounce oranını bozar. `.env.prod` yedeği: `.env.prod.bak-20261027-eposta`.
 

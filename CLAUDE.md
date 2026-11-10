@@ -3138,15 +3138,26 @@ CLAUDE.md "Yardim & Destek — yazisma".
   ATLANIR, sayaçlara yazılmaz (kuyruk yok; düşen push = kaybolan yanıt). Cihaz/aktiflik/
   tercih/idempotency (`support_reply:<mesaj_id>`) yine uygulanır.
 - Kullanıcı yazınca durum "Bekliyor" olur (kapalı talep yeniden açılır).
-  `SUPPORT_NOTIFY_EMAILS` (env, virgüllü) doluysa yeni talep / kullanıcı yanıtı Celery
-  (`core.tasks.destek_ekibine_eposta`) ile ekibe e-postalanır; boşsa kapalı.
+- **E-postalar** (`core/destek_eposta.py`, markalı şablonlar `core/templates/eposta/destek_*.html`,
+  2026-11-10): (1) kullanıcı yeni talep açınca / yazınca **ekibe** (`core.tasks.destek_ekibine_eposta`:
+  kullanıcı, Pro/Free, cihaz meta'sı, mesaj, yanıtta önceki 5 mesaj, admin bağlantısı; Reply-To YOK —
+  yanıt panelden yazılmalı); (2) destek yanıtlayınca **kullanıcıya** yanıtın tam metni
+  (`core.tasks.destek_yaniti_eposta`, adres önce `ticket.email`). Kullanıcı e-postası **işlemseldir**:
+  `email_notifications` uygulanmaz, mesaj başına bir kez (`cache.add` kilidi, düşerse silinir).
+  Alıcılar: admin → Uygulama Ayarları → **`destek_bildirim_epostalari`** (virgüllü); satır VARSA
+  bağlayıcıdır (boş = kapalı), yoksa `SUPPORT_NOTIFY_EMAILS` (env).
+  ⚠️⚠️ Ekip e-postası kodda Ekim'den beri vardı ama üretimde alıcı hiç tanımlanmamıştı → hiçbir
+  talep yöneticiye ulaşmadı; ayrıca `fail_silently=True` SMTP hatasını yutuyordu. Artık görevler
+  hata yutmaz, 4 kez yeniden dener. Deneme (talep açmadan): `manage.py destek_eposta_test
+  [--kuru] [--ticket N] [--tur yanit --alici X]`.
 - ⚠️ `message` ilk mesajın KOPYASIDIR (liste/arama/eski istemci). `reply` ESKİ, yazılmaz;
   0005 taşıması eski yanıtları `SupportMessage`'a aktardı ve o talepleri `user_unread=True`
   yaptı (yanıtlar hiç ulaşmamıştı). `meta` null'able, `category`/`user_unread` `db_default`'lu
   (deploy sırasında eski worker INSERT'i düşmesin).
 - `category` anahtarları mobil `SUPPORT_CATEGORIES` ile AYNI tutulmalı.
 
-Testler: `core/tests/test_support.py` (13). Dişi doğrulandı: `transactional` kaldırılınca 1 test kırılıyor.
+Testler: `core/tests/test_support.py` (13) + `core/tests/test_destek_eposta.py` (15). Dişi doğrulandı:
+`transactional` kaldırılınca 1; kullanıcı e-postası kuyruğu ya da kilit bırakma kaldırılınca 2 test kırılıyor.
 
 ## URL'de İKN (dikkat)
 

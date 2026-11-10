@@ -2,15 +2,32 @@
 from celery import shared_task
 
 
-@shared_task(name="core.tasks.destek_ekibine_eposta", ignore_result=True)
-def destek_ekibine_eposta(ticket_id: int, body: str, yeni: bool):
-    """Destek ekibine e-posta — SMTP (15 sn zaman aşımı) kullanıcının isteğini bekletmesin."""
-    from .models import SupportTicket
-    from .support import ekibe_eposta_gonder
+@shared_task(name="core.tasks.destek_ekibine_eposta", bind=True, ignore_result=True,
+             max_retries=4)
+def destek_ekibine_eposta(self, ticket_id: int, body: str, yeni: bool):
+    """Destek ekibine e-posta — SMTP (15 sn zaman aşımı) kullanıcının isteğini bekletmesin.
 
-    ticket = SupportTicket.objects.filter(pk=ticket_id).first()
-    if ticket:
-        ekibe_eposta_gonder(ticket, body, yeni=yeni)
+    ⚠️ Hata YUTULMAZ: eskiden `fail_silently=True` ile SMTP arızası iz bırakmadan
+    kayboluyordu. Artık görev artan aralıkla yeniden dener (1/2/4/8 dk).
+    """
+    from .destek_eposta import ekibe_gonder
+
+    try:
+        return ekibe_gonder(ticket_id, body, yeni)
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=60 * 2 ** self.request.retries)
+
+
+@shared_task(name="core.tasks.destek_yaniti_eposta", bind=True, ignore_result=True,
+             max_retries=4)
+def destek_yaniti_eposta(self, mesaj_id: int):
+    """Destek yanıtını kullanıcıya e-postalar (mesaj başına bir kez, `destek_eposta`)."""
+    from .destek_eposta import kullaniciya_gonder
+
+    try:
+        return kullaniciya_gonder(mesaj_id)
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=60 * 2 ** self.request.retries)
 
 
 @shared_task(name="core.tasks.erisim_engeli_suresi", ignore_result=True)

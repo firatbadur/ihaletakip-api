@@ -5,8 +5,10 @@ API (`core.views`) ve admin (`core.admin`) aynı fonksiyonları çağırır; dur
 okunmamış bayrağı ve bildirim kuralı iki yerde ayrışmasın diye.
 
 Durum geçişleri:
-- kullanıcı yazdı      → "Bekliyor" (kapalıysa yeniden açılır)
+- kullanıcı yazdı      → "Bekliyor" (kapalıysa yeniden açılır) + destek ekibine e-posta
+                         (alıcı tanımlıysa; `core.destek_eposta`)
 - destek ekibi yazdı   → "Yanıtlandı" + `user_unread` + uygulama-içi bildirim + push
+                         + kullanıcıya e-posta
 - kapat                → "Kapandı"
 
 ⚠️ Bildirim `transaction.on_commit` ile gider: admin kaydı geri alınırsa kullanıcıya
@@ -16,7 +18,6 @@ from __future__ import annotations
 
 import logging
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -90,7 +91,7 @@ def kapat(ticket: SupportTicket) -> None:
 
 
 def kullaniciya_bildir(mesaj: SupportMessage) -> bool:
-    """Destek yanıtını uygulama-içi bildirim + push olarak iletir. Push sonucu döner.
+    """Destek yanıtını uygulama-içi bildirim + push + e-posta olarak iletir. Push sonucu döner.
 
     ⚠️ Asla istisna fırlatmaz: admin'in "Kaydet"i bildirim altyapısı yüzünden 500
     vermemeli — yanıt zaten kaydedildi, kullanıcı uygulamada görür.
@@ -98,6 +99,7 @@ def kullaniciya_bildir(mesaj: SupportMessage) -> bool:
     from tenders.services.notify import push_to_user, record_notification
 
     ticket = mesaj.ticket
+    _kullaniciya_eposta(mesaj.pk)   # adres talepte de olabilir → kullanıcıdan bağımsız
     user = ticket.user
     if user is None:
         return False
@@ -124,35 +126,26 @@ def kullaniciya_bildir(mesaj: SupportMessage) -> bool:
 
 
 def _ekibe_haber_ver(ticket_id: int, body: str, *, yeni: bool) -> None:
-    """Adres tanımlıysa e-postayı Celery'ye bırakır (adres yoksa kuyruğa hiç gitmez)."""
-    if not [a for a in getattr(settings, "SUPPORT_NOTIFY_EMAILS", []) if a]:
-        return
+    """Alıcı tanımlıysa ekip e-postasını Celery'ye bırakır (yoksa kuyruğa hiç gitmez).
+
+    Alıcılar: admin → Uygulama Ayarları → `destek_bildirim_epostalari`, satır yoksa
+    `SUPPORT_NOTIFY_EMAILS` (bkz. `core.destek_eposta`). ⚠️ Asla istisna fırlatmaz.
+    """
     try:
+        from .destek_eposta import alicilar
         from .tasks import destek_ekibine_eposta
 
-        destek_ekibine_eposta.delay(ticket_id, body, yeni)
+        if alicilar():
+            destek_ekibine_eposta.delay(ticket_id, body, yeni)
     except Exception:
         logger.exception("destek e-postası kuyruğa alınamadı ticket=%s", ticket_id)
 
 
-def ekibe_eposta_gonder(ticket: SupportTicket, body: str, *, yeni: bool) -> None:
-    """`SUPPORT_NOTIFY_EMAILS` adreslerine yeni talep / kullanıcı yanıtı e-postası."""
-    alicilar = [a for a in getattr(settings, "SUPPORT_NOTIFY_EMAILS", []) if a]
-    if not alicilar:
-        return
-    from django.core.mail import send_mail
-
-    konu = (
-        f"Yeni destek talebi #{ticket.pk}" if yeni else f"Destek talebine yanıt #{ticket.pk}"
-    )
+def _kullaniciya_eposta(mesaj_id: int) -> None:
+    """Destek yanıtının e-postasını Celery'ye bırakır. ⚠️ Asla istisna fırlatmaz."""
     try:
-        send_mail(
-            konu,
-            f"{ticket.email or 'Anonim'} · {ticket.get_category_display()}\n\n{body}\n\n"
-            f"Yanıtla: {settings.PUBLIC_BASE_URL}/admin/core/supportticket/{ticket.pk}/change/",
-            settings.DEFAULT_FROM_EMAIL,
-            alicilar,
-            fail_silently=True,
-        )
+        from .tasks import destek_yaniti_eposta
+
+        destek_yaniti_eposta.delay(mesaj_id)
     except Exception:
-        logger.exception("destek e-postası gönderilemedi ticket=%s", ticket.pk)
+        logger.exception("destek yanıtı e-postası kuyruğa alınamadı mesaj=%s", mesaj_id)

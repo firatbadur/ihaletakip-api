@@ -1,0 +1,37 @@
+{% extends duzen %}
+{% comment %}
+Destek ekibine giden bildirim (yeni talep / kullanıcı yanıtı) — bağlam
+`core/destek_eposta.ekip_epostasi()`. Kullanıcı metni otomatik kaçırılır (`autoescape`).
+{% endcomment %}
+{% block icerik %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;border-collapse:collapse;">
+  {% for etiket, deger in bilgiler %}
+  <tr>
+    <td valign="top" width="150" style="padding:7px 10px 7px 0;border-bottom:1px solid {{ t.satir }};font-size:13px;color:{{ t.soluk }};">{{ etiket }}</td>
+    <td valign="top" style="padding:7px 0;border-bottom:1px solid {{ t.satir }};font-size:14px;font-weight:600;color:{{ t.yazi }};">{{ deger }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<p style="margin:24px 0 8px;font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:{{ t.soluk }};">Mesaj</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+  <td bgcolor="{{ t.kutu }}" style="background:{{ t.kutu }};border-left:4px solid {{ t.vurgu }};border-radius:8px;padding:16px 18px;font-size:15px;line-height:1.65;color:{{ t.yazi }};">{{ mesaj|linebreaksbr }}</td>
+</tr></table>
+
+{% if gecmis %}
+<p style="margin:24px 0 8px;font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:{{ t.soluk }};">Önceki mesajlar</p>
+{% for g in gecmis %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;"><tr>
+  <td style="border:1px solid {{ t.kenar }};border-radius:8px;padding:10px 14px;">
+    <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:{{ t.soluk }};">{{ g.kim }} · {{ g.zaman }}</p>
+    <p style="margin:0;font-size:14px;line-height:1.6;color:{{ t.ikincil }};">{{ g.metin|linebreaksbr }}</p>
+  </td>
+</tr></table>
+{% endfor %}
+{% endif %}
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 4px;"><tr>
+  <td bgcolor="{{ t.vurgu }}" style="background:{{ t.vurgu }};border-radius:{% if tema == 'b' %}999px{% else %}8px{% endif %};"><a href="{{ panel_url }}" style="display:inline-block;padding:13px 24px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;">Admin panelinde yanıtla &rarr;</a></td>
+</tr></table>
+<p style="margin:12px 0 0;font-size:13px;line-height:1.6;color:{{ t.soluk }};">Yanıtı panelden yazın: yazışmaya eklenir, kullanıcıya bildirim, push ve e-posta gider. Bu e-postayı yanıtlamak kullanıcıya ulaşmaz.</p>
+{% endblock %}

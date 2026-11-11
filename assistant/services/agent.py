@@ -170,6 +170,14 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
     harcanan = 0
 
     ek = _modelin_yetenekleri(settings.ASSISTANT_AGENT_MODEL)
+    # Dosya hatası yorumu yalnızca istekte Files API kaynağı varsa: "file" alt dizesi
+    # ("profile") eksiz bir 400'ü yanlışlıkla "ek dosyası okunamıyor"a çevirmesin.
+    dosya_var = any(
+        isinstance(m.get("content"), list)
+        and any(isinstance(b, dict) and (b.get("source") or {}).get("type") == "file"
+                for b in m["content"])
+        for m in messages
+    )
 
     def _cagir(tools, tool_choice=None):
         try:
@@ -189,7 +197,7 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
             )
         except anthropic.APIError as e:
             code = getattr(e, "status_code", None)
-            if _dosya_hatasi_mi(e):
+            if dosya_var and _dosya_hatasi_mi(e):
                 logger.warning("Asistan isteği bir ek dosyası yüzünden reddedildi (%s): %s", code, e)
                 raise EkDosyaHatasi(
                     "Eklediğiniz dosyalardan biri artık okunamıyor.", status=410

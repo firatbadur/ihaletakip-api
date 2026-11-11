@@ -294,8 +294,15 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     # Sohbet ekleri (docs/plan-asistan-ekler.md 1.6). Süresi dolanlar modele gitmez,
     # yalnızca not düşülür — model "okuyamıyorum" desin, uydurmasın.
     tum_ekler = list(sohbet_ekleri(conversation)) if conversation else []
-    ekler = [e for e in tum_ekler if kullanilabilir_mi(e)]
-    dolan = [e for e in tum_ekler if e not in ekler]
+    if tum_ekler and not ek_etkin(profile.user):
+        # Kapatma anahtarı (`ASSISTANT_EK_KAPSAM=kapali`) BAĞLI ekleri de durdurur: geri
+        # alma "dosya modele gitmesin" demektir (ör. hazırlama hatası fark edildi).
+        ekler, dolan = [], []
+        baglam.append("Bu sohbetteki dosya ekleri şu an kapalı; içeriklerini okuyamazsın. "
+                      "Sorulursa bunu söyle, içerik uydurma.")
+    else:
+        ekler = [e for e in tum_ekler if kullanilabilir_mi(e)]
+        dolan = [e for e in tum_ekler if e not in ekler]
     ctx.ekler = [{"sira": e.sira, "ad": e.ad, "tur": e.tur, "parca": e.parca} for e in ekler]
     if dolan:
         baglam.append(_dolan_ek_notu(dolan))
@@ -1075,11 +1082,13 @@ def ek_hazirla_task(ek_id):
     canli = AssistantAttachment.objects.filter(id=ek.id, durum="hazirlaniyor")
 
     def _hata(kod, sayfa=None, iade=False):
+        from assistant.services.ekler import kota_iade
+
+        if iade and canli.filter(kota_sayildi=True).update(kota_sayildi=False):
+            kota_iade(ek.user_id, ek.tur, ek.created_at)
         alanlar = {"durum": "hata", "hata_kodu": kod, "metin": "", "depo_yolu": ""}
         if sayfa:
             alanlar["sayfa_sayisi"] = sayfa
-        if iade:
-            alanlar["kota_sayildi"] = False
         canli.update(**alanlar)
         return {"durum": "hata", "hata_kodu": kod}
 
@@ -1135,6 +1144,66 @@ def ek_dosyalarini_sil_task(self, file_ids, yollar):
     return {"silinen": len(silinecek)}
 
 
+def takili_hazirlamalari_kapat(simdi=None) -> int:
+    """
+    30 dakikadan uzun "hazırlanıyor" kalan ek → hata + hak iadesi + ham dosya silinir.
+
+    Görev sert süre sınırında SIGKILL ile ölürse (`finally` çalışmaz) ya da worker
+    düşerse satır askıda kalır, hakkı yer ve istemci boşuna yoklar. Kuyruk beklemesi
+    payı için eşik görev süresinin çok üstünde.
+    """
+    from datetime import timedelta
+
+    from assistant.models import AssistantAttachment
+    from assistant.services.ekler import kota_iade
+
+    simdi = simdi or timezone.now()
+    takili = list(AssistantAttachment.objects.filter(
+        durum="hazirlaniyor", created_at__lt=simdi - timedelta(minutes=30)))
+    for ek in takili:
+        ham_dosyayi_sil(ek.depo_yolu)
+        if ek.kota_sayildi:
+            kota_iade(ek.user_id, ek.tur, ek.created_at)
+    return AssistantAttachment.objects.filter(
+        id__in=[e.id for e in takili], durum="hazirlaniyor"
+    ).update(durum="hata", hata_kodu="okunamadi", depo_yolu="", kota_sayildi=False)
+
+
+def sahipsiz_ham_dosyalari_sil(simdi=None) -> int:
+    """Ek dizininde 1 günden eski ve hiçbir satırın göstermediği ham dosyaları siler."""
+    import os
+    import time as _time
+
+    from assistant.models import AssistantAttachment
+
+    kok = settings.ASSISTANT_EK_DIR
+    if not os.path.isdir(kok):
+        return 0
+    bilinen = {os.path.realpath(y) for y in AssistantAttachment.objects.exclude(depo_yolu="")
+               .values_list("depo_yolu", flat=True)}
+    esik = _time.time() - 86400
+    silinen = 0
+    for ad in os.listdir(kok):
+        yol = os.path.join(kok, ad)
+        try:
+            if (os.path.isfile(yol) and os.path.getmtime(yol) < esik
+                    and os.path.realpath(yol) not in bilinen):
+                ham_dosyayi_sil(yol)
+                silinen += 1
+        except OSError:
+            continue
+    return silinen
+
+
+@shared_task(name="assistant.tasks.ek_takilanlari_temizle")
+def ek_takilanlari_temizle():
+    """Beat 10 dakikada bir: takılı hazırlamalar (günlük temizliği beklemesin)."""
+    n = takili_hazirlamalari_kapat()
+    if n:
+        logger.warning("ek_takilanlari_temizle: %s takılı hazırlama kapatıldı", n)
+    return {"takili": n}
+
+
 @shared_task(name="assistant.tasks.ek_temizligi", soft_time_limit=240, time_limit=280)
 def ek_temizligi(sure_sn=200):
     """
@@ -1157,14 +1226,10 @@ def ek_temizligi(sure_sn=200):
 
     basla = time.monotonic()
     simdi = timezone.now()
-    sonuc = {"takili": 0, "suresi_doldu": 0, "bagsiz": 0, "yetim": 0}
+    sonuc = {"takili": 0, "suresi_doldu": 0, "bagsiz": 0, "yetim": 0, "ham": 0}
 
-    takili = AssistantAttachment.objects.filter(
-        durum="hazirlaniyor", created_at__lt=simdi - timedelta(hours=1))
-    for ek in takili:
-        ham_dosyayi_sil(ek.depo_yolu)
-    sonuc["takili"] = takili.update(durum="hata", hata_kodu="okunamadi", depo_yolu="",
-                                    kota_sayildi=False)
+    sonuc["takili"] = takili_hazirlamalari_kapat(simdi)
+    sonuc["ham"] = sahipsiz_ham_dosyalari_sil(simdi)
 
     istemci = None
     dolan = list(AssistantAttachment.objects.filter(durum="hazir", expires_at__lte=simdi))
@@ -1183,6 +1248,14 @@ def ek_temizligi(sure_sn=200):
     sonuc["bagsiz"], _ = AssistantAttachment.objects.filter(
         conversation__isnull=True, created_at__lt=simdi - timedelta(hours=24)).delete()
 
+    if not settings.ASSISTANT_EK_YETIM_SUPURME:
+        # ⚠️ Yalnızca üretimde açık: süpürme "bizim DB'mizin bilmediği önekli dosya =
+        # yetim" der. Aynı anahtarla beat koşan başka bir ortam (yerel geliştirme)
+        # açık olsaydı üretimin CANLI eklerini silerdi. Kapalıyken de dosyalar
+        # yüklemedeki `expires_in_seconds` ile kendiliğinden düşer.
+        if any(sonuc.values()):
+            logger.info("ek_temizligi: %s", sonuc)
+        return sonuc
     try:
         istemci = istemci or ek_servis._istemci()
         bilinen = set(AssistantAttachment.objects.exclude(anthropic_file_id="")

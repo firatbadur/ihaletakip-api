@@ -132,6 +132,23 @@ class PdfTest(_Dizin):
             self.donustur("gizli.pdf", metinli_pdf([_SAYFA], sifre="gizli"))
         self.assertEqual(ctx.exception.kod, "sifreli")
 
+    def test_sure_siniri_yutulmaz(self):
+        # SoftTimeLimitExceeded bir Exception alt sınıfı: sayfa döngüsündeki geniş
+        # except onu yutsaydı sayfa sessizce boş kalır, doküman eksik "hazır" olurdu.
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        with patch("pypdf._page.PageObject.extract_text", side_effect=SoftTimeLimitExceeded()):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                self.donustur("ts.pdf", metinli_pdf([_SAYFA]))
+
+    @override_settings(ASSISTANT_EK_TOKEN_AZAMI=50)
+    def test_cok_uzun_pdf_erken_birakilir(self):
+        with patch("pypdf._page.PageObject.extract_text", return_value="x" * 400) as cikar:
+            with self.assertRaises(EkHatasi) as ctx:
+                self.donustur("uzun.pdf", metinli_pdf([_SAYFA] * 5))
+        self.assertEqual((ctx.exception.kod, ctx.exception.sayfa_sayisi), ("cok_uzun", 5))
+        self.assertLess(cikar.call_count, 5)  # tüm sayfalar okunmadan bırakıldı
+
     def test_bos_parolali_pdf_cozulur(self):
         don = self.donustur("izinli.pdf", metinli_pdf([_SAYFA], sifre=""))
         self.assertEqual(don.mod, "metin")

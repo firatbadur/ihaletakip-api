@@ -3100,14 +3100,35 @@ sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`. **Üretimde kapalı**
 - ⚠️ **Files API:** ad sentetik (`ihaletakip-ek-<uuid>.<uzantı>`; Türkçe ad 400 alabilirdi).
   **Ayrı anahtar/workspace AÇILMADI** (kullanıcı kararı) → yetim süpürmesi (`ek_temizligi`)
   yalnızca bu önekli **ve** 24 saatten eski dosyalara dokunur; aynı workspace başka
-  dosyalar tutabilir. `file_id` istemciden asla alınmaz. Süre (`expires_in_seconds`)
+  dosyalar tutabilir. ⚠️⚠️ Süpürme **`ASSISTANT_EK_YETIM_SUPURME`** (vars. False) ile
+  kapılı ve YALNIZCA ÜRETİMDE açılır: süpürme "bizim DB'mizin bilmediği önekli dosya =
+  yetim" der; aynı anahtarla beat koşan yerel bir ortam üretimin canlı eklerini silerdi.
+  Kapalıyken de dosyalar `expires_in_seconds` (30 gün) ile kendiliğinden düşer. `file_id` istemciden asla alınmaz. Süre (`expires_in_seconds`)
   uzatılamaz → tekilleştirme kopyası `expires_at`'i taşır, kalan ömrü <7 gün ise yeniden
   yüklenir. Süresi dolan dosya açıkça `DELETE` edilir. ZDR kapsamında değil.
 - **Dosya hatası:** 400/404 + mesajda `file` → `EkDosyaHatasi`; `_agent_yaniti` bir kez
   onsuz yeniden dener, yalnızca Files API'de kesin bulunamayanı `suresi_doldu` yapar.
-- **Kota:** günlük hak `kota_sayildi=True` satırlarla sayılır (İstanbul günü). Kopya
-  `False` açılır; bizden kaynaklı `okunamadi` ve bağlanmamış ekin DELETE'i iade eder.
-  ⚠️ Tekilleştirme kotadan ÖNCE denetlenir (hakkı dolan kullanıcı aynı dosyayı yine alır).
+- ⚠️⚠️ **Kota SATIRLARDAN sayılmaz, Redis sayacından sayılır** (`ekler.kota_harca/iade`,
+  gün anahtarlı, 2 gün TTL; Redis yoksa DB sayımına düşer). Satır saymak "yükle → bağla →
+  sohbeti sil (CASCADE) → hak yeniden dolu" döngüsüne izin veriyordu (bağımsız incelemede
+  bulundu). İade yalnızca bizden kaynaklı `okunamadi`, takılı hazırlama ve bağlanmamış ekin
+  DELETE'inde; kopya hak harcamaz (`kota_sayildi=False`). ⚠️ Sayaç ilk kez yaratılırken
+  DB sayımıyla başlar ve o sayım yeni satırı içerir → ayrıca artırılmaz (artırılsaydı ilk
+  yüklemede hak iki kez düşüyordu; testte yakalandı). Tekilleştirme kotadan ÖNCE denetlenir.
+- ⚠️ **Süre sınırı yutulmaz:** `SoftTimeLimitExceeded` bir `Exception` alt sınıfı;
+  `attachments.py`'deki her geniş `except`'in önünde yeniden fırlatılır (yoksa sayfa
+  sessizce boş kalır, doküman eksik "hazır" olurdu). Metin token tavanını belirgin aşan
+  PDF tüm sayfalar okunmadan `cok_uzun`. `pypdf` 6.x'e yükseltildi (5.x'te sıkıştırma
+  bombası sınırı yok, CVE-2025-55197); `assistant-ek-worker` `mem_limit: 3g`.
+- **Takılı hazırlama** (worker düştü / sert süre sınırı) 10 dk'da bir kapatılır
+  (`ek_takilanlari_temizle`, beat `assistant-ek-takili`; eşik 30 dk), hak iade edilir.
+  Günlük temizlik ayrıca ek dizinindeki 1 günden eski sahipsiz ham dosyaları siler.
+- **Eşzamanlı bağlama:** bağsız ek koşullu UPDATE ile bağlanır (`conversation IS NULL`);
+  aynı ek iki sohbete aynı anda giderse öteki kopya alır.
+- **Kapatma anahtarı bağlı ekleri de durdurur:** `kapali` iken mevcut sohbetlerin
+  ekleri de modele gitmez (bağlama "ekler kapalı" notu düşer).
+- **Dosya hatası yorumu** yalnızca istekte Files API kaynağı varken (`"file"` alt dizesi
+  "profile" ile eşleşiyordu).
 - **Hata zarfı:** `services.ekler.EkIstekHatasi` → kod `errors.code`, ek alanlar
   `errors.sifirlanma/limit`. `ChatSendView`'ın "profil yok" yanıtı da artık `profil_yok`
   kodlu (eskiden `api_response(status=400)` kodsuzdu).
@@ -3120,9 +3141,13 @@ sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`. **Üretimde kapalı**
 - **Prompt:** EK GÖNDERME: AÇIK/KAPALI satırı değişken bağlamda; "SOHBETE EKLENEN
   DOSYALAR" bölümü; maliyet analizi kuralı mevcut benchmark kuralına eklendi (tek rakamlık
   tahmini bedel yok); `dokuman_analizi` ek yokken `dokuman_sec` kartı üretir.
-- Testler: `test_agent_onbellek.py` (11), `test_ek_hazirla.py` (22), `test_ekler.py`.
+- Testler: `test_agent_onbellek.py` (12), `test_ek_hazirla.py` (24), `test_ekler.py`.
   Dişli: önbellek/kapanış düzeltmesi geri alınınca 3, kota kontrolü kaldırılınca 1,
-  bağlam taşıma kapatılınca 2 test kırılıyor.
+  bağlam taşıma kapatılınca 2; Redis sayacı / koşullu bağlama / süre sınırı yeniden
+  fırlatma geri alınınca birer test kırılıyor.
+- **Yayında yapılacaklar:** `.env.prod`'a `ASSISTANT_EK_YETIM_SUPURME=True`; yeni servis
+  `assistant-ek-worker` + volume `assistant_ek`; nginx restart; beat yeniden başlatma
+  (iki yeni beat girdisi); `ASSISTANT_EK_KAPSAM` `kapali` → `staff` → `herkes`.
 - **Açık:** adım 0 ölçümleri (ardışık mesaj aralığı → TTL; system[1] değişim sıklığı;
   gerçek OLE `.doc` oranı; taranmış EKAP PDF'inin `count_tokens` ile token sayısı →
   30 sayfa / 120k ayarı; workspace'te başka dosya var mı) ve altın setin 5 yeni senaryosu

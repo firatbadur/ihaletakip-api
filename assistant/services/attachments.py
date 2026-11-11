@@ -27,6 +27,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import timedelta
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.utils import timezone
 
@@ -242,6 +243,8 @@ def _pdf(yol) -> Donusum:
             # parola gerekiyorsa okunamaz. Files API şifreli PDF kabul etmez.
             try:
                 cozuldu = reader.decrypt("")
+            except SoftTimeLimitExceeded:
+                raise  # süre sınırı yutulmasın (Exception alt sınıfı)
             except Exception:
                 cozuldu = 0
             if not cozuldu:
@@ -249,6 +252,8 @@ def _pdf(yol) -> Donusum:
         n = len(reader.pages)
     except EkHatasi:
         raise
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         raise EkHatasi("gecersiz_dosya")
     if n == 0:
@@ -256,16 +261,23 @@ def _pdf(yol) -> Donusum:
     if n > _PDF_AZAMI_SAYFA:
         raise EkHatasi("cok_uzun", sayfa_sayisi=n)
 
+    # Kaba üst sınır: metin token tavanını belirgin aştıysa çıkarmayı sürdürme (yüzlerce
+    # sayfalık PDF'de `extract_text` dakikalar sürer). Kesin karar sonra count_tokens'ta.
+    karakter_tavani = settings.ASSISTANT_EK_TOKEN_AZAMI * _METIN_KARAKTER_TOKEN * 1.5
     parcalar, metinli, toplam = [], 0, 0
     for i, sayfa in enumerate(reader.pages, 1):
         try:
             t = _bosluk_temizle(sayfa.extract_text() or "")
+        except SoftTimeLimitExceeded:
+            raise  # süre sınırı yutulmasın (Exception alt sınıfı)
         except Exception:
             t = ""
         if len(t) >= 40:
             metinli += 1
         toplam += len(t)
         parcalar.append(f"[Sayfa {i}]\n{t}")
+        if toplam > karakter_tavani:
+            raise EkHatasi("cok_uzun", sayfa_sayisi=n)
 
     # Taranmış: metin katmanı yok ya da yer yer var (kapak + taranmış gövde).
     taranmis = (metinli / n) < 0.6 or (toplam / n) < 200
@@ -298,6 +310,8 @@ def _docx(yol) -> str:
 
     try:
         belge = docx.Document(yol)
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         raise EkHatasi("gecersiz_dosya")
     satirlar = []
@@ -310,6 +324,8 @@ def _docx(yol) -> str:
                     satirlar.append(t)
             elif etiket == "tbl":
                 satirlar.extend(_docx_tablo(Table(el, belge)))
+        except SoftTimeLimitExceeded:
+            raise  # süre sınırı yutulmasın (Exception alt sınıfı)
         except Exception:
             continue  # bozuk tek öğe tüm belgeyi düşürmesin
     return _bosluk_temizle("\n".join(satirlar))
@@ -335,6 +351,8 @@ def _xlsx(yol) -> str:
 
     try:
         kitap = openpyxl.load_workbook(yol, read_only=True, data_only=True)
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         raise EkHatasi("gecersiz_dosya")
     try:
@@ -420,6 +438,8 @@ def _ole(yol, uzanti: str) -> str:
             son_hata = e
             if e.kod != "eski_word":
                 raise
+        except SoftTimeLimitExceeded:
+            raise  # süre sınırı yutulmasın (Exception alt sınıfı)
         except Exception:
             continue
     if son_hata is not None:
@@ -434,6 +454,8 @@ def _rtf(yol) -> str:
         ham = f.read().decode("latin-1")
     try:
         return _bosluk_temizle(rtf_to_text(ham, encoding="cp1254", errors="replace"))
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         raise EkHatasi("gecersiz_dosya")
 
@@ -508,11 +530,15 @@ def _mhtml(yol) -> str:
         if tip == "text/html":
             try:
                 return html_metne(parca.get_content())
+            except SoftTimeLimitExceeded:
+                raise  # süre sınırı yutulmasın (Exception alt sınıfı)
             except Exception:
                 continue
         if tip == "text/plain" and duz is None:
             try:
                 duz = parca.get_content()
+            except SoftTimeLimitExceeded:
+                raise  # süre sınırı yutulmasın (Exception alt sınıfı)
             except Exception:
                 pass
     if duz:
@@ -546,6 +572,8 @@ def _gorsel(yol) -> Donusum:
                 im = zemin
             else:
                 im = im.convert("RGB")
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         # DecompressionBombError dahil: bozuk ya da tehlikeli görsel.
         raise EkHatasi("gecersiz_dosya")
@@ -639,6 +667,8 @@ def token_say(istemci, bloklar) -> int | None:
             messages=[{"role": "user", "content": [*bloklar, {"type": "text", "text": "."}]}],
         )
         return int(sonuc.input_tokens)
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception as e:
         logger.warning("ek token sayımı yapılamadı (%s); tahmin kullanılacak", type(e).__name__)
         return None
@@ -702,6 +732,8 @@ def hazirla(ek) -> dict:
         else:
             w, h = don.gorsel_boyut
             token = math.ceil(w * h / 750)
+    except SoftTimeLimitExceeded:
+        raise  # süre sınırı yutulmasın (Exception alt sınıfı)
     except Exception:
         dosya_sil(istemci, file_id)
         raise

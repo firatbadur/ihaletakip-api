@@ -43,6 +43,12 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.ek_temizligi",
         "schedule": crontab(hour=3, minute=40),
     },
+    # Takılı ek hazırlamaları (worker düştü / sert süre sınırı) günlük temizliği
+    # beklemesin: hakkı yer ve istemci boşuna yoklar.
+    "assistant-ek-takili": {
+        "task": "assistant.tasks.ek_takilanlari_temizle",
+        "schedule": crontab(minute="*/10"),
+    },
     # Deneme bitiş hatırlatması — SAATLİK (her saatin 10. dakikası). Mobil paywall
     # "deneme bitmeden hatırlatırız" vaadinin karşılığı; sessiz saatte atlanan push
     # sonraki turda yeniden denenir (bkz. subscription/tasks.py pencere notu).

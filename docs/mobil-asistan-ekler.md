@@ -105,7 +105,7 @@ dokümanlarım", doküman gezgini / DocumentSheet "Asistana sor", AI Analiz yön
 | `403` | `premium_required` (paywall) |
 | `413` | nginx, HTML gövde → `dosya_buyuk` sayın |
 | `429` | `ek_kotasi` (+`errors.sifirlanma` ISO, `errors.limit`) |
-| `503` | `ek_gecici_kapali` (kapsam kapalı) |
+| `503` | `ek_gecici_kapali` (kapsam kapalı ya da sunucu dosyayı şu an kuyruğa alamıyor; tekrar denenebilir) |
 
 ### 3.3 `GET /assistant/attachments/<uuid>/`
 

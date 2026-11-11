@@ -291,6 +291,11 @@ services:
       RUN_MIGRATIONS: "false"
       DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
     command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "assistant_ek", "--concurrency=2", "--prefetch-multiplier=1"]
+    # ⚠️ Bellek tavanı: kötü niyetli bir PDF/Office dosyası tek bir açma çağrısında
+    # gigabaytlarca genişleyebilir ve süre sınırı o çağrıyı kesemez. Tavan aşılırsa
+    # yalnızca bu konteyner ölür (yeniden başlar), aynı makinedeki Postgres etkilenmez;
+    # askıda kalan satırı `ek_takilanlari_temizle` kapatır.
+    mem_limit: 3g
     volumes:
       - assistant_ek:/app/ek_depo
     depends_on:

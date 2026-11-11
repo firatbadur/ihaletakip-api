@@ -111,12 +111,16 @@ class DosyaHatasiTest(TestCase):
         e.status_code = kod
         return e
 
-    def _dene(self, hata):
+    DOSYALI = [{"role": "user", "content": [
+        {"type": "document", "source": {"type": "file", "file_id": "file_011"}},
+        {"type": "text", "text": "x"}]}]
+
+    def _dene(self, hata, mesajlar=None):
         istemci = MagicMock()
         istemci.messages.create.side_effect = hata
         with patch("anthropic.Anthropic", return_value=istemci), \
                 patch("assistant.services.agent.get_api_key", return_value="k"):
-            sohbet_turu(ToolContext(user=None), {}, "", [{"role": "user", "content": "x"}])
+            sohbet_turu(ToolContext(user=None), {}, "", mesajlar or self.DOSYALI)
 
     def test_dosyayi_isaret_eden_404_ek_hatasi(self):
         with self.assertRaises(EkDosyaHatasi):
@@ -131,6 +135,15 @@ class DosyaHatasiTest(TestCase):
 
         with self.assertRaises(AnalysisError) as ctx:
             self._dene(self._hata(400, "invalid model"))
+        self.assertNotIsInstance(ctx.exception, EkDosyaHatasi)
+
+    def test_dosya_kaynagi_yoksa_file_gecen_hata_ek_hatasi_degil(self):
+        # "profile" da "file" içerir: eksiz bir istek ek hatası sayılmamalı.
+        from ai.services.claude import AnalysisError
+
+        with self.assertRaises(AnalysisError) as ctx:
+            self._dene(self._hata(400, "invalid profile field"),
+                       [{"role": "user", "content": "x"}])
         self.assertNotIsInstance(ctx.exception, EkDosyaHatasi)
 
 

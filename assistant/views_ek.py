@@ -6,6 +6,7 @@ hazırlanır, "çok uzun" gibi hatalar göndermeden önce görünür, ilerleme /
 tekilleştirme mümkün olur. Sözleşme: docs/mobil-asistan-ekler.md.
 """
 import hashlib
+import logging
 import os
 import uuid
 
@@ -31,8 +32,12 @@ from .services.ekler import (
     kopya_olustur,
     kopyalanabilir_mi,
     kota_denetle,
+    kota_harca,
+    kota_iade,
     limitler,
 )
+
+logger = logging.getLogger("ihaletakip")
 
 
 class EkYukleSerializer(serializers.Serializer):
@@ -144,8 +149,9 @@ class EkYukleView(APIView):
         uzanti = os.path.splitext(ad)[1].lstrip(".").lower()[:16]
 
         self._boyut(dosya.size, settings.ASSISTANT_EK_AZAMI_BAYT)
-        yol, sha = self._yaz(dosya)
+        yol = None
         try:
+            yol, sha = self._yaz(dosya)
             tur = self._tur(yol, uzanti)
             if tur == "fotograf":
                 self._boyut(dosya.size, settings.ASSISTANT_EK_FOTO_AZAMI_BAYT)
@@ -157,14 +163,23 @@ class EkYukleView(APIView):
                 return _hak_ve_ek(user, tekrar, 200)  # yeni ham dosya `finally`'de silinir
 
             kota_denetle(user, tur)
-            with transaction.atomic():
-                ek = AssistantAttachment.objects.create(
-                    user=user, tur=tur, mime=getattr(dosya, "content_type", "") or "",
-                    boyut=dosya.size, sha256=sha, depo_yolu=str(yol), **ust_veri)
-                from .tasks import ek_hazirla_task
+            ek = AssistantAttachment.objects.create(
+                user=user, tur=tur, mime=getattr(dosya, "content_type", "") or "",
+                boyut=dosya.size, sha256=sha, depo_yolu=str(yol), **ust_veri)
+            kota_harca(user, tur)
+            from .tasks import ek_hazirla_task
 
-                ek_id = str(ek.id)
-                transaction.on_commit(lambda: ek_hazirla_task.delay(ek_id))
+            try:
+                ek_hazirla_task.delay(str(ek.id))
+            except Exception:
+                # Kuyruk (Redis) erişilemez: satırı hazırlanıyor bırakmak hakkı yer ve
+                # istemciyi boşuna yoklatır → satır silinir, hak iade edilir, ham dosya
+                # `finally`'de silinir.
+                logger.exception("ek hazırlama kuyruğa atılamadı (ek=%s)", ek.id)
+                kota_iade(user.id, tur, ek.created_at)
+                ek.delete()
+                raise EkIstekHatasi("ek_gecici_kapali", 503,
+                                    "Dosya şu an işlenemiyor. Biraz sonra tekrar deneyin.")
             yol = None  # artık görevin sorumluluğunda
             return _hak_ve_ek(user, ek, 202)
         finally:
@@ -189,10 +204,18 @@ class EkYukleView(APIView):
         os.makedirs(settings.ASSISTANT_EK_DIR, exist_ok=True)
         yol = os.path.join(settings.ASSISTANT_EK_DIR, uuid.uuid4().hex)
         ozet = hashlib.sha256()
-        with open(yol, "wb") as hedef:
-            for parca in dosya.chunks():
-                ozet.update(parca)
-                hedef.write(parca)
+        try:
+            with open(yol, "wb") as hedef:
+                for parca in dosya.chunks():
+                    ozet.update(parca)
+                    hedef.write(parca)
+        except BaseException:
+            # Yarım yazılmış dosya (ör. disk dolu) dizinde sahipsiz kalmasın.
+            try:
+                os.remove(yol)
+            except FileNotFoundError:
+                pass
+            raise
         return yol, ozet.hexdigest()
 
     @staticmethod
@@ -263,5 +286,7 @@ class EkDetayView(APIView):
         ek = self._ek(request, ek_id)
         if ek.conversation_id is not None:
             raise EkIstekHatasi("ek_bagli", 409, "Bu dosya sohbete gönderildi; silinemez.")
+        if ek.kota_sayildi:
+            kota_iade(request.user.id, ek.tur, ek.created_at)
         ek.delete()  # post_delete sinyali ham dosyayı ve Files API dosyasını siler
         return Response({"silindi": True, "gunluk_kalan": gunluk_kalan(request.user)})

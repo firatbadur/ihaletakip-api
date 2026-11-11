@@ -35,6 +35,9 @@ class _EkTest(TestCase):
     URL = "/api/v1/assistant/attachments/"
 
     def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()  # günlük kota sayacı Redis'te; testler arasında taşınmasın
         self.dizin = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dizin, ignore_errors=True)
         ayar = override_settings(ASSISTANT_EK_KAPSAM="herkes", ASSISTANT_EK_DIR=self.dizin)
@@ -142,6 +145,38 @@ class YuklemeTest(_EkTest):
     def test_iade_edilen_hak_sayilmaz(self):
         self.hazir_ek(kota_sayildi=False, sha256="y" * 64)
         self.assertEqual(self.yukle().status_code, 202)
+
+    @override_settings(ASSISTANT_EK_GUNLUK_DOKUMAN=1)
+    def test_sohbet_silmek_hakki_geri_vermez(self):
+        # Satır sayılsaydı: yükle → bağla → sohbeti sil (CASCADE) → hak yeniden dolu.
+        r = self.yukle()
+        ek = AssistantAttachment.objects.get(id=r.json()["data"]["ek"]["id"])
+        sohbet = ChatConversation.objects.create(user=self.user)
+        AssistantAttachment.objects.filter(id=ek.id).update(conversation=sohbet, sira=1)
+        with patch("assistant.tasks.ek_dosyalarini_sil_task.delay"):
+            sohbet.delete()
+        self.assertFalse(AssistantAttachment.objects.exists())
+        r2 = self.yukle(bayt=metinli_pdf([_SAYFA + " yeni"]))
+        self.assertEqual(r2.status_code, 429)
+
+    @override_settings(ASSISTANT_EK_GUNLUK_DOKUMAN=1)
+    def test_bagsiz_eki_silmek_hakki_geri_verir(self):
+        r = self.yukle()
+        ek_id = r.json()["data"]["ek"]["id"]
+        with patch("assistant.tasks.ek_dosyalarini_sil_task.delay"), \
+                self.captureOnCommitCallbacks(execute=True):
+            self.api.delete(f"{self.URL}{ek_id}/")
+        self.assertEqual(self.yukle(bayt=metinli_pdf([_SAYFA + " yeni"])).status_code, 202)
+
+    def test_kuyruk_erisilemezse_503_satir_ve_dosya_kalmaz(self):
+        self.delay.side_effect = ConnectionError("redis yok")
+        with patch("assistant.tasks.ek_dosyalarini_sil_task.delay"):
+            r = self.yukle()
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (503, "ek_gecici_kapali"))
+        self.assertFalse(AssistantAttachment.objects.exists())
+        self.assertEqual(list(Path(self.dizin).iterdir()), [])
+        self.assertEqual(self.api.get(f"{self.URL}limits/").json()["data"]["gunluk_kalan"]
+                         ["dokuman"], 20)
 
     def test_tekrar_bagsiz_ek_aynisi_200_hak_yok(self):
         import hashlib
@@ -317,6 +352,19 @@ class TemizlikTest(_EkTest):
         self.assertLess(r.status_code, 300, r.content)
         self.assertFalse(AssistantAttachment.objects.filter(user=self.user).exists())
 
+    def test_yetim_supurme_ayar_kapaliyken_hicbir_dosyaya_dokunmaz(self):
+        from assistant.tasks import ek_temizligi
+
+        istemci = MagicMock()
+        istemci.files.list.return_value = [SimpleNamespace(
+            id="file_yetim", filename="ihaletakip-ek-1.pdf",
+            created_at=timezone.now() - timedelta(days=3))]
+        with patch("assistant.services.attachments._istemci", return_value=istemci):
+            ek_temizligi()
+        istemci.files.list.assert_not_called()
+        istemci.files.delete.assert_not_called()
+
+    @override_settings(ASSISTANT_EK_YETIM_SUPURME=True)
     def test_gunluk_temizlik(self):
         from assistant.tasks import ek_temizligi
 
@@ -448,6 +496,27 @@ class SohbetGondermeTest(_EkTest):
         self.assertEqual((r.status_code, r.json()["errors"]["code"]), (400, "profil_yok"))
         self.assertEqual(r.json()["message"], "Önce firma profilinizi oluşturun.")
 
+    def test_es_zamanli_baglama_ikinci_sohbete_kopya(self):
+        # İki sohbete aynı anda gönderilen bağsız ek: koşullu UPDATE yalnızca birini
+        # bağlar, öteki kopya alır (son yazan kazansaydı X'in mesajı görünmeyen eki gösterirdi).
+        from assistant.services import ekler as ek_kurallari
+
+        ek = self.hazir_ek()
+        diger = ChatConversation.objects.create(user=self.user)
+        asil = ek_kurallari.kullanilabilir_mi
+
+        def _araya_gir(e, simdi=None):
+            AssistantAttachment.objects.filter(id=e.id).update(conversation=diger, sira=1)
+            return asil(e, simdi)
+
+        with patch.object(ek_kurallari, "kullanilabilir_mi", side_effect=_araya_gir):
+            r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual(r.status_code, 202, r.content)
+        ek.refresh_from_db()
+        self.assertEqual(ek.conversation_id, diger.id)
+        kopya = AssistantAttachment.objects.exclude(id=ek.id).get()
+        self.assertEqual(kopya.conversation_id, r.json()["data"]["conversation_id"])
+
     def test_baska_sohbetteki_ek_kopyalanir(self):
         eski = ChatConversation.objects.create(user=self.user)
         ek = self.hazir_ek(conversation=eski, sira=1)
@@ -555,6 +624,14 @@ class BaglamTest(_EkTest):
         self.assertEqual(len(c["system"]), 2)
         self.assertIn("EK GÖNDERME: KAPALI", c["system"][1]["text"])
         self.assertEqual(c["messages"][-1]["content"], "Merhaba")
+
+    @override_settings(ASSISTANT_EK_KAPSAM="kapali")
+    def test_kapatma_anahtari_bagli_ekleri_de_durdurur(self):
+        ek = self.hazir_ek(metin="gizli içerik")
+        _, cagrilar = self.calistir(self.soru("Özetle", ek))
+        c = cagrilar[0]
+        self.assertNotIn("gizli içerik", str(c["messages"]))
+        self.assertIn("ekleri şu an kapalı", c["system"][1]["text"])
 
     def test_payload_none_cokmez(self):
         msg = self.ChatMessage.objects.create(user=self.user, conversation=self.sohbet,

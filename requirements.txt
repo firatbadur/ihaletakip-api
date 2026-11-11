@@ -31,7 +31,9 @@ curl_cffi==0.7.4
 
 # ── AI / Doküman analizi ───────────────────────────────
 anthropic==1.0.0
-pypdf==5.2.0
+# ⚠️ ≥6.0: FlateDecode çıktı sınırı (CVE-2025-55197, sıkıştırma bombası). Asistan
+# ekleri kullanıcı PDF'i açtığı için 5.x'te kalınamazdı.
+pypdf==6.21.4
 python-docx==1.1.2
 # Asistan ekleri (assistant/services/attachments.py): Excel, eski Excel, RTF
 openpyxl==3.1.5

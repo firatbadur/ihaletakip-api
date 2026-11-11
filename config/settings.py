@@ -343,6 +343,11 @@ ASSISTANT_EK_CACHE_TTL = env("ASSISTANT_EK_CACHE_TTL", default="5m")
 # (eşit olsaydı görev 90. saniyede biterken istemci vazgeçerdi).
 ASSISTANT_EK_SURE_SN = env.int("ASSISTANT_EK_SURE_SN", default=90)
 ASSISTANT_EK_YOKLAMA_ARALIK_MS = env.int("ASSISTANT_EK_YOKLAMA_ARALIK_MS", default=1500)
+# Files API yetim süpürmesi (`ek_temizligi` 3. adım). ⚠️ YALNIZCA ÜRETİMDE açın: süpürme
+# "bizim DB'mizin bilmediği `ihaletakip-ek-` önekli dosya = yetim" der; aynı anahtarla
+# beat koşan başka bir ortam (yerel) açık olsaydı üretimin canlı eklerini silerdi.
+# Kapalıyken dosyalar yüklemedeki `expires_in_seconds` ile kendiliğinden düşer.
+ASSISTANT_EK_YETIM_SUPURME = env.bool("ASSISTANT_EK_YETIM_SUPURME", default=False)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Google Sign-In (idToken audience'ları)
@@ -992,6 +997,7 @@ CELERY_TASK_ROUTES = {
     "assistant.tasks.ek_hazirla_task": {"queue": "assistant_ek"},
     "assistant.tasks.ek_dosyalarini_sil_task": {"queue": "assistant_ek"},
     "assistant.tasks.ek_temizligi": {"queue": "assistant_ek"},
+    "assistant.tasks.ek_takilanlari_temizle": {"queue": "assistant_ek"},
     # sync_contractors EKAP'a HİÇ gitmez (Tender.detail_raw arşivinden çalışır) →
     # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
     "ekap.tasks.sync_contractors": {"queue": "celery"},

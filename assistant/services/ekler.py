@@ -6,14 +6,18 @@ uçlarının ve sohbet görevinin ortak iş kurallarını tutar (docs/plan-asist
 1.3, 1.4, 1.6, 1.8). Hata yanıtları `EkIstekHatasi` ile verilir: kod `errors.code`'da,
 ek alanlar (`sifirlanma`, `limit`) `errors` içinde (PremiumRequired deseni).
 """
+import logging
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Max, Sum
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
 from .attachments import hata_mesaji
+
+logger = logging.getLogger("ihaletakip")
 
 # Mobilin dosya seçicide kullandığı kabul listesi. Asıl karar sunucuda İMZAYLA verilir
 # (uzantı yalnızca ipucu); bu liste istemcinin baştan eleyeceği türleri söyler.
@@ -73,12 +77,56 @@ def gunluk_limit(tur) -> int:
             else settings.ASSISTANT_EK_GUNLUK_DOKUMAN)
 
 
-def gunluk_kullanilan(user, tur) -> int:
+# ⚠️ Günlük hak SATIRLARDAN sayılmaz, ayrı bir sayaçtan sayılır: sohbet silme CASCADE
+# ile ek satırlarını siler; satır saymak "20 doküman yükle → sohbeti sil → hak yeniden
+# 20" döngüsüne izin verirdi (bağımsız incelemede bulundu, 2026-11-11). Sayaç Redis'te
+# (gün anahtarlı, 2 gün TTL); Redis'e ulaşılamazsa DB sayımına düşülür.
+_KOTA_TTL = 2 * 86400
+
+
+def _kota_anahtari(user_id, tur, gun) -> str:
+    return f"asistan:ek_kota:{user_id}:{tur}:{gun.isoformat()}"
+
+
+def _db_sayimi(user_id, tur) -> int:
     from assistant.models import AssistantAttachment
 
     return AssistantAttachment.objects.filter(
-        user=user, tur=tur, kota_sayildi=True, created_at__gte=gun_baslangici()
+        user_id=user_id, tur=tur, kota_sayildi=True, created_at__gte=gun_baslangici()
     ).count()
+
+
+def gunluk_kullanilan(user, tur) -> int:
+    try:
+        deger = cache.get(_kota_anahtari(user.id, tur, timezone.localdate()))
+    except Exception:
+        deger = None
+    return _db_sayimi(user.id, tur) if deger is None else int(deger)
+
+
+def kota_harca(user, tur) -> None:
+    """
+    Kabul edilen yükleme hakkı düşer. Satır YARATILDIKTAN SONRA çağrılır.
+
+    Sayaç yoksa bugünkü DB sayımıyla başlar — o sayım az önce yaratılan satırı zaten
+    içerdiği için ayrıca artırılmaz (artırılsaydı ilk yüklemede hak iki kez düşerdi).
+    """
+    anahtar = _kota_anahtari(user.id, tur, timezone.localdate())
+    try:
+        if not cache.add(anahtar, _db_sayimi(user.id, tur), timeout=_KOTA_TTL):
+            cache.incr(anahtar)
+    except Exception:
+        logger.warning("ek kota sayacı yazılamadı; DB sayımı kullanılacak")
+
+
+def kota_iade(user_id, tur, olusma) -> None:
+    """Hakkı geri verir (bizden kaynaklı hata, bağlanmamış ekin silinmesi). Sıfırın altına inmez."""
+    anahtar = _kota_anahtari(user_id, tur, timezone.localdate(olusma))
+    try:
+        if (cache.get(anahtar) or 0) > 0:
+            cache.decr(anahtar)
+    except Exception:
+        logger.warning("ek kota iadesi yazılamadı")
 
 
 def gunluk_kalan(user) -> dict:
@@ -262,11 +310,23 @@ def sohbete_bagla(user, conversation, message, ek_idleri) -> list:
         if ek.conversation_id == conversation.id:
             sonuc.append(ek)          # zaten bu sohbette; yeniden numaralanmaz
             continue
-        if ek.conversation_id is not None:
-            # Başka sohbete bağlı: içeriği kopyalanır (hak harcanmaz, yeniden yükleme yok).
-            ek = kopya_olustur(ek)
         sira += 1
-        ek.conversation, ek.message, ek.sira = conversation, message, sira
-        ek.save(update_fields=["conversation", "message", "sira"])
-        sonuc.append(ek)
+        alanlar = {"conversation": conversation, "message": message, "sira": sira}
+        if ek.conversation_id is None:
+            # ⚠️ Koşullu UPDATE: aynı bağsız ek iki sohbete eşzamanlı gönderilirse (çift
+            # dokunuş) yalnızca biri bağlar; öteki kopya alır. Düz `save()` son yazanı
+            # kazandırır ve ilk sohbetin mesajı modelin hiç görmediği eki gösterirdi.
+            if AssistantAttachment.objects.filter(
+                    id=ek.id, conversation__isnull=True).update(**alanlar):
+                for k, v in alanlar.items():
+                    setattr(ek, k, v)
+                sonuc.append(ek)
+                continue
+            ek.refresh_from_db()
+        # Başka sohbete bağlı: içeriği kopyalanır (hak harcanmaz, yeniden yükleme yok).
+        kopya = kopya_olustur(ek)
+        for k, v in alanlar.items():
+            setattr(kopya, k, v)
+        kopya.save(update_fields=list(alanlar))
+        sonuc.append(kopya)
     return sorted(sonuc, key=lambda e: e.sira or 0)

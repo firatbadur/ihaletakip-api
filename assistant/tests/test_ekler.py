@@ -358,3 +358,252 @@ class TemizlikTest(_EkTest):
         # ⚠️ Öneksiz, yeni ya da kullanılan dosyaya dokunulmaz.
         for korunan in ("file_yeni", "file_baska", "file_canli"):
             self.assertNotIn(korunan, silinen)
+
+
+# ── Sohbete gönderme (ChatSendView) ─────────────────────────────────────────
+
+class SohbetGondermeTest(_EkTest):
+    CHAT = "/api/v1/assistant/chat/"
+
+    def setUp(self):
+        super().setUp()
+        p = patch("assistant.tasks.assistant_chat_task.delay", return_value=SimpleNamespace(id="t1"))
+        self.chat_delay = p.start()
+        self.addCleanup(p.stop)
+
+    def gonder(self, **govde):
+        return self.api.post(self.CHAT, govde, format="json")
+
+    def test_bos_mesaj_ek_varsayilan_soru_sira_ve_payload(self):
+        ek = self.hazir_ek(ad="TEKNİK ŞARTNAME.docx")
+        r = self.gonder(message="", ekler=[str(ek.id)], yetenekler=["ek"])
+        self.assertEqual(r.status_code, 202, r.content)
+        from assistant.models import ChatMessage
+
+        msg = ChatMessage.objects.get(role="user")
+        self.assertEqual(msg.content, "Bu dokümanı özetler misin?")
+        self.assertEqual(msg.payload["yetenekler"], ["ek"])
+        self.assertEqual(msg.payload["ekler"][0]["id"], str(ek.id))
+        self.assertNotIn("metin", msg.payload["ekler"][0])
+        ek.refresh_from_db()
+        self.assertEqual((ek.sira, ek.message_id), (1, msg.id))
+        self.assertEqual(ek.conversation.title, "Doküman: TEKNİK ŞARTNAME.docx")
+        self.chat_delay.assert_called_once()
+
+    def test_ikinci_ek_sira_iki(self):
+        ek1, ek2 = self.hazir_ek(), self.hazir_ek(sha256="2" * 64)
+        conv = self.gonder(message="a", ekler=[str(ek1.id)]).json()["data"]["conversation_id"]
+        self.assertEqual(self.gonder(message="b", conversation=conv,
+                                     ekler=[str(ek2.id)]).status_code, 202)
+        ek2.refresh_from_db()
+        self.assertEqual(ek2.sira, 2)
+
+    def test_bos_mesaj_eksiz_400(self):
+        self.assertEqual(self.gonder(message="").status_code, 400)
+
+    def test_hazir_degil_409(self):
+        ek = self.hazir_ek(durum="hazirlaniyor")
+        r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (409, "ek_hazir_degil"))
+
+    def test_suresi_dolan_410(self):
+        ek = self.hazir_ek(expires_at=timezone.now() + timedelta(minutes=30))
+        r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (410, "ek_suresi_doldu"))
+
+    def test_baskasinin_eki_404_ve_hicbir_sey_yazilmaz(self):
+        from assistant.models import ChatMessage
+
+        diger = get_user_model().objects.create_user(username="d2", email="d2@x.com", password="x")
+        ek = self.hazir_ek(user=diger)
+        r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (404, "ek_bulunamadi"))
+        # atomic: sohbet ve mesaj da geri alındı
+        self.assertFalse(ChatMessage.objects.exists())
+        self.assertFalse(ChatConversation.objects.exists())
+
+    @override_settings(ASSISTANT_EK_MESAJ_DOKUMAN=1)
+    def test_mesaj_siniri_400(self):
+        a, b = self.hazir_ek(), self.hazir_ek(sha256="3" * 64)
+        r = self.gonder(message="x", ekler=[str(a.id), str(b.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (400, "mesaj_ek_siniri"))
+
+    @override_settings(ASSISTANT_EK_SOHBET_DOKUMAN=1)
+    def test_sohbet_siniri_409(self):
+        sohbet = ChatConversation.objects.create(user=self.user)
+        self.hazir_ek(conversation=sohbet, sira=1)
+        ek = self.hazir_ek(sha256="4" * 64)
+        r = self.gonder(message="x", conversation=sohbet.id, ekler=[str(ek.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (409, "sohbet_ek_siniri"))
+
+    @override_settings(ASSISTANT_AGENT_ENABLED=False)
+    def test_eski_yol_ekli_mesaji_503(self):
+        ek = self.hazir_ek()
+        r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (503, "ek_gecici_kapali"))
+
+    def test_profil_yok_kodlu(self):
+        CompanyProfile.objects.filter(user=self.user).delete()
+        r = self.gonder(message="merhaba")
+        self.assertEqual((r.status_code, r.json()["errors"]["code"]), (400, "profil_yok"))
+        self.assertEqual(r.json()["message"], "Önce firma profilinizi oluşturun.")
+
+    def test_baska_sohbetteki_ek_kopyalanir(self):
+        eski = ChatConversation.objects.create(user=self.user)
+        ek = self.hazir_ek(conversation=eski, sira=1)
+        r = self.gonder(message="x", ekler=[str(ek.id)])
+        self.assertEqual(r.status_code, 202)
+        yeni = AssistantAttachment.objects.exclude(id=ek.id).get()
+        self.assertEqual(yeni.conversation_id, r.json()["data"]["conversation_id"])
+        self.assertFalse(yeni.kota_sayildi)
+        ek.refresh_from_db()
+        self.assertEqual(ek.conversation_id, eski.id)
+
+    def test_sohbet_detayi_ekler_sohbet_kalan(self):
+        ek = self.hazir_ek()
+        conv = self.gonder(message="x", ekler=[str(ek.id)]).json()["data"]["conversation_id"]
+        d = self.api.get(f"/api/v1/assistant/conversations/{conv}/").json()["data"]
+        self.assertEqual(d["totalCount"], 1)
+        self.assertEqual([e["id"] for e in d["ekler"]], [str(ek.id)])
+        self.assertNotIn("metin", d["ekler"][0])
+        self.assertIsNone(d["sohbet"])
+        self.assertEqual(d["sohbet_kalan"], {"dokuman": 4, "fotograf": 12})
+        d2 = self.api.get(f"/api/v1/assistant/conversations/{conv}/?page=2").json()["data"]
+        self.assertNotIn("ekler", d2)
+
+
+# ── Model bağlamı (_agent_yaniti) ───────────────────────────────────────────
+
+class BaglamTest(_EkTest):
+    def setUp(self):
+        super().setUp()
+        from assistant.models import ChatMessage
+
+        self.ChatMessage = ChatMessage
+        self.profil = CompanyProfile.objects.get(user=self.user)
+        self.sohbet = ChatConversation.objects.create(user=self.user, title="t")
+
+    def soru(self, metin, ek=None, yetenekler=("ek",)):
+        msg = self.ChatMessage.objects.create(
+            user=self.user, conversation=self.sohbet, role="user", content=metin,
+            payload={"yetenekler": list(yetenekler)} if yetenekler else None)
+        if ek is not None:
+            sira = (AssistantAttachment.objects.filter(conversation=self.sohbet).count() + 1)
+            AssistantAttachment.objects.filter(id=ek.id).update(
+                conversation=self.sohbet, message=msg, sira=sira)
+        return msg
+
+    def calistir(self, msg, yanitlar=None, hata=None, metadata=None):
+        from assistant.tasks import _agent_yaniti
+        from assistant.tests.test_agent_onbellek import _Kayit, _yanit
+
+        kayit = _Kayit(yanitlar or [_yanit()])
+        istemci = MagicMock()
+        istemci.messages.create.side_effect = hata or kayit
+        if metadata is not None:
+            istemci.files.retrieve_metadata.side_effect = metadata
+        with patch("anthropic.Anthropic", return_value=istemci), \
+                patch("assistant.services.agent.get_api_key", return_value="k"), \
+                patch("assistant.services.attachments._istemci", return_value=istemci):
+            sonuc = _agent_yaniti(self.profil, msg, self.sohbet, timezone.localdate())
+        return sonuc, kayit.cagrilar
+
+    def test_ekler_ilk_mesajin_basinda_tek_onbellek_noktasi(self):
+        ek1 = self.hazir_ek(metin="Teknik şartname metni")
+        foto = self.hazir_ek(sha256="f" * 64, tur="fotograf", mod="gorsel", metin="",
+                             anthropic_file_id="file_foto")
+        msg = self.soru("Teslim süresi ne?", ek1)
+        AssistantAttachment.objects.filter(id=foto.id).update(
+            conversation=self.sohbet, message=msg, sira=2)
+        _, cagrilar = self.calistir(msg)
+        c = cagrilar[0]
+        ilk = c["messages"][0]["content"]
+        self.assertEqual([b["type"] for b in ilk[:3]], ["document", "text", "image"])
+        self.assertEqual(ilk[0]["source"]["data"], "Teknik şartname metni")
+        self.assertEqual(ilk[2]["source"], {"type": "file", "file_id": "file_foto"})
+        isaretli = [b for b in ilk if "cache_control" in b]
+        self.assertEqual(isaretli, [ilk[2]])  # yalnızca son ek bloğu
+        noktalar = (sum(1 for b in c["system"] if "cache_control" in b) + len(isaretli)
+                    + (1 if c.get("cache_control") else 0))
+        self.assertLessEqual(noktalar, 4)
+
+    def test_ekli_sohbette_baglam_son_mesajda_eklerden_sonra(self):
+        ek = self.hazir_ek()
+        _, cagrilar = self.calistir(self.soru("Özetle", ek))
+        c = cagrilar[0]
+        self.assertEqual(len(c["system"]), 1)  # değişken bağlam system'de DEĞİL
+        icerik = c["messages"][-1]["content"]
+        self.assertEqual(icerik[0]["type"], "document")      # önce ek
+        self.assertIn("EK GÖNDERME: AÇIK", icerik[-2]["text"])  # sonra bağlam
+        self.assertTrue(icerik[-1]["text"].endswith("Özetle"))  # en son soru
+
+    def test_iki_turda_system_ve_ekler_byte_ayni(self):
+        ek = self.hazir_ek()
+        _, ilk = self.calistir(self.soru("Özetle", ek))
+        self.ChatMessage.objects.create(user=self.user, conversation=self.sohbet,
+                                        role="assistant", content="Özet.")
+        _, ikinci = self.calistir(self.soru("2026/123456 ihalesi bununla ilgili mi?"))
+        self.assertEqual(ilk[0]["system"], ikinci[0]["system"])
+        self.assertEqual(ilk[0]["messages"][0]["content"][0],
+                         ikinci[0]["messages"][0]["content"][0])
+        # Değişen İKN ipucu yalnızca son mesajda
+        self.assertIn("2026/123456", ikinci[0]["messages"][-1]["content"][-2]["text"])
+
+    def test_eksiz_sohbette_baglam_systemde_kapali(self):
+        _, cagrilar = self.calistir(self.soru("Merhaba", yetenekler=()))
+        c = cagrilar[0]
+        self.assertEqual(len(c["system"]), 2)
+        self.assertIn("EK GÖNDERME: KAPALI", c["system"][1]["text"])
+        self.assertEqual(c["messages"][-1]["content"], "Merhaba")
+
+    def test_payload_none_cokmez(self):
+        msg = self.ChatMessage.objects.create(user=self.user, conversation=self.sohbet,
+                                              role="user", content="selam", payload=None)
+        sonuc, _ = self.calistir(msg)
+        self.assertEqual(sonuc[0], "Tamam.")
+
+    def test_gecmiste_ek_etiketi(self):
+        ek = self.hazir_ek()
+        self.soru("İlk soru", ek)
+        self.ChatMessage.objects.create(user=self.user, conversation=self.sohbet,
+                                        role="assistant", content="Cevap.")
+        _, cagrilar = self.calistir(self.soru("İkinci soru"))
+        ilk_metin = cagrilar[0]["messages"][0]["content"][-1]["text"]
+        self.assertTrue(ilk_metin.startswith("[Bu mesajla gönderilen ekler: Ek 1]"))
+
+    def test_suresi_dolan_ek_gitmez_not_duser(self):
+        ek = self.hazir_ek(expires_at=timezone.now() + timedelta(minutes=10))
+        _, cagrilar = self.calistir(self.soru("Özetle", ek))
+        c = cagrilar[0]
+        self.assertEqual(c["messages"][0]["content"], "[Bu mesajla gönderilen ekler: Ek 1]\nÖzetle")
+        self.assertIn("saklama süresi doldu", c["system"][1]["text"])
+
+    def test_dosya_hatasinda_tek_yeniden_deneme(self):
+        import anthropic
+        import httpx2
+
+        from assistant.tests.test_agent_onbellek import _Kayit, _yanit
+
+        ek = self.hazir_ek(mod="pdf", metin="", anthropic_file_id="file_olu")
+        msg = self.soru("Özetle", ek)
+        hata = anthropic.APIError("File `file_olu` not found.", request=None, body=None)
+        hata.status_code = 404
+        kayit = _Kayit([_yanit()])
+        cagri = {"n": 0}
+
+        def _create(**kw):
+            cagri["n"] += 1
+            if cagri["n"] == 1:
+                raise hata
+            return kayit(**kw)
+
+        yok = anthropic.NotFoundError(
+            "yok", response=httpx2.Response(404, request=httpx2.Request("GET", "https://x")),
+            body=None)
+        sonuc, _ = self.calistir(msg, hata=_create, metadata=yok)
+        self.assertEqual(sonuc[0], "Tamam.")
+        self.assertEqual(cagri["n"], 2)
+        ikinci = kayit.cagrilar[0]["messages"][0]["content"]
+        self.assertNotIn("document", str(ikinci))
+        ek.refresh_from_db()
+        self.assertEqual((ek.durum, ek.anthropic_file_id), ("suresi_doldu", ""))

@@ -11,15 +11,28 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.db import transaction
+
 from accounts.premium import MSG_CHAT, require_premium
 from core.response import api_response
 
 from .models import (
     AssistantAction,
+    AssistantAttachment,
     ChatConversation,
     ChatMessage,
     CompanyProfile,
     TenderRecommendation,
+)
+from .services.ekler import (
+    VARSAYILAN_SORU,
+    EkIstekHatasi,
+    ek_etkin,
+    ek_ozeti,
+    ek_sozlugu,
+    sohbet_ekleri,
+    sohbet_kalan,
+    sohbete_bagla,
 )
 from .serializers import (
     ChatConversationSerializer,
@@ -185,7 +198,13 @@ class ChatMessageListView(APIView):
         "`{id, conversation, role, content, tender_cards, created_at}`.\n\n"
         "**Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye "
         "profilini oluşturabilir ancak mesaj gönderince **403** alır "
-        "(`errors.code = premium_required`) — mobil abonelik paketlerini sunar."
+        "(`errors.code = premium_required`) — mobil abonelik paketlerini sunar.\n\n"
+        "**Ekler:** `ekler` hazır ek kimlikleridir (`POST /assistant/attachments/`). Ek "
+        "varken `message` boş olabilir; sunucu varsayılan soruyu yazar. `yetenekler: "
+        "[\"ek\"]` her mesajda ve yalnızca `limits.etkin=true` iken gönderilir. Hatalar "
+        "`errors.code` ile: `profil_yok` (400), `mesaj_ek_siniri` (400), `ek_bulunamadi` "
+        "(404), `ek_hazir_degil` (409), `sohbet_ek_siniri` (409), `ek_suresi_doldu` (410), "
+        "`ek_gecici_kapali` (503)."
     ),
     request=ChatSendSerializer,
     responses={
@@ -202,7 +221,13 @@ class ChatMessageListView(APIView):
             "Mesaj gönder",
             request_only=True,
             value={"message": "Bana uygun ihale var mı?", "conversation": None},
-        )
+        ),
+        OpenApiExample(
+            "Ekli mesaj",
+            request_only=True,
+            value={"message": "", "conversation": 812, "tender": None,
+                   "ekler": ["6f1c2b8e-1d2a-4c55-9b0e-2f7e1a9c3d41"], "yetenekler": ["ek"]},
+        ),
     ],
 )
 class ChatSendView(APIView):
@@ -216,50 +241,78 @@ class ChatSendView(APIView):
         serializer.is_valid(raise_exception=True)
 
         if not CompanyProfile.objects.filter(user=request.user).exists():
-            return api_response(
-                data=None,
-                message="Önce firma profilinizi oluşturun.",
-                success=False,
-                status=400,
-            )
+            # ⚠️ Kod `errors.code`'da: eskiden `api_response(status=400)` kodsuz dönüyordu.
+            raise EkIstekHatasi("profil_yok", 400, "Önce firma profilinizi oluşturun.")
 
         content = serializer.validated_data["message"]
         conv_id = serializer.validated_data.get("conversation")
         tender_ref = (serializer.validated_data.get("tender") or "").strip()
+        ek_idleri = serializer.validated_data.get("ekler") or []
+        yetenekler = serializer.validated_data.get("yetenekler") or []
 
-        if conv_id:
-            conversation = ChatConversation.objects.filter(
-                user=request.user, id=conv_id
-            ).first()
-            if not conversation:
-                raise NotFound("Sohbet oturumu bulunamadı.")
-        else:
-            # Yeni konuşma; tender verildiyse ihale odaklı aç (başlık ihale adı olur)
-            title = content[:120]
-            tender_ikn = ""
-            if tender_ref:
-                from django.db.models import Q
+        ek_ilk = []
+        if ek_idleri:
+            # Eski anahtar kelime yolu (ASSISTANT_AGENT_ENABLED=False) ekleri okuyamaz →
+            # sessizce yok saymak yerine açık 503 (`ek_etkin` ikisine de bakar).
+            if not ek_etkin(request.user):
+                raise EkIstekHatasi("ek_gecici_kapali", 503, "Dosya ekleme şu an kapalı.")
+            ek_ilk = list(AssistantAttachment.objects.filter(user=request.user, id__in=ek_idleri))
+        if not content.strip():
+            # API boş metin bloğunu reddeder; eski istemci de bu metni görür.
+            tur = "dokuman" if any(e.tur == "dokuman" for e in ek_ilk) else "fotograf"
+            content = VARSAYILAN_SORU[tur]
 
-                from ekap.models import Tender
+        with transaction.atomic():
+            if conv_id:
+                # `select_for_update`: ek `sira` ataması aynı sohbete eşzamanlı iki
+                # mesajda yarışmasın.
+                conversation = ChatConversation.objects.select_for_update().filter(
+                    user=request.user, id=conv_id
+                ).first()
+                if not conversation:
+                    raise NotFound("Sohbet oturumu bulunamadı.")
+            else:
+                # Yeni konuşma; tender verildiyse ihale odaklı aç (başlık ihale adı olur)
+                title = content[:120]
+                dokuman = next((e for e in ek_ilk if e.tur == "dokuman"), None)
+                if dokuman:
+                    title = f"Doküman: {dokuman.ad}"[:120]
+                elif ek_ilk:
+                    title = "Fotoğraf"
+                tender_ikn = ""
+                if tender_ref:
+                    from django.db.models import Q
 
-                t = Tender.objects.filter(Q(ekap_id=tender_ref) | Q(ikn=tender_ref)).first()
-                if t:
-                    tender_ikn = t.ikn
-                    title = f"İhale: {(t.ihale_adi or t.ikn)[:100]}"
-            conversation = ChatConversation.objects.create(
+                    from ekap.models import Tender
+
+                    t = Tender.objects.filter(Q(ekap_id=tender_ref) | Q(ikn=tender_ref)).first()
+                    if t:
+                        tender_ikn = t.ikn
+                        title = f"İhale: {(t.ihale_adi or t.ikn)[:100]}"
+                conversation = ChatConversation.objects.create(
+                    user=request.user,
+                    title=title,
+                    kind=ChatConversation.Kind.CHAT,
+                    tender_ikn=tender_ikn,
+                )
+
+            msg = ChatMessage.objects.create(
                 user=request.user,
-                title=title,
-                kind=ChatConversation.Kind.CHAT,
-                tender_ikn=tender_ikn,
+                conversation=conversation,
+                role=ChatMessage.Role.USER,
+                content=content,
             )
+            payload = {}
+            if ek_idleri:
+                bagli = sohbete_bagla(request.user, conversation, msg, ek_idleri)
+                payload["ekler"] = [ek_ozeti(e) for e in bagli]
+            if yetenekler:
+                payload["yetenekler"] = yetenekler
+            if payload:
+                msg.payload = payload
+                msg.save(update_fields=["payload"])
 
-        msg = ChatMessage.objects.create(
-            user=request.user,
-            conversation=conversation,
-            role=ChatMessage.Role.USER,
-            content=content,
-        )
-
+        # Kuyruğa atomic BLOĞUNDAN SONRA: worker mesajı ve bağlanmış ekleri görsün.
         from .tasks import assistant_chat_task
 
         task = assistant_chat_task.delay(request.user.id, msg.id)
@@ -316,6 +369,25 @@ class ConversationListView(APIView):
         return _paginate(request, qs, ChatConversationSerializer)
 
 
+def _sohbet_ihalesi(conversation):
+    """
+    İhale odaklı sohbetin ihalesi — mobil `cardToTenderContext(data.sohbet)` ile aynen
+    kullanır (şekil ihale kartıyla aynı). Geçmişten açılan sohbette seçili ihale geri gelir.
+    """
+    if not conversation.tender_ikn:
+        return None
+    from ekap.models import Tender
+
+    from .services.matching import tender_card
+
+    t = Tender.objects.filter(ikn=conversation.tender_ikn).first()
+    if not t:
+        return {"ikn": conversation.tender_ikn, "ekap_id": None, "ihale_adi": None,
+                "il": None, "ihale_tarihi": None}
+    kart = tender_card(t)
+    return {k: kart.get(k) for k in ("ikn", "ekap_id", "ihale_adi", "il", "ihale_tarihi")}
+
+
 @extend_schema(tags=["assistant"])
 class ConversationDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -329,7 +401,12 @@ class ConversationDetailView(APIView):
     @extend_schema(
         operation_id="api_v1_assistant_conversation_messages",
         summary="Sohbet oturumunun mesajlarını listele",
-        description="Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste).",
+        description=(
+            "Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste). "
+            "**Sayfa 1'de** ayrıca: `ekler` (sohbetin tüm ekleri, güncel durumla), "
+            "`sohbet` (ihale odaklı sohbetin ihalesi: `{ikn, ekap_id, ihale_adi, il, "
+            "ihale_tarihi}` ya da null) ve `sohbet_kalan` (`{dokuman, fotograf}`)."
+        ),
         parameters=[
             OpenApiParameter("page", int, description="Sayfa numarası."),
             OpenApiParameter("page_size", int, description="Sayfa boyutu."),
@@ -349,7 +426,17 @@ class ConversationDetailView(APIView):
         conversation = self._get_conversation(request, pk)
         # En yeniden eskiye (inverted liste); (conversation, -created_at) indeksi kullanılır
         qs = ChatMessage.objects.filter(conversation=conversation).order_by("-created_at")
-        return _paginate(request, qs, ChatMessageSerializer)
+        yanit = _paginate(request, qs, ChatMessageSerializer)
+        if yanit.data["data"]["page"] == 1:
+            # Additive (eski istemci yalnızca `list`'i okuyor). `ekler` sohbetin TÜM
+            # ekleridir, sayfadan bağımsız: mesajdaki `payload.ekler` anlık özettir,
+            # güncel durum (ör. süresi doldu) buradan `id` ile birleştirilir.
+            yanit.data["data"].update({
+                "ekler": [ek_sozlugu(e) for e in sohbet_ekleri(conversation)],
+                "sohbet": _sohbet_ihalesi(conversation),
+                "sohbet_kalan": sohbet_kalan(conversation),
+            })
+        return yanit
 
     @extend_schema(
         summary="Sohbet oturumunu sil",

@@ -141,7 +141,7 @@ def _digest_context(conversation):
     return "\n".join(satirlar), [k["ikn"] for k in kartlar]
 
 
-def _selected_tender_context(tender, today) -> str:
+def _selected_tender_context(tender, today, ek_acik=False) -> str:
     """İhale odaklı sohbette LLM'e verilecek ihale detayı bağlamı."""
     okas = "; ".join(
         f"{i.kodu} {i.adi}".strip()[:70]
@@ -185,8 +185,11 @@ def _selected_tender_context(tender, today) -> str:
         "yeterlilik, teklif stratejisi vb.). Yukarıdaki bilgilere ve firmanın profiline "
         "göre yanıtla. Kesin rakam TAAHHÜT ETME; maliyet için genel yaklaşım ver ve "
         "detaylı hesap için uygulamanın 'Maliyet Analizi' özelliğine yönlendir. İhale "
-        "metninde OLMAYAN bilgiyi uydurma; eksikse uygulamadaki Dokümanlar ekranına "
-        "yönlendir (EKAP'a DEĞİL). "
+        "metninde OLMAYAN bilgiyi uydurma; eksikse "
+        + ("kullanıcı ilgili dokümanı mesaj kutusunun solundaki + düğmesiyle sohbete "
+           "ekleyebilir (EKAP'a DEĞİL). " if ek_acik else
+           "uygulamadaki Dokümanlar ekranına yönlendir (EKAP'a DEĞİL). ")
+        + 
         "card_iknler'e yalnızca bu ihalenin İKN'sini koyabilirsin."
     )
     return "\n".join(lines)
@@ -274,20 +277,35 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     from assistant.tools.context import ToolContext
     from ekap.models import Tender
 
+    from assistant.services.ekler import ek_etkin, kullanilabilir_mi, sohbet_ekleri
+
+    yetenekler = (user_msg.payload or {}).get("yetenekler") or []
+    ek_acik = "ek" in yetenekler and ek_etkin(profile.user)
     ctx = ToolContext(
         user=profile.user,
         premium=bool(getattr(profile.user, "is_premium", False)),
         conversation=conversation,
+        ek_acik=ek_acik,
     )
 
-    baglam = [f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}"]
+    baglam = [f"Bugünün tarihi: {today.strftime('%d.%m.%Y')}",
+              f"EK GÖNDERME: {'AÇIK' if ek_acik else 'KAPALI'}"]
+
+    # Sohbet ekleri (docs/plan-asistan-ekler.md 1.6). Süresi dolanlar modele gitmez,
+    # yalnızca not düşülür — model "okuyamıyorum" desin, uydurmasın.
+    tum_ekler = list(sohbet_ekleri(conversation)) if conversation else []
+    ekler = [e for e in tum_ekler if kullanilabilir_mi(e)]
+    dolan = [e for e in tum_ekler if e not in ekler]
+    ctx.ekler = [{"sira": e.sira, "ad": e.ad, "tur": e.tur, "parca": e.parca} for e in ekler]
+    if dolan:
+        baglam.append(_dolan_ek_notu(dolan))
 
     # Seçili ihale (ihale odaklı sohbet): detayı ÖN ÇAĞRIYLA bağlama koy — modelin
     # ilk turu bunu aramakla harcamasın (tur = en pahalı değişken).
     if conversation and conversation.tender_ikn:
         t = Tender.objects.filter(ikn=conversation.tender_ikn).first()
         if t:
-            baglam.append(_selected_tender_context(t, today))
+            baglam.append(_selected_tender_context(t, today, ek_acik=ek_acik))
             ctx.kart_ekle(t)
 
     # Günlük öneri sohbeti: önerileri bağlama koy ve kart havuzuna ekle — cevapta
@@ -339,7 +357,15 @@ def _agent_yaniti(profile, user_msg, conversation, today):
             "değiştirdiyse bunları KULLANMA."
         )
 
-    messages = build_chat_messages(profile.user, conversation=conversation)
+    etiketler = {}
+    for e in tum_ekler:
+        if e.message_id and e.sira:
+            etiketler.setdefault(e.message_id, []).append(f"Ek {e.sira}")
+    messages = build_chat_messages(
+        profile.user, conversation=conversation,
+        ek_etiketleri={m: f"[Bu mesajla gönderilen ekler: {', '.join(v)}]"
+                       for m, v in etiketler.items()},
+    )
     if not messages:
         # ⚠️ 4 değer: çağıran (`assistant_chat_task`) dört değer açıyor; eskiden burada
         # 3 değer dönüyordu ve bu dal ValueError ile "çökme" oluyordu.
@@ -354,9 +380,28 @@ def _agent_yaniti(profile, user_msg, conversation, today):
         if hitap else ""
     )
 
-    sonuc = sohbet_turu(
-        ctx, profile.profile_map, "\n\n".join(baglam), messages, sistem_ek=sistem_ek
-    )
+    from assistant.services.agent import EkDosyaHatasi
+
+    try:
+        sonuc = sohbet_turu(ctx, profile.profile_map,
+                            *_ekli_istek(messages, ekler, baglam), sistem_ek=sistem_ek)
+    except EkDosyaHatasi:
+        # Süresi dolmuş/silinmiş Files API dosyası: BİR KEZ onlarsız dene.
+        from assistant.models import AssistantAttachment
+
+        kesin = _bozuk_ekler(ekler)
+        # Yalnızca Files API'de gerçekten bulunamayan işaretlenir; geçici bir ağ hatası
+        # sağlam bir eki "süresi doldu" yapmasın. Tespit edilemezse dosyalı ekler bu tur
+        # için dışarıda kalır (aynı hata tekrar etmesin) ama işaretlenmez.
+        disarida = kesin or [e for e in ekler if e.anthropic_file_id]
+        if kesin:
+            AssistantAttachment.objects.filter(id__in=[e.id for e in kesin]).update(
+                durum="suresi_doldu", metin="", anthropic_file_id="")
+        ekler = [e for e in ekler if e not in disarida]
+        ctx.ekler = [x for x in ctx.ekler if x["sira"] not in {e.sira for e in disarida}]
+        baglam.append(_dolan_ek_notu(disarida))
+        sonuc = sohbet_turu(ctx, profile.profile_map,
+                            *_ekli_istek(messages, ekler, baglam), sistem_ek=sistem_ek)
     reply = sonuc["metin"]
 
     # Kart seçimi: önce cevap metninde ANILAN İKN'ler (model kastettiğini söylemiş),
@@ -373,7 +418,10 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     # önce veriyi görüp sonra kararı verir.
     from assistant.tools.write import AZAMI_KART
 
-    bloklar = ctx.gorsel_bloklar[:2] + [_eylem_karti(e) for e in ctx.oneriler[:AZAMI_KART]]
+    # `dokuman_sec` kartı kendi yuvasında: grafik sınırına (2) takılmasın.
+    secim = [b for b in ctx.gorsel_bloklar if b.get("type") == "dokuman_sec"][:1]
+    gorsel = [b for b in ctx.gorsel_bloklar if b.get("type") != "dokuman_sec"][:2]
+    bloklar = gorsel + secim + [_eylem_karti(e) for e in ctx.oneriler[:AZAMI_KART]]
 
     # Soru önerileri EN SONA: kullanıcı önce cevabı ve kartları görsün, "sıradaki adım"
     # en altta dursun. Deterministik üretilir (assistant/tools/oneri.py) — model
@@ -398,7 +446,74 @@ def _agent_yaniti(profile, user_msg, conversation, today):
     # aracın boş/başarısız döndüğü sonradan ölçülebilsin (`manage.py asistan_rapor`).
     usage = dict(sonuc.get("usage") or {})
     usage["araclar"] = _iz_ozeti(sonuc.get("arac_izi"))
+    if ekler:
+        # Maliyet ölçümü: hangi ek, hangi modda, kaç token (cache okuma oranıyla birlikte okunur).
+        usage["ekler"] = [{"id": str(e.id), "mod": e.mod, "token": e.token_sayisi} for e in ekler]
     return reply, kartlar, usage, bloklar
+
+
+def _dolan_ek_notu(ekler) -> str:
+    adlar = ", ".join(e.etiket() for e in ekler)
+    return (f"Şu eklerin saklama süresi doldu, içerikleri artık okunamaz: {adlar}. "
+            "Bu dosyalar sorulursa içeriğini UYDURMA; kullanıcıdan dosyayı yeniden "
+            "eklemesini iste.")
+
+
+def _ekli_istek(messages, ekler, baglam):
+    """
+    `sohbet_turu`'na giden (context_text, messages) çifti.
+
+    Ek yoksa bugünkü gibi: bağlam system[1]'de, mesajlar metin. Ek varsa:
+    - ek blokları `messages[0]`'ın BAŞINA (son ekte önbellek noktası). Önek araçlar +
+      system + eklerdir; 12 mesajlık pencere kaysa da değişmez.
+    - ⚠️ değişken bağlam system'den ÇIKARILIR ve son kullanıcı mesajında, eklerden SONRA
+      ve sorudan hemen ÖNCE durur (`ASSISTANT_EK_BAGLAM_MESAJDA`). system'de kalsaydı
+      değiştiği her soruda (son arama, İKN ipucu) doküman tam fiyatla yeniden işlenirdi.
+      İlk turda `messages[0]` ile son mesaj aynıdır; bağlam yine eklerin ARKASINA gelir.
+    """
+    from assistant.services.agent import onbellek_isareti
+    from assistant.services.attachments import ek_bloklari
+
+    baglam_metni = "\n\n".join(baglam)
+    if not ekler:
+        return baglam_metni, messages
+    mesajlar = [dict(m) for m in messages]
+    mesajlar[0]["content"] = [*ek_bloklari(ekler, onbellek_isareti()),
+                              {"type": "text", "text": mesajlar[0]["content"]}]
+    if not settings.ASSISTANT_EK_BAGLAM_MESAJDA:
+        return baglam_metni, mesajlar
+    son = mesajlar[-1]
+    baglam_blogu = {"type": "text", "text": f"<bağlam>\n{baglam_metni}\n</bağlam>"}
+    if isinstance(son["content"], list):
+        son["content"] = [*son["content"][:-1], baglam_blogu, son["content"][-1]]
+    else:
+        son["content"] = [baglam_blogu, {"type": "text", "text": son["content"]}]
+    return "", mesajlar
+
+
+def _bozuk_ekler(ekler) -> list:
+    """Files API'de KESİN olarak bulunmayan ya da süresi geçmiş ekler (404 / geçmiş `expires_at`)."""
+    import anthropic
+
+    from assistant.services import attachments as ek_servis
+
+    bozuk = []
+    try:
+        istemci = ek_servis._istemci()
+        for e in (x for x in ekler if x.anthropic_file_id):
+            try:
+                meta = istemci.files.retrieve_metadata(e.anthropic_file_id)
+            except anthropic.NotFoundError:
+                bozuk.append(e)
+                continue
+            except Exception:
+                continue
+            bitis = getattr(meta, "expires_at", None)
+            if bitis is not None and bitis <= timezone.now():
+                bozuk.append(e)
+    except Exception:
+        logger.warning("ek dosyaları doğrulanamadı")
+    return bozuk
 
 
 ONCEKI_OTURUM_SAAT = 48

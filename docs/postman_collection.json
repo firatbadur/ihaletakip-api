@@ -4259,7 +4259,7 @@
                 ""
               ]
             },
-            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation, role, content, tender_cards, created_at}`.\n\n**Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye profilini oluşturabilir ancak mesaj gönderince **403** alır (`errors.code = premium_required`) — mobil abonelik paketlerini sunar.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "description": "Mesajı kaydeder ve yanıtı arka planda üretir. `conversation` verilmezse yeni bir sohbet oturumu açılır; dönen `conversation_id` sonraki mesajlarda gönderilmelidir. Dönen `task_id`, mevcut `GET /ai/tasks/{task_id}/` ucu ile sorgulanır; tamamlanınca `analysis` alanı asistan mesajıdır: `{id, conversation, role, content, tender_cards, created_at}`.\n\n**Pro özellik:** Asistanla sohbet yalnızca Pro üyelere açıktır. Free üye profilini oluşturabilir ancak mesaj gönderince **403** alır (`errors.code = premium_required`) — mobil abonelik paketlerini sunar.\n\n**Ekler:** `ekler` hazır ek kimlikleridir (`POST /assistant/attachments/`). Ek varken `message` boş olabilir; sunucu varsayılan soruyu yazar. `yetenekler: [\"ek\"]` her mesajda ve yalnızca `limits.etkin=true` iken gönderilir. Hatalar `errors.code` ile: `profil_yok` (400), `mesaj_ek_siniri` (400), `ek_bulunamadi` (404), `ek_hazir_degil` (409), `sohbet_ek_siniri` (409), `ek_suresi_doldu` (410), `ek_gecici_kapali` (503).\n\n---\n\n### Alternatif gövde örnekleri\n\n**EkliMesaj**\n\n```json\n{\n  \"message\": \"\",\n  \"conversation\": 812,\n  \"tender\": null,\n  \"ekler\": [\n    \"6f1c2b8e-1d2a-4c55-9b0e-2f7e1a9c3d41\"\n  ],\n  \"yetenekler\": [\n    \"ek\"\n  ]\n}\n```\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"message\": \"Bana uygun ihale var mı?\",\n  \"conversation\": null\n}",
@@ -4389,7 +4389,7 @@
                 }
               ]
             },
-            "description": "Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+            "description": "Seçili oturumun mesajlarını **en yeniden eskiye** döner (inverted liste). **Sayfa 1'de** ayrıca: `ekler` (sohbetin tüm ekleri, güncel durumla), `sohbet` (ihale odaklı sohbetin ihalesi: `{ikn, ekap_id, ihale_adi, il, ihale_tarihi}` ya da null) ve `sohbet_kalan` (`{dokuman, fotograf}`).\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

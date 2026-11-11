@@ -68,12 +68,14 @@ def chat_completion(profile_map: dict, context_text: str, messages: list, max_to
     }
 
 
-def build_chat_messages(user, conversation=None, limit: int = 12) -> list:
+def build_chat_messages(user, conversation=None, limit: int = 12, ek_etiketleri=None) -> list:
     """
     Son mesajlardan Claude messages listesi kurar.
     - conversation verilirse bağlam o konuşmayla sınırlanır (faz 2: oturum bazlı sohbet).
     - Ardışık aynı-rol turları birleştirir.
     - Listenin user turu ile başlamasını garanti eder.
+    - `ek_etiketleri` ({mesaj_id: "[Bu mesajla gönderilen ekler: Ek 2]"}) verilirse o
+      mesajların başına konur: model hangi sorunun hangi ekle geldiğini bilsin.
     """
     from assistant.models import ChatMessage
 
@@ -84,10 +86,13 @@ def build_chat_messages(user, conversation=None, limit: int = 12) -> list:
 
     messages = []
     for row in rows:
+        icerik = row.content
+        if ek_etiketleri and row.id in ek_etiketleri:
+            icerik = f"{ek_etiketleri[row.id]}\n{icerik}"
         if messages and messages[-1]["role"] == row.role:
-            messages[-1]["content"] += "\n\n" + row.content
+            messages[-1]["content"] += "\n\n" + icerik
         else:
-            messages.append({"role": row.role, "content": row.content})
+            messages.append({"role": row.role, "content": icerik})
 
     # İlk mesaj user olmalı (digest asistan mesajıyla başlayabilir)
     while messages and messages[0]["role"] != "user":

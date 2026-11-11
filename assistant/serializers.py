@@ -113,11 +113,26 @@ class ChatConversationSerializer(serializers.ModelSerializer):
 
 
 class ChatSendSerializer(serializers.Serializer):
-    message = serializers.CharField(max_length=2000, trim_whitespace=True)
+    # Ek varken boş olabilir: sunucu varsayılan soruyu yazar (API boş metin bloğunu reddeder).
+    message = serializers.CharField(max_length=2000, trim_whitespace=True, required=False,
+                                    allow_blank=True, default="")
     # Boş/gönderilmemiş → yeni konuşma açılır
     conversation = serializers.IntegerField(required=False, allow_null=True)
     # Doluysa (ekap_id veya İKN) YENİ konuşma o ihale odaklı açılır
     tender = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Hazır ek kimlikleri (POST /assistant/attachments/ ile yüklenmiş). Mesaj başı
+    # doküman/fotoğraf sınırı ayrıca `sohbete_bagla`'da uygulanır.
+    ekler = serializers.ListField(child=serializers.UUIDField(), required=False,
+                                  default=list, max_length=6)
+    # İstemcinin yetenekleri. `["ek"]` → asistan "+" düğmesinden söz edebilir. Mobil bunu
+    # HER mesajda ve yalnızca `limits.etkin=true` iken gönderir.
+    yetenekler = serializers.ListField(child=serializers.CharField(max_length=20),
+                                       required=False, default=list, max_length=10)
+
+    def validate(self, attrs):
+        if not (attrs.get("message") or "").strip() and not attrs.get("ekler"):
+            raise serializers.ValidationError({"message": ["Bu alan boş bırakılamaz."]})
+        return attrs
 
 
 class TenderRecommendationSerializer(serializers.ModelSerializer):

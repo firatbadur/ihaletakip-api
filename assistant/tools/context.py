@@ -42,6 +42,13 @@ class ToolContext:
     # burada blok, veriyi gerçekten döndüren aracın kendisi tarafından üretilir.
     gorsel_bloklar: list = field(default_factory=list)
 
+    # Bu turda modele giden sohbet ekleri (özet: sira, ad, tur, parca). Doluysa
+    # `dokuman_analizi` aracı eski analiz kaydı yerine "Ek N'e bak" der.
+    ekler: list = field(default_factory=list)
+    # İstemci ek gönderebiliyor mu (`yetenekler:["ek"]` + kapsam). Açıksa asistan "+"
+    # düğmesinden söz edebilir ve `dokuman_sec` kartı üretebilir.
+    ek_acik: bool = False
+
     def kart_ekle(self, tender) -> dict:
         """Tender'ı karta çevirip havuza yazar ve kartı döner."""
         from assistant.services.matching import tender_card

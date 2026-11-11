@@ -117,6 +117,8 @@ services:
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      # Asistan eklerinin ham dosyaları (yükleme ucu yazar, assistant-ek-worker okur).
+      - assistant_ek:/app/ek_depo
       - ./credentials:/app/credentials:ro
     # Doğrudan dışa açılmaz — yalnızca nginx üzerinden erişilir (iç ağ).
     expose:
@@ -277,6 +279,24 @@ services:
       - web
       - redis
 
+  # Asistan ekleri: doküman/fotoğraf hazırlama (metne çevirme, Files API), silme ve
+  # günlük temizlik. Hazırlama 90 sn'ye kadar sürer ve alt süreç (antiword) çalıştırır;
+  # `assistant` kuyruğunda kalsaydı kullanıcının sohbetini bekletirdi → ayrı kuyruk +
+  # ayrı worker. Ham dosya dizinini YALNIZCA web ile paylaşır.
+  assistant-ek-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      RUN_MIGRATIONS: "false"
+      DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
+    command: ["celery", "-A", "config", "worker", "-l", "info", "-Q", "assistant_ek", "--concurrency=2", "--prefetch-multiplier=1"]
+    volumes:
+      - assistant_ek:/app/ek_depo
+    depends_on:
+      - web
+      - redis
+
   # EKAP insan doğrulaması (Turnstile) oturumunu ayakta tutar — doğrulama ~8 dk
   # yaşıyor, elle taşımak imkânsız. Gerçek Chromium'da EKAP arama sayfası açık
   # durur, süresi dolmadan yeniden yüklenir (uygulamanın kendi `ensureVerified()`
@@ -326,6 +346,7 @@ services:
       - redis
 
 volumes:
+  assistant_ek:
   browser_profile:
   pgdata:
   redisdata:

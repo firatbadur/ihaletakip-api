@@ -37,6 +37,12 @@ app.conf.beat_schedule = {
         "task": "assistant.tasks.expire_actions",
         "schedule": crontab(hour=3, minute=15),
     },
+    # Asistan ekleri: süresi dolan Files API dosyalarını sil, bağsız ekleri ve yalnızca
+    # `ihaletakip-ek-` önekli yetim dosyaları temizle (03:40, `assistant_ek` kuyruğu).
+    "assistant-ek-temizlik": {
+        "task": "assistant.tasks.ek_temizligi",
+        "schedule": crontab(hour=3, minute=40),
+    },
     # Deneme bitiş hatırlatması — SAATLİK (her saatin 10. dakikası). Mobil paywall
     # "deneme bitmeden hatırlatırız" vaadinin karşılığı; sessiz saatte atlanan push
     # sonraki turda yeniden denenir (bkz. subscription/tasks.py pencere notu).

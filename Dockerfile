@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════
-#  IhaleTakip API — Python 3.13 slim (Ubuntu tabanlı)
+#  IhaleTakip API — Python 3.13 slim (Debian 13 "trixie" tabanlı)
 # ═══════════════════════════════════════════════════════
 FROM python:3.13-slim
 
@@ -9,13 +9,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Sistem bağımlılıkları (psycopg, cryptography, docx/pdf build gereksinimleri,
-# tesseract: ekap/tools/ocr.py — Türkçe dil paketiyle birlikte)
+# tesseract: ekap/tools/ocr.py — Türkçe dil paketiyle birlikte,
+# antiword/catdoc: asistan eklerinde eski OLE .doc → metin; assistant/services/attachments.py.
+# İkisi de trixie main'de var — doğrulandı 2026-11-11: antiword 0.37-17, catdoc 1:0.95-6)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libpq-dev \
         curl \
         tesseract-ocr \
         tesseract-ocr-tur \
+        antiword \
+        catdoc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,8 +37,9 @@ RUN chmod +x /app/docker/entrypoint.sh
 # staticfiles/ ve media/ named volume olarak bağlanıyor. Mount noktası image'da
 # yoksa Docker onu root:root yaratır, appuser collectstatic'i yazamaz →
 # manifest üretilmez → admin sayfaları 500 döner. Dizinleri önden oluştur ki
-# volume ilk yaratılışta appuser sahipliğini devralsın.
-RUN mkdir -p /app/staticfiles /app/media
+# volume ilk yaratılışta appuser sahipliğini devralsın. `ek_depo`: asistan eklerinin
+# ham dosyaları (named volume `assistant_ek`; MEDIA_ROOT DIŞI — /media/blog/ açık sunulur).
+RUN mkdir -p /app/staticfiles /app/media /app/ek_depo
 
 # Root olmayan kullanıcı
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app

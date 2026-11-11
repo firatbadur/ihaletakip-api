@@ -43,3 +43,19 @@ class NginxXRealIpTest(SimpleTestCase):
                 if "proxy_set_header" in loc:
                     self.assertRegex(loc, SATIR, "location kendi başlığını tanımlıyor "
                                                  "ama X-Real-IP'yi ezmiyor")
+
+
+class NginxAsistanEkTest(SimpleTestCase):
+    """20 MB ek + multipart payı sunucu düzeyindeki 20m'yi aşar → ayrı location (plan 1.9)."""
+
+    def test_ek_yukleme_location_25m_baslik_mirasla(self):
+        metin = "\n".join(
+            s.split("#", 1)[0] for s in CONF.read_text(encoding="utf-8").splitlines())
+        bloklar = [g for sunucu in _bloklar(metin, "server")
+                   for m in re.finditer(r"location\s+/api/v1/assistant/attachments/\s*{", sunucu)
+                   for g in [sunucu[m.end():sunucu.index("}", m.end())]]]
+        self.assertEqual(len(bloklar), 1, "ek yükleme location bloğu yok ya da birden çok")
+        self.assertRegex(bloklar[0], r"client_max_body_size\s+25m\s*;")
+        self.assertIn("proxy_pass", bloklar[0])
+        # Kendi başlığını yazarsa sunucu düzeyindeki X-Real-IP miras alınmaz.
+        self.assertNotIn("proxy_set_header", bloklar[0])

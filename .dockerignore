@@ -12,6 +12,7 @@ __pycache__/
 db.sqlite3
 staticfiles/
 media/
+ek_depo/
 *.md
 .vscode/
 .idea/

@@ -3153,10 +3153,18 @@ göndermediği ve ek uçlarını çağırmadığı için kapsam `herkes` iken de
   üzerinden verilir (`.env.prod`'a DEĞİL); yeni servis `assistant-ek-worker` + volume
   `assistant_ek` `install.sh`'ın `up -d --build`'iyle gelir; nginx restart ve beat yeniden
   başlatma da onun içinde. Ardından `asistan_ek_kapsam` `staff` → `herkes`.
-- **Açık:** adım 0 ölçümleri (ardışık mesaj aralığı → TTL; system[1] değişim sıklığı;
-  gerçek OLE `.doc` oranı; taranmış EKAP PDF'inin `count_tokens` ile token sayısı →
-  30 sayfa / 120k ayarı; workspace'te başka dosya var mı) ve altın setin 5 yeni senaryosu
-  (ücretli, kullanıcı onayıyla).
+- ✅ **Adım 0 ölçümleri (üretim, 2026-11-11, model `claude-sonnet-5`):**
+  - Aynı sohbette ardışık mesajların %89'u ≤5 dk (p50 64 sn, p90 317 sn) → 5 dk TTL doğru.
+  - Mevcut önbellek okuma oranı %71 (son 30 gün, 346 cevap).
+  - Değişken bağlam 2.+ turların yalnızca %9,3'ünde değişiyor (önceki turda `ihale_ara`
+    ya da mesajda İKN).
+  - EKAP doküman listelerinde (27 ihale) zip 41 · pdf 28 · rar 16 · doc 8 · docx 7 ·
+    xlsx 4 → arşiv yaygın (mobil açar), `.doc` az ama var.
+  - ⚠️⚠️ **`count_tokens` Files API kaynağını KABUL ETMİYOR** (`400 "File sources are not
+    supported in the token counting endpoint."`) → PDF yüklemeden ÖNCE base64 ile sayılır.
+    Taranmış A4 sayfa ≈1.600 token, DPI ve yoğunluktan bağımsız → 30 sayfa ≈ 48 bin
+    (tavanla çatışma yok; eski 4.800 tahmini 26+ sayfayı yanlışlıkla reddederdi).
+  - Files API workspace'i boş (0 dosya).
 
 ### ⚠️⚠️ Sohbet analizi (2026-11-04) — asistanın "bilmiyorum" dediği yerler
 

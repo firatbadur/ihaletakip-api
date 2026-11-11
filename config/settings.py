@@ -321,8 +321,8 @@ ASSISTANT_EK_FOTO_AZAMI_BAYT = env.int("ASSISTANT_EK_FOTO_AZAMI_BAYT", default=1
 # ≈100 sayfa. Aşan doküman KESİLMEZ, `cok_uzun` ile reddedilir (kesmek sessizce yanlış
 # cevap üretir: model okumadığı sayfayı "dokümanda yok" diye anlatır).
 ASSISTANT_EK_TOKEN_AZAMI = env.int("ASSISTANT_EK_TOKEN_AZAMI", default=120_000)
-# Taranmış (metinsiz) PDF sayfa sınırı. ⚠️ 30 × ~4.800 token ≈ 144 bin > tavan: gerçek
-# bir taranmış EKAP PDF'i `count_tokens` ile ölçülüp ikisi birlikte ayarlanmalı.
+# Taranmış (metinsiz) PDF sayfa sınırı. Ölçüldü 2026-11-11 (claude-sonnet-5): taranmış
+# A4 sayfa ~1.600 token → 30 sayfa ≈ 48 bin, token tavanının (120 bin) rahatça altında.
 ASSISTANT_EK_TARANMIS_SAYFA = env.int("ASSISTANT_EK_TARANMIS_SAYFA", default=30)
 ASSISTANT_EK_MESAJ_DOKUMAN = env.int("ASSISTANT_EK_MESAJ_DOKUMAN", default=2)
 ASSISTANT_EK_MESAJ_FOTO = env.int("ASSISTANT_EK_MESAJ_FOTO", default=4)

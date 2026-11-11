@@ -291,20 +291,23 @@ class HazirlaTest(_Dizin):
             alanlar = ek_servis.hazirla(self._ek(yol, "pdf"))
         self.assertEqual(alanlar["mod"], "pdf")
         self.assertEqual(alanlar["anthropic_file_id"], "file_abc")
-        self.assertEqual(alanlar["token_sayisi"], 2 * 4800)
+        self.assertEqual(alanlar["token_sayisi"], 2 * 1700)
+        # ⚠️ Sayım base64 ile: count_tokens Files API kaynağını kabul etmiyor (ölçüldü).
+        blok = istemci.messages.count_tokens.call_args.kwargs["messages"][0]["content"][0]
+        self.assertEqual(blok["source"]["type"], "base64")
         ad, _bayt, mime = istemci.files.upload.call_args.kwargs["file"]
         # ⚠️ Türkçe/özel karakterli ad Files API'ye GİTMEZ (400 riski + süpürme öneki).
         self.assertEqual(ad, "ihaletakip-ek-11111111-2222-3333-4444-555555555555.pdf")
         self.assertEqual(mime, "application/pdf")
         self.assertEqual(istemci.files.upload.call_args.kwargs["expires_in_seconds"], 30 * 86400)
 
-    def test_taranmis_pdf_tavani_asarsa_dosya_silinir(self):
+    def test_taranmis_pdf_tavani_asarsa_hic_yuklenmez(self):
         yol = self.yaz("t.pdf", taranmis_pdf(2))
         istemci = self._istemci(token=999_999)
         with patch.object(ek_servis, "_istemci", return_value=istemci):
             with self.assertRaises(EkHatasi):
                 ek_servis.hazirla(self._ek(yol, "pdf"))
-        istemci.files.delete.assert_called_once_with("file_abc")
+        istemci.files.upload.assert_not_called()
 
 
 class BlokTest(SimpleTestCase):

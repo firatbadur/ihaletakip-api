@@ -654,3 +654,24 @@ class PromptAracTest(TestCase):
         self.assertEqual(soru_onerileri(self._ctx(), []), [])
         ekli = self._ctx(ekler=[{"sira": 1, "ad": "a", "tur": "dokuman", "parca": ""}])
         self.assertTrue(soru_onerileri(ekli, []))
+
+
+class AltinSetYardimciTest(TestCase):
+    def test_fiyat_ozel_ad_once(self):
+        from assistant.management.commands.asistan_altin_set import _fiyat
+
+        # "opus-5" alt dizesi "claude-opus-5-5"'i de yakalardı.
+        self.assertEqual(_fiyat("claude-opus-5-5"), (4.0, 20.0, 0.05))
+        self.assertEqual(_fiyat("claude-opus-5"), (5.0, 25.0, 0.1))
+
+    def test_fotograf_eki_gercek_yoldan_hazirlanir(self):
+        from assistant.management.commands.asistan_altin_set import _ek_hazirla
+
+        user = get_user_model().objects.create_user(username="g", email="g@x.com", password="x")
+        istemci = MagicMock()
+        istemci.files.upload.return_value = SimpleNamespace(id="file_g", expires_at=None)
+        dizin = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dizin, ignore_errors=True)
+        with patch("assistant.services.attachments._istemci", return_value=istemci):
+            ek = _ek_hazirla(user, {"tur": "fotograf", "ad": "s.png", "metin": "SAYAC 1"}, dizin)
+        self.assertEqual((ek.mod, ek.anthropic_file_id, ek.durum), ("gorsel", "file_g", "hazir"))

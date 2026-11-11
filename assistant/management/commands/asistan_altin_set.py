@@ -20,18 +20,27 @@ SET_YOLU = Path(__file__).resolve().parent.parent.parent / "tests" / "golden.yam
 # hayatta kalmalı; hangisi olduğu önemli değil.
 _KONU_ALANLARI = {"okas_kod", "okas_adi", "okas_ana_kod", "ihale_adi", "q"}
 
-# (giriş, çıkış) $/milyon token. Cache okuma girişin ~%10'u, cache yazma ~%125'i.
+# (giriş, çıkış, önbellek okuma oranı) — $/milyon token; okuma oranı girişin katı.
+# Önbellek yazma 5 dk TTL'de girişin 1,25 katı.
 # ⚠️ Modele göre seçilir: tek bir fiyat listesine sabitlemek, kademe karşılaştırmasında
 # ucuz modelin maliyetini pahalı modelin fiyatıyla hesaplayıp kararı bozar.
+# ⚠️ SIRA ÖNEMLİ — alt dize eşleşmesi: "opus-5" "claude-opus-5-5"'i de yakalardı, bu
+# yüzden daha özel adlar ÖNCE gelir. (Opus 5.5'te okuma $0,20 = girişin 0,05'i.)
 _FIYAT = {
-    "opus-5": (5.0, 25.0),
-    "opus-4-8": (5.0, 25.0),
-    "opus-4-7": (5.0, 25.0),
-    "sonnet-5": (2.0, 10.0),
-    "sonnet-4-6": (3.0, 15.0),
-    "haiku-4-5": (1.0, 5.0),
-    "fable-5": (10.0, 50.0),
+    "opus-5-5": (4.0, 20.0, 0.05),
+    "opus-5": (5.0, 25.0, 0.1),
+    "opus-4-8": (5.0, 25.0, 0.1),
+    "opus-4-7": (5.0, 25.0, 0.1),
+    "sonnet-5-5": (2.0, 10.0, 0.05),
+    "sonnet-5": (2.0, 10.0, 0.1),
+    "sonnet-4-6": (3.0, 15.0, 0.1),
+    "haiku-4-5": (1.0, 5.0, 0.1),
+    "fable-5-2": (8.0, 40.0, 0.025),
+    "fable-5": (10.0, 50.0, 0.1),
 }
+
+# Ek senaryoları için örnek dosya içerikleri (repo'ya ikili dosya konmaz; çalışmada
+# üretilir). `ekler: [{tur, ad, metin}]` — dokümanda metin .txt olur, fotoğrafta resme yazılır.
 
 
 def _fiyat(model: str):
@@ -39,6 +48,50 @@ def _fiyat(model: str):
         if ad in model:
             return ucret
     return None
+
+
+def _ek_hazirla(user, spec, dizin):
+    """Senaryodaki eki GERÇEK hazırlama yolundan geçirir (fotoğraf Files API'ye gider)."""
+    import os
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from assistant.models import AssistantAttachment
+    from assistant.services import attachments as ek_servis
+
+    tur = spec.get("tur", "dokuman")
+    yol = os.path.join(dizin, spec.get("ad", "ek.txt"))
+    if tur == "fotograf":
+        from PIL import Image, ImageDraw, ImageFont
+
+        im = Image.new("RGB", (900, 300), "white")
+        ImageDraw.Draw(im).multiline_text((30, 40), spec["metin"], fill="black",
+                                          font=ImageFont.load_default(size=40))
+        im.save(yol, "PNG")
+    else:
+        with open(yol, "w", encoding="utf-8") as f:
+            f.write(spec["metin"])
+    ek = AssistantAttachment(user=user, tur=tur, kaynak="cihaz", ad=spec.get("ad", "ek.txt"),
+                             uzanti=os.path.splitext(yol)[1].lstrip("."), depo_yolu=yol,
+                             sira=1, created_at=timezone.now())
+    for alan, deger in ek_servis.hazirla(ek).items():
+        setattr(ek, alan, deger)
+    ek.durum = "hazir"
+    ek.expires_at = ek.expires_at or timezone.now() + timedelta(days=1)
+    return ek
+
+
+def _senaryo_ihalesi(deger):
+    """`ihale: <İKN>` ya da `ihale: otomatik` (teklifi açık, OKAS'lı ilk ihale)."""
+    from django.utils import timezone
+
+    from ekap.models import Tender
+
+    if deger != "otomatik":
+        return Tender.objects.filter(ikn=deger).first()
+    return (Tender.objects.filter(ihale_tarihi__gte=timezone.now())
+            .exclude(okas_ana_kod="").order_by("ihale_tarihi").first())
 
 
 class Command(BaseCommand):
@@ -51,8 +104,15 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         from django.contrib.auth import get_user_model
 
+        import shutil
+        import tempfile
+
+        from django.utils import timezone
+
         from assistant.models import CompanyProfile
+        from assistant.services import attachments as ek_servis
         from assistant.services.agent import sohbet_turu
+        from assistant.tasks import _ekli_istek, _selected_tender_context
         from assistant.tools.context import ToolContext
 
         user = get_user_model().objects.filter(email=opts["user"]).first()
@@ -81,13 +141,34 @@ class Command(BaseCommand):
             # asistanın en sinsi hatası (önceki filtreyi düşürmek) hiç görünmez.
             turlar_metni = s.get("mesajlar") or [s["soru"]]
             s.setdefault("soru", turlar_metni[-1])
-            ctx = ToolContext(user=user, premium=bool(getattr(user, "is_premium", False)))
+            ctx = ToolContext(user=user, premium=bool(getattr(user, "is_premium", False)),
+                              ek_acik=bool(s.get("ekler") or s.get("ihale")))
             gecmis, son_arama, onceki_arama = [], None, None
+            ekler, ek_dizini, ihale_baglami = [], None, ""
             t0 = time.monotonic()
             try:
+                if s.get("ekler"):
+                    # ⚠️ Gerçek hazırlama yolu: count_tokens + (fotoğrafta) Files API.
+                    ek_dizini = tempfile.mkdtemp()
+                    ekler = [_ek_hazirla(user, e, ek_dizini) for e in s["ekler"]]
+                    for n, ek in enumerate(ekler, 1):
+                        ek.sira = n
+                    ctx.ekler = [{"sira": e.sira, "ad": e.ad, "tur": e.tur, "parca": e.parca}
+                                 for e in ekler]
+                if s.get("ihale"):
+                    # Mobilin ihale sohbeti: seçili ihalenin bağlamı (maliyet analizi senaryosu).
+                    t = _senaryo_ihalesi(s["ihale"])
+                    if t is None:
+                        raise CommandError("senaryo ihalesi bulunamadı")
+                    ihale_baglami = _selected_tender_context(t, timezone.localdate(), ek_acik=True)
+                    ctx.kart_ekle(t)
                 for j, metin_turu in enumerate(turlar_metni):
                     gecmis.append({"role": "user", "content": metin_turu})
                     baglam = "Bugünün tarihi: bugün"
+                    if ctx.ek_acik:
+                        baglam += "\nEK GÖNDERME: AÇIK"
+                    if ihale_baglami:
+                        baglam += "\n\n" + ihale_baglami
                     if son_arama:
                         # ⚠️ Üretimdeki davranışın AYNISI (assistant/tasks.py):
                         # sohbet geçmişi metin-only olduğu için önceki arama
@@ -99,7 +180,9 @@ class Command(BaseCommand):
                                    + "\nKullanıcı bu aramayı daraltıyorsa parametrelerin "
                                      "TAMAMINI yeniden gönder.")
                     onceki_arama = son_arama          # bu tura GİREN bağlam
-                    sonuc = sohbet_turu(ctx, profile.profile_map, baglam, gecmis)
+                    # Ekli senaryoda üretimdeki bağlam yerleşimi (`assistant/tasks.py`).
+                    baglam_metni, istek = _ekli_istek(gecmis, ekler, [baglam])
+                    sonuc = sohbet_turu(ctx, profile.profile_map, baglam_metni, istek)
                     gecmis.append({"role": "assistant", "content": sonuc["metin"]})
                     aramalar = [a for a in (sonuc.get("arac_izi") or [])
                                 if a.get("arac") == "ihale_ara" and a.get("ok")]
@@ -117,6 +200,15 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"{i}. {s['soru'][:45]} → ÇÖKTÜ: {e}"))
                 continue
+            finally:
+                if ek_dizini:
+                    shutil.rmtree(ek_dizini, ignore_errors=True)
+                for ek in ekler:
+                    if ek.anthropic_file_id:
+                        try:
+                            ek_servis.dosya_sil(ek_servis._istemci(), ek.anthropic_file_id)
+                        except Exception:
+                            pass
             sure = time.monotonic() - t0
             toplam_sn += sure
 
@@ -131,6 +223,9 @@ class Command(BaseCommand):
             for k in s.get("icermeli") or []:
                 if k.lower() not in metin:
                     sorunlar.append(f"eksik: {k!r}")
+            biri = s.get("icermeli_biri") or []
+            if biri and not any(k.lower() in metin for k in biri):
+                sorunlar.append(f"hiçbiri yok: {biri!r}")
             for k in s.get("icermemeli") or []:
                 if k.lower() in metin:
                     sorunlar.append(f"YASAK: {k!r}")
@@ -171,11 +266,11 @@ class Command(BaseCommand):
 
             u = sonuc.get("usage") or {}
             if fiyat:
-                g, c = fiyat
+                g, c, okuma = fiyat
                 usd = (
                     u.get("input_tokens", 0) * g
                     + u.get("output_tokens", 0) * c
-                    + u.get("cache_read_input_tokens", 0) * g * 0.1
+                    + u.get("cache_read_input_tokens", 0) * g * okuma
                     + u.get("cache_creation_input_tokens", 0) * g * 1.25
                 ) / 1e6
                 toplam_usd += usd

@@ -17,6 +17,11 @@
 #   param_korunmali — son `ihale_ara` çağrısında bulunması gereken parametre adları.
 #                 Metin ölçütü yetmez: model doğru cümleyi kurup yanlış filtreyi
 #                 çalıştırabilir ve hata tam orada gizlenir.
+#   icermeli_biri — bu metinlerden EN AZ BİRİ cevapta geçmeli ("yok" / "yer almıyor"…)
+#   ekler       — sohbete eklenen dosyalar: [{tur: dokuman|fotograf, ad, metin}].
+#                 Çalışmada üretilir ve GERÇEK hazırlama yolundan geçer (count_tokens;
+#                 fotoğraf Files API'ye yüklenir, iş bitince silinir).
+#   ihale       — ihale odaklı sohbet: İKN ya da "otomatik" (teklifi açık, OKAS'lı ilk ihale)
 #   konu_korunmali  — daraltma turunda KONU filtresi hayatta kalmalı (okas_kod /
 #                 okas_adi / ihale_adi / q'dan en az biri). ⚠️ Belirli bir anahtarı
 #                 `param_korunmali` ile şart koşmayın: model konuyu meşru biçimde
@@ -208,3 +213,84 @@
     idarenin şu an açık ihalesi yok; model bazen ikinci kez "katılıma açık" arayıp
     0 bulur ve dürüstçe "açık ihalesi yok, 126 ihale geçmişi var" der — doğru cevap.
     Ölçülen şey idarenin BULUNMASI (eskiden dört kez "kayıt yok" deniyordu).
+
+# ── Sohbete eklenen dosyalar (docs/plan-asistan-ekler.md 1.14) ─────────────────
+
+- soru: "Bu dokümanı özetler misin?"
+  ekler:
+    - tur: dokuman
+      ad: "TEKNİK ŞARTNAME.txt"
+      metin: |
+        TEKNİK ŞARTNAME — Okul Binası Çatı Onarımı İşi
+        
+        Madde 1 - İşin konusu: Atatürk İlkokulu binasının çatı örtüsünün sökülerek yenilenmesi.
+        Madde 3 - İşin yapılacağı yer: Çankaya / Ankara.
+        Madde 5 - İşin süresi: Yer tesliminden itibaren 90 (doksan) takvim günüdür.
+        Madde 7 - İstenen belgeler: İş deneyim belgesi, ticaret sicil gazetesi, imza sirküleri.
+        Madde 9 - Geçici teminat: Teklif edilen bedelin %3'ünden az olmamak üzere verilir.
+        Madde 12 - Ödeme: Hakedişler aylık düzenlenir, onaydan sonra 30 gün içinde ödenir.
+        Madde 14 - Gecikme cezası: Her takvim günü için sözleşme bedelinin binde 6'sı kesilir.
+        Madde 16 - Malzeme: Çatı kaplaması TS EN 14782 standardına uygun alüminyum levha olacaktır.
+  icermeli: ["90", "teminat"]
+  icermemeli: ["**", "##"]
+  not: >
+    Ek özeti: şartnamedeki başlıklar (süre, teminat, ceza) dokümandan gelmeli; markdown yok.
+
+- soru: "Geçici teminat oranı nedir, hangi maddede yazıyor?"
+  ekler:
+    - tur: dokuman
+      ad: "TEKNİK ŞARTNAME.txt"
+      metin: |
+        TEKNİK ŞARTNAME — Okul Binası Çatı Onarımı İşi
+        
+        Madde 1 - İşin konusu: Atatürk İlkokulu binasının çatı örtüsünün sökülerek yenilenmesi.
+        Madde 3 - İşin yapılacağı yer: Çankaya / Ankara.
+        Madde 5 - İşin süresi: Yer tesliminden itibaren 90 (doksan) takvim günüdür.
+        Madde 7 - İstenen belgeler: İş deneyim belgesi, ticaret sicil gazetesi, imza sirküleri.
+        Madde 9 - Geçici teminat: Teklif edilen bedelin %3'ünden az olmamak üzere verilir.
+        Madde 12 - Ödeme: Hakedişler aylık düzenlenir, onaydan sonra 30 gün içinde ödenir.
+        Madde 14 - Gecikme cezası: Her takvim günü için sözleşme bedelinin binde 6'sı kesilir.
+        Madde 16 - Malzeme: Çatı kaplaması TS EN 14782 standardına uygun alüminyum levha olacaktır.
+  icermeli: ["%3", "9"]
+  icermemeli: ["**"]
+  not: >
+    Madde sorusu: oran VE madde numarası verilmeli (Madde 9).
+
+- soru: "Bu işte iş deneyim belgesinin tutarı ne kadar olmalı?"
+  ekler:
+    - tur: dokuman
+      ad: "TEKNİK ŞARTNAME.txt"
+      metin: |
+        TEKNİK ŞARTNAME — Okul Binası Çatı Onarımı İşi
+        
+        Madde 1 - İşin konusu: Atatürk İlkokulu binasının çatı örtüsünün sökülerek yenilenmesi.
+        Madde 3 - İşin yapılacağı yer: Çankaya / Ankara.
+        Madde 5 - İşin süresi: Yer tesliminden itibaren 90 (doksan) takvim günüdür.
+        Madde 7 - İstenen belgeler: İş deneyim belgesi, ticaret sicil gazetesi, imza sirküleri.
+        Madde 9 - Geçici teminat: Teklif edilen bedelin %3'ünden az olmamak üzere verilir.
+        Madde 12 - Ödeme: Hakedişler aylık düzenlenir, onaydan sonra 30 gün içinde ödenir.
+        Madde 14 - Gecikme cezası: Her takvim günü için sözleşme bedelinin binde 6'sı kesilir.
+        Madde 16 - Malzeme: Çatı kaplaması TS EN 14782 standardına uygun alüminyum levha olacaktır.
+  icermeli_biri: ["yok", "yer almıyor", "bulunmuyor", "belirtilmemiş", "geçmiyor"]
+  icermemeli: ["**"]
+  not: >
+    Dokümanda OLMAYAN bilgi: "dokümanda bu bilgi yok" demeli, genel mevzuattan oran
+    uydurup dokümandaymış gibi sunmamalı.
+
+- soru: "Bu fotoğrafta ne yazıyor?"
+  ekler:
+    - tur: fotograf
+      ad: "sayac.png"
+      metin: "SAYAC NO: 48213\nENDEKS: 0072519"
+  icermeli: ["48213"]
+  icermemeli: ["**"]
+  not: >
+    Fotoğraf okuma (Files API görsel yolu): yazıyı okumalı.
+
+- soru: "Bu ihale için maliyet analizi yap: benzer işlerin sözleşme bedellerini, indirim oranlarını ve teklif sayılarını karşılaştır; yıllar arası farkları ve dikkat edilmesi gereken maliyet kalemlerini belirt."
+  ihale: otomatik
+  arac_bekle: [ihale_benchmark]
+  icermemeli: ["**", "tahmini bedel", "teklif vermenizi öneririm", "şu kadar teklif ver"]
+  not: >
+    Maliyet düğmesinin hazır sorusu (mobil kararı 2026-11-11): ihale_benchmark ile
+    karşılaştırma; tek rakamlık tahmini bedel ya da teklif fiyatı OLMAMALI.

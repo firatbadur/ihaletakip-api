@@ -251,10 +251,12 @@
         Madde 12 - Ödeme: Hakedişler aylık düzenlenir, onaydan sonra 30 gün içinde ödenir.
         Madde 14 - Gecikme cezası: Her takvim günü için sözleşme bedelinin binde 6'sı kesilir.
         Madde 16 - Malzeme: Çatı kaplaması TS EN 14782 standardına uygun alüminyum levha olacaktır.
-  icermeli: ["%3", "9"]
+  icermeli: ["madde 9"]
+  icermeli_biri: ["%3", "yüzde 3"]
   icermemeli: ["**"]
   not: >
-    Madde sorusu: oran VE madde numarası verilmeli (Madde 9).
+    Madde sorusu: oran VE madde numarası verilmeli (Madde 9). Model oranı "yüzde 3"
+    diye de yazıyor (2026-11-11 üretim çalıştırması) — ikisi de doğru.
 
 - soru: "Bu işte iş deneyim belgesinin tutarı ne kadar olmalı?"
   ekler:

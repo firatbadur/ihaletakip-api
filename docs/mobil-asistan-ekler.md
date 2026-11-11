@@ -1,8 +1,9 @@
 # İhale Asistanı — doküman ve fotoğraf ekleri (mobil sözleşmesi)
 
-**Durum:** backend kodda hazır (2026-11-11). Kapsam sunucu tarafında admin ayarıyla
-açılır/kapanır (`kapali` → `staff` → `herkes`); istemci bunu yalnızca `limits.etkin`'den
-görür. Plan: `docs/plan-asistan-ekler.md`.
+**Durum:** ✅ backend üretimde AÇIK (2026-11-11, kapsam `herkes`): mobil geliştirme gerçek
+sunucuya karşı yapılabilir. Kapsam sunucu tarafında admin ayarıyla açılır/kapanır
+(`kapali` / `staff` / `herkes`); istemci bunu yalnızca `limits.etkin`'den görür.
+Plan: `docs/plan-asistan-ekler.md`.
 Mobil plan: `~/Desktop/IhaleTakip/docs/plan-asistan-ekler.md`.
 
 ## 0. Bir cümlede

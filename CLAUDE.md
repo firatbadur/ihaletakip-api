@@ -3074,6 +3074,19 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
 
 ### Doküman ve fotoğraf ekleri (2026-11-11) — `docs/plan-asistan-ekler.md`
 
+✅ **ÜRETİMDE AÇIK (2026-11-11, `db2e5ad`, `asistan_ek_kapsam=herkes`).** Yayın `install.sh`
+ile, `.env.prod`'a dokunulmadan (db/redis yeniden yaratılmadı). Doğrulama:
+- **Altın set (yayından önce, geçici konteynerde yeni kodla):** 21/24. Üç başarısızlığın
+  ikisi (#8, #18) hem eski hem yeni kodla 2/2 geçti → model oynaklığı, gerileme değil;
+  #21 ölçüt katılığıydı (model "yüzde 3" yazdı, düzeltildi). ~0,51 $.
+- **Eski istemci taklidi** (yetenekler/ek yok): yanıt ve `payload` şekli aynı, sohbet
+  ayrıntısındaki yeni alanlar yalnızca ek. Önbellekle girdinin neredeyse tamamı okundu.
+- **Uçtan uca (gerçek servisler, uid 5):** PDF → hazır → iki soru madde numarasıyla doğru;
+  2. soruda doküman önbellekten (okuma 24.817, yazma 188 token); fotoğraf okundu; sohbet
+  silinince Files API'deki iki dosya da silindi.
+⚠️ Mobil arayüz henüz yok; eski sürümler `yetenekler` göndermediği ve ek uçlarını
+çağırmadığı için etkilenmez. Geri alma: admin → `asistan_ek_kapsam` = `kapali` (≤60 sn).
+
 Kullanıcı ihale dokümanını, telefondaki dosyayı ya da fotoğrafı sohbete ekleyip soru
 sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`.
 **Kapsam admin'den:** Uygulama Ayarları → **`asistan_ek_kapsam`** = `kapali` | `staff` |

@@ -1,6 +1,6 @@
 # Plan — İhale Asistanı: Doküman ve Fotoğraf Ekleri (BACKEND)
 
-> **Durum:** Plan, uygulanmadı (2026-11-11).
+> **Durum:** Kodda uygulandı (2026-11-11, adım 1–10 ve 11'in kod kısmı); üretimde kapalı (`ASSISTANT_EK_KAPSAM=kapali`). Açık: adım 0 ölçümleri, altın setin koşturulması (ücretli), yayın (12).
 > **Mobil eşi:** `~/Desktop/IhaleTakip/docs/plan-asistan-ekler.md`.
 > **Sıra:** önce bu plan kurulur ve canlıya alınır, sonra mobil yapılır.
 > Son adımda mobile sözleşme belgesi `docs/mobil-asistan-ekler.md` üretilir (mevcut `docs/mobil-*.md` deseninde).

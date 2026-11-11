@@ -72,13 +72,18 @@ ai/                # Yapay zeka servisleri
 └── views.py       # analyze (async), analyze-status, summary (async), tts
 
 assistant/         # İhale Asistanı (firma profili + AI sohbet + günlük öneri)
-├── models.py      # CompanyProfile, TenderRecommendation, ChatMessage
+├── models.py      # CompanyProfile, TenderRecommendation, ChatMessage, AssistantAttachment
 ├── prompts.py     # profil haritası + sohbet system prompt şablonları
 ├── services/      # profile_map.py (Claude→profil haritası), chat.py (çok turlu
 │                  #   sohbet, prompt cache breakpoint'li), matching.py (kural
-│                  #   tabanlı skorlama: şehir/tür/OKAS/anahtar kelime/bütçe)
-├── tasks.py       # Celery: generate_profile_map, match_recommendations (beat 09:00)
+│                  #   tabanlı skorlama: şehir/tür/OKAS/anahtar kelime/bütçe),
+│                  #   attachments.py (ek: imza→tür, dönüştürme, Files API),
+│                  #   ekler.py (ek: kapsam, kota, API şekli, sohbete bağlama)
+├── tasks.py       # Celery: generate_profile_map, match_recommendations (beat 09:00),
+│                  #   ek_hazirla_task / ek_dosyalarini_sil_task / ek_temizligi (assistant_ek)
 ├── views.py       # profile (GET/PUT), chat, messages, recommendations(+seen)
+├── views_ek.py    # attachments/ (yükle), attachments/limits/, attachments/<uuid>/
+├── signals.py     # ek silinince ham dosya + Files API dosyası silinir
 └── urls.py        # /api/v1/assistant/...
 
 ekap/              # EKAP veri toplama + servis (kendi kaynağımız)
@@ -3067,6 +3072,62 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
   ⚠️ Blok **iki personada da** geçerli (`PERSONA_PROMPT` + `AGENT_PERSONA_PROMPT` aynı
   `_BICIM`'i kullanıyor) → araç döngüsü kapatılsa bile kural düşmez.
 
+### Doküman ve fotoğraf ekleri (2026-11-11) — `docs/plan-asistan-ekler.md`
+
+Kullanıcı ihale dokümanını, telefondaki dosyayı ya da fotoğrafı sohbete ekleyip soru
+sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`. **Üretimde kapalı**
+(`ASSISTANT_EK_KAPSAM=kapali`; açılış `staff` → `herkes`, geri alma deploy'suz).
+
+- **Akış:** `POST attachments/` (multipart, 202) → `ek_hazirla_task` (`assistant_ek`
+  kuyruğu, `assistant-ek-worker`) → `GET attachments/<uuid>/` yoklama → `POST chat/
+  {ekler, yetenekler:["ek"]}`. Yükleme ile gönderme bilinçli olarak ayrı.
+- **Tür imzadan** (`attachments.imza_tani`): EKAP'ın `.doc`'ları sık sık HTML/DOCX çıkar
+  (imza kazanır); `.pdf` diye gelen HTML (captcha) `gecersiz_dosya`. HEIC/arşiv reddedilir.
+  Metinli PDF → `[Sayfa N]`'li metin; taranmış PDF ≤30 sayfa ve görseller Files API'ye.
+  DOCX tabloları gövde sırasında (eski `ai/services/claude.py` sona atıyor, 100k'da kesiyor).
+- ⚠️ **Asla kesilmez:** token tavanı (120k) aşılırsa `cok_uzun`. Tek istisna Excel
+  (sayfa başı 3.000 satır, metinde yazılır).
+- ⚠️⚠️ **Önbellek:** ek blokları `messages[0]`'ın başında, nokta yalnızca son ekte;
+  istek düzeyi otomatik nokta + system = 3 (sınır 4). **Ekli sohbette değişken bağlam
+  system'den çıkarılıp son kullanıcı mesajına, eklerden SONRA konur**
+  (`tasks._ekli_istek`, `ASSISTANT_EK_BAGLAM_MESAJDA`): system[1]'de kalsaydı son arama /
+  İKN ipucu değiştiği her soruda doküman tam yazma fiyatıyla işlenirdi. İlk turda
+  `messages[0]` ile son mesaj aynıdır — bağlam yine eklerin arkasına gelir.
+- ⚠️⚠️ **Kapanış çağrısı döngüdekiyle birebir aynı parametrelerle** (`agent.py`): eskiden
+  `tools=[]` (araç+system+mesaj önbelleği bozuluyordu). `tool_choice:none` da çözüm
+  değil — mesaj önbelleğini (ekleri) geçersiz kılar; yalnızca model yine araç isterse
+  ikinci kapanışta kullanılır.
+- ⚠️ **Files API:** ad sentetik (`ihaletakip-ek-<uuid>.<uzantı>`; Türkçe ad 400 alabilirdi).
+  **Ayrı anahtar/workspace AÇILMADI** (kullanıcı kararı) → yetim süpürmesi (`ek_temizligi`)
+  yalnızca bu önekli **ve** 24 saatten eski dosyalara dokunur; aynı workspace başka
+  dosyalar tutabilir. `file_id` istemciden asla alınmaz. Süre (`expires_in_seconds`)
+  uzatılamaz → tekilleştirme kopyası `expires_at`'i taşır, kalan ömrü <7 gün ise yeniden
+  yüklenir. Süresi dolan dosya açıkça `DELETE` edilir. ZDR kapsamında değil.
+- **Dosya hatası:** 400/404 + mesajda `file` → `EkDosyaHatasi`; `_agent_yaniti` bir kez
+  onsuz yeniden dener, yalnızca Files API'de kesin bulunamayanı `suresi_doldu` yapar.
+- **Kota:** günlük hak `kota_sayildi=True` satırlarla sayılır (İstanbul günü). Kopya
+  `False` açılır; bizden kaynaklı `okunamadi` ve bağlanmamış ekin DELETE'i iade eder.
+  ⚠️ Tekilleştirme kotadan ÖNCE denetlenir (hakkı dolan kullanıcı aynı dosyayı yine alır).
+- **Hata zarfı:** `services.ekler.EkIstekHatasi` → kod `errors.code`, ek alanlar
+  `errors.sifirlanma/limit`. `ChatSendView`'ın "profil yok" yanıtı da artık `profil_yok`
+  kodlu (eskiden `api_response(status=400)` kodsuzdu).
+- **Altyapı:** volume `assistant_ek` → web + `assistant-ek-worker` (`/app/ek_depo`,
+  MEDIA_ROOT dışı); Dockerfile `antiword`+`catdoc`; nginx `/api/v1/assistant/attachments/`
+  25m (başlık yazmaz, miras alır; >25 MB 413 HTML); beat `assistant-ek-temizlik` 03:40.
+  `core/tests/test_compose_kuyruklar.py`: her rota kuyruğunu bir compose servisi dinlemeli.
+- **Gizlilik:** ham dosya hazırlamadan sonra silinir; görselde EXIF/GPS silinir;
+  `post_delete` sinyali + `DeactivateView` + `ek_temizligi` dosyaları siler.
+- **Prompt:** EK GÖNDERME: AÇIK/KAPALI satırı değişken bağlamda; "SOHBETE EKLENEN
+  DOSYALAR" bölümü; maliyet analizi kuralı mevcut benchmark kuralına eklendi (tek rakamlık
+  tahmini bedel yok); `dokuman_analizi` ek yokken `dokuman_sec` kartı üretir.
+- Testler: `test_agent_onbellek.py` (11), `test_ek_hazirla.py` (22), `test_ekler.py`.
+  Dişli: önbellek/kapanış düzeltmesi geri alınınca 3, kota kontrolü kaldırılınca 1,
+  bağlam taşıma kapatılınca 2 test kırılıyor.
+- **Açık:** adım 0 ölçümleri (ardışık mesaj aralığı → TTL; system[1] değişim sıklığı;
+  gerçek OLE `.doc` oranı; taranmış EKAP PDF'inin `count_tokens` ile token sayısı →
+  30 sayfa / 120k ayarı; workspace'te başka dosya var mı) ve altın setin 5 yeni senaryosu
+  (ücretli, kullanıcı onayıyla).
+
 ### ⚠️⚠️ Sohbet analizi (2026-11-04) — asistanın "bilmiyorum" dediği yerler
 
 445 kullanıcı mesajı (13 Tem → 4 Kas, 43 kullanıcı) okundu. Çökme yok denecek kadar
@@ -3813,6 +3874,7 @@ birebir aynı (`202` + `task_id`, aynı poll ucu).
 **Celery Beat** periyodik işleri yürütür (config/celery.py):
 - `cleanup_expired_analyses` — eski AI cache temizliği (günlük 03:00)
 - `cleanup_old_notifications` — eski bildirim temizliği (günlük 04:00)
+- `assistant.tasks.ek_temizligi` — asistan ekleri: süresi dolan Files API dosyaları, bağsız ekler, önekli yetim dosyalar (günlük 03:40, `assistant_ek`)
 - `match_recommendations` — İhale Asistanı günlük öneri + push (**günlük 09:00, Pro'ya özel**;
   adaylar 08:00 filtre bildiriminin kümesi, seçim yapay zekâ — bkz. İhale Asistanı → Öneriler)
 - ~~`recommend_by_saved_okas`~~ — **KALDIRILDI (2026-10-06)**, bkz. Bildirim Servisi → Kaynaklar 5

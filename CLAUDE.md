@@ -4733,6 +4733,56 @@ başta bu durumu "kalıcılık var" diye raporluyordu, yani **yanlış güvence*
 veriyordu; eski Bursa sunucusunda UFW kapalı olduğu için tam bu duruma düşüldü.
 Artık UFW durumu kontrol edilip açıkça uyarılıyor.
 
+### ⚠️⚠️ ACİL YEDEK SUNUCU — 2026-11-11'den beri CANLI BURADA (`tinyfect-yedek`, 45.13.59.169)
+
+**Olay:** ana sunucu (173.249.43.236, `ssh tinyfect`) 2026-11-11 19:09 TR'de **RAM arızasıyla**
+çöktü (IPMI olay kaydı: DIMMC2 + DIMMB1 "Failing DIMM"; IPMI'dan Power On da başarısız) →
+Contabo donanım onarımı bekleniyor. Tinyfect 20:40'ta, IhaleTakip API aynı gece Tinyfect'in
+acil yedek sunucusuna alındı. Ayrıntılı olay günlüğü ve geri dönüş planı **Tinyfect hub**'ında:
+`~/Desktop/Tinyfect/docs/gunluk/2026-11-11.md`, `docs/planlar/ana-sunucuya-donus.md`.
+
+- **Yol `/opt/ihaletakip-api`** (ana sunucuda `/root/ihaletakip-api`). Kod git bundle ile taşındı
+  (sunucuda GitHub anahtarı yok). Compose: `docker compose -f docker-compose.yml -f docker-compose.yedek.yml`
+  — ⚠️ **tinyfect katmanı KULLANILMAZ**: `shared_buffers=32GB` bu 8 GB'lık makinede Postgres'i açmaz.
+- **Donanım:** 8 GB RAM · 4 çekirdek · 96 GB disk; Tinyfect yığını da burada (~2 GB). 4 GB swap
+  eklendi (yoktu; OOM Tinyfect'i de düşürürdü). Worker eşzamanlılıkları `docker-compose.yedek.yml`'de
+  düşürüldü, gunicorn 3 işçi.
+- **Canlı:** 2026-11-11 23:48 TR'den beri (kullanıcı DNS'i önceden çevirdi: `ihale-takip` → 45.13.59.169,
+  `ihaletakip.com` + `www` → 45.13.59.169, proxied). Cloudflare üzerinden `/health/` ve ihale listesi 200,
+  nginx logunda `aop=SUCCESS`.
+- **Web portalı da burada:** `/opt/ihaletakip-web` (bundle ile), `.env.prod` yeniden kuruldu (`API_PORTAL_KEY` /
+  `WEB_REVALIDATE_SECRET` API'deki değerlerle aynı, Turnstile site anahtarı web repo `docs/secrets.txt`'ten).
+  ⚠️ `BOT_HEADER_SECRET` BOŞ (değer yalnız ana sunucudaydı) → doğrulanmış bot tespiti geçici kapalı.
+- **Geri yükleme ölçümü:** 6,0 GB dump → **31 dk** (`-j 4`, 4 çekirdek), **0 hata**, diskte 22 GB (ana sunucudaki
+  ~28 GB şişkinlik dahildi). Tablo 75=75, indeks 286=286, kısıt 127=127, FK 62=62 (dump TOC'u ile).
+  ⚠️ TOC sayarken `" CONSTRAINT public"` deseni `FK CONSTRAINT` satırlarını da yakalar — FK'yı ayrıca çıkarın.
+  Ardından `vacuumdb --analyze-only -j 4` (25 sn; pg_restore istatistik üretmez, atlanırsa planlayıcı kör kalır).
+  Açılışta `assistant.0013_assistantattachment` uygulandı (ana sunucuda 2026-11-11 gündüz açılmıştı, 04:00 dump'ında yoktu).
+- **Gece yedeği burada da kurulu:** `/etc/ihaletakip-yedek.env` (FTP hesabı Tinyfect'inkiyle aynı + `AYAR_SIFRE`),
+  cron `0 4 * * *` (sunucu saati Europe/Berlin), `yedek_ftp.sh test` geçti.
+- **Veri:** FTP'deki `ihaletakip_20261111_0400.dump` (`pg_restore -j 4`). **~14 saatlik açık**
+  (05:00 → 19:09 TR): o penceredeki kayıtlar yalnızca ana sunucunun diskinde. İhale verisi EKAP'tan
+  yeniden toplanır; kullanıcı işlemleri (kayıt, favori, abonelik olayı, destek, asistan) geri dönüşte
+  seçici birleştirilmeli.
+- **Sırlar:** FTP'deki şifreli `ihaletakip-ayar_20261111_0415.tar.gz.gpg` açıldı → `.env.prod`,
+  `credentials/`, `docker/nginx/certs/` **üretimle birebir**. ⚠️ Parola bir yerde
+  `AYAR_SIFRE="${AYAR_SIFRE:-…}"` biçiminde saklanmışsa gpg'ye yalnızca İÇ değer verilir; sarmalıyla
+  verilirse hata `Bad session key` olur (yaşandı).
+- **nginx:** `docker/nginx/yedek.conf` = `default.conf` − Pinmotion blokları (Pinmotion burada yok).
+  AOP açık (sertifikalar arşivden). `default.conf` değişirse bu dosya yeniden üretilmeli (dosya başında komut).
+- **Kilit:** 443 için `PORT=443 scripts/cloudflare_kilit.sh uygula` (`cf-kilit-443`); 80 (Tinyfect) zaten
+  kilitliydi. `/etc/systemd/system/cf-kilit.service` (yol `/opt/...`'a çevrildi) Docker her açıldığında
+  iki portu kurar; haftalık `tazele` cron'u.
+- **Beat açılmadan ÖNCE** tüm `PeriodicTask.last_run_at = now()` yapıldı: DB 04:00'ten geldiği için
+  sabah görevleri (07:05 kurul, 08:00 kayıtlı filtre, 08:30 idare, 09:00 alarm, 10:00 e-posta özeti,
+  12:00 blog e-postası) beat açılır açılmaz yeniden koşup kullanıcılara **çift bildirim/e-posta** atardı.
+- **Yetim ek süpürmesi KAPALI** (`ASSISTANT_EK_YETIM_SUPURME` yedek katmanında yok): DB'nin bilmediği
+  14 saatlik ekleri yetim sanıp Files API'den silerdi.
+- **Kaybolanlar:** `media_volume` (blog kapakları) ve `assistant_ek` hacimleri ana diskte kaldı.
+- ⚠️⚠️ **Ana sunucu açılınca İLK İŞ oradaki ihaletakip konteynerlerini durdur**: hepsi
+  `restart: unless-stopped` → açılışta kendiliğinden kalkar; iki beat = çift push/e-posta, EKAP'a iki
+  IP'den tempo. Ana sunucudaki 04:00 CEST `yedek_ftp.sh` cron'u da yoruma alınmalı.
+
 ### Eski Bursa sunucusu — 1 hafta bekletiliyor (2026-09-23'e kadar)
 
 Kullanıcı kararı (2026-09-16): sunucu **bir hafta daha duracak**, sonra kapatılacak.

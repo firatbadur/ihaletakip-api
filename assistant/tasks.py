@@ -262,7 +262,7 @@ def _eylem_idleri(bloklar):
 
 def _agent_yaniti(profile, user_msg, conversation, today):
     """
-    Araç kullanan yanıt yolu. Dönen: `(reply_metni, kartlar, usage)`.
+    Araç kullanan yanıt yolu. Dönen: `(reply_metni, kartlar, usage, bloklar)`.
 
     ⚠️ Anahtar kelime yönlendirmesi (eski `_wants_tender_listing` / `_wants_saved`)
     BURADA YOK ve geri eklenmemeli: model hangi aracı çağıracağına kendi karar veriyor.
@@ -341,7 +341,9 @@ def _agent_yaniti(profile, user_msg, conversation, today):
 
     messages = build_chat_messages(profile.user, conversation=conversation)
     if not messages:
-        return None, [], None
+        # ⚠️ 4 değer: çağıran (`assistant_chat_task`) dört değer açıyor; eskiden burada
+        # 3 değer dönüyordu ve bu dal ValueError ile "çökme" oluyordu.
+        return None, [], None, []
 
     # Hitap CACHE'Lİ bloğa gider (`sistem_ek`): kullanıcı başına sabittir, turdan
     # tura değişmez — değişken bağlamla (tarih, son arama) karıştırılırsa her

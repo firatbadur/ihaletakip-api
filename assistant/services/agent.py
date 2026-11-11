@@ -23,6 +23,36 @@ from ai.services.claude import AnalysisError, get_api_key
 logger = logging.getLogger("ihaletakip")
 
 
+class EkDosyaHatasi(AnalysisError):
+    """
+    İstek, Files API'deki bir dosyaya (ek) atıf yaptığı için reddedildi.
+
+    Files API'ye göre süresi dolmuş ya da silinmiş dosyaya atıf yapan istek
+    "inference öncesi" düşer — 400 ya da 404 gelebilir. Bu ayrı sınıf, çağıranın
+    (`assistant.tasks._agent_yaniti`) ilgili ekleri işaretleyip bir kez eksiz yeniden
+    denemesini sağlar. Aksi hâlde kullanıcı 400'ü "yapılandırma sorunu", 404'ü
+    "AI servisi geçici olarak yanıt vermiyor" diye görürdü.
+    """
+
+
+def onbellek_isareti() -> dict:
+    """
+    `cache_control` değeri — system bloğu, son ek bloğu ve istek düzeyi aynı TTL'i kullanır.
+
+    ⚠️ Varsayılan (5 dk) hâlinde `ttl` anahtarı YAZILMAZ: system bloğu bugünkü gibi
+    byte-aynı kalsın, mevcut önbellek bir kez bile kırılmasın. 1 saat seçilirse TÜM
+    noktalar 1 saat olur: uzun TTL'li giriş kısa olandan ÖNCE gelmek zorunda (system
+    5 dk + ek 1 sa → 400). Sondaki otomatik nokta da aynı TTL'i taşır.
+    """
+    ttl = getattr(settings, "ASSISTANT_EK_CACHE_TTL", "5m")
+    return {"type": "ephemeral", "ttl": "1h"} if ttl == "1h" else {"type": "ephemeral"}
+
+
+def _dosya_hatasi_mi(e) -> bool:
+    """400/404 bir Files API dosyasını mı işaret ediyor? (mesajda `file` geçer)"""
+    return getattr(e, "status_code", None) in (400, 404) and "file" in str(e).lower()
+
+
 # Adaptive thinking + `output_config.effort` YALNIZCA 4.6 ve sonrası modellerde vardır.
 # Haiku 4.5 / Sonnet 4.5 gibi eski modellerde ikisi de **400** döndürür — üstelik hata
 # "AI servisi geçici olarak yanıt vermiyor" gibi görünür ve saatlerce yanlış yerde aranır.
@@ -126,10 +156,11 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
         + json.dumps(profile_map or {}, ensure_ascii=False, sort_keys=True)
         + (("\n\n" + sistem_ek) if sistem_ek else "")
     )
-    system = [
-        {"type": "text", "text": sabit, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": context_text},
-    ]
+    system = [{"type": "text", "text": sabit, "cache_control": onbellek_isareti()}]
+    # Ekli sohbette değişken bağlam son kullanıcı mesajına taşınır (bkz. tasks.py) ve
+    # burada boş gelir. ⚠️ Boş metin bloğu GÖNDERİLMEZ — API reddeder.
+    if context_text:
+        system.append({"type": "text", "text": context_text})
 
     messages = list(messages)
     usage = {}
@@ -140,7 +171,7 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
 
     ek = _modelin_yetenekleri(settings.ASSISTANT_AGENT_MODEL)
 
-    def _cagir(tools):
+    def _cagir(tools, tool_choice=None):
         try:
             return client.messages.create(
                 model=settings.ASSISTANT_AGENT_MODEL,
@@ -148,10 +179,21 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
                 system=system,
                 messages=messages,
                 tools=tools,
+                # İstek düzeyi (otomatik) önbellek noktası: araç döngüsündeki her çağrı
+                # bir öncekinin önekini okur. Bugüne kadar yalnızca system önbellekliydi
+                # → 7 araç çağrısının her biri tüm mesajları tam fiyattan işliyordu.
+                # Toplam nokta: system + son ek + bu = 3 (sınır 4).
+                cache_control=onbellek_isareti(),
+                **({"tool_choice": tool_choice} if tool_choice else {}),
                 **ek,
             )
         except anthropic.APIError as e:
             code = getattr(e, "status_code", None)
+            if _dosya_hatasi_mi(e):
+                logger.warning("Asistan isteği bir ek dosyası yüzünden reddedildi (%s): %s", code, e)
+                raise EkDosyaHatasi(
+                    "Eklediğiniz dosyalardan biri artık okunamıyor.", status=410
+                ) from e
             # ⚠️ 400 GEÇİCİ DEĞİLDİR — istekte bir hata var (desteklenmeyen parametre,
             # geçersiz model kimliği, bozuk mesaj dizisi). "Tekrar deneyin" demek
             # kullanıcıyı da bizi de yanlış yönlendirir; hatanın kendisini logla.
@@ -226,9 +268,22 @@ def sohbet_turu(ctx, profile_map, context_text, messages, sistem_ek=""):
         messages.append({"role": "user", "content": sonuclar})
 
         if butce_doldu:
-            # Kapanış turu: araçsız çağrı, model elindekiyle cümleyi yazsın.
-            resp = _cagir([])
+            # Kapanış turu: model elindekiyle cümleyi yazsın.
+            # ⚠️ Parametreler döngüdeki çağrıyla BİREBİR AYNI (aynı araçlar, `tool_choice`
+            # yok). Eskiden `tools=[]` gönderiliyordu → araç, system ve mesaj önbelleğinin
+            # hepsi bozuluyordu. `tool_choice: none` da çözüm DEĞİL: araç + system
+            # önbelleğini korur ama MESAJ önbelleğini (yani sohbete eklenen dokümanı)
+            # geçersiz kılar. Son tool_result'lar zaten "yeni araç çağırma" diyor.
+            resp = _cagir(TOOL_SPECS)
             _usage_topla(usage, resp.usage)
+            if resp.stop_reason == "tool_use":
+                # Nadir: model yine araç istedi. tool_use bloğu sonuçsuz geri konamaz
+                # (API reddeder) → aynı mesajlarla, araç kullanımı kapalı ikinci kapanış.
+                # Önbellek bedeli bu nadir durumda kabul edilir.
+                resp = _cagir(TOOL_SPECS, tool_choice={"type": "none"})
+                _usage_topla(usage, resp.usage)
+            if resp.stop_reason == "refusal":
+                raise AnalysisError("İsteğinizi bu şekilde yanıtlayamıyorum.", status=422)
             messages.append({"role": "assistant", "content": resp.content})
             break
 

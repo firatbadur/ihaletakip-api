@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     AssistantAction,
+    AssistantAttachment,
     ChatConversation,
     ChatMessage,
     CompanyProfile,
@@ -120,3 +121,28 @@ class AssistantActionAdmin(admin.ModelAdmin):
     readonly_fields = ("params", "sonuc", "created_at", "executed_at")
     raw_id_fields = ("user", "message")
     list_select_related = ("user",)
+
+
+@admin.register(AssistantAttachment)
+class AssistantAttachmentAdmin(admin.ModelAdmin):
+    """
+    Salt okunur: satırlar yükleme ucu + hazırlama görevi tarafından yazılır.
+
+    ⚠️ `metin` ve `anthropic_file_id` listede GÖSTERİLMEZ (kullanıcı dokümanının içeriği
+    ve sunucu tarafı dosya anahtarı); ayrıntı sayfasında okunur. Silme serbest — satır
+    silinince `post_delete` sinyali yerel dosyayı ve Files API dosyasını da siler.
+    """
+
+    list_display = ("ad", "user", "tur", "mod", "durum", "hata_kodu", "token_sayisi",
+                    "boyut", "sira", "created_at")
+    list_filter = ("tur", "mod", "durum", "kaynak", "hata_kodu")
+    search_fields = ("user__email", "ad", "ikn")
+    list_select_related = ("user",)
+    raw_id_fields = ("user", "conversation", "message")
+    readonly_fields = [f.name for f in AssistantAttachment._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -290,3 +290,99 @@ class AssistantAction(models.Model):
         from django.utils import timezone
 
         return self.expires_at is not None and self.expires_at < timezone.now()
+
+
+class AssistantAttachment(models.Model):
+    """
+    Asistan sohbetine eklenen doküman ya da fotoğraf (docs/plan-asistan-ekler.md).
+
+    Yaşam döngüsü: yüklenir (`hazirlaniyor`) → `assistant_ek` kuyruğunda metne çevrilir
+    ya da Files API'ye yüklenir (`hazir` | `hata`) → sohbete bağlanır (`conversation`,
+    `sira`) → saklama süresi dolunca içeriği silinir (`suresi_doldu`, satır kalır ki
+    geçmişte kart "süresi doldu" görünsün).
+
+    ⚠️ `anthropic_file_id` ve `metin` istemciye ASLA dönmez. Files API workspace
+    kapsamlıdır: istemciden gelen bir `file_id`'yi kabul etmek, bir kullanıcının
+    başkasının dosyasını okutmasına yol açardı.
+    ⚠️ Ham dosya (`depo_yolu`) hazırlamadan sonra silinir (KVKK: en kısa saklama).
+    """
+
+    class Tur(models.TextChoices):
+        DOKUMAN = "dokuman", "Doküman"
+        FOTOGRAF = "fotograf", "Fotoğraf"
+
+    class Kaynak(models.TextChoices):
+        IHALE_DOKUMANI = "ihale_dokumani", "İhale dokümanı"
+        ARSIV = "arsiv", "Kayıtlı dokümanlar"
+        CIHAZ = "cihaz", "Telefondan dosya"
+        KAMERA = "kamera", "Kamera"
+        GALERI = "galeri", "Galeri"
+
+    class Durum(models.TextChoices):
+        HAZIRLANIYOR = "hazirlaniyor", "Hazırlanıyor"
+        HAZIR = "hazir", "Hazır"
+        HATA = "hata", "Hata"
+        SURESI_DOLDU = "suresi_doldu", "Süresi doldu"
+
+    class Mod(models.TextChoices):
+        METIN = "metin", "Metin"
+        PDF = "pdf", "PDF (Files API)"
+        GORSEL = "gorsel", "Görsel (Files API)"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="asistan_ekleri")
+    conversation = models.ForeignKey(
+        ChatConversation, on_delete=models.CASCADE, related_name="ekler",
+        null=True, blank=True,
+    )
+    message = models.ForeignKey(
+        ChatMessage, on_delete=models.SET_NULL, related_name="ekler", null=True, blank=True,
+    )
+    # Sohbet içindeki "Ek N" numarası — bağlarken atanır, sohbet boyunca sabit.
+    sira = models.PositiveSmallIntegerField(null=True, blank=True)
+    tur = models.CharField(max_length=10, choices=Tur.choices)
+    kaynak = models.CharField(max_length=20, choices=Kaynak.choices)
+    ikn = models.CharField(max_length=100, blank=True, default="")
+    ekap_id = models.CharField(max_length=100, blank=True, default="")
+    dtn = models.CharField(max_length=40, blank=True, default="")
+    # "Teknik Şartname", "İdari Şartname" … — etiket ve bağlam için.
+    parca = models.CharField(max_length=120, blank=True, default="")
+    ad = models.CharField(max_length=255)  # Türkçe orijinal ad; Files API'ye GİTMEZ
+    uzanti = models.CharField(max_length=16, blank=True, default="")
+    mime = models.CharField(max_length=100, blank=True, default="")
+    boyut = models.PositiveBigIntegerField(default=0)
+    sha256 = models.CharField(max_length=64, blank=True, default="")
+    durum = models.CharField(max_length=15, choices=Durum.choices, default=Durum.HAZIRLANIYOR)
+    hata_kodu = models.CharField(max_length=40, blank=True, default="")
+    mod = models.CharField(max_length=10, choices=Mod.choices, blank=True, default="")
+    metin = models.TextField(blank=True, default="")
+    anthropic_file_id = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    sayfa_sayisi = models.PositiveIntegerField(null=True, blank=True)
+    token_sayisi = models.PositiveIntegerField(null=True, blank=True)
+    # Fotoğrafta ≤6 KB `data:image/jpeg;base64,…` (ayrı uç yok).
+    kucuk_resim = models.TextField(blank=True, default="")
+    depo_yolu = models.CharField(max_length=500, blank=True, default="")
+    # Günlük hakka sayılır mı? Tekilleştirme kopyası False açılır; bizden kaynaklı
+    # `okunamadi` False yapar (iade). Bağlanmamış ekin DELETE'i satırı siler (iade).
+    kota_sayildi = models.BooleanField(default=True, db_default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    hazir_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Asistan Eki"
+        verbose_name_plural = "Asistan Ekleri"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["user", "sha256"]),
+            models.Index(fields=["conversation", "sira"]),
+            models.Index(fields=["durum", "expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_tur_display()} · {self.ad} · {self.get_durum_display()}"
+
+    def etiket(self) -> str:
+        """Modele ve geçmişe giden kısa etiket: "Ek 2 — TEKNİK ŞARTNAME.docx"."""
+        return f"Ek {self.sira} — {self.ad}" if self.sira else self.ad

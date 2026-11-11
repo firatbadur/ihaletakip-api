@@ -301,6 +301,48 @@ ASSISTANT_WALL_SECONDS = env.int("ASSISTANT_WALL_SECONDS", default=180)
 ASSISTANT_TOOL_TOKEN_BUDGET = env.int("ASSISTANT_TOOL_TOKEN_BUDGET", default=12000)
 # Araç döngüsü açık mı — kademeli çıkış için. Kapalıyken eski anahtar kelime akışı çalışır.
 ASSISTANT_AGENT_ENABLED = env.bool("ASSISTANT_AGENT_ENABLED", default=True)
+
+# ── İhale Asistanı: doküman ve fotoğraf ekleri (docs/plan-asistan-ekler.md) ──────
+# Kapatma anahtarı + kademeli açılış: kapali | staff | herkes. `GET /assistant/
+# attachments/limits/` içindeki `etkin` KULLANICI BAZINDA buradan hesaplanır. Düz bir
+# boolean "önce yalnızca staff'a aç" adımını yapamazdı. Geri alma = `kapali` (deploy'suz).
+ASSISTANT_EK_KAPSAM = env("ASSISTANT_EK_KAPSAM", default="kapali")
+# Ekli sohbette değişken bağlam (tarih, son arama, İKN ipucu) system'den çıkarılıp son
+# kullanıcı mesajına, eklerden SONRA konur. system'de kalsaydı değiştiği her soruda
+# doküman tam yazma fiyatıyla yeniden işlenirdi (önbellek öneki bozulur).
+ASSISTANT_EK_BAGLAM_MESAJDA = env.bool("ASSISTANT_EK_BAGLAM_MESAJDA", default=True)
+# ⚠️ MEDIA_ROOT DIŞI: /media/blog/ herkese açık sunuluyor. Docker'da /app/ek_depo
+# (named volume `assistant_ek`; web + assistant-ek-worker). Ham dosya hazırlamadan
+# sonra silinir — burada yalnızca hazırlanmayı bekleyenler durur.
+ASSISTANT_EK_DIR = env("ASSISTANT_EK_DIR", default=str(BASE_DIR / "ek_depo"))
+ASSISTANT_EK_AZAMI_BAYT = env.int("ASSISTANT_EK_AZAMI_BAYT", default=20 * 1024 * 1024)
+# Fotoğraf dosyası ayrıca ≤10 MB (kullanıcı kararı, 2026-11-11).
+ASSISTANT_EK_FOTO_AZAMI_BAYT = env.int("ASSISTANT_EK_FOTO_AZAMI_BAYT", default=10 * 1024 * 1024)
+# ≈100 sayfa. Aşan doküman KESİLMEZ, `cok_uzun` ile reddedilir (kesmek sessizce yanlış
+# cevap üretir: model okumadığı sayfayı "dokümanda yok" diye anlatır).
+ASSISTANT_EK_TOKEN_AZAMI = env.int("ASSISTANT_EK_TOKEN_AZAMI", default=120_000)
+# Taranmış (metinsiz) PDF sayfa sınırı. ⚠️ 30 × ~4.800 token ≈ 144 bin > tavan: gerçek
+# bir taranmış EKAP PDF'i `count_tokens` ile ölçülüp ikisi birlikte ayarlanmalı.
+ASSISTANT_EK_TARANMIS_SAYFA = env.int("ASSISTANT_EK_TARANMIS_SAYFA", default=30)
+ASSISTANT_EK_MESAJ_DOKUMAN = env.int("ASSISTANT_EK_MESAJ_DOKUMAN", default=2)
+ASSISTANT_EK_MESAJ_FOTO = env.int("ASSISTANT_EK_MESAJ_FOTO", default=4)
+ASSISTANT_EK_SOHBET_DOKUMAN = env.int("ASSISTANT_EK_SOHBET_DOKUMAN", default=5)
+ASSISTANT_EK_SOHBET_FOTO = env.int("ASSISTANT_EK_SOHBET_FOTO", default=12)
+ASSISTANT_EK_SOHBET_TOKEN = env.int("ASSISTANT_EK_SOHBET_TOKEN", default=200_000)
+# Pro kullanıcı başına günlük hak (İstanbul günü, DB'den sayılır; superuser muaf).
+ASSISTANT_EK_GUNLUK_DOKUMAN = env.int("ASSISTANT_EK_GUNLUK_DOKUMAN", default=20)
+ASSISTANT_EK_GUNLUK_FOTO = env.int("ASSISTANT_EK_GUNLUK_FOTO", default=40)
+# Files API `expires_in_seconds` = gün × 86400 (izinli aralık 1 sa – 90 gün).
+ASSISTANT_EK_SAKLAMA_GUN = env.int("ASSISTANT_EK_SAKLAMA_GUN", default=30)
+# Tekilleştirmede başka sohbete kopyalanacak ekin asgari kalan ömrü (Files API süresi
+# yüklemede bir kez verilir, uzatılamaz).
+ASSISTANT_EK_KOPYA_MIN_GUN = env.int("ASSISTANT_EK_KOPYA_MIN_GUN", default=7)
+# "5m" | "1h". 1 saatte system noktası da 1 saat olur (uzun TTL önce gelmeli).
+ASSISTANT_EK_CACHE_TTL = env("ASSISTANT_EK_CACHE_TTL", default="5m")
+# Hazırlama görevi `soft_time_limit`. İstemci en çok bu + 30 sn yoklar
+# (eşit olsaydı görev 90. saniyede biterken istemci vazgeçerdi).
+ASSISTANT_EK_SURE_SN = env.int("ASSISTANT_EK_SURE_SN", default=90)
+ASSISTANT_EK_YOKLAMA_ARALIK_MS = env.int("ASSISTANT_EK_YOKLAMA_ARALIK_MS", default=1500)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Google Sign-In (idToken audience'ları)

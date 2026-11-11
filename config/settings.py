@@ -985,6 +985,13 @@ CELERY_TASK_ROUTES = {
     # tutarsa KULLANICININ SOHBETİ FIFO'da bekler — `ekap_oncelik` ile aynı gerekçe
     # (aşağıda ölçümü yazılı: beat 02:00'de tetikliyor, worker 9-20 saat sonra koşuyordu).
     "assistant.tasks.assistant_chat_task": {"queue": "assistant"},
+    # ⚠️ Ek hazırlama AYRI kuyrukta (`assistant_ek`, servis `assistant-ek-worker`):
+    # hazırlama 90 sn'ye kadar sürer ve alt süreç çalıştırır; `assistant` kuyruğunda
+    # kalsaydı kullanıcının sohbetini bekletirdi. Ham dosya dizinini yalnızca web ve
+    # bu worker görür (named volume `assistant_ek`).
+    "assistant.tasks.ek_hazirla_task": {"queue": "assistant_ek"},
+    "assistant.tasks.ek_dosyalarini_sil_task": {"queue": "assistant_ek"},
+    "assistant.tasks.ek_temizligi": {"queue": "assistant_ek"},
     # sync_contractors EKAP'a HİÇ gitmez (Tender.detail_raw arşivinden çalışır) →
     # tek-concurrency'li ekap kuyruğunda yer tutup sync_recent/backfill'i bloklamasın.
     "ekap.tasks.sync_contractors": {"queue": "celery"},

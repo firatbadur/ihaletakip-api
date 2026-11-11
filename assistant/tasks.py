@@ -911,3 +911,180 @@ def expire_actions():
     if doldu or silindi:
         logger.info("expire_actions: %s süresi doldu, %s eski kayıt silindi", doldu, silindi)
     return {"suresi_doldu": doldu, "silinen": silindi}
+
+
+# ── Asistan ekleri (docs/plan-asistan-ekler.md 1.5, 1.10) ─────────────────────
+# ⚠️ Üçü de AYRI `assistant_ek` kuyruğunda (`assistant-ek-worker`): hazırlama 90 sn'ye
+# kadar sürer ve alt süreç çalıştırır; sohbet kuyruğunda kalsaydı kullanıcının
+# sohbetini bekletirdi. Ham dosya dizinini (`ASSISTANT_EK_DIR`) yalnızca web ve bu
+# worker görür.
+
+def _ek_dizininde_mi(yol) -> bool:
+    import os
+
+    if not yol:
+        return False
+    kok = os.path.realpath(settings.ASSISTANT_EK_DIR)
+    return os.path.realpath(yol).startswith(kok + os.sep)
+
+
+def ham_dosyayi_sil(yol) -> None:
+    """Ek dizinindeki ham dosyayı siler; dizin dışındaki bir yola ASLA dokunmaz."""
+    import os
+
+    if not _ek_dizininde_mi(yol):
+        return
+    try:
+        os.remove(yol)
+    except FileNotFoundError:
+        pass
+
+
+@shared_task(name="assistant.tasks.ek_hazirla_task",
+             soft_time_limit=settings.ASSISTANT_EK_SURE_SN,
+             time_limit=settings.ASSISTANT_EK_SURE_SN + 30)
+def ek_hazirla_task(ek_id):
+    """
+    Ham dosyayı metne çevirir ya da Files API'ye yükler; sonucu satıra yazar.
+
+    Görev ÇÖKMEZ: her hata `durum="hata"` + `hata_kodu` olarak yazılır. Bizden
+    kaynaklanan hatada (`okunamadi`, zaman aşımı) günlük hak iade edilir.
+    ⚠️ Doküman içeriği loglanmaz. Ham dosya başarıda da hatada da silinir.
+    """
+    from assistant.models import AssistantAttachment
+    from assistant.services import attachments as ek_servis
+
+    ek = AssistantAttachment.objects.filter(id=ek_id).first()
+    if not ek or ek.durum != AssistantAttachment.Durum.HAZIRLANIYOR:
+        return {"atlandi": "yok_ya_da_hazirlanmis"}
+    canli = AssistantAttachment.objects.filter(id=ek.id, durum="hazirlaniyor")
+
+    def _hata(kod, sayfa=None, iade=False):
+        alanlar = {"durum": "hata", "hata_kodu": kod, "metin": "", "depo_yolu": ""}
+        if sayfa:
+            alanlar["sayfa_sayisi"] = sayfa
+        if iade:
+            alanlar["kota_sayildi"] = False
+        canli.update(**alanlar)
+        return {"durum": "hata", "hata_kodu": kod}
+
+    try:
+        alanlar = ek_servis.hazirla(ek)
+    except ek_servis.EkHatasi as e:
+        return _hata(e.kod, e.sayfa_sayisi, iade=e.bizden)
+    except SoftTimeLimitExceeded:
+        logger.warning("ek hazırlama süre aşımı (ek=%s)", ek_id)
+        return _hata("okunamadi", iade=True)
+    except Exception:
+        logger.exception("ek hazırlama çöktü (ek=%s)", ek_id)
+        return _hata("okunamadi", iade=True)
+    finally:
+        ham_dosyayi_sil(ek.depo_yolu)
+
+    # ⚠️ `save()` DEĞİL koşullu UPDATE: kullanıcı ek hazırlanırken tepsiden çıkardıysa
+    # satır silinmiştir; `save()` onu yeniden yaratırdı.
+    guncellendi = canli.update(**alanlar, durum="hazir", hata_kodu="", depo_yolu="",
+                               hazir_at=timezone.now())
+    if not guncellendi and alanlar.get("anthropic_file_id"):
+        try:
+            ek_servis.dosya_sil(ek_servis._istemci(), alanlar["anthropic_file_id"])
+        except Exception:
+            logger.warning("silinen ekin Files API dosyası kaldırılamadı (ek=%s)", ek_id)
+    return {"durum": "hazir" if guncellendi else "silindi", "mod": alanlar.get("mod")}
+
+
+@shared_task(name="assistant.tasks.ek_dosyalarini_sil_task", bind=True, max_retries=3)
+def ek_dosyalarini_sil_task(self, file_ids, yollar):
+    """
+    Silinen eklerin ham dosyalarını ve Files API dosyalarını kaldırır.
+
+    ⚠️ Bir Files API dosyasını başka bir satır (tekilleştirme kopyası) hâlâ
+    kullanıyorsa SİLİNMEZ.
+    """
+    from assistant.models import AssistantAttachment
+    from assistant.services import attachments as ek_servis
+
+    for yol in yollar or []:
+        ham_dosyayi_sil(yol)
+    silinecek = [f for f in (file_ids or [])
+                 if f and not AssistantAttachment.objects.filter(anthropic_file_id=f).exists()]
+    if not silinecek:
+        return {"silinen": 0}
+    try:
+        istemci = ek_servis._istemci()
+        for f in silinecek:
+            ek_servis.dosya_sil(istemci, f)
+    except Exception as e:
+        logger.warning("ek Files API silme başarısız, yeniden denenecek: %s", type(e).__name__)
+        raise self.retry(exc=e, countdown=300)
+    return {"silinen": len(silinecek)}
+
+
+@shared_task(name="assistant.tasks.ek_temizligi", soft_time_limit=240, time_limit=280)
+def ek_temizligi(sure_sn=200):
+    """
+    Günlük (beat 03:40):
+    0) 1 saatten uzun "hazırlanıyor" kalan ek (worker düştü) → hata + hak iadesi;
+    1) süresi dolan ek → Files API dosyası açıkça SİLİNİR (süre dolumu metadata'yı 30 gün
+       daha listede tutar), metin boşaltılır, `suresi_doldu`; satır kalır;
+    2) 24 saati geçen bağlanmamış ek → satır silinir (sinyal dosyaları siler);
+    3) yetim Files API dosyaları → YALNIZCA `ihaletakip-ek-` önekli, 24 saatten eski ve
+       hiçbir satıra bağlı olmayanlar.
+       ⚠️ Öneksiz ya da yeni dosyaya dokunulmaz: Files API workspace kapsamlıdır ve
+       aynı API anahtarı başka dosyalar da tutabilir (ayrı anahtar açılmadı, kullanıcı
+       kararı 2026-11-11); yaş eşiği yükleme ile kaydın yazılması arasındaki yarışı kapatır.
+    """
+    import time
+    from datetime import timedelta
+
+    from assistant.models import AssistantAttachment
+    from assistant.services import attachments as ek_servis
+
+    basla = time.monotonic()
+    simdi = timezone.now()
+    sonuc = {"takili": 0, "suresi_doldu": 0, "bagsiz": 0, "yetim": 0}
+
+    takili = AssistantAttachment.objects.filter(
+        durum="hazirlaniyor", created_at__lt=simdi - timedelta(hours=1))
+    for ek in takili:
+        ham_dosyayi_sil(ek.depo_yolu)
+    sonuc["takili"] = takili.update(durum="hata", hata_kodu="okunamadi", depo_yolu="",
+                                    kota_sayildi=False)
+
+    istemci = None
+    dolan = list(AssistantAttachment.objects.filter(durum="hazir", expires_at__lte=simdi))
+    file_ids = {e.anthropic_file_id for e in dolan if e.anthropic_file_id}
+    sonuc["suresi_doldu"] = AssistantAttachment.objects.filter(
+        id__in=[e.id for e in dolan]).update(durum="suresi_doldu", metin="", anthropic_file_id="")
+    canli = set(AssistantAttachment.objects.filter(anthropic_file_id__in=file_ids)
+                .values_list("anthropic_file_id", flat=True))
+    try:
+        for f in file_ids - canli:
+            istemci = istemci or ek_servis._istemci()
+            ek_servis.dosya_sil(istemci, f)
+    except Exception as e:
+        logger.warning("süresi dolan ek dosyaları silinemedi: %s", type(e).__name__)
+
+    sonuc["bagsiz"], _ = AssistantAttachment.objects.filter(
+        conversation__isnull=True, created_at__lt=simdi - timedelta(hours=24)).delete()
+
+    try:
+        istemci = istemci or ek_servis._istemci()
+        bilinen = set(AssistantAttachment.objects.exclude(anthropic_file_id="")
+                      .values_list("anthropic_file_id", flat=True))
+        esik = simdi - timedelta(hours=24)
+        for f in istemci.files.list(limit=1000):
+            if time.monotonic() - basla > sure_sn:
+                break
+            if not (getattr(f, "filename", "") or "").startswith(ek_servis.DOSYA_ONEKI):
+                continue
+            if f.created_at is None or f.created_at > esik or f.id in bilinen:
+                continue
+            ek_servis.dosya_sil(istemci, f.id)
+            sonuc["yetim"] += 1
+    except Exception as e:
+        logger.warning("yetim ek süpürmesi yarım kaldı: %s", type(e).__name__)
+
+    if any(sonuc.values()):
+        logger.info("ek_temizligi: %s", sonuc)
+    return sonuc

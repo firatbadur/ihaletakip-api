@@ -578,4 +578,9 @@ class DeactivateView(APIView):
         # telefonundaki kayıt canlanırdı, (b) aynı cihazda açılan yeni hesap o satırı
         # devralmak zorunda kalırdı, (c) pano "push açık" sayacı ölü kurulumlarla şişer.
         PushDevice.objects.filter(user=user).delete()
+        # Asistana eklenen dosya ve fotoğraflar (KVKK: en kısa saklama). Satır silinince
+        # `assistant.signals` yerel ham dosyayı ve Files API dosyasını da siler.
+        from assistant.models import AssistantAttachment
+
+        AssistantAttachment.objects.filter(user=user).delete()
         return Response({"detail": "Hesap devre dışı bırakıldı."})

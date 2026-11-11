@@ -13,6 +13,7 @@ from .views import (
     RecommendationListView,
     RecommendationSeenView,
 )
+from .views_ek import EkDetayView, EkSinirlariView, EkYukleView
 
 urlpatterns = [
     path("profile/", ProfileView.as_view(), name="assistant-profile"),
@@ -29,6 +30,10 @@ urlpatterns = [
         name="assistant-conversation-detail",
     ),
     path("chat/", ChatSendView.as_view(), name="assistant-chat"),
+    # Doküman ve fotoğraf ekleri (docs/mobil-asistan-ekler.md)
+    path("attachments/", EkYukleView.as_view(), name="assistant-attachments"),
+    path("attachments/limits/", EkSinirlariView.as_view(), name="assistant-attachment-limits"),
+    path("attachments/<uuid:ek_id>/", EkDetayView.as_view(), name="assistant-attachment-detail"),
     path(
         "actions/<uuid:action_id>/execute/",
         AssistantActionExecuteView.as_view(),

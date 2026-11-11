@@ -469,6 +469,273 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/assistant/attachments/:
+    post:
+      operationId: api_v1_assistant_attachments_create
+      description: 'Pro. Gövde `multipart/form-data`. Dosya hemen **202** + `ek` (`durum:
+        hazirlaniyor`) döner; hazırlık arka planda yapılır, durum `GET /assistant/attachments/<id>/`
+        ile yoklanır.
+
+
+        **Tekilleştirme:** aynı dosya (sha256) daha önce hazırlandıysa **200** + `durum:
+        hazir` döner, hak harcanmaz — istemci yoklamaz.
+
+
+        **Tür imzadan belirlenir** (uzantı ipucudur): EKAP''ın içi HTML olan `.doc`''ları
+        kabul edilir; `.pdf` diye gelen HTML `gecersiz_dosya`. HEIC ve arşivler `desteklenmeyen_tur`.
+
+
+        Hatalar `errors.code` ile: `premium_required` (403), `profil_yok` (400), `dosya_buyuk`
+        / `desteklenmeyen_tur` / `gecersiz_dosya` (400), `ek_kotasi` (429, `errors.sifirlanma`
+        + `errors.limit`), `ek_gecici_kapali` (503). ⚠️ 20 MB''ı aşan istek nginx''te
+        **413 HTML** döner — boyutu önceden denetleyin.'
+      summary: Sohbete ek yükle (doküman ya da fotoğraf)
+      tags:
+      - assistant
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                dosya:
+                  type: string
+                  format: binary
+                ad:
+                  type: string
+                  description: Türkçe orijinal ad (dosya yolu ASCII olabilir).
+                tur:
+                  type: string
+                  enum:
+                  - dokuman
+                  - fotograf
+                kaynak:
+                  type: string
+                  enum:
+                  - ihale_dokumani
+                  - arsiv
+                  - cihaz
+                  - kamera
+                  - galeri
+                ikn:
+                  type: string
+                ekap_id:
+                  type: string
+                dtn:
+                  type: string
+                parca:
+                  type: string
+              required:
+              - dosya
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                KabulEdildi:
+                  value:
+                    ek:
+                      id: 6f1c2b8e-1d2a-4c55-9b0e-2f7e1a9c3d41
+                      tur: dokuman
+                      kaynak: ihale_dokumani
+                      ad: TEKNİK ŞARTNAME.docx
+                      uzanti: docx
+                      boyut: 482113
+                      durum: hazirlaniyor
+                      hata_kodu: null
+                      hata_mesaji: null
+                      mod: null
+                      sayfa_sayisi: null
+                      sira: null
+                      ikn: 2026/123456
+                      ekap_id: mobil:2026-123456
+                      dtn: null
+                      parca: Teknik Şartname
+                      kucuk_resim: null
+                      created_at: '2026-11-11T14:32:05+03:00'
+                      expires_at: null
+                    gunluk_kalan:
+                      dokuman: 17
+                      fotograf: 40
+                  summary: Kabul edildi
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/assistant/attachments/{ek_id}/:
+    get:
+      operationId: api_v1_assistant_attachments_retrieve
+      description: Hazırlık durumunu döner (`hazirlaniyor` → `hazir` | `hata`). Mobil
+        `limits.yoklama_aralik_ms`'de bir, en çok `limits.yoklama_azami_sn` yoklar.
+        Hata metni `ek.hata_mesaji`'ndadır.
+      summary: Ek durumu
+      parameters:
+      - in: path
+        name: ek_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistant
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Hazır:
+                  value:
+                    ek:
+                      id: 6f1c2b8e-1d2a-4c55-9b0e-2f7e1a9c3d41
+                      tur: dokuman
+                      kaynak: ihale_dokumani
+                      ad: TEKNİK ŞARTNAME.docx
+                      uzanti: docx
+                      boyut: 482113
+                      durum: hazir
+                      hata_kodu: null
+                      hata_mesaji: null
+                      mod: metin
+                      sayfa_sayisi: 14
+                      sira: null
+                      ikn: 2026/123456
+                      ekap_id: mobil:2026-123456
+                      dtn: null
+                      parca: Teknik Şartname
+                      kucuk_resim: null
+                      created_at: '2026-11-11T14:32:05+03:00'
+                      expires_at: '2026-12-11T14:32:09+03:00'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    delete:
+      operationId: api_v1_assistant_attachments_destroy
+      description: Yalnızca sohbete bağlanmamış ek silinir; günlük hak iade edilir.
+        Bağlıysa **409** `ek_bagli`.
+      summary: Eki tepsiden çıkar
+      parameters:
+      - in: path
+        name: ek_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistant
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/assistant/attachments/limits/:
+    get:
+      operationId: api_v1_assistant_attachments_limits_retrieve
+      description: 'Mobil türleri, boyut sınırlarını, mesaj/sohbet başı sınırları,
+        bugünkü kalan hakkı ve yoklama aralığını buradan okur — **sayılar koda yazılmaz**.
+        `etkin` kullanıcı bazındadır (`ASSISTANT_EK_KAPSAM`: kapali | staff | herkes);
+        `false` ise ''+'' düğmesi gösterilmez ve mesajlarda `yetenekler:["ek"]` GÖNDERİLMEZ.'
+      summary: Ek sınırları ve kalan hak
+      tags:
+      - assistant
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+              examples:
+                Sınırlar:
+                  value:
+                    etkin: true
+                    azami_bayt: 20971520
+                    foto_azami_bayt: 10485760
+                    turler:
+                    - uzanti: pdf
+                      tur: dokuman
+                    - uzanti: jpg
+                      tur: fotograf
+                    mesaj_azami:
+                      dokuman: 2
+                      fotograf: 4
+                    sohbet_azami:
+                      dokuman: 5
+                      fotograf: 12
+                    gunluk_kalan:
+                      dokuman: 18
+                      fotograf: 40
+                    saklama_gun: 30
+                    yoklama_aralik_ms: 1500
+                    yoklama_azami_sn: 120
+          description: ''
   /api/v1/assistant/chat/:
     post:
       operationId: api_v1_assistant_chat_create

@@ -4009,6 +4009,33 @@
       "name": "assistant",
       "item": [
         {
+          "name": "Ek sınırları ve kalan hak",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/attachments/limits/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "attachments",
+                "limits",
+                ""
+              ]
+            },
+            "description": "Mobil türleri, boyut sınırlarını, mesaj/sohbet başı sınırları, bugünkü kalan hakkı ve yoklama aralığını buradan okur — **sayılar koda yazılmaz**. `etkin` kullanıcı bazındadır (`ASSISTANT_EK_KAPSAM`: kapali | staff | herkes); `false` ise '+' düğmesi gösterilmez ve mesajlarda `yetenekler:[\"ek\"]` GÖNDERİLMEZ.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
           "name": "Sohbet oturumlarını listele",
           "request": {
             "method": "GET",
@@ -4167,6 +4194,45 @@
           }
         },
         {
+          "name": "Sohbete ek yükle (doküman ya da fotoğraf)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/attachments/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "attachments",
+                ""
+              ]
+            },
+            "description": "Pro. Gövde `multipart/form-data`. Dosya hemen **202** + `ek` (`durum: hazirlaniyor`) döner; hazırlık arka planda yapılır, durum `GET /assistant/attachments/<id>/` ile yoklanır.\n\n**Tekilleştirme:** aynı dosya (sha256) daha önce hazırlandıysa **200** + `durum: hazir` döner, hak harcanmaz — istemci yoklamaz.\n\n**Tür imzadan belirlenir** (uzantı ipucudur): EKAP'ın içi HTML olan `.doc`'ları kabul edilir; `.pdf` diye gelen HTML `gecersiz_dosya`. HEIC ve arşivler `desteklenmeyen_tur`.\n\nHatalar `errors.code` ile: `premium_required` (403), `profil_yok` (400), `dosya_buyuk` / `desteklenmeyen_tur` / `gecersiz_dosya` (400), `ek_kotasi` (429, `errors.sifirlanma` + `errors.limit`), `ek_gecici_kapali` (503). ⚠️ 20 MB'ı aşan istek nginx'te **413 HTML** döner — boyutu önceden denetleyin.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dosya\": \"ornek\",\n  \"ad\": \"ornek\",\n  \"tur\": \"dokuman\",\n  \"kaynak\": \"ihale_dokumani\",\n  \"ikn\": \"2025/1234567\",\n  \"ekap_id\": \"1234567\",\n  \"dtn\": \"ornek\",\n  \"parca\": \"ornek\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Asistana mesaj gönder",
           "request": {
             "method": "POST",
@@ -4242,6 +4308,40 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "Ek durumu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/attachments/:ek_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "attachments",
+                ":ek_id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "ek_id",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Hazırlık durumunu döner (`hazirlaniyor` → `hazir` | `hata`). Mobil `limits.yoklama_aralik_ms`'de bir, en çok `limits.yoklama_azami_sn` yoklar. Hata metni `ek.hata_mesaji`'ndadır.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {
@@ -4443,6 +4543,40 @@
               ]
             },
             "description": "Öneri kaydını görüldü yapar. Kayıt yoksa `data.updated` 0 döner.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
+          }
+        },
+        {
+          "name": "Eki tepsiden çıkar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assistant/attachments/:ek_id/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assistant",
+                "attachments",
+                ":ek_id",
+                ""
+              ],
+              "variable": [
+                {
+                  "key": "ek_id",
+                  "value": "ornek",
+                  "description": "**Zorunlu.**"
+                }
+              ]
+            },
+            "description": "Yalnızca sohbete bağlanmamış ek silinir; günlük hak iade edilir. Bağlıysa **409** `ek_bagli`.\n\n_Kimlik doğrulaması gerekir: `Authorization: Bearer {{access_token}}`._"
           }
         },
         {

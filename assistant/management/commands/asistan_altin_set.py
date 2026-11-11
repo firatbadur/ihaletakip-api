@@ -279,6 +279,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(
                     f"{i}. ✗ {s['soru'][:42]:<42} {sure:>5.0f}sn tur={sonuc['turlar']} "
                     f"| {'; '.join(sorunlar)}"))
+                # Cevabın kendisi: ölçüt mü katı, model mi yanlış — ayırt etmenin tek yolu.
+                self.stdout.write(f"   cevap: {(sonuc['metin'] or '')[:400]!r}")
             else:
                 gecen += 1
                 self.stdout.write(self.style.SUCCESS(

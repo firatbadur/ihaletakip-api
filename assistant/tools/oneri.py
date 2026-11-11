@@ -39,6 +39,13 @@ def _kullanici_verisi_turleri(arac_izi):
 def soru_onerileri(ctx, arac_izi):
     """Bu turda çalışan araçlara bakarak sıradaki soruları önerir (en çok 3)."""
     calisan = {a.get("arac") for a in (arac_izi or []) if a.get("ok")}
+    if getattr(ctx, "ekler", None):
+        # Ekli sohbet: araç çalışmasa da dokümanın kendisine dair sorular anlamlıdır
+        # ("araç yoksa öneri yok" kuralının tek istisnası). Hepsi ekten cevaplanabilir.
+        if any(e.get("tur") == "dokuman" for e in ctx.ekler):
+            return ["Geçici teminat ne kadar?", "İstenen belgeler neler?",
+                    "İş deneyimi şartı var mı?"][:AZAMI_ONERI]
+        return ["Bu fotoğraftaki yazıları oku"]
     if not calisan:
         return []          # araç çalışmadıysa (mevzuat sorusu) öneri gürültü olur
 

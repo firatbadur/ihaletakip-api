@@ -886,6 +886,23 @@ def pazar_panosu(ctx, okas_bucket=None, yil=None, limit=None):
 
 
 # ── 13. Doküman analizi (varsa) ────────────────────────
+def _dokuman_sec_karti(ctx, ikn):
+    """
+    `dokuman_sec` bloğu: mobil "Doküman seç" düğmesiyle ihalenin dokümanlarını açar.
+    Genel sohbette (seçili ihale yokken) de çalışsın diye `ikn`/`ekap_id` karttadır.
+    Turda bir kez.
+    """
+    from ekap.models import Tender
+
+    if any(b.get("type") == "dokuman_sec" for b in ctx.gorsel_bloklar):
+        return
+    ekap_id = Tender.objects.filter(ikn=ikn).values_list("ekap_id", flat=True).first()
+    ctx.gorsel_bloklar.append({
+        "type": "dokuman_sec", "ikn": ikn, "ekap_id": ekap_id,
+        "metin": "Şartnameyi okuyabilmem için dokümanı seçin.",
+    })
+
+
 def dokuman_analizi(ctx, ikn=None, tur=None, **_):
     """
     İhaleye ait DAHA ÖNCE üretilmiş şartname/maliyet analizini döner.
@@ -898,8 +915,16 @@ def dokuman_analizi(ctx, ikn=None, tur=None, **_):
     """
     from ai.models import AnalysisCache
 
+    if ctx.ekler:
+        # Ek varken eski analiz kaydı ikinci bir (ve muhtemelen başka dosyadan) kaynak olurdu.
+        adlar = ", ".join(f"Ek {e['sira']} ({e['ad']})" for e in ctx.ekler)
+        return {"ok": True, "liste": [],
+                "not": f"Sohbette ek var: {adlar}. İçerikleri mesajın başında; doğrudan "
+                       "oku, bu aracı tekrar çağırma."}
     if not ikn:
         return _hata("İKN gerekli.")
+    if ctx.ek_acik:
+        _dokuman_sec_karti(ctx, str(ikn).strip())
     try:
         qs = AnalysisCache.objects.filter(ikn=str(ikn).strip())
         if tur:
@@ -914,6 +939,10 @@ def dokuman_analizi(ctx, ikn=None, tur=None, **_):
             "ok": True,
             "liste": [],
             "not": (
+                "Bu ihale için hazır analiz yok. Altta doküman seçme kartı çıktı: "
+                "kullanıcıya şartnameyi seçip sohbete eklemesini söyle, sonra okuyup "
+                "cevaplarsın. EKAP'a yönlendirme."
+                if ctx.ek_acik else
                 "Bu ihale için hazır analiz yok. Kullanıcıya: ihale detayındaki "
                 "Dokümanlar sekmesinden şartnameyi indirip Analiz sekmesinde "
                 "analiz ettirebileceğini söyle. EKAP'a yönlendirme."

@@ -341,9 +341,9 @@ _PAZAR_PANOSU = {
 _DOKUMAN_ANALIZI = {
     "name": "dokuman_analizi",
     "description": (
-        "İhalenin şartnamesi için DAHA ÖNCE üretilmiş AI analizini getirir. "
-        "Sen doküman İNDİREMEZSİN; hazır analiz yoksa kullanıcıyı uygulamadaki "
-        "Dokümanlar → Analiz akışına yönlendir (EKAP'a ASLA yönlendirme)."
+        "Sohbete eklenmiş doküman varsa eki doğrudan oku; bu araç ek yokken ihalenin "
+        "DAHA ÖNCE üretilmiş AI analizini ve (ek gönderme açıksa) doküman seçme kartını "
+        "verir. Sen doküman İNDİREMEZSİN; EKAP'a ASLA yönlendirme."
     ),
     "input_schema": {
         "type": "object",

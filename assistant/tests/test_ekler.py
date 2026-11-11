@@ -607,3 +607,50 @@ class BaglamTest(_EkTest):
         self.assertNotIn("document", str(ikinci))
         ek.refresh_from_db()
         self.assertEqual((ek.durum, ek.anthropic_file_id), ("suresi_doldu", ""))
+
+
+# ── Prompt ve araçlar (1.7) ─────────────────────────────────────────────────
+
+class PromptAracTest(TestCase):
+    def test_prompt_ek_gondermeyi_bayraga_baglar(self):
+        from assistant.prompts import AGENT_PERSONA_PROMPT, PERSONA_PROMPT
+
+        self.assertNotIn("sohbete fotoğraf/dosya gönderilemez", AGENT_PERSONA_PROMPT)
+        self.assertIn("EK GÖNDERME: AÇIK", AGENT_PERSONA_PROMPT)
+        self.assertIn("Kayıtlı dokümanlarım", AGENT_PERSONA_PROMPT)
+        self.assertIn("## SOHBETE EKLENEN DOSYALAR", AGENT_PERSONA_PROMPT)
+        self.assertIn("<bağlam>", AGENT_PERSONA_PROMPT)
+        self.assertIn("tahmini bedel", AGENT_PERSONA_PROMPT)  # maliyet analizi kuralı
+        # Eski yol ek okuyamaz → onun personasında ek bölümü yok.
+        self.assertNotIn("## SOHBETE EKLENEN DOSYALAR", PERSONA_PROMPT)
+
+    def _ctx(self, **kw):
+        from assistant.tools.context import ToolContext
+
+        return ToolContext(user=None, **kw)
+
+    def test_dokuman_sec_yalnizca_yetenek_varken_ve_ek_yokken(self):
+        from assistant.tools.read import dokuman_analizi
+
+        acik = self._ctx(ek_acik=True)
+        dokuman_analizi(acik, ikn="2026/111")
+        dokuman_analizi(acik, ikn="2026/111")  # turda bir kez
+        self.assertEqual([b["type"] for b in acik.gorsel_bloklar], ["dokuman_sec"])
+        self.assertEqual(acik.gorsel_bloklar[0]["ikn"], "2026/111")
+
+        kapali = self._ctx(ek_acik=False)
+        dokuman_analizi(kapali, ikn="2026/111")
+        self.assertEqual(kapali.gorsel_bloklar, [])
+
+        ekli = self._ctx(ek_acik=True, ekler=[{"sira": 1, "ad": "ts.pdf", "tur": "dokuman",
+                                               "parca": ""}])
+        sonuc = dokuman_analizi(ekli, ikn="2026/111")
+        self.assertIn("Ek 1 (ts.pdf)", sonuc["not"])
+        self.assertEqual(ekli.gorsel_bloklar, [])
+
+    def test_ekli_sohbette_arac_calismasa_da_oneri(self):
+        from assistant.tools.oneri import soru_onerileri
+
+        self.assertEqual(soru_onerileri(self._ctx(), []), [])
+        ekli = self._ctx(ekler=[{"sira": 1, "ad": "a", "tur": "dokuman", "parca": ""}])
+        self.assertTrue(soru_onerileri(ekli, []))

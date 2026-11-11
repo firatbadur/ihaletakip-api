@@ -51,11 +51,37 @@ class EkIstekHatasi(APIException):
 
 # ── Kapsam ve sınırlar ──────────────────────────────────────────────────────
 
+KAPSAM_AYARI = "asistan_ek_kapsam"
+_KAPSAMLAR = ("kapali", "staff", "herkes")
+_KAPSAM_ONBELLEK = "asistan:ek_kapsam"
+
+
+def ek_kapsami() -> str:
+    """
+    Etkin kapsam: admin → Uygulama Ayarları → `asistan_ek_kapsam` (kapali | staff |
+    herkes); satır yoksa ya da değer geçersizse `ASSISTANT_EK_KAPSAM` (env).
+
+    ⚠️ Admin'den okunur ki açma / geri alma konteyner yeniden yaratmadan olsun:
+    `.env.prod` değişince `db` servisi de yeniden yaratılıyor (~15 sn kesinti, CLAUDE.md).
+    60 sn önbellekli → değişiklik en geç bir dakikada tüm süreçlere yayılır.
+    """
+    try:
+        deger = cache.get(_KAPSAM_ONBELLEK)
+        if deger is None:
+            from core.models import AppSetting
+
+            deger = (AppSetting.get(KAPSAM_AYARI, "") or "").strip().lower()
+            cache.set(_KAPSAM_ONBELLEK, deger, 60)
+    except Exception:
+        deger = ""
+    return deger if deger in _KAPSAMLAR else settings.ASSISTANT_EK_KAPSAM
+
+
 def ek_etkin(user) -> bool:
-    """`ASSISTANT_EK_KAPSAM`'a göre bu kullanıcı için ekler açık mı? (Pro ayrı kapı.)"""
+    """Kapsama göre bu kullanıcı için ekler açık mı? (Pro ayrı kapı.)"""
     if not settings.ASSISTANT_AGENT_ENABLED:
         return False  # eski anahtar kelime yolu ekleri okuyamaz
-    kapsam = settings.ASSISTANT_EK_KAPSAM
+    kapsam = ek_kapsami()
     if kapsam == "herkes":
         return True
     if kapsam == "staff":

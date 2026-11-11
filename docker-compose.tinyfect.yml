@@ -109,3 +109,12 @@ services:
       # log tam olarak onu yakalamalı. Eşiği düşürmek logu gürültüye boğardı.
       - -c
       - log_min_duration_statement=1000
+
+  # Asistan ekleri — Files API yetim süpürmesi YALNIZCA üretimde açık. Bu dosya yalnızca
+  # üretim sunucusunda kullanıldığı için doğru yer burası (`.env.prod`'a yazılsaydı `db`
+  # servisi de yeniden yaratılırdı). Süpürme "bizim DB'mizin bilmediği önekli dosya =
+  # yetim" der; yerel bir ortamda açık olsaydı üretimin canlı eklerini silerdi.
+  # Bkz. config/settings.py → ASSISTANT_EK_YETIM_SUPURME.
+  assistant-ek-worker:
+    environment:
+      ASSISTANT_EK_YETIM_SUPURME: "True"

@@ -752,3 +752,33 @@ class AltinSetYardimciTest(TestCase):
         with patch("assistant.services.attachments._istemci", return_value=istemci):
             ek = _ek_hazirla(user, {"tur": "fotograf", "ad": "s.png", "metin": "SAYAC 1"}, dizin)
         self.assertEqual((ek.mod, ek.anthropic_file_id, ek.durum), ("gorsel", "file_g", "hazir"))
+
+
+class KapsamAyariTest(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    @override_settings(ASSISTANT_EK_KAPSAM="kapali")
+    def test_admin_ayari_env_degerini_ezer(self):
+        from core.models import AppSetting
+
+        from assistant.services.ekler import ek_etkin
+
+        user = get_user_model().objects.create_user(username="k", email="k@x.com", password="x")
+        self.assertFalse(ek_etkin(user))
+        AppSetting.objects.create(key="asistan_ek_kapsam", value="herkes")
+        from django.core.cache import cache
+
+        cache.clear()  # ayar 60 sn önbellekli
+        self.assertTrue(ek_etkin(user))
+
+    @override_settings(ASSISTANT_EK_KAPSAM="kapali")
+    def test_gecersiz_ayar_env_degerine_duser(self):
+        from core.models import AppSetting
+
+        from assistant.services.ekler import ek_kapsami
+
+        AppSetting.objects.create(key="asistan_ek_kapsam", value="evet")
+        self.assertEqual(ek_kapsami(), "kapali")

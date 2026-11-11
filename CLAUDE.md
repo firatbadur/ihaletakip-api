@@ -3075,8 +3075,12 @@ Firma profiline göre günlük ihale önerisi + AI sohbet. Uçlar `/api/v1/assis
 ### Doküman ve fotoğraf ekleri (2026-11-11) — `docs/plan-asistan-ekler.md`
 
 Kullanıcı ihale dokümanını, telefondaki dosyayı ya da fotoğrafı sohbete ekleyip soru
-sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`. **Üretimde kapalı**
-(`ASSISTANT_EK_KAPSAM=kapali`; açılış `staff` → `herkes`, geri alma deploy'suz).
+sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`.
+**Kapsam admin'den:** Uygulama Ayarları → **`asistan_ek_kapsam`** = `kapali` | `staff` |
+`herkes` (satır yoksa / geçersizse `ASSISTANT_EK_KAPSAM` env, vars. `kapali`; 60 sn
+önbellek). ⚠️ Env yerine admin: `.env.prod` değişince `db` de yeniden yaratılıyor;
+açma/geri alma yeniden başlatmasız olmalı. Eski uygulama sürümleri `yetenekler`
+göndermediği ve ek uçlarını çağırmadığı için kapsam `herkes` iken de etkilenmez.
 
 - **Akış:** `POST attachments/` (multipart, 202) → `ek_hazirla_task` (`assistant_ek`
   kuyruğu, `assistant-ek-worker`) → `GET attachments/<uuid>/` yoklama → `POST chat/
@@ -3145,9 +3149,10 @@ sorar. Mobil sözleşme `docs/mobil-asistan-ekler.md`. **Üretimde kapalı**
   Dişli: önbellek/kapanış düzeltmesi geri alınınca 3, kota kontrolü kaldırılınca 1,
   bağlam taşıma kapatılınca 2; Redis sayacı / koşullu bağlama / süre sınırı yeniden
   fırlatma geri alınınca birer test kırılıyor.
-- **Yayında yapılacaklar:** `.env.prod`'a `ASSISTANT_EK_YETIM_SUPURME=True`; yeni servis
-  `assistant-ek-worker` + volume `assistant_ek`; nginx restart; beat yeniden başlatma
-  (iki yeni beat girdisi); `ASSISTANT_EK_KAPSAM` `kapali` → `staff` → `herkes`.
+- **Yayın:** `ASSISTANT_EK_YETIM_SUPURME=True` üretimde `docker-compose.tinyfect.yml`
+  üzerinden verilir (`.env.prod`'a DEĞİL); yeni servis `assistant-ek-worker` + volume
+  `assistant_ek` `install.sh`'ın `up -d --build`'iyle gelir; nginx restart ve beat yeniden
+  başlatma da onun içinde. Ardından `asistan_ek_kapsam` `staff` → `herkes`.
 - **Açık:** adım 0 ölçümleri (ardışık mesaj aralığı → TTL; system[1] değişim sıklığı;
   gerçek OLE `.doc` oranı; taranmış EKAP PDF'inin `count_tokens` ile token sayısı →
   30 sayfa / 120k ayarı; workspace'te başka dosya var mı) ve altın setin 5 yeni senaryosu

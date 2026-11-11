@@ -244,7 +244,7 @@ Bunlardan sonra:
   - **Yükleme adı sentetiktir:** `ihaletakip-ek-<uuid>.<uzantı>`. Türkçe orijinal ad (`ad`) yalnızca DB'de durur.
     - Files API adında `< > : " | ? * \ /` ve kontrol karakterleri yasak; kullanıcının dosya adıyla 400 riski olur.
     - Önek, 1.10'daki yetim süpürmesinin yalnızca bizim dosyalarımıza dokunmasını sağlar.
-  - Mümkünse asistan ekleri için ayrı bir workspace / API anahtarı kullanılır; workspace, dosyaların izolasyon sınırıdır.
+  - **Ayrı workspace / API anahtarı AÇILMAZ** (kullanıcı kararı, 2026-11-11): mevcut `ANTHROPIC_API_KEY` kullanılır. Bu yüzden önek ve 1.10'daki yaş eşiği isteğe bağlı değil, **zorunludur**; aynı workspace'teki başka dosyaları korumanın tek yolu onlardır.
 - **Ham dosya** başarıda da hatada da hazırlamadan sonra silinir (KVKK: en kısa saklama).
 - **LibreOffice 1. aşamada YOK.** Gerçek `.doc` oranı ölçülür (adım 0); `antiword` yetersiz kalırsa ayrı bir `ek` imaj hedefi + worker ile 2. aşamada eklenir.
 
@@ -451,7 +451,7 @@ Başlıklar:
    - system[1]'in (değişken bağlam) aynı sohbette turlar arası değişme sıklığı (taşıma kararının faydası);
    - gerçek OLE `.doc` oranı;
    - gerçek bir taranmış EKAP PDF'inin (10 ve 30 sayfa) `count_tokens` ile token sayısı. Aynı çağrı `file_id` kaynağının kabul edilip edilmediğini de gösterir. Taranmış sayfa sınırı (30) ve token tavanı (120 bin) bu ölçümle birlikte ayarlanır;
-   - Files API workspace'inde başka dosya olup olmadığı (`files.list`) ve ayrı workspace/anahtar kararı.
+   - Files API workspace'inde bugün başka dosya olup olmadığı (`files.list`). Ayrı anahtar açılmayacağı için süpürmenin dokunmaması gereken dosyalar böylece görülür.
 1. Ön koşul + testler:
    - `agent.py` önbellek düzeltmeleri: istek düzeyi `cache_control`, kapanışın aynı parametrelerle yapılması, 404'ün dosya hatası olarak yakalanması;
    - `tasks.py:344` hatası + docstring.

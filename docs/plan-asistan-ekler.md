@@ -49,8 +49,8 @@ Sıra: önce backend kurulur ve canlıya alınır, sonra mobil yapılır.
 |---|---|
 | Tab tasarımı | **Mavi kapsül**: bar içinde gradyanlı, yuvarlatılmış kutu. İkon ve "Asistan" yazısı içinde, beyaz. Ara sıra hafif parıltı geçer. Free kullanıcıda PRO etiketi |
 | Kaynaklar | İhale dokümanı · uygulama içi Dokümanlar arşivi · kamera · galeri · **telefondan dosya seçici** |
-| Sınırlar | **Dengeli**: doküman ≤20 MB ve ≈100 sayfa (≤120 bin token) · taranmış PDF ≤30 sayfa · mesaj başına ≤4 fotoğraf · Pro kullanıcı başına günde 20 doküman + 40 fotoğraf. Hepsi ayardan değiştirilebilir |
-| AI Analiz ekranı | **Asistana yönlenir**: Doküman gezginindeki Teknik/İdari/Maliyet düğmeleri asistanı o dosya ekli açar; `AIAnalysis` ekranı kaldırılır |
+| Sınırlar | **Dengeli**: doküman ≤20 MB ve ≈100 sayfa (≤120 bin token) · taranmış PDF ≤30 sayfa · mesaj başına ≤4 fotoğraf · Pro kullanıcı başına günde 20 doküman + 40 fotoğraf. Fotoğraf dosyası ayrıca ≤10 MB (`foto_azami_bayt`; onaylandı, 2026-11-11). Hepsi ayardan değiştirilebilir |
+| AI Analiz ekranı | **Asistana yönlenir** (`limits.etkin=true` iken): Teknik/İdari düğmeleri asistanı o dosya ekli açar; **Maliyet düğmesi asistanın ihale sohbetini dosyasız açar** (kullanıcı kararı, 2026-11-11). `etkin=false` iken eski `/ai/analyze/` yolu sürer; `AIAnalysis` ekranı bu aşamada kaldırılmaz (1.13 Yayın) |
 
 ---
 
@@ -313,6 +313,11 @@ Bunlardan sonra:
   4. "Özetle / analiz et" isteğinde şu başlıklarla yaz: İşin konusu · Süre ve yer · İstenen belgeler · Yeterlilik/deneyim · Önemli teknik şartlar · Teminat, ödeme ve cezalar · Dikkat edilmesi gerekenler. Bu tek istisnada uzunluk kuralı gevşer (≤20 madde). Markdown yasağı sürer, madde işareti "•".
   5. Fotoğrafta önce ne göründüğünü tek cümleyle söyle. Okunmuyorsa daha net, düz ve aydınlık bir çekim iste. Kişi tanımlama yapma, T.C. kimlik no gibi kişisel verileri tekrarlama.
   6. Birden çok ek varsa adıyla belirt. Dokümana dayanarak teklif fiyatı ya da indirim oranı önerme; benzer işlerin fiyatı sorulursa `ihale_benchmark` aracını kullan. Bu kural yeni ve açık yazılır: prompt'ta "Teklif Karar Destek" adlı bir kural YOK, o mobil paywall metin kuralının adı.
+- **Maliyet analizi isteği** (yeni; kullanıcı kararı 2026-11-11: doküman gezginindeki Maliyet düğmesi asistanın ihale sohbetini dosyasız açar ve şu soruyu gönderir: "Bu ihale için maliyet analizi yap: benzer işlerin sözleşme bedellerini, indirim oranlarını ve teklif sayılarını karşılaştır; yıllar arası farkları ve dikkat edilmesi gereken maliyet kalemlerini belirt."). `AGENT_PERSONA_PROMPT`'a kısa bir kural eklenir:
+  - `ihale_benchmark` ile benzer işlerin sözleşme bedelleri (yıl ve kapsam açıklamasıyla), indirim oranları (örnek sayısıyla; yetersizse "veri yetersiz") ve teklif sayıları karşılaştırılır; yıllar arası tutar farkına not düşülür.
+  - **Tek rakamlık "bu işin maliyeti", tahmini bedel, teklif fiyatı ya da indirim önerisi VERİLMEZ.** Ürün tahmini bedeli 2026-10-14'te çoğu ihalede yanlış çıktığı için kaldırdı (mobil CLAUDE.md "Benzer İşler").
+  - İş kalemleri ve miktarlar için şartname gerekiyorsa kullanıcıdan ek istenir (`dokuman_analizi` → `dokuman_sec` kartı).
+  - Prompt'ta benchmark sunumu için benzer bir kural zaten varsa o genişletilir; ikinci bir kural yazılmaz.
 - `prompts.py:313-314` ve `370-374`: "EKAP'tan dokümanı sen indiremezsin" doğru kalır; sonuna "kullanıcı + ile ekleyebilir (EK GÖNDERME açıksa)" eklenir. `tasks.py:187-189` değişken bağlamda olduğu için koşullu yazılır.
 - `_DOKUMAN_ANALIZI` açıklaması (`tools/__init__.py:341-357`) **sabit** bir metinle güncellenir (araç önbelleğin başında): "Sohbete ek varsa eki doğrudan oku; bu araç ek yokken önceki analiz kaydını ve doküman seçme kartını verir." Yeni araç YOK; `TOOL_SPECS` sırası ve `test_sira_sabit` etkilenmez.
 - `read.dokuman_analizi` (889-933): sohbette ek varsa "Ek N'e bak" notu döner. Ek yoksa, İKN biliniyorsa ve yetenek varsa `ctx.gorsel_bloklar`'a `{type:"dokuman_sec", ikn, ekap_id, metin:"Şartnameyi okuyabilmem için dokümanı seçin."}` eklenir.
@@ -329,7 +334,7 @@ Bunlardan sonra:
 | `ASSISTANT_EK_KAPSAM` | `kapali` \| `staff` \| `herkes`; varsayılan `kapali`. Kapatma anahtarı + kademeli açılış; `limits.etkin` kullanıcı bazında buradan hesaplanır. Düz boolean "önce staff'a" açılışı yapamazdı |
 | `ASSISTANT_EK_BAGLAM_MESAJDA` | `True` (ekli sohbette değişken bağlam son kullanıcı mesajında, 1.6) |
 | `ASSISTANT_EK_DIR` | `/app/ek_depo` (MEDIA_ROOT DIŞI) |
-| `ASSISTANT_EK_AZAMI_BAYT` / `_FOTO_AZAMI_BAYT` | 20 MB / 10 MB. ⚠️ 10 MB fotoğraf sınırı kullanıcı karar tablosunda yok, mobil plan her şeye 20 MB diyor. Onaylanmalı ya da 20 MB'ye çekilmeli (yeniden kodlama zaten küçültüyor) |
+| `ASSISTANT_EK_AZAMI_BAYT` / `_FOTO_AZAMI_BAYT` | 20 MB / 10 MB. Fotoğrafın 10 MB sınırı kullanıcı tarafından onaylandı (2026-11-11). Mobil değeri `/limits/`'ten okur |
 | `ASSISTANT_EK_KOPYA_MIN_GUN` | 7 (tekilleştirme kopyası için orijinalin kalan asgari ömrü) |
 | `ASSISTANT_EK_TOKEN_AZAMI` | 120.000 (≈100 sayfa) |
 | `ASSISTANT_EK_TARANMIS_SAYFA` | 30 |
@@ -482,7 +487,8 @@ Başlıklar:
   - doküman özeti;
   - madde sorusu (madde numarası vermeli);
   - dokümanda olmayan bilgi ("yok" demeli);
-  - fotoğraf okuma.
+  - fotoğraf okuma;
+  - maliyet analizi (ihale sohbeti, ek yok, mobilin hazır sorusuyla): `ihale_benchmark` çağrılmalı; yanıtta tek rakamlık tahmini bedel ya da teklif fiyatı OLMAMALI.
 - **Maliyet raporu:** 50 sayfalık metinli şartname, 5 soruluk sohbet → toplam input, önbellek okuma ve yazma token'ları ile $. Fiyat modele göre hesaplanır: önbellek okuma Opus 5'te ~0,1×, Opus 5.5'te 0,05×; 5 dk yazma 1,25×, 1 sa yazma 2×. `_FIYAT` düzeltmesinden sonra (1.13 adım 11).
 - **Not (karar kullanıcının):** `claude-opus-5-5`, Opus 5'ten ucuz ($4/$20, önbellek okuma $0,20). `_modelin_yetenekleri` kalıbı bu adı zaten yakalıyor. Opus 5.5 farkları:
   - Düşünme kapatılamaz.
@@ -494,7 +500,7 @@ Başlıklar:
 
 ## 1.15 2. aşama (bu planda YOK)
 
-LibreOffice (ölçüm haklı çıkarırsa) · teknik şartnameyi sunucuda `dosya_id` ile çekmek (mobil verisi iki kez harcanmaz) · `citations` ile "şartnamedeki ifade" alıntıları · bağlamın `role:"system"` mesajına taşınması (1. aşamada son kullanıcı mesajına taşınıyor) · maliyet analizinin (bugün dosyasız, `tender_meta` + benzer ihaleler) ek yoluna taşınması.
+LibreOffice (ölçüm haklı çıkarırsa) · teknik şartnameyi sunucuda `dosya_id` ile çekmek (mobil verisi iki kez harcanmaz) · `citations` ile "şartnamedeki ifade" alıntıları · bağlamın `role:"system"` mesajına taşınması (1. aşamada son kullanıcı mesajına taşınıyor) · maliyet analizinde teknik şartnamenin otomatik eklenmesi (iş kalemleri ve miktarlar için; 1. aşamada asistan gerekirse `dokuman_sec` ile ister).
 
 ## 1.16 Mobil planda güncellenecekler (doğrulama, 2026-11-11)
 
@@ -503,12 +509,12 @@ Mobil plan dosyasına bu turda dokunulmadı. Mobil plan yazılırken ya da günc
 1. **AI Analiz ekranının kaldırılması ↔ kapatma anahtarı.**
    - `limits.etkin=false` (kapsam `kapali`/`staff`, ya da geri alma) iken doküman gezginindeki Teknik/İdari/Maliyet düğmeleri eski `/ai/analyze/` yoluna düşmeli.
    - Ekran, bu dal test edilmeden silinmemeli.
-   - Maliyet analizi bugün dosyasız çalışıyor (`DocumentExplorer/index.js:203-213`, `claudeAI.js:68-77`); ek yoluna taşınması ayrı bir karardır.
+   - Maliyet analizi bugün dosyasız çalışıyor (`DocumentExplorer/index.js:203-213`, `claudeAI.js:68-77`). → **Karar (2026-11-11):** maliyet asistanda; `etkin=true` iken asistanın ihale sohbeti dosyasız açılır ve hazır soru gönderilir (mobil plan 2.2). Backend işi: 1.7'deki maliyet kuralı + 1.14 altın set senaryosu.
 2. **Yoklama:** `/limits/`'teki `yoklama_aralik_ms` / `yoklama_azami_sn` (≥120 sn) kullanılır, sabit 90 sn değil. 200 + `hazir` gelirse yoklama atlanır.
 3. **Hata kodu:** 4xx'te `e.response.data.errors.code` okunur. `unwrap` yalnızca 2xx'te çalıştığı için `apiError` 4xx'te boş kalıyor. Sohbet gönderimindeki catch (`index.js:330`) 4xx gövdesini okumalı; `sohbet_ek_siniri` → "Yeni sohbet aç", `ek_suresi_doldu` → yeniden ekle.
 4. **`yetenekler:["ek"]`** her mesajda ve yalnızca `etkin=true` iken gönderilir.
 5. **Sınırlar `/limits/`'ten gelir:** sabit metinler ("20 MB", "4 fotoğraf") ve `ATTACH_DEFAULTS` yedeği yalnızca yükleme başarısızsa kullanılır. Yedekte `etkin=false`.
-   - Fotoğraf sınırı backend'de ayrı (`foto_azami_bayt`, 10 MB); karara bağlanmalı (1.8).
+   - Fotoğraf sınırı backend'de ayrı (`foto_azami_bayt`, 10 MB). → **Karar (2026-11-11):** 10 MB kalır.
    - `gunluk_kalan` her yükleme yanıtında güncellenir; oturum önbelleği ezilir.
    - Sohbet başı kalan hak `sohbet_kalan`'dan okunur; bugün yalnızca fotoğraf slotu kontrol ediliyor.
 6. **Dosya seçici türleri:** `pick({type:[pdf, doc, docx, xls, xlsx, plainText, csv]})` RTF ve görselleri dışlıyor; WhatsApp'tan inen JPEG "Telefondan dosya seç" ile seçilemez. Görseller ve RTF eklenir; tür kararı yine sunucuda imzayla verilir.

@@ -4789,6 +4789,24 @@ acil yedek sunucusuna alındı. Ayrıntılı olay günlüğü ve geri dönüş p
   asılı): ölçüm döngü 200 + bulk_create 33 + para 58 = 291 sn (ana sunucuda ~160). Göreve kendi
   sınırı verildi (`soft_time_limit=840, time_limit=900`, bkz. dekoratördeki not). 36887 numaralı
   asılı satır geçmiş kayıttır, dokunulmadı.
+- ⚠️⚠️⚠️ **KULLANICI ID ÇAKIŞMASI (12.11)**: dump'taki son kullanıcı **713**. Ana sunucu 11.11 gündüz
+  714+'yı başka kişilere verdi; yedekteki sayaç da 714'ten devam etti → **714–721 iki ayrı kişiye ait**.
+  JWT kimliği ve RevenueCat `app_user_id` = `user.id` olduğu için:
+  - RC'de `714`, `718`, `720` müşterileri 11.11'de ana sunucuda doğdu (718 → deneme 12:57, 720 → deneme
+    15:41). Yedekteki 718 ve 720 bu başkasının denemesiyle **Pro göründü**. 715/717/721'in RC kaydı 12.11'de
+    yedekte doğdu (kendi denemeleri, sorun yok).
+  - 12.11 13:21: boşluk kullanıcısı 720'nin web oturumu yedekteki (başka kişinin) 720 hesabıyla açıldı,
+    ~3 dk sonra çıkış yaptı (logout + login 401 + sıfırlama denemesi; nginx'te görüldü).
+  - **Önlemler (12.11 ~15:00 TR):** sayaç `setval('accounts_user_id_seq', 9999)` → yeni kayıtlar **10000+**.
+    `ESKI_TOKEN_*` koruması (yedek katmanı, `accounts/authentication.py`): 714–9999 aralığında sınırdan
+    (11:58:22 UTC) önceki erişim + yenileme token'ları 401 → yedekteki 8 kullanıcı bir kez yeniden giriş
+    yapar, boşluk kullanıcıları başkasının hesabına giremez.
+  - Boşluk kullanıcılarına yol: aynı e-postayla yeniden kayıt (10000+ id) → "Satın alımları geri yükle" →
+    RC TRANSFER → yanlışlıkla Pro olan 718/720'den düşer (`transfer_kaybedenleri`).
+  - ⚠️⚠️ **Geri dönüşte birleştirme:** ana sunucudaki 714+ kullanıcılar ile yedekteki 714–721 AYNI id'leri
+    taşır → yedektekiler (ve 10000+'lar) ana DB'ye **yeni id ile** taşınmalı, RC'de de kimlikleri değişir
+    (kullanıcı geri yükleme yapmalı). Yeniden kayıt olan boşluk kullanıcısının ana sunucuda eski hesabı da
+    var (aynı e-posta, iki hesap) → e-postaya göre tekilleştirilmeli. `ESKI_TOKEN_*` ana sunucuda AÇILMAZ.
 - ⚠️⚠️ **Ana sunucu açılınca İLK İŞ oradaki ihaletakip konteynerlerini durdur**: hepsi
   `restart: unless-stopped` → açılışta kendiliğinden kalkar; iki beat = çift push/e-posta, EKAP'a iki
   IP'den tempo. Ana sunucudaki 04:00 CEST `yedek_ftp.sh` cron'u da yoruma alınmalı.

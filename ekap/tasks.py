@@ -911,7 +911,17 @@ def backfill_tender_fields(max_tenders=200000, max_seconds=None, batch_size=500)
         }
 
 
-@shared_task(name="ekap.tasks.detect_recurring_series")
+# ⚠️⚠️ Görev kendi süre sınırını taşır (genel `CELERY_TASK_TIME_LIMIT=300` DEĞİL).
+# `max_seconds` bütçesi yalnızca ANA DÖNGÜYÜ keser; döngüden sonraki toplu yazım ve
+# `_seri_para_agregalari` bütçenin DIŞINDADIR ve kesilemez. Ölçüm (2026-11-12, acil
+# yedek sunucu 8 GB / shared_buffers 1,5 GB, ısınmış önbellek): döngü 200 sn +
+# bulk_create 33 sn + para 58 sn = **291 sn**. Aynı gece 02:30 turu soğuk önbellekle
+# 300 sn'yi aştı → SIGKILL, `SyncRun` "running"de asılı, imleç kaydedilmedi (her gece
+# aynı yerde ölürdü). Döngü bütçesini doldurursa (270 sn) sınır zaten hiç yetmez.
+# Ana sunucuda tüm tur ~160 sn. Günde bir koşan, EKAP'a gitmeyen bir DB işi → geniş
+# pay güvenli; her deyim yine worker'ın `statement_timeout`'u (240 sn) ile korunur.
+# `_run` kilidi (3600 sn) bu sınırın üstünde kalmalı.
+@shared_task(name="ekap.tasks.detect_recurring_series", soft_time_limit=840, time_limit=900)
 def detect_recurring_series(min_uye=3, max_seconds=None):
     """
     Tekrar eden ihale serilerini tespit eder — **EKAP'a gitmez, `detail_raw` OKUMAZ**.

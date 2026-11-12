@@ -4779,6 +4779,16 @@ acil yedek sunucusuna alındı. Ayrıntılı olay günlüğü ve geri dönüş p
 - **Yetim ek süpürmesi KAPALI** (`ASSISTANT_EK_YETIM_SUPURME` yedek katmanında yok): DB'nin bilmediği
   14 saatlik ekleri yetim sanıp Files API'den silerdi.
 - **Kaybolanlar:** `media_volume` (blog kapakları) ve `assistant_ek` hacimleri ana diskte kaldı.
+- **"Eski EKAP (v2) bağlantısı yok" (2026-11-12) yedek sunucunun eksiği DEĞİLDİ**: EKAP Turnstile
+  doğrulamasını GERİ AÇTI (`/b_han/api/human-verification/status` → `enabled:true`, Mac'ten de aynı).
+  Yedekteki ilk v2 turu (23:50) çerezsiz 13 ihale tazeledi, 00:20'den itibaren her tur `dogrulama_yok`
+  → ~11,5 saat v2 durdu. Çerezsiz ve 10-27'den kalma bayat çerezle gerçek arama `428`. Köprü eklentisi
+  11:57'de çerezi gönderdi (`ihale-takip.envisoft.com.tr` artık yedeğe çıktığı için eklentide ayar
+  değişmedi, `EKAP_COOKIE_PUSH_TOKEN` arşivden aynı) → 12:00 turu 23 tazeleme. Sekme açık kalmalı.
+- **`detect_recurring_series` yedekte 300 sn'yi aştı** (12.11 02:30 SIGKILL, `SyncRun` "running"de
+  asılı): ölçüm döngü 200 + bulk_create 33 + para 58 = 291 sn (ana sunucuda ~160). Göreve kendi
+  sınırı verildi (`soft_time_limit=840, time_limit=900`, bkz. dekoratördeki not). 36887 numaralı
+  asılı satır geçmiş kayıttır, dokunulmadı.
 - ⚠️⚠️ **Ana sunucu açılınca İLK İŞ oradaki ihaletakip konteynerlerini durdur**: hepsi
   `restart: unless-stopped` → açılışta kendiliğinden kalkar; iki beat = çift push/e-posta, EKAP'a iki
   IP'den tempo. Ana sunucudaki 04:00 CEST `yedek_ftp.sh` cron'u da yoruma alınmalı.

@@ -70,7 +70,7 @@ services:
       # atılır, geri alınırsa araya sızmış token'lar geçer).
       ESKI_TOKEN_UID_MIN: "714"
       ESKI_TOKEN_UID_MAX: "9999"
-      ESKI_TOKEN_IAT_SINIRI: ""
+      ESKI_TOKEN_IAT_SINIRI: "2026-11-12T11:58:22+00:00"
 
   nginx:
     volumes:

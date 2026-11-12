@@ -243,6 +243,29 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
+# ── Eski sunucu token'ı koruması (ACİL YEDEK SUNUCU, 2026-11-12) ──────────
+# Yedek DB 11.11 sabah dump'ından geldi (son kullanıcı id 713). Ana sunucu çökene kadar
+# 714+ ID'leri BAŞKA kişilere vermişti; yedekteki sayaç da 714'ten devam edip aynı
+# numaraları yeni kayıtlara verdi. JWT'de kimlik yalnızca `user_id` → ana sunucunun
+# verdiği bir token yedekte AYNI numaralı başka birinin hesabını açar (12.11 13:21'de
+# web'de yaşandı). Aralıktaki (UID_MIN..UID_MAX) kullanıcıların `iat`'i SINIR'dan önceki
+# token'ları reddedilir (erişim + yenileme). SINIR = deploy anı: yenilemede `iat` sıfırlandığı
+# için çöküş anı yetmez, araya sızmış yenilenmiş token'ı da düşürmek gerekir. Aralıktaki
+# meşru yedek kullanıcıları bir kez yeniden giriş yapar.
+# Varsayılan KAPALI; yalnızca `docker-compose.yedek.yml` açar. Ana sunucuya dönüşte
+# veri birleştirilirken bu aralık zaten yeniden numaralanacak.
+ESKI_TOKEN_UID_MIN = env.int("ESKI_TOKEN_UID_MIN", default=0)
+ESKI_TOKEN_UID_MAX = env.int("ESKI_TOKEN_UID_MAX", default=0)
+# ISO 8601, saat dilimli (ör. 2026-11-12T12:30:00+00:00). Bozuk değer açılışı düşürür —
+# bilerek: sessizce kapalı kalan bir koruma, açık sanılan bir korumadan kötüdür.
+_eski_token_sinir = env("ESKI_TOKEN_IAT_SINIRI", default="")
+ESKI_TOKEN_IAT_SINIRI = None
+if _eski_token_sinir:
+    from datetime import datetime as _dt
+    ESKI_TOKEN_IAT_SINIRI = _dt.fromisoformat(_eski_token_sinir)
+    if ESKI_TOKEN_IAT_SINIRI.tzinfo is None:
+        raise ValueError("ESKI_TOKEN_IAT_SINIRI saat dilimi içermeli (ör. +00:00).")
+
 # ── CORS ───────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])

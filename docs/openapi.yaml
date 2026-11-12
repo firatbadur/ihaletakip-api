@@ -1935,7 +1935,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenRefresh'
+              $ref: '#/components/schemas/EskiTokenKorumaliRefresh'
             examples:
               RefreshTokenIle:
                 value:
@@ -1943,17 +1943,17 @@ paths:
                 summary: Refresh token ile
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/TokenRefresh'
+              $ref: '#/components/schemas/EskiTokenKorumaliRefresh'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/TokenRefresh'
+              $ref: '#/components/schemas/EskiTokenKorumaliRefresh'
         required: true
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenRefresh'
+                $ref: '#/components/schemas/EskiTokenKorumaliRefresh'
           description: ''
   /api/v1/blog/bot/posts/:
     post:
@@ -6362,6 +6362,25 @@ components:
           maxLength: 254
       required:
       - email
+    EskiTokenKorumaliRefresh:
+      type: object
+      description: 'Yenileme ucu: eski sunucu token''ı yeni (geçerli görünen) bir
+        token''a dönüşmesin.
+
+
+        ⚠️ Yenileme `iat`''i SIFIRLAR — bu kontrol olmasaydı tek bir yenileme eski
+        token''ı
+
+        yedekte üretilmiş gibi gösterir ve erişim katmanındaki kontrolü atlatırdı.'
+      properties:
+        refresh:
+          type: string
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
     FCMToken:
       type: object
       properties:
@@ -7829,17 +7848,6 @@ components:
       - created
       - refresh
       - user
-    TokenRefresh:
-      type: object
-      properties:
-        access:
-          type: string
-          readOnly: true
-        refresh:
-          type: string
-      required:
-      - access
-      - refresh
     TypeEnum:
       enum:
       - tender

@@ -61,6 +61,16 @@ services:
     command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000",
               "--workers", "3", "--threads", "2", "--worker-class", "gthread",
               "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "180"]
+    environment:
+      # ⚠️⚠️ Eski sunucu token'ı koruması (2026-11-12) — gerekçe config/settings.py.
+      # 714+ ID'ler ana sunucuda boşluk saatlerinde BAŞKA kişilere verildi, yedek de aynı
+      # numaraları yeniden dağıttı (sayaç 12.11'de 10000'e atlatıldı). Aralıktaki
+      # kullanıcıların SINIR'dan önceki token'ları reddedilir. SINIR = bu korumanın
+      # devreye girdiği an; DEĞİŞTİRMEYİN (ileri alınırsa meşru kullanıcılar yeniden
+      # atılır, geri alınırsa araya sızmış token'lar geçer).
+      ESKI_TOKEN_UID_MIN: "714"
+      ESKI_TOKEN_UID_MAX: "9999"
+      ESKI_TOKEN_IAT_SINIRI: ""
 
   nginx:
     volumes:

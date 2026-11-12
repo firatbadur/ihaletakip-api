@@ -26,6 +26,7 @@ from .serializers import (
     UserSerializer,
     issue_tokens,
 )
+from .authentication import EskiTokenKorumaliRefreshSerializer
 from .models import PushDevice
 
 
@@ -549,6 +550,10 @@ class FCMTokenView(APIView):
 )
 class DocumentedTokenRefreshView(TokenRefreshView):
     """POST /auth/token/refresh — access token'ı yeniler (refresh rotasyonlu)."""
+
+    # Eski sunucu token'ı koruması (bkz. accounts/authentication.py); ayar kapalıyken
+    # davranış standart TokenRefreshSerializer ile birebir aynı.
+    serializer_class = EskiTokenKorumaliRefreshSerializer
 
 
 @extend_schema(

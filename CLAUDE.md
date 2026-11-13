@@ -881,8 +881,7 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
     aç/kapat (`AppSetting ekap_turnstile_otomatik`), elle çerez. Ana panodaki v2 şeridi
     çözücü ölü (nabız >3 dk) ya da 3+ ardışık hatada kırmızı. Hata geri çekilmesi 1→15 dk.
     Tek deneme: `docker compose exec ekap-browser python manage.py ekap_oturum_daemon --tek-tur`.
-    EKAP `9192` chunk'ında "KURUM_IP_KOTASI" + `toggleTurnstile` yönetim ekranı var →
-    KİK kurum IP'si bazında Turnstile'ı kapatabiliyor; resmî muafiyet istenebilir.
+    **Kalıcı yol budur** (ürün kararı): KİK'ten IP muafiyeti/izin istenmeyecek.
   - (Eylül notu, TARİHÇE) **Sunucuda otomasyon tarayıcısı REDDEDİLİYORDU.** Düz Playwright
     ile (headless VE Xvfb altında başlı) denendi: Cloudflare kutuyu gösterip bir insan
     noVNC'den tıklasa bile "doğrulama başarısız" veriyordu; o zaman stealth/çözücü

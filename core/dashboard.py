@@ -697,6 +697,15 @@ def _hesapla_hatlar() -> dict:
         sv = ("hata" if not y.value.startswith("TAMAM") else
               "uyari" if simdi - y.updated_at > timedelta(hours=30) else "ok")
     hatlar.append(_hat("Gecelik yedek (FTP)", "sunucu", sv, metin, y.updated_at if y else None))
+    # Saatlik kullanıcı verisi yedeği (`yedek_ftp.sh saatlik`, cron :35). 2 saatten eski → cron durmuş.
+    ys = AppSetting.objects.filter(key="yedek_saatlik_durumu").first()
+    if ys is None:
+        sv, metin = "uyari", "kayıt yok"
+    else:
+        metin = ys.value[:120]
+        sv = ("hata" if not ys.value.startswith("TAMAM") else
+              "uyari" if simdi - ys.updated_at > timedelta(hours=2) else "ok")
+    hatlar.append(_hat("Saatlik yedek (FTP)", "sunucu", sv, metin, ys.updated_at if ys else None))
 
     # Son 24 saatin hataları (SyncRun yazan görevler) — sebebi `note`'ta
     hatalar = [

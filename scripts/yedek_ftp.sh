@@ -7,6 +7,8 @@
 #
 #   scripts/yedek_ftp.sh test      # bağlantı + yetki denemesi, yedek ALMAZ
 #   scripts/yedek_ftp.sh al        # yedek al + yükle + temizle (cron bunu çağırır)
+#   scripts/yedek_ftp.sh saatlik   # SAATLİK kullanıcı verisi yedeği (EKAP tabloları hariç; cron :35)
+#                                  #   KURU=1 → dump + doğrulama, yükleme/silme YOK
 #   scripts/yedek_ftp.sh durum     # son yedeğin durumu ve tazeliği
 #   scripts/yedek_ftp.sh liste     # FTP'deki kendi yedeklerimiz
 #   scripts/yedek_ftp.sh temizle   # yalnızca saklama kuralını uygula
@@ -67,6 +69,25 @@ AYAR_SAKLA="${AYAR_SAKLA:-30}"          # küçük dosyalar (~20 KB) → comert
 # Yedeklenecek yollar (repo köküne göre).
 AYAR_YOLLARI="${AYAR_YOLLARI:-.env.prod credentials docker/nginx/certs}"
 
+# ── Saatlik kullanıcı verisi yedeği (2026-11-13) ─────────────────────────────
+# ⚠️ NEDEN: 2026-11-11 çöküşünde gecelik 04:00 yedeği yüzünden ~15 saatlik KULLANICI verisi
+# (kayıt, filtre, sohbet, abonelik, destek) yalnız ölü sunucunun diskinde kaldı; geri dönüşte
+# elle 3 yollu birleştirme gerekti. Tam dump saatlik ALINAMAZ (5,7 GB / 15 dk; 72 kopya ≈ 410 GB >
+# 250 GB kota). Ama yeniden üretilemeyen veri küçük: `ekap_*` dışındaki tablolar ~16 MB.
+# → Her saat: TÜM şema + `ekap_*` HARİÇ tüm tabloların verisi (beat damgaları ve ayarlar dahil).
+# Kurtarma: gecelik tam dump'ı aç → üstüne son saatlik dump'ın kullanıcı tablolarını yükle
+# (backend CLAUDE.md "Gecelik veritabanı yedeği" → "Saatlik katman").
+# ⚠️ EKAP verisi EKAP'tan yeniden toplanır; ama kullanıcı tablolarındaki 3 FK (öneri→ihale,
+# firma profili/takip→firma) ID ile değil DOĞAL anahtarla (ekap_id / kanonik_anahtar) eşlenmeli.
+SAATLIK_DIZIN="${SAATLIK_DIZIN:-saatlik}"            # UZAK_DIZIN altında
+SAATLIK_SAKLA="${SAATLIK_SAKLA:-72}"                 # FTP'de son N saat (3 gün)
+SAATLIK_YEREL_SAKLA="${SAATLIK_YEREL_SAKLA:-48}"     # yerelde son N dosya
+SAATLIK_HARIC="${SAATLIK_HARIC:-ekap_*}"             # VERİSİ alınmayan tablo kalıpları (şema yine alınır)
+SAATLIK_MIN_BAYT="${SAATLIK_MIN_BAYT:-102400}"       # 100 KB altı şüpheli (2026-11'de ~3 MB)
+KILIT_SAATLIK="${KILIT_SAATLIK:-/var/lock/ihaletakip-yedek-saatlik.lock}"
+LOG_SAATLIK="${LOG_SAATLIK:-/var/log/ihaletakip-yedek-saatlik.log}"
+KURU="${KURU:-0}"
+
 # ⚠️ ŞİFRELİ FTP (FTPS) VARSAYILAN. Ölçüldü (2026-09-16): sunucu ProFTPD ve
 # `AUTH SSL` çalışıyor ("234 AUTH SSL successful"). tinyfect'in betiği düz
 # `ftp://` kullanıyor → şifre VE veritabanının tamamı ağda **açık metin** akıyor.
@@ -99,9 +120,11 @@ curl_args() {
 ftp_kullanim_bayt() {
   local A; curl_args A
   local kok bizim
+  local saatlik
   kok=$(curl "${A[@]}" "ftp://${FTP_HOST}/" 2>/dev/null | tr -d '\r' | awk '$5 ~ /^[0-9]+$/ {s+=$5} END {print s+0}')
   bizim=$(curl "${A[@]}" "$(ftp_tabani)" 2>/dev/null | tr -d '\r' | awk '$5 ~ /^[0-9]+$/ {s+=$5} END {print s+0}')
-  echo $(( ${kok:-0} + ${bizim:-0} ))
+  saatlik=$(curl "${A[@]}" "$(ftp_tabani)${SAATLIK_DIZIN}/" 2>/dev/null | tr -d '\r' | awk '$5 ~ /^[0-9]+$/ {s+=$5} END {print s+0}')
+  echo $(( ${kok:-0} + ${bizim:-0} + ${saatlik:-0} ))
 }
 
 # Yeni dump için yer var mı? Yoksa ÖNCE temizlik dener, sonra tekrar bakar.
@@ -131,14 +154,21 @@ yer_var_mi() {
 # görünürlük şart). DB yazımı başarısız olursa iş DÜŞMEZ, yalnızca loglanır.
 durum_yaz() {
   local sonuc="$1" mesaj="$2"
+  local anahtar="${3:-yedek_durumu}" dosya="${4:-son-durum.txt}"
+  local aciklama="${5:-Gecelik FTP yedeğinin son durumu (yedek_ftp.sh yazar)}"
   mkdir -p "$YEREL_DIZIN"
-  printf '%s|%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$sonuc" "$mesaj" > "$YEREL_DIZIN/son-durum.txt"
+  printf '%s|%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$sonuc" "$mesaj" > "$YEREL_DIZIN/$dosya"
   local deger; deger=$(printf '%s — %s (%s)' "$sonuc" "$mesaj" "$(date '+%Y-%m-%d %H:%M %Z')")
   docker exec "$DB_KONTEYNER" psql -U "$DB_KULLANICI" -d "$DB_ADI" -v ON_ERROR_STOP=1 -q -c \
     "INSERT INTO core_appsetting (key, value, description, updated_at)
-     VALUES ('yedek_durumu', \$\$$deger\$\$, 'Gecelik FTP yedeğinin son durumu (yedek_ftp.sh yazar)', now())
+     VALUES ('$anahtar', \$\$$deger\$\$, '$aciklama', now())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()" >/dev/null 2>&1 \
     || uyari "durum core_appsetting'e yazılamadı (yedek yine de geçerli)"
+}
+
+saatlik_durum_yaz() {
+  durum_yaz "$1" "$2" yedek_saatlik_durumu son-saatlik.txt \
+    "Saatlik kullanıcı verisi FTP yedeğinin son durumu (yedek_ftp.sh saatlik yazar)"
 }
 
 # ── Ayar/sır yedeği (GPG AES256, simetrik) ───────────────────────────────────
@@ -326,6 +356,90 @@ mod_al() {
   kayit "bitti: $ad"
 }
 
+# ── saatlik ──────────────────────────────────────────────────────────────────
+# Kullanıcı verisi yedeği (gerekçe yukarıda, SAATLIK_* ayarları). Gecelik `al`dan bağımsız
+# kilit: 04:00 tam dump'ı sürerken de çalışabilir (ikisi de salt okunur anlık görüntü).
+mod_saatlik() {
+  local ad dosya basla bitti boyut uzak_boyut dizin="$YEREL_DIZIN/saatlik"
+  ad="${ONEK}_saatlik_$(date +%Y%m%d_%H%M).dump"
+  dosya="$dizin/$ad"
+  mkdir -p "$dizin"
+
+  local haric=() k
+  for k in $SAATLIK_HARIC; do haric+=("--exclude-table-data=$k"); done
+
+  kayit "saatlik yedek → $ad (veri hariç: $SAATLIK_HARIC)"
+  basla=$(date +%s)
+  if ! docker exec "$DB_KONTEYNER" pg_dump -U "$DB_KULLANICI" -d "$DB_ADI" \
+        -Fc -Z"$SIKISTIRMA" --no-owner --no-privileges "${haric[@]}" > "$dosya" 2>"$dosya.err"; then
+    hata "pg_dump başarısız: $(head -c 300 "$dosya.err" 2>/dev/null)"
+    rm -f "$dosya" "$dosya.err"; [ "$KURU" = 1 ] || saatlik_durum_yaz "HATA" "pg_dump başarısız"; return 1
+  fi
+  bitti=$(date +%s)
+  rm -f "$dosya.err"
+  boyut=$(stat -c%s "$dosya" 2>/dev/null || echo 0)
+
+  # Doğrulama YÜKLEMEDEN ÖNCE: boyut + içindekiler + kullanıcı tablosunun verisi gerçekten içeride mi.
+  if [ "$boyut" -lt "$SAATLIK_MIN_BAYT" ]; then
+    hata "dump şüpheli küçük ($boyut B) — yüklenmedi"
+    [ "$KURU" = 1 ] || saatlik_durum_yaz "HATA" "dump çok küçük"; return 1
+  fi
+  local toc girdi
+  toc=$(docker exec -i "$DB_KONTEYNER" pg_restore -l < "$dosya" 2>/dev/null)
+  girdi=$(printf '%s\n' "$toc" | grep -c '^[0-9;]' || true)
+  if [ "${girdi:-0}" -lt 50 ] || ! printf '%s\n' "$toc" | grep -q "TABLE DATA public accounts_user "; then
+    hata "dump doğrulanamadı ($girdi girdi / accounts_user verisi yok) — yüklenmedi"
+    [ "$KURU" = 1 ] || saatlik_durum_yaz "HATA" "dump doğrulaması başarısız"; return 1
+  fi
+  if printf '%s\n' "$toc" | grep -q "TABLE DATA public ekap_"; then
+    hata "dump EKAP verisi içeriyor (hariç tutma çalışmadı) — yüklenmedi"
+    [ "$KURU" = 1 ] || saatlik_durum_yaz "HATA" "hariç tutma çalışmadı"; return 1
+  fi
+  oldu "dump: $(numfmt --to=iec "$boyut" 2>/dev/null || echo "$boyut B") / $((bitti-basla)) sn / $girdi nesne"
+
+  if [ "$KURU" = 1 ]; then
+    oldu "KURU: yükleme ve silme yapılmadı (yerel: $dosya)"; return 0
+  fi
+
+  if ! yer_var_mi "$boyut"; then
+    hata "FTP'de yer yok — yerel kopya duruyor: $dosya"; saatlik_durum_yaz "HATA" "FTP kotası dolu"; return 1
+  fi
+
+  local A; curl_args A
+  local hedef="$(ftp_tabani)${SAATLIK_DIZIN}/$ad" i=1 yuklendi=0
+  while [ "$i" -le "$YUKLEME_DENEME" ]; do
+    if curl "${A[@]}" -T "$dosya" "$hedef" >/dev/null 2>&1; then yuklendi=1; break; fi
+    uyari "yükleme denemesi $i/$YUKLEME_DENEME başarısız"; i=$((i+1)); sleep $((i*5))
+  done
+  if [ "$yuklendi" -ne 1 ]; then
+    hata "FTP yüklemesi başarısız — yerel kopya duruyor: $dosya"
+    saatlik_durum_yaz "HATA" "FTP yüklemesi başarısız (yerel kopya var)"; return 1
+  fi
+  uzak_boyut=$(curl "${A[@]}" --head "$hedef" 2>/dev/null | awk '/Content-Length|content-length/ {print $2}' | tr -d '\r')
+  if [ "$uzak_boyut" != "$boyut" ]; then
+    hata "uzak boyut eşleşmiyor (yerel=$boyut uzak=${uzak_boyut:-?}) — yedek GÜVENİLMEZ"
+    saatlik_durum_yaz "HATA" "uzak boyut eşleşmiyor"; return 1
+  fi
+  oldu "yüklendi ve boyut doğrulandı (${SAATLIK_DIZIN}/$ad)"
+
+  # Saklama — ⚠️ yalnızca KATI ad kalıbı; saatlik dizindeki başka hiçbir dosyaya dokunulmaz.
+  local liste n=0 d
+  liste=$(curl "${A[@]}" --list-only "$(ftp_tabani)${SAATLIK_DIZIN}/" 2>/dev/null | tr -d '\r' \
+    | grep -E "^${ONEK}_saatlik_[0-9]{8}_[0-9]{4}\.dump$" | sort)
+  while read -r d; do
+    [ -z "$d" ] && continue
+    if curl "${A[@]}" -Q "DELE /${UZAK_DIZIN#/}/${SAATLIK_DIZIN}/$d" "$(ftp_tabani)" >/dev/null 2>&1; then
+      n=$((n+1))
+    else
+      uyari "silinemedi: ${SAATLIK_DIZIN}/$d"
+    fi
+  done < <(printf '%s\n' "$liste" | head -n -"$SAATLIK_SAKLA")
+  [ "$n" -gt 0 ] && oldu "uzakta $n eski saatlik yedek silindi"
+  ls -1t "$dizin"/${ONEK}_saatlik_*.dump 2>/dev/null | tail -n +"$((SAATLIK_YEREL_SAKLA + 1))" | xargs -r rm -f
+
+  saatlik_durum_yaz "TAMAM" "$ad · $(numfmt --to=iec "$boyut" 2>/dev/null || echo "$boyut B") · $((bitti-basla)) sn"
+}
+
 # ── temizle ──────────────────────────────────────────────────────────────────
 # Saklama kuralı: son GUNLUK_SAKLA günlük + ayın 1'ine ait son AYLIK_SAKLA dosya.
 # ⚠️⚠️ SİLME YALNIZCA KENDİ AD KALIBIMIZA UYAN DOSYALARA UYGULANIR
@@ -361,6 +475,9 @@ mod_liste() {
   kayit "FTP'deki yedeklerimiz:"
   curl "${A[@]}" "$(ftp_tabani)" 2>/dev/null | tr -d '\r' | grep -E "${ONEK}_" \
     | awk '{printf "  %10.2f MB  %s %s %s  %s\n", $5/1048576, $6,$7,$8, $9}' || echo "  (yok)"
+  kayit "saatlik (son 6):"
+  curl "${A[@]}" "$(ftp_tabani)${SAATLIK_DIZIN}/" 2>/dev/null | tr -d '\r' | grep -E "${ONEK}_saatlik_" \
+    | sort -k9 | tail -6 | awk '{printf "  %10.2f MB  %s %s %s  %s\n", $5/1048576, $6,$7,$8, $9}' || echo "  (yok)"
 }
 
 mod_durum() {
@@ -377,6 +494,14 @@ mod_durum() {
   fi
   printf '  yerel kopyalar:\n'
   ls -lah "$YEREL_DIZIN"/${ONEK}_*.dump 2>/dev/null | awk '{printf "    %s  %s %s %s\n", $5,$6,$7,$8}' || printf '    (yok)\n'
+  if [ -r "$YEREL_DIZIN/son-saatlik.txt" ]; then
+    IFS='|' read -r zaman sonuc mesaj < "$YEREL_DIZIN/son-saatlik.txt"
+    local syas; syas=$(( ( $(date +%s) - $(stat -c%Y "$YEREL_DIZIN/son-saatlik.txt") ) / 60 ))
+    printf '  saatlik     : %s — %s (%s dk önce)\n' "$sonuc" "$mesaj" "$syas"
+    [ "$syas" -gt 120 ] && printf '  ⚠ SAATLİK yedek %s dakikadır yazılmadı — cron DURMUŞ olabilir\n' "$syas"
+  else
+    printf '  saatlik     : (henüz çalışmadı)\n'
+  fi
   # ⚠️ Kota kullanımı durumun parçasıdır: alan dolmaya başladığında bunu yedek
   # BAŞARISIZ olduğu gün değil, öncesinde görmek gerekir.
   local k; k=$(ftp_kullanim_bayt 2>/dev/null)
@@ -396,10 +521,14 @@ case "$MOD" in
   # ⚠️ flock: cron gecikirse ya da elle tetiklenirse iki dump üst üste binmesin
   # (ikisi birlikte hem disk hem uzun snapshot demek).
   al)      exec 9>"$KILIT"; flock -n 9 || { kayit "başka bir yedek çalışıyor — atlandı"; exit 0; }; mod_al ;;
+  # ⚠️ Saatlik ayrı kilit + ayrı log: gecelik tam dump sürerken de koşar, saatte bir satır
+  # gecelik logu boğmasın.
+  saatlik) LOG="$LOG_SAATLIK"; exec 8>"$KILIT_SAATLIK"
+           flock -n 8 || { kayit "önceki saatlik yedek sürüyor — atlandı"; exit 0; }; mod_saatlik ;;
   temizle) exec 9>"$KILIT"; flock -n 9 || { kayit "kilit meşgul"; exit 0; }; mod_temizle ;;
   # ⚠️ Ayar yedeğini TEK BAŞINA alabilmek şart: aksi hâlde onu test etmek için
   # 14 dakikalık bir veritabanı dump'ı beklemek gerekirdi.
   ayar)    exec 9>"$KILIT"; flock -n 9 || { kayit "kilit meşgul"; exit 0; }; ayar_yedegi ;;
   ayar-coz) mod_ayar_coz "${2:-}" ;;
-  *) echo "kullanım: $0 [test|al|durum|liste|temizle|ayar|ayar-coz [dosya]]" >&2; exit 2 ;;
+  *) echo "kullanım: $0 [test|al|saatlik|durum|liste|temizle|ayar|ayar-coz [dosya]]" >&2; exit 2 ;;
 esac

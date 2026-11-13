@@ -4806,10 +4806,39 @@ acil yedek sunucusuna alındı. Ayrıntılı olay günlüğü ve geri dönüş p
   - ⚠️⚠️ **Geri dönüşte birleştirme:** ana sunucudaki 714+ kullanıcılar ile yedekteki 714–721 AYNI id'leri
     taşır → yedektekiler (ve 10000+'lar) ana DB'ye **yeni id ile** taşınmalı, RC'de de kimlikleri değişir
     (kullanıcı geri yükleme yapmalı). Yeniden kayıt olan boşluk kullanıcısının ana sunucuda eski hesabı da
-    var (aynı e-posta, iki hesap) → e-postaya göre tekilleştirilmeli. `ESKI_TOKEN_*` ana sunucuda AÇILMAZ.
+    var (aynı e-posta, iki hesap) → e-postaya göre tekilleştirilmeli. (Dönüşte yapılanlar aşağıda.)
 - ⚠️⚠️ **Ana sunucu açılınca İLK İŞ oradaki ihaletakip konteynerlerini durdur**: hepsi
   `restart: unless-stopped` → açılışta kendiliğinden kalkar; iki beat = çift push/e-posta, EKAP'a iki
   IP'den tempo. Ana sunucudaki 04:00 CEST `yedek_ftp.sh` cron'u da yoruma alınmalı.
+  (13.11'de YAŞANDI: ana 02:33 TR'de açıldı, beat kaçırdığı günlük görevleri tek turda koşturdu — sessiz
+  saat sayesinde 0 push; ama 07:00 DT alarmı 2 kullanıcıya push attı, 07:10 deneme hatırlatması 1 kullanıcıya.
+  07:56'da durduruldu. 04:00 FTP dump'ı iki sunucuda AYNI adla yazıldı, yedeğinki üstüne yazdı.)
+
+#### ✅ GERİ DÖNÜŞ TAMAMLANDI — 2026-11-13 09:12 TR (kayıpsız, mükerrersiz)
+- **Yöntem:** yedek DB → ana, **canlı fiziksel replika** (`pg_basebackup -X stream -R` + slot; ana→yedek geçici,
+  `permitopen` kısıtlı SSH tüneli bir alpine konteynerinde — ana UFW'si konteyner→host trafiğini yalnız birkaç
+  porta açıyor; yedek pg_hba'ya tek geçici `host replication` satırı). Yazma ~2 sn durdu (yedek web 09:11:51,
+  terfi 09:11:53), son LSN eksiksiz oynatıldı. Ardından yedek Redis DB0'ın TAMAMI (18.525 anahtar: bülten/filtre/
+  DT tekilleştirme + push sayaçları) + ananın o sabah gerçekten gönderdiği 78 işaret DUMP/RESTORE ile taşındı;
+  beat damgaları replikadan geldiği için 09:00 görevleri tekrar koşmadı.
+  ⚠️ İlk kopya %100'de düştü: yedek PGDATA'ya root olarak bırakılan `pg_hba.conf.bak` okunamadı → **PGDATA'ya
+  root sahipli dosya BIRAKMAYIN** (pg_basebackup her dosyayı okur).
+- **Boşluk birleştirmesi** (ana çökme kopyası ↔ 11.11 04:00 taban ↔ canlı, 3 yollu, ham SQL → sinyal/e-posta/push
+  yok): 8 kullanıcı, 54 sohbet, 91 mesaj, 13 ek, 127 öneri, 51 filtre, 3 kayıtlı ihale, 1 destek talebi, 383
+  bildirim (okunmuş), 68+61 token/kara liste, blog yazısı (id 50, e-postası tekrar gitmez). Güncellemeler yalnız
+  canlıda dokunulmamışsa: 4 blog e-posta iptali, 313'ün 11.11 şifresi, 704'ün sildiği 5 filtre.
+  ⚠️ Yedekte `asistan_ek_kapsam` AYARI YOKTU (11.11 12:26'da anada açılmıştı) → ekler 2 gün kapalıydı; geri eklendi.
+- **Kimlikler:** yedekteki 714–721 kendi ID'lerinde; ana boşluk kişileri 714→10018, 715→10019, 716→10020,
+  717→10021, 719→10022, 721→10023, 720→10000 (zaten yeniden kayıtlıydı), 722 kendi ID'si. **718 asıl sahibine
+  (RC 718 denemesi onun) döndü, yedekteki 718 → 10017** (Pro düştü; kullanıcı kararı "sahibine ver").
+- ⚠️⚠️ **`ESKI_TOKEN_*` ANA SUNUCUDA AÇIK** (`docker-compose.tinyfect.yml`, 714–721) + `accounts.KimlikEsleme`
+  (10 kural; `accounts/authentication.py` `token_karari`): ana token'ı (iat < 2026-11-11T20:00Z) → taşınan hesap,
+  çökme–koruma arası RED, 718'in koruma–takas arası → 10017. Yenileme token'ı 30 gün → **2026-12-12'den önce
+  KALDIRMAYIN**, yoksa eski token başkasının hesabını açar. Ham SQL ile kural yazınca önbelleği silin
+  (`kurallari_unut()`).
+- Ana sunucuda çökme anı kopyası: `ihaletakip-api_pgdata_ana_20261111` hacmi (1 hafta sonra silinebilir).
+  Yedek sunucu: ihaletakip yığını durduruldu (veri hacimleri duruyor), 04:00 cron'u kapalı, geçici SSH anahtarı ve
+  pg_hba satırı kaldırıldı.
 
 ### Eski Bursa sunucusu — 1 hafta bekletiliyor (2026-09-23'e kadar)
 

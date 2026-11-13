@@ -1,0 +1,125 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+EKAP v2 insan doğrulaması (Cloudflare Turnstile) — otomatik çözücü durumu + operatör müdahalesi.
+Görünüm: ekap/admin_views.py `dogrulama_ekrani`. Sayfa açılışı EKAP'a istek ATMAZ.
+⚠️ Ekran görüntüsü `data:` URI — yalnızca son BAŞARISIZ denemenin, 2 gün tutulur (Redis).
+{% endcomment %}
+{% block content %}
+<div style="max-width:980px">
+  <h1 class="mb-3">EKAP Doğrulama (Turnstile)</h1>
+
+  {% if oz.seviye == "hata" %}
+    <div class="alert alert-danger py-2"><i class="fas fa-triangle-exclamation me-1"></i>
+      <strong>Müdahale gerekiyor:</strong> {{ oz.metin }}.
+      {% if not oz.canli %}<code>ekap-browser</code> konteyneri çalışmıyor olabilir
+        (sunucuda: <code>docker compose ps ekap-browser</code> / <code>docker compose logs --tail 50 ekap-browser</code>).{% endif %}
+    </div>
+  {% elif oz.seviye == "uyari" %}
+    <div class="alert alert-warning py-2"><i class="fas fa-circle-exclamation me-1"></i> {{ oz.metin }}.</div>
+  {% else %}
+    <div class="alert alert-success py-2"><i class="fas fa-circle-check me-1"></i> {{ oz.metin }}.</div>
+  {% endif %}
+
+  <div class="card mb-3"><div class="card-body p-2">
+    <table class="table table-sm mb-0">
+      <tr><th style="width:240px">EKAP doğrulama istiyor mu</th>
+        <td>{% if gerekli is True %}Evet{% elif gerekli is False %}Hayır (çerezsiz çalışılıyor){% else %}bilinmiyor{% endif %}</td></tr>
+      <tr><th>Çerez</th>
+        <td>{% if oz.gecerli %}<span class="badge text-bg-success">geçerli</span> bitiş {{ oz.bitis|date:"H:i" }}
+            {% elif oz.bitis %}<span class="badge text-bg-danger">süresi doldu</span> {{ oz.bitis|date:"d.m H:i" }}
+            {% else %}<span class="badge text-bg-secondary">bitişi bilinmiyor</span>{% endif %}
+            <span class="text-muted small ms-2">{{ cerez_ozet }}</span></td></tr>
+      <tr><th>Çözücü servisi</th>
+        <td>{% if oz.canli %}<span class="badge text-bg-success">çalışıyor</span>{% else %}<span class="badge text-bg-danger">nabız yok</span>{% endif %}
+            <span class="text-muted small ms-2">son nabız {{ oz.kalp|date:"H:i:s"|default:"—" }}</span></td></tr>
+      <tr><th>Otomatik çözüm</th>
+        <td>{% if oz.otomatik %}<span class="badge text-bg-success">AÇIK</span>{% else %}<span class="badge text-bg-warning">KAPALI</span>{% endif %}</td></tr>
+      <tr><th>Son başarı</th><td>{{ oz.son_basari|date:"d.m H:i:s"|default:"—" }}{% if oz.son_sure_sn %} <span class="text-muted small">({{ oz.son_sure_sn }} sn)</span>{% endif %}</td></tr>
+      <tr><th>Son hata</th>
+        <td>{% if oz.son_hata %}{{ oz.son_hata|date:"d.m H:i:s" }} — <code>{{ oz.son_hata_kodu }}</code> {{ oz.son_hata_metni }}{% else %}—{% endif %}</td></tr>
+      <tr><th>Ardışık hata</th>
+        <td>{{ oz.ardisik_hata }}{% if oz.sonraki_deneme %} <span class="text-muted small">· sonraki otomatik deneme {{ oz.sonraki_deneme|date:"H:i:s" }}</span>{% endif %}</td></tr>
+      <tr><th>Bugün</th><td>{{ oz.bugun_basari }} başarılı · {{ oz.bugun_hata }} hatalı</td></tr>
+    </table>
+  </div></div>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <form method="post">{% csrf_token %}
+      <button class="btn btn-primary" name="eylem" value="coz" {% if istek_bekliyor %}disabled{% endif %}>
+        <i class="fas fa-bolt me-1"></i>{% if istek_bekliyor %}İstek bekliyor…{% else %}Şimdi çöz{% endif %}</button>
+    </form>
+    <form method="post">{% csrf_token %}
+      <button class="btn btn-outline-secondary" name="eylem" value="durum_sor">
+        <i class="fas fa-satellite-dish me-1"></i>EKAP'a sor (çerez geçerli mi?)</button>
+    </form>
+    <form method="post">{% csrf_token %}
+      {% if oz.otomatik %}
+        <button class="btn btn-outline-warning" name="eylem" value="otomatik_kapat"
+                onclick="return confirm('Otomatik çözücü kapatılsın mı? Çerez süresi dolunca v2 görevleri durur.')">
+          <i class="fas fa-pause me-1"></i>Otomatiği kapat</button>
+      {% else %}
+        <button class="btn btn-outline-success" name="eylem" value="otomatik_ac">
+          <i class="fas fa-play me-1"></i>Otomatiği aç</button>
+      {% endif %}
+    </form>
+    <a class="btn btn-link" href="{% url 'ekap_dogrulama' %}"><i class="fas fa-rotate me-1"></i>Yenile</a>
+  </div>
+
+  {% if ekran %}
+    <div class="card mb-3">
+      <div class="card-header"><strong>Son başarısız denemenin ekran görüntüsü</strong></div>
+      <div class="card-body p-2">
+        <img src="data:image/png;base64,{{ ekran }}" alt="son başarısız deneme"
+             style="max-width:100%;border:1px solid #ccc">
+        <div class="small text-muted mt-1">Kutuda "Doğrulama başarısız" ya da hata kodu görünüyorsa Cloudflare
+          tarayıcıyı reddediyor demektir; kutu hiç çizilmediyse ağ/EKAP sorunu olabilir.</div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>Son olaylar</strong></div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-striped mb-0">
+        <thead><tr><th style="width:120px">Zaman</th><th style="width:80px">Tür</th><th>Ayrıntı</th><th style="width:70px">Süre</th></tr></thead>
+        <tbody>
+        {% for o in olaylar %}
+          <tr>
+            <td>{{ o.zaman|date:"d.m H:i:s" }}</td>
+            <td>{% if o.tur == "basari" %}<span class="badge text-bg-success">başarı</span>
+                {% elif o.tur == "hata" %}<span class="badge text-bg-danger">hata</span>
+                {% else %}<span class="badge text-bg-secondary">{{ o.tur }}</span>{% endif %}</td>
+            <td class="small">{{ o.metin }}</td>
+            <td class="small">{% if o.sure_sn %}{{ o.sure_sn }} sn{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-muted">Henüz olay yok.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="mb-4">
+    <summary><strong>Elle çerez gir (yedek yol)</strong></summary>
+    <p class="small text-muted mt-2 mb-1">
+      Tarayıcıda <code>ekapv2.kik.gov.tr/ekap/search</code> açıp doğrulamayı geçin → F12 → Network →
+      <code>GetListByParameters</code> → Request Headers → <code>Cookie:</code> satırını kopyalayın.
+      ⚠️ Application → Cookies yetmez (<code>ekap.human-verification</code> HttpOnly).
+      Köprü eklentisi (<code>tools/ekap-cerez-eklentisi/</code>) çalışıyorsa çerezi kendisi gönderir.
+    </p>
+    <form method="post">{% csrf_token %}
+      <textarea name="cerez" rows="3" class="form-control mb-2" spellcheck="false" autocomplete="off"
+                placeholder="TS01…=…; ekap.human-verification=…"></textarea>
+      <button class="btn btn-outline-primary btn-sm" name="eylem" value="cerez_kaydet">Kaydet ve doğrula</button>
+    </form>
+  </details>
+
+  <details class="mb-4">
+    <summary><strong>Canlı tarayıcıya bakmak (teşhis)</strong></summary>
+    <p class="small mt-2">Servis tarayıcıyı sanal ekranda çalıştırır. Görmek için:
+      <code>ssh -L 6080:127.0.0.1:6080 tinyfect</code> → <code>http://localhost:6080/vnc.html</code>.
+      Tek seferlik deneme: <code>docker compose exec ekap-browser python manage.py ekap_oturum_daemon --tek-tur</code>.</p>
+  </details>
+</div>
+{% endblock %}

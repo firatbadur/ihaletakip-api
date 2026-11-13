@@ -1,262 +1,102 @@
 """
-EKAP insan doğrulaması oturumunu **sürekli ayakta tutan** servis.
+EKAP v2 insan doğrulamasını (Cloudflare Turnstile) **otomatik çözüp** çerezi taze tutan servis.
 
-⚠️ **Neden var**: EKAP 2026-09-08'de Cloudflare Turnstile insan doğrulaması
-koydu ve doğrulamanın ömrü **~8 dakikadır** (ölçüldü 2026-09-09: doğrulama
-09:39:48 → bitiş 09:47:48, yenileme 09:45:48). Elle çerez taşımak bu tempoda
-imkânsız; doğrulama olmadan EKAP'a giden her istek `HTTP 406` alır ve
-toplama + belge URL'leri + canlı proxy uçlarının tamamı durur.
+Çalıştırma: `python manage.py ekap_oturum_daemon` (docker: `ekap-browser` servisi, Xvfb altında).
+Tek seferlik deneme: `--tek-tur` (karar beklemeden bir kez çözer, sonucu basar).
 
-**Çözüm = EKAP'ın kendi arayüzünü sunucuda ayakta tutmak.** Portal zaten bu 8
-dakikayı kendi kendine tazeliyor (`scheduleRefresh` → bitişten 2 dk önce
-`runVerification`). Burada yaptığımız da aynısı: gerçek bir Chromium'da arama
-sayfası açık durur, süresi dolmadan **sayfa yeniden yüklenir** — bu, uygulamanın
-normal açılış yoludur (`initialize()` → `ensureVerified()`) — ve tazelenen çerez
-`AppSetting`'e yazılır.
+⚠️⚠️ 2026-11-13'e kadar bu servis CAPTCHA ÇÖZMÜYORDU (bir kişinin noVNC'den tıklaması
+bekleniyordu) ve Cloudflare otomasyon tarayıcısını reddettiği için durdurulmuştu. Ürün sahibi
+kararıyla artık patchright + Xvfb ile çözüyor (sunucu IP'sinden ölçüldü: 2/2, ~6 sn).
+Mantık ve gerekçeler `ekap/turnstile.py`'de; bu dosya yalnızca döngüdür.
 
-⚠️ **CAPTCHA ÇÖZÜLMEZ.** Kutuyu geçip geçmeme kararını Cloudflare verir; burada
-ne token üretilir ne de "insanım" tıklaması taklit edilir. Turnstile etkileşim
-isterse daemon bunu **`insan_gerekli`** olarak işaretler, loglar ve bir kişinin
-noVNC üzerinden tek tık atmasını bekler. Sahte fare/tık üretmek bilinçli olarak
-YAPILMAZ — o, kontrolü yanıltmak olurdu.
-
-⚠️ **Kalıcı profil şart** (`EKAP_BROWSER_PROFIL`): Turnstile yerleşik, geçmişi
-olan tarayıcı oturumlarını sessiz geçirme eğilimindedir. Her turda temiz profil
-açmak her turda etkileşimli kutu demek olurdu.
-
-Çalıştırma: `python manage.py ekap_oturum_daemon` (docker: `ekap-browser` servisi).
-Tek seferlik deneme için: `--tek-tur`.
+Döngü (her `--kontrol-sn`, panodan istek gelirse ≤5 sn):
+  nabız → panodan istek var mı → EKAP doğrulama istiyor mu → `karar_ver` → çöz / sor / bekle.
+Hatada üstel geri çekilme (1→15 dk), her olay panoya düşer (`/admin/ekap/dogrulama/`).
 """
 import logging
 import os
 import time
 
-# ⚠️ Playwright'ın **sync** API'si komutu bir event loop'un içinden çalıştırır;
-# Django ORM bunu "async bağlam" sayıp `SynchronousOnlyOperation` fırlatır.
-# Bu süreç tek iş parçacıklı ve ORM çağrıları (AppSetting okuma/yazma) çok
-# kısa olduğu için belgelenmiş kaçış kapısı burada doğru araç.
+# ⚠️ patchright'ın **sync** API'si bir event loop çalıştırır; Django ORM bunu "async
+# bağlam" sayıp `SynchronousOnlyOperation` fırlatabilir. Süreç tek iş parçacıklı, ORM
+# çağrıları kısa → belgelenmiş kaçış kapısı (eski daemon'da da vardı).
 os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "1")
 
-from django.conf import settings
-from django.core.management.base import BaseCommand
-from django.utils import timezone
+from django.core.cache import cache  # noqa: E402
+from django.core.management.base import BaseCommand  # noqa: E402
+from django.utils import timezone  # noqa: E402
 
-from ekap import session as ekap_session
+from ekap import session as ekap_session  # noqa: E402
+from ekap import turnstile  # noqa: E402
 
 logger = logging.getLogger("ihaletakip")
 
-# Doğrulama ~8 dk yaşıyor; bitişe bu kadar kalınca tazeleriz. EKAP'ın kendi
-# arayüzü 2 dk kala yeniliyor — biz biraz daha erken davranıp toplama görevlerinin
-# ortasında pencerenin kapanmasını önlüyoruz.
-TAZELEME_ESIGI_SN = 180
+UYKU_ADIM_SN = 5
 
 
 class Command(BaseCommand):
-    help = "EKAP insan doğrulaması oturumunu tarayıcıda ayakta tutar."
+    help = "EKAP Turnstile doğrulamasını otomatik çözer ve doğrulama çerezini taze tutar."
 
     def add_arguments(self, parser):
         parser.add_argument("--tek-tur", action="store_true",
-                            help="tek doğrulama yapıp çık (test)")
+                            help="karar beklemeden bir kez çöz ve çık (test)")
         parser.add_argument("--kontrol-sn", type=int, default=60,
-                            help="durum kontrol aralığı (vars. 60 sn)")
-        parser.add_argument("--headless", default=None,
-                            help="true/false — vars. EKAP_BROWSER_HEADLESS")
-        parser.add_argument("--bekleme-sn", type=int, default=60,
-                            help="sayfa açıldıktan sonra doğrulama için beklenecek süre")
-        parser.add_argument("--tanila", action="store_true",
-                            help="tek tur + ayrıntılı teşhis (iframe/başlık/ekran görüntüsü)")
+                            help="karar turları arası azami süre (vars. 60 sn)")
 
     def handle(self, *args, **o):
-        from playwright.sync_api import sync_playwright
-
-        base = settings.EKAP_BASE_URL.rstrip("/")
-        profil = getattr(settings, "EKAP_BROWSER_PROFIL", "/app/.browser")
-        headless = (o["headless"].lower() == "true") if o["headless"] else \
-            getattr(settings, "EKAP_BROWSER_HEADLESS", True)
-
-        self.stdout.write(f"🌐 Chromium başlatılıyor (profil={profil}, headless={headless})")
-        with sync_playwright() as pw:
-            ctx = pw.chromium.launch_persistent_context(
-                profil,
-                headless=headless,
-                locale="tr-TR",
-                timezone_id="Europe/Istanbul",
-                viewport={"width": 1440, "height": 900},
-                args=["--disable-blink-features=AutomationControlled",
-                      "--no-sandbox", "--disable-dev-shm-usage"],
-            )
-            page = ctx.pages[0] if ctx.pages else ctx.new_page()
-            # ⚠️ Başarısız istekleri loglamak şart: uygulama açılmazsa sebebi
-            # (chunk indirilemedi / bağlantı sıfırlandı) yalnızca burada görünür.
-            page.on("requestfailed", lambda r: logger.warning(
-                "istek düştü: %s %s", r.failure, r.url[:120]))
-            try:
-                self._dongu(ctx, page, base, o)
-            finally:
-                ctx.close()
-
-    # ── Döngü ────────────────────────────────────────────
-    def _dongu(self, ctx, page, base, o):
-        arama_url = f"{base}/ekap/search"
-        ilk = True
-        while True:
-            try:
-                d = self._durum(ctx, base)
-                kalan = self._kalan_sn(d)
-                if ilk or not d.get("verified") or kalan < TAZELEME_ESIGI_SN:
-                    ilk = False
-                    self.stdout.write(
-                        f"🔄 Tazeleniyor (verified={d.get('verified')}, kalan={kalan}sn)")
-                    d = self._tazele(page, ctx, base, arama_url, o["bekleme_sn"])
-                    kalan = self._kalan_sn(d)
-
-                if d.get("verified"):
-                    self._cerez_yaz(ctx, base)
-                    self.stdout.write(self.style.SUCCESS(
-                        f"✅ {timezone.localtime():%H:%M:%S} doğrulama geçerli, "
-                        f"kalan {kalan} sn"))
-                else:
-                    # ⚠️ Sahte tık YOK: Turnstile etkileşim istiyorsa kutuyu bir
-                    # İNSAN tıklar (noVNC). Otomatik tıklamak, kimse yokken
-                    # "gerçek kişiyim" beyanı vermek olurdu.
-                    ekap_session.dustu("tarayıcı oturumu doğrulanamadı — "
-                                       "Turnstile etkileşim istiyor")
-                    self.stderr.write(self.style.ERROR(
-                        "❌ Doğrulanamadı — noVNC'den bağlanıp 'Gerçek kişi "
-                        "olduğunuzu doğrulayın' kutusunu tıklayın."))
-                    # ⚠️ Kutu ekrandayken sayfayı YENİDEN YÜKLEME: insan tam
-                    # tıklarken sayfa yenilenirse tık boşa gider ve doğrulama
-                    # hiçbir zaman tamamlanamaz. Widget duruyorsa bekle.
-                    if self._turnstile_var(page):
-                        self.stdout.write("⏳ Kutu ekranda — insan tıkı bekleniyor "
-                                          "(sayfa yenilenmeyecek).")
-                        self._insan_bekle(ctx, page, base, o["kontrol_sn"])
-
-                if o.get("tanila"):
-                    self._tanila(page, d)
-                if o["tek_tur"] or o.get("tanila"):
-                    return
-            except Exception as e:
-                logger.exception("ekap_oturum_daemon turu hatası: %s", e)
-                self.stderr.write(self.style.ERROR(f"tur hatası: {str(e)[:200]}"))
-            time.sleep(o["kontrol_sn"])
-
-    # ── Parçalar ─────────────────────────────────────────
-    def _durum(self, ctx, base):
-        """Doğrulama durumu — tarayıcının kendi çerezleriyle.
-
-        ⚠️ GET'e `Content-Type` EKLENMEZ (F5 ASM protokol ihlali sayıp 406 verir).
-        """
-        try:
-            r = ctx.request.get(base + ekap_session.DOGRULAMA_YOLU,
-                                headers={"Accept": "application/json",
-                                         "api-version": "v1"})
-            if r.status != 200:
-                return {"verified": False, "http": r.status}
-            return r.json()
-        except Exception as e:
-            logger.warning("durum sorgulanamadı: %s", e)
-            return {"verified": False, "hata": str(e)[:120]}
-
-    def _tazele(self, page, ctx, base, url, bekleme_sn):
-        """Sayfayı yeniden yükler → uygulamanın kendi `ensureVerified()` yolu koşar.
-
-        Bu, taklit değil uygulamanın normal açılışıdır; doğrulama kararını
-        Turnstile/Cloudflare verir.
-
-        ⚠️ **Sabit bekleme YETMİYOR** (ölçüldü 2026-09-09): 8 sn sonra sayfanın
-        gövdesi boştu ve Turnstile iframe'i hiç oluşmamıştı — yani Angular
-        uygulaması henüz açılmamıştı ve `initialize()` çalışmamıştı. Teşhis
-        "Turnstile reddetti" sanılıyordu, oysa doğrulama hiç DENENMEMİŞTİ.
-        Bu yüzden sabit uyku yerine **doğrulanana kadar yoklama** yapılır.
-        """
-        page.goto(url, wait_until="domcontentloaded",
-                  timeout=settings.EKAP_TIMEOUT * 1000)
-        bitis = time.monotonic() + bekleme_sn
-        while time.monotonic() < bitis:
-            page.wait_for_timeout(3000)
-            d = self._durum(ctx, base)
-            if d.get("verified"):
-                return d
-        return self._durum(ctx, base)
-
-    def _kalan_sn(self, d):
-        from datetime import datetime
-        s = d.get("expiresAtUtc")
-        if not d.get("verified") or not s:
-            return 0
-        try:
-            bitis = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except ValueError:
-            return 0
-        return int((bitis - timezone.now()).total_seconds())
-
-    def _cerez_yaz(self, ctx, base):
-        """Tarayıcı çerezlerini toplayıcının kullanacağı biçimde kaydeder."""
-        host = base.split("//", 1)[-1]
-        cerezler = [c for c in ctx.cookies() if host.endswith(c["domain"].lstrip("."))]
-        ham = "; ".join(f"{c['name']}={c['value']}" for c in cerezler)
-        if not ham:
+        if o["tek_tur"]:
+            sonuc = turnstile.coz("tek tur (komut satırı)")
+            self.stdout.write(str(sonuc))
             return
-        yeni = ekap_session.temizle(ham)
-        if yeni and yeni != ekap_session.cerez():
-            ekap_session.kaydet(yeni)
 
-    # ── Teşhis ───────────────────────────────────────────
-    def _tanila(self, page, d):
-        """Doğrulama neden geçmiyor: kutu mu çıkıyor, sayfa mı yüklenmiyor?
-
-        Turnstile widget'ı `challenges.cloudflare.com` kaynaklı bir iframe olarak
-        gömülür. Iframe VARSA kutu gösteriliyor (etkileşim isteniyor olabilir);
-        YOKSA sorun doğrulama değil sayfanın kendisidir (yüklenmedi/engellendi).
-        """
-        self.stdout.write("\n── TEŞHİS ──────────────────────────────")
-        try:
-            self.stdout.write(f"  url      : {page.url}")
-            self.stdout.write(f"  başlık   : {page.title()}")
-        except Exception as e:
-            self.stdout.write(f"  sayfa okunamadı: {e}")
-        try:
-            cerceveler = [f.url for f in page.frames]
-            self.stdout.write(f"  iframe   : {len(cerceveler)}")
-            for u in cerceveler:
-                isaret = " ← TURNSTILE" if "challenges.cloudflare.com" in u else ""
-                self.stdout.write(f"    - {u[:110]}{isaret}")
-        except Exception as e:
-            self.stdout.write(f"  iframe okunamadı: {e}")
-        self.stdout.write(f"  durum    : {d}")
-        try:
-            govde = page.evaluate("() => document.body.innerText.slice(0, 400)")
-            self.stdout.write(f"  metin    : {' '.join(govde.split())[:300]}")
-        except Exception:
-            pass
-        try:
-            yol = "/app/.browser/tani.png"
-            page.screenshot(path=yol, full_page=False)
-            self.stdout.write(f"  ekran    : {yol}")
-        except Exception as e:
-            self.stdout.write(f"  ekran alınamadı: {e}")
-
-    def _turnstile_var(self, page):
-        """Sayfada Turnstile widget'ı (challenges.cloudflare.com iframe) var mı?"""
-        try:
-            return any("challenges.cloudflare.com" in f.url for f in page.frames)
-        except Exception:
-            return False
-
-    def _insan_bekle(self, ctx, page, base, kontrol_sn):
-        """Kutu ekranda kaldığı sürece yoklar; tıklanınca çerezi hemen kaydeder.
-
-        Yenileme yapmaz — amaç insanın tıkını bozmamak. Kutu kaybolduğunda ya da
-        doğrulama geldiğinde döngü normale döner.
-        """
+        turnstile.olay_ekle("servis", "çözücü servisi başladı")
+        self.stdout.write("🟢 EKAP Turnstile çözücü başladı")
         while True:
-            page.wait_for_timeout(kontrol_sn * 1000)
-            d = self._durum(ctx, base)
-            if d.get("verified"):
-                self._cerez_yaz(ctx, base)
-                self.stdout.write(self.style.SUCCESS(
-                    "✅ İnsan doğrulaması tamamlandı, çerez kaydedildi."))
+            try:
+                bekle = self._tur(o["kontrol_sn"])
+            except Exception as e:                   # noqa: BLE001
+                # ⚠️ Döngü ASLA ölmez: konteyner yeniden başlarsa sebep kaybolur, panoda
+                # yalnızca "nabız yok" görünür. Hata olay günlüğüne yazılıp devam edilir.
+                logger.exception("Turnstile döngü hatası")
+                turnstile.olay_ekle("hata", f"döngü hatası: {e}")
+                bekle = 30
+            self._uyu(bekle)
+
+    def _tur(self, kontrol_sn):
+        turnstile.kalp_at()
+        istek = turnstile.istek_al()
+        gerekli = ekap_session.dogrulama_gerekli(canli=True)
+        k = turnstile.karar_ver(
+            simdi=timezone.now(),
+            durum=turnstile.durum_oku(),
+            otomatik=turnstile.otomatik_acik(),
+            istek=istek,
+            gerekli=gerekli,
+            dustu=bool(cache.get(ekap_session._DUSTU_CACHE)),
+            cerez_var=bool(ekap_session.cerez()),
+        )
+        if k.eylem == "coz":
+            turnstile.coz(k.sebep)
+            return kontrol_sn
+        if k.eylem == "sor":
+            # Çerez köprü eklentisinden / elle gelmiş, bitişini bilmiyoruz → EKAP'a sor.
+            d = ekap_session.durum(cerezli=True)
+            if d.get("http") != 200:
+                logger.warning("Turnstile: çerez durumu sorulamadı (HTTP %s)", d.get("http"))
+                return kontrol_sn
+            if d.get("verified") and d.get("expiresAtUtc"):
+                turnstile.bitis_guncelle(d["expiresAtUtc"])
+                turnstile.olay_ekle("bilgi", f"kayıtlı çerez geçerli, bitiş {d['expiresAtUtc'][:16]}Z")
+                return UYKU_ADIM_SN
+            turnstile.coz("kayıtlı çerez geçersiz")
+            return kontrol_sn
+        return turnstile.bekleme_suresi(k, kontrol_sn)
+
+    def _uyu(self, sn):
+        """Adım adım uyur; panodan "Şimdi çöz" gelirse hemen uyanır."""
+        bitis = time.time() + max(1, sn)
+        while time.time() < bitis:
+            if cache.get(turnstile._ISTEK):
                 return
-            if not self._turnstile_var(page):
-                return
+            turnstile.kalp_at()
+            time.sleep(min(UYKU_ADIM_SN, max(0.1, bitis - time.time())))

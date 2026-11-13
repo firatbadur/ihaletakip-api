@@ -302,20 +302,14 @@ services:
       - web
       - redis
 
-  # EKAP insan doğrulaması (Turnstile) oturumunu ayakta tutar — doğrulama ~8 dk
-  # yaşıyor, elle taşımak imkânsız. Gerçek Chromium'da EKAP arama sayfası açık
-  # durur, süresi dolmadan yeniden yüklenir (uygulamanın kendi `ensureVerified()`
-  # yolu) ve tazelenen çerez AppSetting'e yazılır.
-  # ⚠️ CAPTCHA çözülmez: karar Cloudflare'in; etkileşim istenirse daemon
-  # `insan_gerekli` işaretler ve bir kişinin bağlanmasını bekler.
+  # EKAP v2 insan doğrulamasını (Cloudflare Turnstile) OTOMATİK çözer ve çerezi taze
+  # tutar (ekap/turnstile.py + ekap_oturum_daemon). Doğrulama 20 dk yaşıyor, yenileme
+  # yeni token istiyor → ~16 dk'da bir çözüm. Durum ve müdahale: /admin/ekap/dogrulama/.
+  # ⚠️ 2026-11-13'ten beri VARSAYILAN olarak çalışır (eskiden `profiles: [manuel]` ile
+  # kapalıydı: eski sürüm insan tıklaması bekliyordu ve Cloudflare onu reddediyordu).
+  # Durdurmak için konteyneri değil panodaki "Otomatiği kapat"ı kullanın — servis
+  # kapalıyken panoda "nabız yok" görünür ve elle "Şimdi çöz" de çalışmaz.
   ekap-browser:
-    # ⚠️ **Varsayılan olarak BAŞLATILMAZ** (`profiles`). Bu servis Turnstile oturumunu
-    # ayakta tutmak için yazıldı ama Cloudflare sunucudaki otomasyon tarayıcısını
-    # açıkça reddediyor (bkz. CLAUDE.md) → konteyner açılışta çöküyor ve `restart:
-    # unless-stopped` yüzünden sonsuz yeniden başlatma döngüsüne giriyor. Her
-    # deploy'dan sonra elle durdurmak gerekiyordu.
-    # Denemek gerekirse: `docker compose --profile manuel up -d ekap-browser`
-    profiles: ["manuel"]
     build:
       context: .
       dockerfile: docker/browser.Dockerfile
@@ -324,19 +318,20 @@ services:
     environment:
       RUN_MIGRATIONS: "false"
       DJANGO_DB_STATEMENT_TIMEOUT_MS: "240000"
-    volumes:
-      - browser_profile:/app/.browser
+      # Entrypoint Xvfb'yi bu ekranda açar; `docker compose exec` ile çalıştırılan
+      # komutlar (ör. `ekap_oturum_daemon --tek-tur`) da aynı ekranı görsün.
+      DISPLAY: ":99"
     # ⚠️ SADECE 127.0.0.1: noVNC parolasız bir masaüstü açar; dışarıya
     # bağlanırsa internete açık uzak masaüstü olur. Erişim SSH tüneliyle:
-    #   ssh -L 6080:127.0.0.1:6080 ihale   →  http://localhost:6080/vnc.html
+    #   ssh -L 6080:127.0.0.1:6080 tinyfect   →  http://localhost:6080/vnc.html
     ports:
       - "127.0.0.1:6080:6080"
     depends_on:
       - web
       - redis
-    # Chromium bellek ister; 8 GB'lık makinede sınırlı tutulur.
-    mem_limit: 1g
-    shm_size: 512m
+    # Her çözümde Chromium açılıp kapanır (~6 sn); 2 GB bol.
+    mem_limit: 2g
+    shm_size: 1g
 
   beat:
     build: .
@@ -352,7 +347,6 @@ services:
 
 volumes:
   assistant_ek:
-  browser_profile:
   pgdata:
   redisdata:
   static_volume:

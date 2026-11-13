@@ -12,7 +12,7 @@ from blog.views import blog_medya
 from core.views import health_check
 from core import admin_toplu
 from core.admin_views import guvenlik_ekrani
-from ekap.admin_views import sektor_ekrani
+from ekap.admin_views import dogrulama_ekrani, sektor_ekrani
 from ekap.mobil.admin_views import captcha_ekrani
 
 admin.site.site_header = "IhaleTakip Yönetim"
@@ -68,6 +68,12 @@ urlpatterns = [
         "admin/ekap/mobil-captcha/",
         admin.site.admin_view(captcha_ekrani),
         name="ekap_mobil_captcha",
+    ),
+    # EKAP v2 Turnstile çözücü: durum + müdahale (ekap/turnstile.py).
+    path(
+        "admin/ekap/dogrulama/",
+        admin.site.admin_view(dogrulama_ekrani),
+        name="ekap_dogrulama",
     ),
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health"),

@@ -641,11 +641,16 @@ EKAP_SIGNING_KEY = env("EKAP_SIGNING_KEY", default="pfS7Xdn3YVkOzs3V79XUc91SD47m
 # geri getirirse bu bayrak deploy'suz açar.
 EKAP_IMZA_GONDER = env.bool("EKAP_IMZA_GONDER", default=False)
 
-# ── EKAP insan doğrulaması oturumu (ekap-browser servisi) ──
-# Doğrulama ~8 dk yaşıyor (ölçüldü 2026-09-09) → tarayıcı oturumu sürekli açık
-# tutulur ve çerez tazelendikçe AppSetting'e yazılır. Bkz. ekap/session.py.
-EKAP_BROWSER_PROFIL = env("EKAP_BROWSER_PROFIL", default="/app/.browser")
-EKAP_BROWSER_HEADLESS = env.bool("EKAP_BROWSER_HEADLESS", default=True)
+# ── EKAP Turnstile otomatik çözücü (ekap-browser servisi, ekap/turnstile.py) ──
+# 2026-11-13: doğrulama 20 dk yaşıyor, yenileme yeni token ister → servis ~16 dk'da bir
+# çözer. Site anahtarı EKAP paketinden keşfedilir; bunlar keşif çökerse kullanılan yedek.
+EKAP_TURNSTILE_SITEKEY = env("EKAP_TURNSTILE_SITEKEY", default="0x4AAAAAAEe5dq36tnojDXA6")
+EKAP_TURNSTILE_ACTION = env("EKAP_TURNSTILE_ACTION", default="human_check")
+# Bir çözüm denemesinin üst sınırı (sn). Ölçüm: Mac 3-4 sn, sunucu 6 sn.
+EKAP_TURNSTILE_SURE_SN = env.int("EKAP_TURNSTILE_SURE_SN", default=45)
+# ⚠️ Headless Cloudflare'de 600010 alıyor (Mac + sunucu, ölçüldü) → konteyner Xvfb ile
+# GÖRÜNÜR çalışır. Yalnızca teşhis için açın.
+EKAP_TURNSTILE_HEADLESS = env.bool("EKAP_TURNSTILE_HEADLESS", default=False)
 
 # Doğrulama çerezini gönderen tarayıcı eklentisinin paylaşılan sırrı.
 # ⚠️ Boşsa uç KAPALIDIR (403) — varsayılan olarak açık bırakmak, çerez yazma
@@ -1091,6 +1096,9 @@ JAZZMIN_SETTINGS = {
         {"name": "Sektörler", "url": "ekap_sektorler",
          "permissions": ["ekap.view_tender"]},
         {"name": "EKAP Captcha", "url": "ekap_mobil_captcha",
+         "permissions": ["ekap.view_tender"]},
+        # v2 Turnstile çözücüsü: durum + "Şimdi çöz" / otomatik aç-kapat / elle çerez.
+        {"name": "EKAP Doğrulama", "url": "ekap_dogrulama",
          "permissions": ["ekap.view_tender"]},
         {"model": "accounts.User"},
         {"app": "ekap"},

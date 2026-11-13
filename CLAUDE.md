@@ -860,15 +860,34 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
   - ⚠️⚠️ **Doğrulamanın ömrü ~8 DAKİKA** (ölçüldü 2026-09-09: doğrulama 09:39:48
     → yenileme 09:45:48 → bitiş 09:47:48). Elle çerez taşımak bu tempoda
     imkânsızdır; `expiresAtUtc` her `ekap_dogrula` çıktısında görünür.
-  - ⚠️⚠️ **Sunucuda otomasyon tarayıcısı REDDEDİLİYOR.** Playwright/Chromium ile
-    (headless VE Xvfb altında başlı) denendi: Cloudflare etkileşimli
-    "Gerçek kişi olduğunuzu doğrulayın" kutusu gösteriyor ve bir insan noVNC'den
-    tıklasa bile "doğrulama başarısız" veriyor. `ekap-browser` servisi ve
-    `ekap_oturum_daemon` **kodda duruyor ama durdurulmuş durumda**; EKAP
-    tarafında bir şey değişirse yeniden denenebilir.
-    ⚠️ Bot tespitini gizleyen araçlar (stealth eklentisi, sahte parmak izi,
-    otomatik tık, CAPTCHA çözücü) **bilinçli olarak KULLANILMAZ** — reddin sebebi
-    zaten otomasyon tespitidir ve onu gizlemek kontrolü yanıltmak olur.
+  - ⚠️⚠️⚠️ **2026-11-13: OTOMATİK ÇÖZÜCÜ DEVREDE — aşağıdaki eylül kararı DEĞİŞTİ.**
+    EKAP 12.11'de doğrulamayı geri açınca v2 ~11,5 saat durdu, kuyruk birikti; ürün sahibi
+    otomatik çözümü istedi ("ticari lisans sorun değil" — ama Theyka/Turnstile-Solver
+    kodu KOPYALANMADI, CC BY-NC; yöntem kendi kodumuzla yazıldı). `ekap/turnstile.py` +
+    `ekap_oturum_daemon` (servis `ekap-browser`, artık VARSAYILAN çalışır):
+    patchright Chromium, **Xvfb altında GÖRÜNÜR** → EKAP adresi yakalanıp yerine yalnız
+    Turnstile kutusu olan sayfa konur → tık → token → `POST …/human-verification/verify`
+    (`X-Turnstile-Token`) → `ekap.human-verification` çerezi → `session.kaydet`.
+    Ölçümler: sunucu IP'si Xvfb 2/2 (~6 sn, 2 tık), **headless 600010** (Mac + sunucu);
+    doğrulama artık **20 dk** (18. dk yenileme), **yenileme de yeni token ister**
+    (`refreshIfDue` → `verify(!0)`) → ~16 dk'da bir çözüm. Site anahtarı
+    (`0x4AAAAAAEe5dq36tnojDXA6`, action `human_check`) `common` chunk'ından keşfedilir.
+    ⚠️ **Bağlama `locale`/UA emülasyonu VERMEYİN**: `locale="tr-TR"` ile 6/6 tık 600010,
+    emülasyonsuz 1 tıkla geçti (aynı makine, aynı dakika).
+    ⚠️ patchright `evaluate` yalıtılmış dünyada → sayfanın `window` değişkenleri görünmez,
+    durum DOM `data-*`'dan okunur.
+    **Pano/müdahale**: `/admin/ekap/dogrulama/` (üst menü "EKAP Doğrulama") — durum, son
+    hata + ekran görüntüsü, olay günlüğü; "Şimdi çöz" (geri çekilmeyi ezer), otomatiği
+    aç/kapat (`AppSetting ekap_turnstile_otomatik`), elle çerez. Ana panodaki v2 şeridi
+    çözücü ölü (nabız >3 dk) ya da 3+ ardışık hatada kırmızı. Hata geri çekilmesi 1→15 dk.
+    Tek deneme: `docker compose exec ekap-browser python manage.py ekap_oturum_daemon --tek-tur`.
+    EKAP `9192` chunk'ında "KURUM_IP_KOTASI" + `toggleTurnstile` yönetim ekranı var →
+    KİK kurum IP'si bazında Turnstile'ı kapatabiliyor; resmî muafiyet istenebilir.
+  - (Eylül notu, TARİHÇE) **Sunucuda otomasyon tarayıcısı REDDEDİLİYORDU.** Düz Playwright
+    ile (headless VE Xvfb altında başlı) denendi: Cloudflare kutuyu gösterip bir insan
+    noVNC'den tıklasa bile "doğrulama başarısız" veriyordu; o zaman stealth/çözücü
+    bilinçli olarak kullanılmadı. patchright (Playwright'ın tespit izlerini kapatan fork'u)
+    ile 2026-11-13'te sunucuda geçti.
   - ⚠️ Teşhis sırasında iki tuzak: (1) `xvfb-run` sarmalayıcısı sessizce asılıyor
     → Xvfb elle başlatılmalı; (2) imaj build'i `DEBIAN_FRONTEND=noninteractive`
     olmadan **tzdata sorusunda donuyor** (hata vermez, "derleme sürüyor" sanılır).
@@ -877,7 +896,8 @@ Uygulama EKAP'a doğrudan gitmez; EKAP verisini biz toplayıp servis ederiz.
     istekleri `ERR_NAME_NOT_RESOLVED` alıyor. Bunlar fire-and-forget beacon'lar
     olduğu için asıl engel olduğu **doğrulanmadı**; IPv4-only kullanıcılar da
     onlara ulaşamadan doğrulamayı geçiyor.
-  - **ÇALIŞAN ÇÖZÜM = gerçek tarayıcı köprüsü.** Doğrulamayı **kullanıcının kendi
+  - **YEDEK YOL = gerçek tarayıcı köprüsü** (çözücü öncesi tek çözümdü; hâlâ çalışır ve
+    aynı `AppSetting`'e yazar, çözücü bitişini EKAP'a sorup öğrenir). Doğrulamayı **kullanıcının kendi
     tarayıcısı** geçer (EKAP arayüzü açık sekmede oturumu `scheduleRefresh` ile
     kendi tazeler); `tools/ekap-cerez-eklentisi/` (MV3 Chrome eklentisi) çerezi
     2 dk'da bir kontrol edip **değiştiyse** `POST /api/v1/ekap/verification-cookie/`

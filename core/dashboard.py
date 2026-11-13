@@ -433,14 +433,16 @@ def ekap_dogrulama_durumu() -> dict:
 
     ⚠️ **Canlı EKAP sorgusu YAPILMAZ** — her admin sayfası açılışında dışarıya
     HTTP isteği atmak kabul edilemez (yavaşlık + gereksiz WAF trafiği).
-    Kaynak, `ekap-browser` daemon'ının ve istemcinin yazdığı durum kaydıdır;
-    çerezin gerçekten geçerli olup olmadığını daemon her dakika ölçüyor.
+    Kaynak, `ekap-browser` Turnstile çözücüsünün (ekap/turnstile.py) ve istemcinin
+    yazdığı durum kaydıdır. Ayrıntı + müdahale: `/admin/ekap/dogrulama/`.
     """
     from core.models import AppSetting
     from ekap import session as ekap_session
+    from ekap import turnstile
     from ekap.tasks import katalog_durumu
 
     katalog = katalog_durumu()
+    cozucu = turnstile.pano_ozeti()
     kayit = AppSetting.objects.filter(key=ekap_session.ANAHTAR_DURUM).first()
     metin = kayit.value if kayit else ""
     dustu = bool(cache.get("ekap:dogrulama:dustu"))
@@ -460,6 +462,10 @@ def ekap_dogrulama_durumu() -> dict:
         seviye, metin = "ok", "EKAP şu an doğrulama istemiyor (çerezsiz çalışılıyor)"
         if son_kontrol:
             metin += f" · son kontrol {timezone.localtime(son_kontrol):%H:%M}"
+    elif cozucu["seviye"] == "hata":
+        # Çerez şu an geçerli olsa bile çözücü ölü / üst üste başarısızsa ~20 dk içinde
+        # düşecek → şimdiden kırmızı (kullanıcı isteği: hata panoda görünsün).
+        seviye, metin = "hata", f"otomatik çözücü: {cozucu['metin']}"
     elif metin.startswith("DÜŞTÜ"):
         seviye = "hata"
     elif var:
@@ -468,6 +474,7 @@ def ekap_dogrulama_durumu() -> dict:
         seviye = "yok"
     return {
         "seviye": seviye,
+        "cozucu": cozucu,
         "metin": metin or "hiç yapılandırılmadı",
         "guncelleme": timezone.localtime(kayit.updated_at) if kayit else None,
         # OKAS / DETSIS yalnızca v2'den gelir; son başarılı tur 8 günden eskiyse uyarı.

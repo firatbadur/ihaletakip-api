@@ -4836,6 +4836,13 @@ acil yedek sunucusuna alındı. Ayrıntılı olay günlüğü ve geri dönüş p
   çökme–koruma arası RED, 718'in koruma–takas arası → 10017. Yenileme token'ı 30 gün → **2026-12-12'den önce
   KALDIRMAYIN**, yoksa eski token başkasının hesabını açar. Ham SQL ile kural yazınca önbelleği silin
   (`kurallari_unut()`).
+- ⚠️⚠️ **YEDEK SUNUCUDA PUSH HİÇ GİTMEDİ** (12.11 00:00 → 13.11 09:11): `FCM devre dışı: kimlik dosyası
+  bulunamadı (/app/credentials/fcm-service-account.json)` — arşivden açılan `credentials/` konteyner kullanıcısına
+  okunamıyordu (aynı sebeple App Store anahtarı: `Permission denied`). Bildirim satırları yazıldı, push sayısı her
+  turda **0** idi ve kimse fark etmedi. 13.11 09:44'te bugünün push'u gitmemiş satırları (filtre 341, idare 2, alarm 2,
+  asistan 33 → 342 kişiye gitti) aynı içerikle yeniden push'landı; 12.11'inkiler gönderilmedi (kullanıcı kararı).
+  → **Acil geçişte İLK kontrol: worker logunda `FCM başlatıldı` + `fcm gönderildi` var mı; `birlesik_ozet(...)
+  N push` 0 olmamalı.** Arşivden açılan sırların sahibi/izni konteyner kullanıcısına göre ayarlanmalı.
 - Ana sunucuda çökme anı kopyası: `ihaletakip-api_pgdata_ana_20261111` hacmi (1 hafta sonra silinebilir).
   Yedek sunucu: ihaletakip yığını durduruldu (veri hacimleri duruyor), 04:00 cron'u kapalı, geçici SSH anahtarı ve
   pg_hba satırı kaldırıldı.

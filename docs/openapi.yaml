@@ -6365,13 +6365,22 @@ components:
     EskiTokenKorumaliRefresh:
       type: object
       description: 'Yenileme ucu: eski sunucu token''ı yeni (geçerli görünen) bir
-        token''a dönüşmesin.
+        token''a dönüşmesin;
+
+        eşlenmiş token ise HEDEF kullanıcı için yeni bir çifte dönüşsün.
 
 
         ⚠️ Yenileme `iat`''i SIFIRLAR — bu kontrol olmasaydı tek bir yenileme eski
         token''ı
 
-        yedekte üretilmiş gibi gösterir ve erişim katmanındaki kontrolü atlatırdı.'
+        yedekte üretilmiş gibi gösterir ve erişim katmanındaki kontrolü atlatırdı.
+
+        ⚠️ Eşlemede kütüphanenin `validate`''i KULLANILAMAZ: döndürmede aynı payload''ı
+
+        (aynı `user_id`) yeniden imzalar. Burada hedef için `for_user` ile yeni çift
+        üretilir,
+
+        eski token kara listeye alınır (tek kullanımlık kalsın).'
       properties:
         refresh:
           type: string

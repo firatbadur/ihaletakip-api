@@ -4,7 +4,9 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import EpostaEngeli, EpostaGeriBildirim, EpostaKodu, PushDevice, User, WebHandoff
+from .models import (
+    EpostaEngeli, EpostaGeriBildirim, EpostaKodu, KimlikEsleme, PushDevice, User, WebHandoff,
+)
 
 
 class HasFcmTokenFilter(admin.SimpleListFilter):
@@ -396,3 +398,12 @@ class WebHandoffAdmin(admin.ModelAdmin):
     @admin.display(description="Durum", ordering="durum")
     def durum_gosterim(self, obj):
         return "Süresi doldu" if obj.etkin_durum == WebHandoff.SURESI_DOLDU else obj.get_durum_display()
+
+
+@admin.register(KimlikEsleme)
+class KimlikEslemeAdmin(admin.ModelAdmin):
+    """Sunucu dönüşü token eşlemesi (bkz. `accounts/models.py` → KimlikEsleme)."""
+
+    list_display = ["eski_uid", "iat_bas", "iat_bit", "hedef", "aciklama"]
+    search_fields = ["eski_uid", "aciklama"]
+    raw_id_fields = ["hedef"]

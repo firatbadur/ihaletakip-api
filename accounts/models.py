@@ -434,3 +434,39 @@ class WebHandoff(models.Model):
         if self.durum in self.AKTIF and self.gecerlilik <= timezone.now():
             return self.SURESI_DOLDU
         return self.durum
+
+
+class KimlikEsleme(models.Model):
+    """
+    Sunucu çakışması token eşlemesi (2026-11-13; bkz. `accounts/authentication.py`).
+
+    2026-11-11'de ana sunucu çöktü; acil yedek 04:00 dump'ından açıldı ve ana sunucunun
+    o gün verdiği 714–721 ID'lerini BAŞKA kişilere yeniden verdi. İki tarafın token'ları
+    aynı `user_id`'yi taşır; onları ayıran tek şey `iat`'tir (ana: < çökme, yedek: sonrası).
+    Ana sunucuya dönüşte boşluk kullanıcıları yeni ID ile taşındı; bir satır
+    "(eski_uid, iat aralığı) → hedef kullanıcı" der, hedef boşsa token REDDEDİLİR.
+
+    ⚠️ Satır yoksa davranış değişmez (ortam değişkenli `ESKI_TOKEN_*` koruması geçerli).
+    ⚠️ Aralık `[iat_bas, iat_bit)`; boş sınır = açık uç. Aynı UID için aralıklar ÇAKIŞMAMALI.
+    ⚠️ Kurallar 5 dk önbellekte (`kimlik_esleme:kurallar`); ORM ile yazmak önbelleği siler,
+    ham SQL ile yazınca `cache.delete("kimlik_esleme:kurallar:v1")` elle çağrılmalı.
+    """
+
+    eski_uid = models.PositiveIntegerField("token'daki kullanıcı ID", db_index=True)
+    iat_bas = models.DateTimeField("iat ≥", null=True, blank=True)
+    iat_bit = models.DateTimeField("iat <", null=True, blank=True)
+    hedef = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE,
+        related_name="+", verbose_name="hedef kullanıcı",
+        help_text="Boş → bu aralıktaki token reddedilir.",
+    )
+    aciklama = models.CharField("açıklama", max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Kimlik Eşleme"
+        verbose_name_plural = "Kimlik Eşlemeleri"
+        ordering = ["eski_uid", "iat_bas"]
+
+    def __str__(self):
+        return f"{self.eski_uid} → {self.hedef_id or 'RED'}"

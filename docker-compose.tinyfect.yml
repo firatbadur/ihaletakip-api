@@ -115,6 +115,21 @@ services:
   # servisi de yeniden yaratılırdı). Süpürme "bizim DB'mizin bilmediği önekli dosya =
   # yetim" der; yerel bir ortamda açık olsaydı üretimin canlı eklerini silerdi.
   # Bkz. config/settings.py → ASSISTANT_EK_YETIM_SUPURME.
+  # ⚠️ 2026-11-13 GEÇİCİ olarak KAPALI: ana sunucuya dönüşte DB acil yedekten geldi;
+  # ana sunucunun 11.11 boşluk saatlerindeki ekler (13 satır) birleştirme bitene kadar bu
+  # DB'de yok → süpürme onları yetim sanıp Files API'den silerdi. Birleştirmeden sonra
+  # "True"ya geri alın (backend CLAUDE.md "ACİL YEDEK SUNUCU" → geri dönüş).
   assistant-ek-worker:
     environment:
-      ASSISTANT_EK_YETIM_SUPURME: "True"
+      ASSISTANT_EK_YETIM_SUPURME: "False"
+
+  # ⚠️⚠️ Eski sunucu token'ı koruması + kimlik eşleme (2026-11-13, ana sunucuya dönüş).
+  # DB acil yedekten geldi: 714–721 yedekte BAŞKA kişilerin. Ana sunucunun eski token'ları
+  # (iat < sınır) `KimlikEsleme` kuralıyla taşınan hesaba çevrilir; kuralı olmayan eski
+  # token REDDEDİLİR — bu satırlar olmadan eski token başkasının hesabını açar.
+  # 722 ve 10000+ çakışmadığı için aralık 714–721. DEĞİŞTİRMEYİN (bkz. yedek katmanı).
+  web:
+    environment:
+      ESKI_TOKEN_UID_MIN: "714"
+      ESKI_TOKEN_UID_MAX: "721"
+      ESKI_TOKEN_IAT_SINIRI: "2026-11-12T11:58:22+00:00"

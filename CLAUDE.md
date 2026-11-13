@@ -5143,6 +5143,28 @@ yapılır, tablo sayımıyla değil.
     1433 (yalnız Docker + VPN).
 ### Gecelik veritabanı yedeği — `scripts/yedek_ftp.sh`
 
+#### ⏱️ Saatlik katman — `yedek_ftp.sh saatlik` (2026-11-13)
+11.11 çöküşünde gecelik yedek yüzünden ~15 saatlik kullanıcı verisi yalnız ölü sunucunun diskinde
+kaldı. Tam dump saatlik alınamaz (5,7 GB / 15 dk; 72 kopya ≈ 410 GB > 250 GB kota), ama yeniden
+üretilemeyen veri küçük: **`ekap_*` dışındaki tüm tablolar ~16 MB**.
+- Cron **`35 * * * *`** (ana sunucu, root): tüm şema + `ekap_*` HARİÇ tüm verinin `-Fc` dump'ı
+  (ölçüldü: **2,2 MB / 1 sn / 767 nesne**). FTP `ihaletakip/saatlik/ihaletakip_saatlik_YYYYMMDD_HHMM.dump`,
+  son **72** (3 gün); yerelde `/var/backups/ihaletakip/saatlik/` son 48. Ayrı kilit, ayrı log
+  (`/var/log/ihaletakip-yedek-saatlik.log`) → 04:00 tam dump'ı sürerken de koşar.
+- Doğrulama yüklemeden önce: boyut ≥ 100 KB, `pg_restore -l` ≥ 50 nesne, `accounts_user` verisi VAR,
+  `ekap_` verisi YOK; yüklemeden sonra uzak boyut. `KURU=1` → yükleme/silme yok.
+- Durum `core_appsetting.yedek_saatlik_durumu` → panoda **"Saatlik yedek (FTP)"** (2 saatten eskiyse uyarı);
+  `yedek_ftp.sh durum` da gösterir. Tinyfect'in saatlik düzeni (`/opt/tinyfect/scripts/backup_postgres.sh`,
+  `tinyfect/saatlik|gunluk|…`) ayrı; ikisi birbirinin dizinine dokunmaz.
+- **Kurtarma** (deneme geri yüklemesi 2026-11-13: 703 kullanıcı, 7.116 bildirim, 39 beat damgası):
+  1. Gecelik tam dump'ı aç (`pg_restore -j N`).
+  2. Son saatlik dump'ı AYRI bir DB'ye aç — ⚠️ 3 `FK` hatası BEKLENİR (öneri→ihale, firma profili/takip→firma;
+     EKAP verisi dump'ta yok).
+  3. Saatlik dump'taki kullanıcı tablolarını tam DB'nin üstüne yaz; 3 FK'yı ID ile DEĞİL doğal anahtarla
+     (`ekap_tender.ekap_id`, `ekap_contractor.kanonik_anahtar`) eşle. Beat damgaları da saatlik dump'tan
+     gelir → açılışta günlük görevler tekrar koşmaz (çift push/bülten). Redis kilitleri dump'ta YOK →
+     kesme günü bülten/filtre özeti tekrarını önlemek için 13.11 geri dönüşündeki adımlara bakın.
+
 ✅ **KURULDU (2026-09-16).** Her gece **04:00 CEST (05:00 TR)**, cron. Hedef
 Contabo yedek alanı (`backup-n-3.contabo.net`, ProFTPD), uzak dizin
 `ihaletakip/`. Log `/var/log/ihaletakip-yedek.log`.
